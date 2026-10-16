@@ -12,6 +12,9 @@
   /api/log?rev=<40桁hash>[..<40桁hash>]&skip=0&limit=500   git log (ページング)
   /api/commit?hash=<hash>                                    git show 相当 (変更ファイル一覧つき)
   /diff?hash=<hash>&path=<file>[&old=<旧パス>]               1ファイルの差分ページ (別タブで開く)
+  /diff?from=<hash>&to=<hash>&path=<file>[&old=<旧パス>]     2コミット間の差分ページ
+  /api/graph                                                 グラフ(SVG + ノード/エッジ情報)
+  /api/compare?from=<hash>&to=<hash>                         2コミット間の変更ファイル一覧
 """
 import argparse
 import html
@@ -21,6 +24,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import webbrowser
 from collections import defaultdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -165,6 +169,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   pre { white-space: pre-wrap; word-break: break-word; background: #fff; border: 1px solid #ddd; padding: 8px; margin: 6px 0; font-size: 12px; }
   code { background: #eee; padding: 1px 4px; border-radius: 3px; user-select: all; }
   .chip { display: inline-block; padding: 0 6px; border-radius: 3px; margin: 0 4px 2px 0; font-weight: bold; }
+  .tag { display: inline-block; padding: 0 6px; border-radius: 3px; margin-right: 4px; font-weight: bold; color: #fff; }
+  .tagA { background: #06c; } .tagB { background: #e67e00; }
   .meta { color: #555; margin: 2px 0; }
   .hint { color: #777; }
   table.log { border-collapse: collapse; width: 100%; margin-top: 6px; }
@@ -174,35 +180,48 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   table.log tr.cur td { background: #ffe9a0; }
   table.log td.h { font-family: monospace; white-space: nowrap; color: #b60; }
   table.log .meta { font-size: 12px; color: #888; margin: 0; }
-  g.node, g.edge { cursor: pointer; }
-  g.node:hover polygon { stroke: #e88; } g.edge:hover path { stroke: #e88; }
-  g.node.sel polygon { stroke: #d22; stroke-width: 3; }
-  g.edge.sel path { stroke: #d22; stroke-width: 2.5; } g.edge.sel polygon { stroke: #d22; fill: #d22; }
-  g.edge path.hit { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke; }
   table.files { border-collapse: collapse; margin: 6px 0; font-family: monospace; font-size: 12px; width: 100%; }
   table.files td { padding: 2px 6px; vertical-align: top; }
   tr.frow { cursor: pointer; } tr.frow:hover td { background: #eef; }
   td.fp { color: #06c; word-break: break-all; } td.fc { text-align: right; white-space: nowrap; } td.fb { white-space: nowrap; }
-  .plus { color: #1a7f37; } .minus { color: #cf222e; }
   td.fp a { color: inherit; text-decoration: none; } td.fp a:hover { text-decoration: underline; }
-  .back-btn { background: #ddd; border: none; padding: 4px 8px; border-radius: 3px; cursor: pointer; margin-bottom: 8px; }
-  .back-btn:hover { background: #ccc; }
+  .plus { color: #1a7f37; } .minus { color: #cf222e; }
+  g.node, g.edge { cursor: pointer; }
+  g.node:hover polygon { stroke: #e88; } g.edge:hover path { stroke: #e88; }
+  g.node.sel polygon { stroke: #d22; stroke-width: 3; }
+  g.node.cmpA polygon { stroke: #06c; stroke-width: 3; }
+  g.node.cmpB polygon { stroke: #e67e00; stroke-width: 3; }
+  g.edge.sel path { stroke: #d22; stroke-width: 2.5; } g.edge.sel polygon { stroke: #d22; fill: #d22; }
+  g.edge path.hit { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke; }
+  .back-btn, .sbtn { background: #ddd; border: none; padding: 4px 8px; border-radius: 3px; cursor: pointer; margin: 0 6px 8px 0; }
+  .back-btn:hover, .sbtn:hover { background: #ccc; }
+  #loading { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 12px; color: #555; }
+  .spin { width: 36px; height: 36px; border: 4px solid #ddd; border-top-color: #06c; border-radius: 50%; animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
 </style>
 </head>
 <body>
-<div id="graph">__SVG__</div>
+<div id="graph">
+  <div id="loading">
+    <div class="spin"></div>
+    <div>コミットグラフを作成中…</div>
+    <div class="hint" id="lsub">リポジトリが大きいと時間がかかります</div>
+  </div>
+</div>
 <div id="panel">
-  <div id="listView"><p class="hint">ノードをクリックすると、そのコミットから最初（ルート）までのログを表示します。エッジをクリックすると省略された区間のログを表示します。</p></div>
+  <div id="listView"><p class="hint">ノードをクリックすると、そのコミットから最初（ルート）までのログを表示します。エッジをクリックすると省略された区間のログを表示します。</p>
+    <p class="hint">Ctrl（Mac は ⌘）+クリックでノードを2つ選ぶと、その間の差分を表示します。</p></div>
   <div id="detailView"></div>
 </div>
 <script>
-const DATA = __DATA__;
+let DATA = {nodes: {}, edges: {}};
 const COLORS = {branch: "#b7e4a7", remote: "#a7c8f0", tag: "#ffe9a0", head: "#f4a7a7"};
 const CHUNK = 500;
 const listView = document.getElementById("listView"), detailView = document.getElementById("detailView");
 const views = {list: listView, detail: detailView}, savedScroll = {list: 0, detail: 0};
-let curView = "list", selected = null, token = 0, observer = null, curRow = null;
-let curCommit = null, curFiles = [];
+let curView = "list", selected = null, selectedNode = null, token = 0, observer = null, curRow = null;
+let curCtx = null, curFiles = [];
+let cmp = [];  // Ctrl+クリックで選んだ比較用ノード [{g, n}] (先頭が A、次が B)
 
 function esc(s) {
   return String(s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
@@ -272,14 +291,15 @@ function showLog(titleHtml, rev, topHtml) {
   }
 }
 
-function diffUrl(h, f) {  // 差分は別ページ (/diff) で開く
-  const p = {hash: h, path: f.path};
+// 差分は別ページ (/diff) で開く。ctx は {hash} (1コミット) または {from, to} (2コミット間の比較)
+function diffUrl(ctx, f) {
+  const p = Object.assign({}, ctx, {path: f.path});
   if (f.old_path) p.old = f.old_path;
   return "/diff?" + new URLSearchParams(p);
 }
 
-function filesHtml(h, files) {
-  if (!files.length) return "";
+function filesHtml(ctx, files) {
+  if (!files.length) return '<p class="hint">変更されたファイルはありません</p>';
   let add = 0, del = 0, max = 0;
   files.forEach(f => { add += f.added || 0; del += f.deleted || 0; max = Math.max(max, (f.added || 0) + (f.deleted || 0)); });
   const scale = max > 40 ? 40 / max : 1;
@@ -287,7 +307,8 @@ function filesHtml(h, files) {
     const a = f.added || 0, d = f.deleted || 0;
     const pa = a ? Math.max(1, Math.round(a * scale)) : 0, pd = d ? Math.max(1, Math.round(d * scale)) : 0;
     const name = f.old_path ? f.old_path + " => " + f.path : f.path;
-    return '<tr class="frow" data-k="' + k + '"><td class="fp"><a href="' + esc(diffUrl(h, f)) + '" target="_blank" rel="noopener">' + esc(name) + '</a></td><td class="fc">' +
+    return '<tr class="frow" data-k="' + k + '"><td class="fp"><a href="' + esc(diffUrl(ctx, f)) +
+      '" target="_blank" rel="noopener">' + esc(name) + '</a></td><td class="fc">' +
       (f.added === null ? "Bin" : a + d) + '</td><td class="fb"><span class="plus">' + "+".repeat(pa) +
       '</span><span class="minus">' + "-".repeat(pd) + "</span></td></tr>";
   }).join("");
@@ -300,19 +321,51 @@ function showDetail(h) {
   detailView.innerHTML = back + '<p class="hint">読み込み中…</p>';
   showView("detail");
   api("/api/commit", {hash: h}).then(c => {
-    curCommit = c.hash; curFiles = c.files;
+    curCtx = {hash: c.hash}; curFiles = c.files;
     const parents = c.parents.map(p => esc(p.slice(0, 7))).join(", ") || "(なし)";
     detailView.innerHTML = back + "<h2>コミット " + esc(c.hash.slice(0, 7)) + "</h2>" + chips(c.hash) +
       '<div class="meta">' + esc(c.hash) + "</div>" +
       '<div class="meta">Author: ' + esc(c.author) + "</div>" +
       '<div class="meta">Date: ' + esc(c.date) + "</div>" +
       '<div class="meta">Parent: ' + parents + "</div>" +
-      "<pre>" + esc(c.message) + "</pre>" + filesHtml(c.hash, c.files) +
+      "<pre>" + esc(c.message) + "</pre>" + filesHtml(curCtx, c.files) +
       '<div class="meta"><code>git show ' + esc(c.hash.slice(0, 7)) + "</code></div>";
   }).catch(e => {
     detailView.innerHTML = back + '<p class="hint">エラー: ' + esc(e.message) + "</p>";
   });
 }
+
+// ---- 2つのノードの比較 (Ctrl+クリック) ----
+function commitLine(label, c) {
+  return '<div class="meta"><span class="tag tag' + label + '">' + label + "</span>" + chips(c.hash) +
+    esc(c.hash.slice(0, 7)) + " — " + esc(c.message.split("\n")[0]) +
+    '<div class="hint">' + esc(c.author) + " / " + esc(c.date) + "</div></div>";
+}
+function showCompare(a, b) {
+  const btns = '<button class="back-btn">← 履歴一覧に戻る</button><button class="sbtn">A ⇄ B 入れ替え</button>';
+  detailView.innerHTML = btns + '<p class="hint">読み込み中…</p>';
+  showView("detail");
+  api("/api/compare", {from: a.hash, to: b.hash}).then(r => {
+    curCtx = {from: r.from.hash, to: r.to.hash}; curFiles = r.files;
+    detailView.innerHTML = btns + "<h2>比較 " + esc(r.from.hash.slice(0, 7)) + " → " + esc(r.to.hash.slice(0, 7)) + "</h2>" +
+      commitLine("A", r.from) + commitLine("B", r.to) + filesHtml(curCtx, r.files) +
+      '<div class="meta"><code>git diff ' + esc(r.from.hash.slice(0, 7)) + " " + esc(r.to.hash.slice(0, 7)) + "</code></div>";
+  }).catch(e => {
+    detailView.innerHTML = btns + '<p class="hint">エラー: ' + esc(e.message) + "</p>";
+  });
+}
+function showCmpHint() {
+  if (cmp.length !== 1) return;
+  detailView.innerHTML = '<button class="back-btn">← 履歴一覧に戻る</button><h2>比較</h2>' +
+    '<p class="hint"><span class="tag tagA">A</span>' + esc(cmp[0].n.hash.slice(0, 7)) +
+    " を選択しました。比較するもう1つのノードを Ctrl（Mac は ⌘）+クリックしてください。</p>";
+  showView("detail");
+}
+function updateCmpClasses() {
+  document.querySelectorAll("svg g.node.cmpA, svg g.node.cmpB").forEach(g => g.classList.remove("cmpA", "cmpB"));
+  cmp.forEach((x, i) => x.g.classList.add(i === 0 ? "cmpA" : "cmpB"));
+}
+function clearCmp() { cmp = []; updateCmpClasses(); }
 
 listView.addEventListener("click", ev => {
   const tr = ev.target.closest("tr.clickable");
@@ -322,67 +375,106 @@ listView.addEventListener("click", ev => {
   showDetail(tr.dataset.h);
 });
 detailView.addEventListener("click", ev => {
+  if (ev.target.closest(".sbtn")) {
+    cmp.reverse(); updateCmpClasses();
+    if (cmp.length === 2) showCompare(cmp[0].n, cmp[1].n);
+    return;
+  }
   if (ev.target.closest(".back-btn")) { showView("list", true); return; }
   const tr = ev.target.closest("tr.frow");
-  if (tr && !ev.target.closest("a") && curCommit)  // 行のどこをクリックしても別タブで差分を開く
-    window.open(diffUrl(curCommit, curFiles[+tr.dataset.k]), "_blank", "noopener");
+  if (tr && !ev.target.closest("a") && curCtx)  // 行のどこをクリックしても別タブで差分を開く
+    window.open(diffUrl(curCtx, curFiles[+tr.dataset.k]), "_blank", "noopener");
 });
 
 function select(g) {
   if (selected) selected.classList.remove("sel");
   selected = g; g.classList.add("sel");
 }
-document.querySelectorAll("svg g.node").forEach(g => {
-  const t = g.querySelector("title");
-  const n = t && DATA.nodes[t.textContent];
-  if (!n) return;
-  g.addEventListener("click", () => {
-    select(g);
-    showLog("git log --oneline " + esc(n.hash.slice(0, 7)), n.hash,
-            chips(n.hash) + '<div class="meta">最初のコミットまでの全ログ</div>');
+
+function onNodeClick(ev, g, n) {
+  if (ev.ctrlKey || ev.metaKey) {  // 比較用の選択 (最大2つ。3つ目を選ぶと古い方が外れる)
+    if (cmp.length === 0 && selectedNode && selectedNode.g !== g) cmp = [selectedNode];
+    const i = cmp.findIndex(x => x.g === g);
+    if (i >= 0) cmp.splice(i, 1);
+    else { cmp.push({g: g, n: n}); if (cmp.length > 2) cmp.shift(); }
+    if (selected) { selected.classList.remove("sel"); selected = null; }
+    updateCmpClasses();
+    if (cmp.length === 2) showCompare(cmp[0].n, cmp[1].n); else showCmpHint();
+    return;
+  }
+  clearCmp();
+  select(g); selectedNode = {g: g, n: n};
+  showLog("git log --oneline " + esc(n.hash.slice(0, 7)), n.hash,
+          chips(n.hash) + '<div class="meta">最初のコミットまでの全ログ</div>');
+}
+
+function init() {
+  document.querySelectorAll("svg g.node").forEach(g => {
+    const t = g.querySelector("title");
+    const n = t && DATA.nodes[t.textContent];
+    if (n) g.addEventListener("click", ev => onNodeClick(ev, g, n));
   });
-});
-document.querySelectorAll("svg g.edge").forEach(g => {
-  const t = g.querySelector("title");
-  const e = t && DATA.edges[t.textContent];
-  if (!e) return;
-  const path = g.querySelector("path");
-  if (path) { const hit = path.cloneNode(); hit.setAttribute("class", "hit"); g.appendChild(hit); }
-  g.addEventListener("click", () => {
-    select(g);
-    const range = e.from.slice(0, 7) + ".." + e.to.slice(0, 7);
-    showLog(esc(e.from.slice(0, 7)) + " → " + esc(e.to.slice(0, 7)), e.from + ".." + e.to,
-            '<div class="meta"><code>git log ' + esc(range) + "</code></div>");
+  document.querySelectorAll("svg g.edge").forEach(g => {
+    const t = g.querySelector("title");
+    const e = t && DATA.edges[t.textContent];
+    if (!e) return;
+    const path = g.querySelector("path");
+    if (path) { const hit = path.cloneNode(); hit.setAttribute("class", "hit"); g.appendChild(hit); }
+    g.addEventListener("click", () => {
+      clearCmp(); selectedNode = null; select(g);
+      const range = e.from.slice(0, 7) + ".." + e.to.slice(0, 7);
+      showLog(esc(e.from.slice(0, 7)) + " → " + esc(e.to.slice(0, 7)), e.from + ".." + e.to,
+              '<div class="meta"><code>git log ' + esc(range) + "</code></div>");
+    });
   });
-});
+}
+
+// ---- グラフの読み込み (サーバー側の作成に時間がかかるので、読み込み中画面を出す) ----
+const t0 = Date.now();
+const timer = setInterval(() => {
+  const el = document.getElementById("lsub");
+  if (el) el.textContent = Math.round((Date.now() - t0) / 1000) + " 秒経過（リポジトリが大きいと時間がかかります）";
+}, 1000);
+fetch("/api/graph")
+  .then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); }))
+  .then(r => {
+    clearInterval(timer);
+    DATA = {nodes: r.nodes, edges: r.edges};
+    document.getElementById("graph").innerHTML = r.svg;
+    init();
+  })
+  .catch(e => {
+    clearInterval(timer);
+    document.getElementById("graph").innerHTML = '<div id="loading"><div>グラフの作成に失敗しました</div><pre>' +
+      esc(e.message) + '</pre><button class="sbtn" onclick="location.reload()">再読み込み</button></div>';
+  });
 </script>
 </body>
 </html>
 """
 
-_cache = {"key": None, "html": None}
+_cache = {"key": None, "payload": None}
+_lock = threading.Lock()
 
 
-def render_page():
-    """グラフ HTML を返す。ref と HEAD が変わっていなければキャッシュを使う。"""
-    try:
-        head = git("rev-parse", "HEAD")
-    except subprocess.CalledProcessError:
-        head = ""
-    key = git("for-each-ref") + head
-    if _cache["key"] == key:
-        return _cache["html"]
+def graph_payload():
+    """グラフ(SVG + ノード/エッジ情報)の JSON を返す。ref と HEAD が変わっていなければキャッシュを使う。"""
+    with _lock:  # 同時に複数回作らない (2つ目以降はキャッシュを使う)
+        try:
+            head = git("rev-parse", "HEAD")
+        except subprocess.CalledProcessError:
+            head = ""
+        key = git("for-each-ref") + head
+        if _cache["key"] == key:
+            return _cache["payload"]
 
-    dot_text, nodes, edges = build_graph(OPTS)
-    svg = subprocess.run(["dot", "-Tsvg"], input=dot_text, capture_output=True,
-                         text=True, check=True).stdout
-    svg = svg[svg.index("<svg"):]
-    data = json.dumps({"nodes": nodes, "edges": edges}, ensure_ascii=False).replace("</", "<\\/")
-    a, rest = HTML_TEMPLATE.split("__SVG__", 1)
-    b, c = rest.split("__DATA__", 1)
-    page = a + svg + b + data + c
-    _cache.update(key=key, html=page)
-    return page
+        dot_text, nodes, edges = build_graph(OPTS)
+        svg = subprocess.run(["dot", "-Tsvg"], input=dot_text, capture_output=True,
+                             text=True, check=True).stdout
+        svg = svg[svg.index("<svg"):]
+        payload = json.dumps({"svg": svg, "nodes": nodes, "edges": edges}, ensure_ascii=False)
+        _cache.update(key=key, payload=payload)
+        return payload
 
 
 # --------------------------------------------------------------------------
@@ -409,19 +501,32 @@ def api_log(q):
     return res
 
 
-def api_commit(q):
-    h = q.get("hash", [""])[0]
+def commit_info(h):
     if not HASH_RE.fullmatch(h):
         raise ValueError("bad hash")
     o = git("show", "-s", "--date=iso", "--format=%H%x1f%an <%ae>%x1f%ad%x1f%P%x1f%B", h, "--")
     full, author, date, par, msg = (o.split("\x1f", 4) + [""] * 5)[:5]
-    raw = git("show", "--numstat", "-z", "-M", "--first-parent", "--format=", h, "--")
     return {"hash": full, "author": author, "date": date, "parents": par.split(),
-            "message": msg.strip(), "files": parse_numstat(raw)}
+            "message": msg.strip()}
+
+
+def api_commit(q):
+    info = commit_info(q.get("hash", [""])[0])
+    raw = git("show", "--numstat", "-z", "-M", "--first-parent", "--format=", info["hash"], "--")
+    info["files"] = parse_numstat(raw)
+    return info
+
+
+def api_compare(q):
+    """2つのコミット間の差分 (from → to) のファイル一覧。"""
+    a = commit_info(q.get("from", [""])[0])
+    b = commit_info(q.get("to", [""])[0])
+    raw = git("diff", "--numstat", "-z", "-M", a["hash"], b["hash"], "--")
+    return {"from": a, "to": b, "files": parse_numstat(raw)}
 
 
 def parse_numstat(raw):
-    """git show --numstat -z の出力を [{path, old_path, added, deleted}] にする (バイナリは None)。"""
+    """--numstat -z の出力を [{path, old_path, added, deleted}] にする (バイナリは None)。"""
     toks = raw.split("\0")
     files, i = [], 0
     while i < len(toks):
@@ -446,15 +551,22 @@ DIFF_LIMIT = 400000
 
 
 def api_diff(q):
-    h = q.get("hash", [""])[0]
+    """1ファイルの差分。hash=... (1コミット) か from=...&to=... (2コミット間) を指定する。"""
     path = q.get("path", [""])[0]
     old = q.get("old", [""])[0]
-    if not HASH_RE.fullmatch(h):
-        raise ValueError("bad hash")
     if not path or "\0" in path or "\0" in old:
         raise ValueError("bad path")
     specs = [old, path] if old else [path]
-    out = git("show", "--format=", "--first-parent", "-M", "--no-color", h, "--", *specs, literal=True)
+    if "from" in q or "to" in q:
+        a, b = q.get("from", [""])[0], q.get("to", [""])[0]
+        if not (HASH_RE.fullmatch(a) and HASH_RE.fullmatch(b)):
+            raise ValueError("bad hash")
+        out = git("diff", "--no-color", "-M", a, b, "--", *specs, literal=True)
+    else:
+        h = q.get("hash", [""])[0]
+        if not HASH_RE.fullmatch(h):
+            raise ValueError("bad hash")
+        out = git("show", "--format=", "--first-parent", "-M", "--no-color", h, "--", *specs, literal=True)
     return {"diff": out[:DIFF_LIMIT], "truncated": len(out) > DIFF_LIMIT}
 
 
@@ -473,6 +585,8 @@ DIFF_CSS = """
   code { background: #eee; padding: 1px 4px; border-radius: 3px; user-select: all; }
   .plus { color: #1a7f37; } .minus { color: #cf222e; }
   .hint { color: #777; }
+  .tag { display: inline-block; padding: 0 6px; border-radius: 3px; margin-right: 4px; font-weight: bold; color: #fff; }
+  .tagA { background: #06c; } .tagB { background: #e67e00; }
   .diff { font-family: monospace; font-size: 12px; white-space: pre; margin-top: 12px; border: 1px solid #ddd; }
   .dl { padding: 0 6px; min-width: max-content; }
   .dl.ad { background: #e6ffec; } .dl.de { background: #ffebe9; }
@@ -507,19 +621,40 @@ def diff_lines_html(text):
     return "".join(out)
 
 
-def diff_url(h, f):
-    params = {"hash": h, "path": f["path"]}
+def diff_url(ctx, f):
+    params = dict(ctx, path=f["path"])
     if f["old_path"]:
         params["old"] = f["old_path"]
     return "/diff?" + urlencode(params)
 
 
+def commit_line_html(label, c):
+    subject = c["message"].split("\n", 1)[0]
+    return (f'<div class="meta"><span class="tag tag{label}">{label}</span>{c["hash"][:7]} — '
+            f'{html.escape(subject)} <span class="hint">({html.escape(c["author"])} / '
+            f'{html.escape(c["date"])})</span></div>')
+
+
 def render_diff_page(q):
-    """1ファイルの差分ページ。左にそのコミットの変更ファイル一覧を出す。"""
-    c = api_commit({"hash": q.get("hash", [""])})
-    d = api_diff(q)
-    path = q["path"][0]
+    """1ファイルの差分ページ。左にそのコミット(または比較)の変更ファイル一覧を出す。"""
+    path = q.get("path", [""])[0]
     old = q.get("old", [""])[0]
+    d = api_diff(q)
+    if "from" in q:  # 2コミット間の比較
+        c = api_compare(q)
+        a, b = c["from"], c["to"]
+        ctx = {"from": a["hash"], "to": b["hash"]}
+        ref = f"{a['hash'][:7]}..{b['hash'][:7]}"
+        info = commit_line_html("A", a) + commit_line_html("B", b)
+        cmd = f"git diff {a['hash'][:7]} {b['hash'][:7]} -- {path}"
+    else:
+        c = api_commit(q)
+        ctx = {"hash": c["hash"]}
+        ref = c["hash"][:7]
+        subject = c["message"].split("\n", 1)[0]
+        info = (f'<div class="meta">コミット {ref} — {html.escape(subject)}</div>'
+                f'<div class="meta">{html.escape(c["author"])} / {html.escape(c["date"])}</div>')
+        cmd = f"git show {ref} -- {path}"
     name = f"{old} => {path}" if old else path
 
     side = []
@@ -531,14 +666,12 @@ def render_diff_page(q):
             counts = (f'<span class="plus">+{f["added"]}</span> '
                       f'<span class="minus">-{f["deleted"]}</span>')
         cur = "cur" if f["path"] == path else ""
-        side.append(f'<a class="{cur}" href="{html.escape(diff_url(c["hash"], f))}">'
+        side.append(f'<a class="{cur}" href="{html.escape(diff_url(ctx, f))}">'
                     f'<span>{html.escape(fname)}</span><span class="n">{counts}</span></a>')
 
-    subject = c["message"].split("\n", 1)[0]
-    short = c["hash"][:7]
     return f"""<!DOCTYPE html>
 <html lang="ja"><head><meta charset="utf-8">
-<title>{html.escape(path)} @ {short}</title>
+<title>{html.escape(path)} @ {ref}</title>
 <style>{DIFF_CSS}</style></head><body>
 <div id="side">
   <div class="meta">{len(c["files"])} files changed</div>
@@ -546,9 +679,8 @@ def render_diff_page(q):
 </div>
 <div id="main">
   <h1>{html.escape(name)}</h1>
-  <div class="meta">コミット {short} — {html.escape(subject)}</div>
-  <div class="meta">{html.escape(c["author"])} / {html.escape(c["date"])}</div>
-  <div class="meta"><code>git show {short} -- {html.escape(path)}</code></div>
+  {info}
+  <div class="meta"><code>{html.escape(cmd)}</code></div>
   {'<p class="hint">大きいため先頭のみ表示しています</p>' if d["truncated"] else ""}
   <div class="diff">{diff_lines_html(d["diff"]) or '<p class="hint">差分はありません</p>'}</div>
 </div>
@@ -571,9 +703,13 @@ class Handler(BaseHTTPRequestHandler):
         q = parse_qs(u.query)
         try:
             if u.path == "/":
-                self._send(200, "text/html", render_page())
+                self._send(200, "text/html", HTML_TEMPLATE)
             elif u.path == "/api/log":
                 self._send(200, "application/json", json.dumps(api_log(q), ensure_ascii=False))
+            elif u.path == "/api/graph":
+                self._send(200, "application/json", graph_payload())
+            elif u.path == "/api/compare":
+                self._send(200, "application/json", json.dumps(api_compare(q), ensure_ascii=False))
             elif u.path == "/api/commit":
                 self._send(200, "application/json", json.dumps(api_commit(q), ensure_ascii=False))
             elif u.path == "/diff":
