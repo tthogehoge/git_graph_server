@@ -50,11 +50,17 @@ python git_graph_server.py -C /path/to/repo --port 8080
 
 ## スクリーンショット
 
+グラフ
+
 ![画面例1](screenshot/Screenshot1.png "グラフ")
 
-![画面例2](screenshot/Screenshot1.png "コミット")
+コミット
 
-![画面例3](screenshot/Screenshot1.png "差分")
+![画面例2](screenshot/Screenshot2.png "コミット")
+
+差分
+
+![画面例3](screenshot/Screenshot3.png "差分")
 
 ## オプション
 
