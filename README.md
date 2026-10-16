@@ -48,6 +48,14 @@ python git_graph_server.py -C /path/to/repo --port 8080
 
 グラフの作成には時間がかかることがあるため、ページを開いた直後は「読み込み中」画面（経過秒数つき）を表示し、完成したらグラフに切り替わります。ブラウザをリロードすると、ブランチやタグ、HEAD の変化に追従して最新の状態に更新されます（変化がなければキャッシュを使うので速く開きます）。
 
+## スクリーンショット
+
+![画面例1](screenshot/Screenshot1.png "グラフ")
+
+![画面例2](screenshot/Screenshot1.png "コミット")
+
+![画面例3](screenshot/Screenshot1.png "差分")
+
 ## オプション
 
 | オプション | 説明 |
