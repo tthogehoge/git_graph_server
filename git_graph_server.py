@@ -289,6 +289,8 @@ let curView = "list", selected = null, selectedKey = null, token = 0, observer =
 let curCtx = null, curFiles = [];
 let cmp = [];  // 比較用コミットのハッシュ (先頭が A、次が B)
 const nodeEl = {};  // ハッシュ -> グラフ上のノード要素
+const homeHtml = listView.innerHTML;
+if (!history.state || !history.state.screen) history.replaceState({screen: "home"}, "");
 
 function esc(s) {
   return String(s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
@@ -312,13 +314,18 @@ function showView(name, keepScroll) {  // keepScroll: 戻ってきたときに�
   curView = name;
   views[name].scrollTop = keepScroll ? savedScroll[name] : 0;
 }
+function pushScreen(state) {
+  history.replaceState(Object.assign({}, history.state, {scroll: views[curView].scrollTop}), "");
+  history.pushState(state, "");
+}
 function rowHtml(c) {  // c = [hash, short, author, date, subject]
   return '<tr class="clickable" data-h="' + c[0] + '"><td class="h">' + esc(c[1]) + copyLink(c[0]) + "</td><td>" +
     '<span class="rc">' + chips(c[0]) + "</span>" + esc(c[4]) + '<div class="meta">' + esc(c[2]) + " / " + esc(c[3]) + "</div></td></tr>";
 }
 
 // git log を CHUNK 件ずつ取得して、末尾が見えたら続きを読み込む (全件読むまで続く)
-function showLog(titleHtml, rev, topHtml) {
+function showLog(titleHtml, rev, topHtml, fromHistory, restoreScroll) {
+  if (!fromHistory) pushScreen({screen: "log", titleHtml: titleHtml, rev: rev, topHtml: topHtml});
   const my = ++token;
   if (observer) { observer.disconnect(); observer = null; }
   curRow = null;
@@ -339,6 +346,9 @@ function showLog(titleHtml, rev, topHtml) {
       rows.insertAdjacentHTML("beforeend", r.commits.map(rowHtml).join(""));
       updateCmpClasses();
       skip += r.commits.length;
+      if (fromHistory && restoreScroll) {
+        listView.scrollTop = Math.max(0, Math.min(restoreScroll, listView.scrollHeight - listView.clientHeight));
+      }
       done = !r.has_more;
       if (r.total !== undefined) total = r.total;
       count.textContent = total === null ? skip + " 件"
@@ -386,7 +396,7 @@ function filesHtml(ctx, files, offset) {
     const pa = a ? Math.max(1, Math.round(a * scale)) : 0, pd = d ? Math.max(1, Math.round(d * scale)) : 0;
     const name = f.old_path ? f.old_path + " => " + f.path : f.path;
     return '<tr class="frow" data-k="' + (offset + k) + '"><td class="fp">' + badge(f) + '<a href="' + esc(diffUrl(ctx, f)) +
-      '" target="_blank" rel="noopener">' + esc(name) + '</a></td><td class="fc">' +
+      '">' + esc(name) + '</a></td><td class="fc">' +
       (f.label ? esc(f.label) : f.added === null ? "Bin" : a + d) + '</td><td class="fb"><span class="plus">' + "+".repeat(pa) +
       '</span><span class="minus">' + "-".repeat(pd) + "</span></td></tr>";
   }).join("");
@@ -421,7 +431,8 @@ function actionsHtml(h) {  // ブランチ作成 / タグ作成 / チェック�
     '<span id="coBtns">' + checkoutBtns(h) + "</span></div>" +
     '<div class="amsg" id="actMsg"></div></div>';
 }
-function showDetail(h) {
+function showDetail(h, fromHistory) {
+  if (!fromHistory) pushScreen({screen: "detail", hash: h});
   const back = '<button class="back-btn">← 履歴一覧に戻る</button>';
   detailView.innerHTML = back + '<p class="hint">読み込み中…</p>';
   showView("detail");
@@ -517,7 +528,8 @@ function commitLine(label, c) {
     esc(c.hash.slice(0, 7)) + copyLink(c.hash) + " — " + esc(c.message.split("\n")[0]) +
     '<div class="hint">' + esc(c.author) + " / " + esc(c.date) + "</div></div>";
 }
-function showCompare(a, b) {  // a, b はコミットのハッシュ
+function showCompare(a, b, fromHistory) {  // a, b はコミットのハッシュ
+  if (!fromHistory) pushScreen({screen: "compare", a: a, b: b});
   const btns = '<button class="back-btn">← 履歴一覧に戻る</button><button class="sbtn">A ⇄ B 入れ替え</button>';
   detailView.innerHTML = btns + '<p class="hint">読み込み中…</p>';
   showView("detail");
@@ -556,6 +568,24 @@ function selectCmpB(hash) {
   updateCmpClasses();
 }
 
+function restoreScreen(state) {
+  if (state.screen === "log") showLog(state.titleHtml, state.rev, state.topHtml, true, state.scroll || 0);
+  else if (state.screen === "detail") showDetail(state.hash, true);
+  else if (state.screen === "compare") {
+    cmp = [state.a, state.b];
+    updateCmpClasses();
+    showCompare(state.a, state.b, true);
+  }
+  else if (state.screen === "wip") showWip(true);
+  else {
+    if (observer) { observer.disconnect(); observer = null; }
+    ++token;
+    listView.innerHTML = homeHtml;
+    showView("list");
+  }
+}
+window.addEventListener("popstate", ev => restoreScreen(ev.state || {screen: "home"}));
+
 listView.addEventListener("click", ev => {
   const tr = ev.target.closest("tr.clickable");
   if (!tr) return;
@@ -575,7 +605,7 @@ detailView.addEventListener("click", ev => {
     if (open) { const f = panel.querySelector("#brName"); if (f) f.focus(); }
     return;
   }
-  if (ev.target.closest("#wipReload")) { showWip(); refreshGraph().catch(() => {}); return; }
+  if (ev.target.closest("#wipReload")) { showWip(true); refreshGraph().catch(() => {}); return; }
   const ab = ev.target.closest(".abtn");
   if (ab) { doAction(ab); return; }
   if (ev.target.closest(".sbtn")) {
@@ -583,10 +613,10 @@ detailView.addEventListener("click", ev => {
     if (cmp.length === 2) showCompare(cmp[0], cmp[1]);
     return;
   }
-  if (ev.target.closest(".back-btn")) { showView("list", true); return; }
+  if (ev.target.closest(".back-btn")) { history.back(); return; }
   const tr = ev.target.closest("tr.frow");
-  if (tr && !ev.target.closest("a") && curCtx)  // 行のどこをクリックしても別タブで差分を開く
-    window.open(diffUrl(curCtx, curFiles[+tr.dataset.k]), "_blank", "noopener");
+  if (tr && !ev.target.closest("a") && curCtx)  // 行のどこをクリックしても差分を開く
+    location.href = diffUrl(curCtx, curFiles[+tr.dataset.k]);
 });
 document.getElementById("compareControls").addEventListener("click", ev => {
   if (ev.target.closest("#compareBtn") && cmp.length === 2) showCompare(cmp[0], cmp[1]);
@@ -634,7 +664,8 @@ function init() {
 }
 
 // ---- 作業ツリーの変更 (WIP) ----
-function showWip() {
+function showWip(fromHistory) {
+  if (!fromHistory) pushScreen({screen: "wip"});
   const btns = '<button class="back-btn">← 履歴一覧に戻る</button><button class="sbtn" id="wipReload">↻ 更新</button>';
   detailView.innerHTML = btns + '<p class="hint">読み込み中…</p>';
   showView("detail"); curDetailHash = null;
@@ -679,6 +710,7 @@ fetch("/api/graph")
     document.getElementById("graph").innerHTML = r.svg;
     init();
     document.getElementById("reload").disabled = false;
+    restoreScreen(history.state || {screen: "home"});
   })
   .catch(e => {
     clearInterval(timer);
