@@ -30,7 +30,7 @@ import subprocess
 import sys
 import threading
 import webbrowser
-from collections import defaultdict
+from collections import Counter, defaultdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlencode, urlparse
 
@@ -39,6 +39,7 @@ OPTS = None
 WRITABLE = False  # ブランチ/タグ作成・チェックアウト等の書き込み操作を許可するか
 WIP_ENABLED = False  # 未コミットの変更を WIP ノードとしてグラフに出すか
 HAS_WORKTREE = False  # ワークツリーのあるリポジトリか (bare でないか)
+FAST_LAYOUT_NODES = 300  # これより多くのノードを描くときは dot の最適化を軽くする (--full-layout で無効)
 COLORS = {"branch": "#b7e4a7", "remote": "#a7c8f0", "tag": "#ffe9a0", "head": "#f4a7a7"}
 
 
@@ -56,13 +57,14 @@ def build_graph(opts):
     sys.setrecursionlimit(100000)
     revs = opts.revs or ["--all"]
 
-    parents, subjects = {}, {}
+    parents, subjects, order = {}, {}, []  # order: 子が親より先 (--topo-order)
     children = defaultdict(list)
-    for line in git("log", *revs, "--format=%H%x09%P%x09%s").splitlines():
+    for line in git("log", *revs, "--topo-order", "--format=%H%x09%P%x09%s").splitlines():
         h, p, s = (line.split("\t", 2) + ["", ""])[:3]
         ps = p.split()
         parents[h] = ps
         subjects[h] = s
+        order.append(h)
         for x in ps:
             children[x].append(h)
 
@@ -91,63 +93,102 @@ def build_graph(opts):
         pass
 
     # ref の指す先 + 末端 + それらの merge-base
+    # merge-base を git で総当たり (O(n^2) 回のプロセス起動) せず、メモリ上で求める。
+    # desc[x] = x の子孫である base コミットの集合 (ビットマスク)。
+    # x が (a, b) の merge-base <=> a, b が desc[x] に入り、どの子の desc にも a, b が揃って入っていない。
     base = set(labels) | {h for h in parents if not children[h]}
+    bit = {h: 1 << i for i, h in enumerate(sorted(base))}
+    desc = defaultdict(int)
+    for h in order:  # 子 -> 親
+        d = desc[h] | bit.get(h, 0)
+        desc[h] = d
+        for p in parents[h]:
+            if p in parents:
+                desc[p] |= d
     keep = set(base)
-    for a, b in itertools.combinations(sorted(base), 2):
-        r = subprocess.run(["git", "-C", REPO, "merge-base", "--all", a, b],
-                           capture_output=True, text=True)
-        keep.update(x for x in r.stdout.split() if x in parents)
+    for x in order:
+        d = desc[x]
+        if d & (d - 1) == 0:  # base の子孫が 1 つ以下
+            continue
+        ch = children[x]
+        if any(desc[y] == d for y in ch):  # 全ての組が 1 つの子で覆われる
+            continue
+        m = d
+        while m:
+            low = m & -m
+            m ^= low
+            covered = 0
+            for y in ch:
+                if desc[y] & low:
+                    covered |= desc[y]
+            if covered != d:  # a=low と組んで、どの子にも覆われない b がある
+                keep.add(x)
+                break
+    del desc
 
-    def nearest(c):  # 間に残したコミットを挟まない直接の祖先
-        res, seen, stack = set(), set(), list(parents[c])
-        while stack:
-            x = stack.pop()
-            if x in seen:
-                continue
-            seen.add(x)
-            if x in keep:
-                res.add(x)
-            else:
-                stack.extend(parents[x])
-        return res
+    # 間に残したコミットを挟まない直接の祖先 (親 -> 子の順に 1 回なめるだけ)
+    up, direct = {}, {}
+    for h in reversed(order):
+        ups = [up[p] for p in parents[h] if p in up]
+        if h in keep:
+            direct[h] = frozenset().union(*ups) if ups else frozenset()
+            up[h] = frozenset((h,))
+        elif len(ups) == 1:
+            up[h] = ups[0]
+        else:
+            up[h] = frozenset().union(*ups) if ups else frozenset()
+    del up
 
-    direct = {c: nearest(c) for c in keep}
+    # 推移簡約 (到達可能性もビットマスクで持つ)
+    keep_order = [h for h in reversed(order) if h in keep]  # 親が先
+    kbit = {h: 1 << i for i, h in enumerate(keep_order)}
     reach = {}
-
-    def anc(c):
-        if c not in reach:
-            s = set()
-            for d in direct[c]:
-                s.add(d)
-                s |= anc(d)
-            reach[c] = s
-        return reach[c]
-
-    edges = []  # 推移簡約
-    for c in keep:
-        for d in direct[c]:
-            if not any(e != d and d in anc(e) for e in direct[c]):
+    edges = []
+    for c in keep_order:
+        deep = 0  # 直接の祖先たちのさらに先の祖先
+        for e in direct[c]:
+            deep |= reach[e]
+        reach[c] = deep | sum(kbit[e] for e in direct[c])
+        for d in sorted(direct[c]):
+            if not deep & kbit[d]:  # d が他の直接祖先の祖先でなければ残す
                 edges.append((d, c))
+    keep_order.reverse()  # 出力の順序を毎回同じにする (レイアウトが安定する)
 
     out = [
         "digraph G {",
         f"  rankdir={opts.rankdir};",
+        *(["  nslimit=1; nslimit1=1; mclimit=0.3;"]  # ノードが多いときは dot のレイアウト最適化を軽くして高速化
+          if len(keep) > FAST_LAYOUT_NODES and not getattr(opts, "full_layout", False) else []),
         '  node [shape=plaintext, fontname="Helvetica", fontsize=10];',
         '  edge [fontname="Helvetica", fontsize=9];',
     ]
-    for h in keep:
+    for h in keep_order:
         rows = [f'<TR><TD BGCOLOR="{COLORS[kind]}"><B>{html.escape(name)}</B></TD></TR>'
                 for name, kind in labels.get(h, [])]
         rows.append(f'<TR><TD>{h[:7]}<BR/>{html.escape(subjects[h][:30])}</TD></TR>')
         label = ('<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="3">'
                  + "".join(rows) + "</TABLE>>")
         out.append(f'  "{h}" [label={label}];')
+    # 各エッジ d->c の省略数 = git rev-list --count d..c - 1 を、メモリ上で git を呼ばずに求める。
+    # コミット x を「x の子孫である keep ノードの集合」(マスク) で分類して数え、
+    # x が c の祖先かつ d の祖先でないもの (c を含み d を含まないマスク) を足し合わせる。
+    counts = {}
+    if not opts.no_count:
+        groups, dk = Counter(), defaultdict(int)
+        for h in order:  # 子 -> 親
+            m = dk.pop(h, 0) | kbit.get(h, 0)
+            groups[m] += 1
+            for p in parents[h]:
+                if p in parents:
+                    dk[p] |= m
+        for d, c in edges:
+            bc, bd = kbit[c], kbit[d]
+            counts[(d, c)] = sum(n for m, n in groups.items() if m & bc and not m & bd) - 1
     for d, c in edges:
         attr = ""
-        if not opts.no_count:
-            n = int(git("rev-list", "--count", f"{d}..{c}").strip()) - 1
-            if n > 0:
-                attr = f' [label="+{n}", style=dashed]'
+        n = counts.get((d, c), 0)
+        if n > 0:
+            attr = f' [label="+{n}", style=dashed]'
         out.append(f'  "{d}" -> "{c}"{attr};')
     out.append("}")
 
@@ -1369,6 +1410,8 @@ def main():
     ap.add_argument("--open", action="store_true", help="起動後にブラウザで開く")
     ap.add_argument("--no-remotes", action="store_true", help="リモートブランチを除外")
     ap.add_argument("--no-tags", action="store_true", help="タグを除外")
+    ap.add_argument("--full-layout", action="store_true",
+                    help="ノードが多くても dot のレイアウト最適化を省略しない (遅いが交差が少し減る)")
     ap.add_argument("--no-count", action="store_true", help="省略数 (+N) の計算をしない")
     ap.add_argument("--rankdir", default="BT", help="BT(下から上) / TB / LR (既定: BT)")
     ap.add_argument("--dot", action="store_true", help="dot を標準出力に出して終了")
