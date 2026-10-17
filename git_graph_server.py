@@ -688,6 +688,7 @@ function onNodeClick(ev, g, n) {
     return;
   }
   if (ev.ctrlKey || ev.metaKey) { selectCmpA(n.hash); return; }
+  if (cmp.length) { selectCmpB(n.hash); return; }
   select(g);
   showLog("git log --oneline " + esc(n.hash.slice(0, 7)), n.hash,
           chips(n.hash) + '<div class="meta">最初のコミットまでの全ログ</div>');
