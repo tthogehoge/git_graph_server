@@ -213,6 +213,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   pre { white-space: pre-wrap; word-break: break-word; background: #fff; border: 1px solid #ddd; padding: 8px; margin: 6px 0; font-size: 12px; }
   code { background: #eee; padding: 1px 4px; border-radius: 3px; user-select: all; }
   .chip { display: inline-block; padding: 0 6px; border-radius: 3px; margin: 0 4px 2px 0; font-weight: bold; }
+  .chip .ref-delete { border: 0; background: transparent; color: #555; cursor: pointer; font: inherit; font-weight: normal; line-height: inherit; margin-left: 4px; padding: 0 2px; }
+  .ref-delete:hover { color: #cf222e; }
   .tag { display: inline-block; padding: 0 6px; border-radius: 3px; margin-right: 4px; font-weight: bold; color: #fff; }
   .tagA { background: #06c; } .tagB { background: #e67e00; }
   .meta { color: #555; margin: 2px 0; }
@@ -323,6 +325,17 @@ function chips(h) {
   const n = DATA.nodes[h];
   if (!n) return "";
   return n.refs.map(r => '<span class="chip" style="background:' + COLORS[r.kind] + '">' + esc(r.name) + "</span>").join("");
+}
+function detailChips(h) {
+  const n = DATA.nodes[h];
+  if (!n) return "";
+  return n.refs.map(r => {
+    const deletable = DATA.writable && (r.kind === "branch" || r.kind === "tag");
+    return '<span class="chip" style="background:' + COLORS[r.kind] + '">' + esc(r.name) +
+      (deletable ? '<button class="abtn ref-delete" data-act="delete-ref" data-kind="' + r.kind +
+        '" data-name="' + esc(r.name) + '" title="' + r.kind + ' ' + esc(r.name) + ' を削除" aria-label="' +
+        r.kind + ' ' + esc(r.name) + ' を削除">×</button>' : "") + "</span>";
+  }).join("");
 }
 /*__COPY_JS__*/
 function copyLink(h) {  // フルハッシュをコピーするリンク
@@ -464,7 +477,7 @@ function showDetail(h, fromHistory) {
     curCtx = {hash: c.hash}; curFiles = c.files; curDetailHash = c.hash;
     const parents = c.parents.map(p => esc(p.slice(0, 7))).join(", ") || "(なし)";
     detailView.innerHTML = back + "<h2>コミット " + esc(c.hash.slice(0, 7)) + "</h2>" +
-      '<span id="dChips">' + chips(c.hash) + "</span>" +
+      '<span id="dChips">' + detailChips(c.hash) + "</span>" +
       '<div class="meta">' + esc(c.hash) + copyLink(c.hash) + toggleBtn() + "</div>" +
       '<div class="meta">Author: ' + esc(c.author) + "</div>" +
       '<div class="meta">Date: ' + esc(c.date) + "</div>" +
@@ -506,16 +519,30 @@ function doAction(btn) {
   } else if (act === "checkout-branch") {
     url = "/api/checkout"; body = {branch: btn.dataset.branch};
     ask = "ブランチ " + btn.dataset.branch + " をチェックアウトします (作業ツリーが切り替わります)。よろしいですか？";
+  } else if (act === "delete-ref") {
+    const kind = btn.dataset.kind, name = btn.dataset.name;
+    url = "/api/ref-delete"; body = {kind: kind, name: name};
+    ask = (kind === "branch" ? "ブランチ" : "タグ") + " " + name + " を削除します。よろしいですか？";
   } else return;
   if (ask && !confirm(ask)) return;
   btn.disabled = true; setActMsg("実行中…", true);
   post(url, body)
-    .then(r => refreshGraph().then(() => r.message, () => r.message + "\n(グラフの更新に失敗しました。再読み込みしてください)"))
+    .then(r => {
+      if (!r.needs_force) return r;
+      const name = body.name;
+      if (!confirm("ブランチ " + name + " は未マージです。強制削除すると未マージのコミットがブランチから到達できなくなる可能性があります。削除しますか？")) return null;
+      return post(url, Object.assign({}, body, {force: true}));
+    })
+    .then(r => r ? refreshGraph().then(() => r.message, () => r.message + "\n(グラフの更新に失敗しました。再読み込みしてください)") : null)
     .then(msg => {
+      if (msg === null) {
+        if (curDetailHash === h) setActMsg("強制削除をキャンセルしました", false);
+        return;
+      }
       if (curDetailHash !== h) return;  // 実行中に別のコミットへ移った
       setActMsg(msg, true);
       const c = detailView.querySelector("#dChips"), co = detailView.querySelector("#coBtns");
-      if (c) c.innerHTML = chips(h);
+      if (c) c.innerHTML = detailChips(h);
       if (co) co.innerHTML = checkoutBtns(h);
     })
     .catch(e => { if (curDetailHash === h) setActMsg(e.message, false); })
@@ -1198,6 +1225,32 @@ def api_tag(body):
     return {"ok": True, "message": f"タグ {name} を作成しました"}
 
 
+def api_delete_ref(body):
+    kind = body.get("kind")
+    if kind not in ("branch", "tag"):
+        raise ValueError("削除できるのはローカルブランチまたはタグだけです")
+    name = str(body.get("name", "")).strip()
+    check_ref_name(kind, name)
+    ref = ("refs/heads/" if kind == "branch" else "refs/tags/") + name
+    exists = subprocess.run(["git", "-C", REPO, "show-ref", "--verify", "--quiet", ref])
+    if exists.returncode != 0:
+        raise ValueError(f"{name!r} は存在しません")
+    if kind == "branch":
+        if body.get("force") is True:
+            run_git_write("branch", "-D", "--", name)
+        else:
+            r = subprocess.run(["git", "-C", REPO, "branch", "-d", "--", name],
+                               capture_output=True, text=True, encoding="utf-8", errors="replace")
+            if r.returncode != 0:
+                ancestor = subprocess.run(["git", "-C", REPO, "merge-base", "--is-ancestor", name, "HEAD"])
+                if ancestor.returncode == 1:
+                    return {"needs_force": True}
+                raise ValueError((r.stderr or r.stdout).strip() or "ブランチを削除できません")
+        return {"ok": True, "message": f"ブランチ {name} を削除しました"}
+    run_git_write("tag", "-d", "--", name)
+    return {"ok": True, "message": f"タグ {name} を削除しました"}
+
+
 def api_checkout(body):
     branch = body.get("branch")
     if branch:
@@ -1210,7 +1263,8 @@ def api_checkout(body):
     return {"ok": True, "message": f"{h[:7]} をチェックアウトしました (detached HEAD)"}
 
 
-POST_ROUTES = {"/api/branch": api_branch, "/api/tag": api_tag, "/api/checkout": api_checkout}
+POST_ROUTES = {"/api/branch": api_branch, "/api/tag": api_tag, "/api/ref-delete": api_delete_ref,
+               "/api/checkout": api_checkout}
 
 
 class Handler(BaseHTTPRequestHandler):
