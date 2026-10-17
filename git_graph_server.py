@@ -23,6 +23,9 @@
   POST /api/merge {hash, no_ff} (JSON)                       選んだコミットを現在の HEAD にマージ
   POST /api/rebase {hash} (JSON)                             現在のブランチを選んだコミットの上にリベース (競合したら中止して元に戻す)
   /api/head                                                  現在のブランチ名 (マージ/リベース前の確認用)
+  POST /api/fetch {prune} | /api/pull {mode} | /api/push {force, set_upstream} (JSON)
+     fetch (--all) / pull (mode: ff-only | merge | rebase) / push (現在のブランチを upstream へ。force は --force-with-lease)
+     画面では、比較のAだけを選んだときの「操作」パネルにある。認証の入力待ちで固まらないよう、端末入力を無効にして一定時間でタイムアウトする
   POST /api/wip-commit {paths, message} (JSON)               チェックしたファイルを add してコミット
      書き込みは 127.0.0.1 で待ち受けているときだけ有効 (--read-only で無効化、--allow-write で他アドレスでも許可)
 """
@@ -349,6 +352,16 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       <button class="abtn" data-cact="tag">タグ作成</button></div>
     <div class="arow"><button class="abtn" data-cact="checkout">チェックアウト (detached HEAD)</button>
       <span id="cmCoBtns"></span></div>
+    <div class="arow"><button class="abtn" data-cact="fetch">fetch</button>
+      <label title="リモートで削除されたブランチの追跡ブランチをローカルからも消す"><input type="checkbox" id="cmFetchPrune"> --prune</label></div>
+    <div class="arow" id="cmPullRow"><button class="abtn" data-cact="pull">pull</button>
+      <select id="cmPullMode" title="取り込み方法">
+        <option value="ff-only">fast-forwardのみ (--ff-only)</option>
+        <option value="merge">マージ (--no-rebase)</option>
+        <option value="rebase">リベース (--rebase)</option>
+      </select></div>
+    <div class="arow"><button class="abtn" data-cact="push">push</button>
+      <label title="リモートが自分の知らない更新をしていたら拒否される安全な強制push"><input type="checkbox" id="cmPushForce"> --force-with-lease</label></div>
     <div class="amsg" id="cmMsg"></div>
   </div>
 </div>
@@ -667,6 +680,7 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
     document.getElementById("cmMsg").textContent = "";
   }
   document.getElementById("mergeNoFf").hidden = !canMerge;
+  document.getElementById("cmPullRow").hidden = !DATA.merge;  // pull はワークツリーが要る
 }
 let cmpActOpen = false;
 function askCheckoutConflict(r) {  // チェックアウトを止めているファイルを見せて、stash / 削除 / キャンセルを選んでもらう
@@ -730,6 +744,45 @@ function doCmpAction(btn) {  // Aに対するブランチ作成 / タグ作成 /
       if (act === "tag") { document.getElementById("cmTagName").value = ""; document.getElementById("cmTagMsg").value = ""; }
       return refreshGraph().catch(() => {});
     })
+    .catch(e => setCmpMsg(e.message, false))
+    .finally(() => { btn.disabled = false; });
+}
+function doRemoteAction(btn) {  // fetch / pull / push (リモートとの通信。Aの選択とは無関係に現在のブランチが対象)
+  const act = btn.dataset.cact, ck = id => document.getElementById(id).checked;
+  const url = "/api/" + act;
+  let body = {}, ask = null;
+  if (act === "fetch") {
+    body = {prune: ck("cmFetchPrune")};
+  } else if (act === "pull") {
+    const mode = document.getElementById("cmPullMode").value;
+    body = {mode: mode};
+    ask = "リモートの変更を pull します (" + {"ff-only": "fast-forwardのみ", "merge": "マージ", "rebase": "リベース"}[mode] +
+          ")。作業ツリーが変わります。よろしいですか？";
+  } else if (act === "push") {
+    body = {force: ck("cmPushForce")};
+    ask = body.force
+      ? "現在のブランチを --force-with-lease で push します。リモートの履歴が書き換わります。よろしいですか？"
+      : "現在のブランチを push します。よろしいですか？";
+  } else return;
+  if (ask && !confirm(ask)) return;
+  btn.disabled = true; setCmpMsg("実行中… (リモートとの通信に時間がかかることがあります)", true);
+  let p = post(url, body);
+  if (act === "push") {
+    p = p.then(r => {
+      if (!r.needs_upstream) return r;
+      if (!confirm("ブランチ " + r.branch + " には upstream が設定されていません。" + r.remote + "/" + r.branch +
+                   " として push し、upstream に設定しますか？")) return {cancelled: true, message: "push をキャンセルしました"};
+      setCmpMsg("実行中… (リモートとの通信に時間がかかることがあります)", true);
+      return post(url, Object.assign({}, body, {set_upstream: true}));
+    });
+  }
+  p.then(r => {
+    if (r.cancelled) { setCmpMsg(r.message, false); return; }
+    setCmpMsg(r.message, !r.conflict);
+    return refreshGraph().catch(() => {}).then(() => {
+      if (r.conflict) { setGraphStatus(r.message); clearCmp(); showWip(); }
+    });
+  })
     .catch(e => setCmpMsg(e.message, false))
     .finally(() => { btn.disabled = false; });
 }
@@ -846,7 +899,7 @@ document.getElementById("compareControls").addEventListener("click", ev => {
     return;
   }
   const cab = ev.target.closest(".abtn[data-cact]");
-  if (cab) { doCmpAction(cab); return; }
+  if (cab) { (["fetch", "pull", "push"].includes(cab.dataset.cact) ? doRemoteAction : doCmpAction)(cab); return; }
   if (ev.target.closest("#mergeBtn")) doMerge();
   if (ev.target.closest("#rebaseBtn")) doRebase();
   if (ev.target.closest("#clearCmpBtn")) clearCmp();
@@ -1726,8 +1779,123 @@ def api_rebase(body):
     return {"ok": True, "message": f"{head['branch']} を {h[:7]} の上にリベースしました"}
 
 
+# --------------------------------------------------------------------------
+# リモートとの通信 (fetch / pull / push)
+# --------------------------------------------------------------------------
+NET_TIMEOUT = 300  # 秒。認証待ちなどで固まったままロックを握り続けないようにする
+
+
+def run_git_net(*args):
+    """リモートと通信する git を実行する。端末への入力待ち (パスワードなど) で固まらないようにする。"""
+    env = dict(os.environ, GIT_TERMINAL_PROMPT="0")
+    try:
+        return subprocess.run(["git", "-C", REPO, *args], capture_output=True, text=True,
+                              encoding="utf-8", errors="replace", env=env, timeout=NET_TIMEOUT,
+                              stdin=subprocess.DEVNULL, start_new_session=True)  # 制御端末を切り離し ssh が /dev/tty に尋ねないように
+    except subprocess.TimeoutExpired:
+        raise ValueError(f"git {args[0]} が {NET_TIMEOUT} 秒でタイムアウトしました。認証の入力待ちなどで止まった可能性があります"
+                         " (認証情報を credential helper や ssh-agent に登録してください)")
+
+
+def net_error(r, fallback):
+    text = (r.stderr or r.stdout).strip()
+    text = "\n".join(l for l in text.splitlines() if not l.startswith("hint:")).strip()  # 長い hint は省く
+    return text or fallback
+
+
+def refs_snapshot():
+    r = subprocess.run(["git", "-C", REPO, "for-each-ref", "--format=%(objectname) %(refname)", "refs/remotes", "refs/tags"],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    return {name: oid for oid, _, name in (l.partition(" ") for l in r.stdout.splitlines())}
+
+
+def count_changed_refs(before, after):
+    return sum(1 for k in set(before) | set(after) if before.get(k) != after.get(k))
+
+
+def upstream_of_head():
+    r = subprocess.run(["git", "-C", REPO, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    return r.stdout.strip() if r.returncode == 0 else None
+
+
+def api_fetch(body):
+    args = ["fetch", "--all"]
+    if body.get("prune") is True:
+        args.append("--prune")
+    before = refs_snapshot()
+    r = run_git_net(*args)
+    if r.returncode != 0:
+        raise ValueError(net_error(r, "fetch に失敗しました"))
+    n = count_changed_refs(before, refs_snapshot())
+    return {"ok": True, "message": f"fetch しました ({n} 件のリモート追跡ブランチ/タグが更新されました)" if n
+            else "fetch しました (更新はありません)"}
+
+
+def api_pull(body):
+    """現在のブランチに upstream の変更を取り込む。
+    merge で競合したときはマージ途中で止める (WIP で解決)。rebase で競合したときは中止して元に戻す。"""
+    if not HAS_WORKTREE:
+        raise ValueError("ワークツリーのないリポジトリでは pull できません")
+    mode = body.get("mode", "ff-only")
+    flags = {"ff-only": ["--ff-only"], "merge": ["--no-rebase", "--no-edit"], "rebase": ["--rebase"]}.get(str(mode))
+    if flags is None:
+        raise ValueError("pull の方法が不正です")
+    if is_merging() or is_rebasing():
+        raise ValueError("マージまたはリベースの途中です。先に完了するか中止してください")
+    if not has_head():
+        raise ValueError("最初のコミットがないため pull できません")
+    branch = api_head()["branch"]
+    if not branch:
+        raise ValueError("ブランチをチェックアウトしていません (detached HEAD では pull できません)")
+    up = upstream_of_head()
+    if not up:
+        raise ValueError(f"ブランチ {branch} には upstream が設定されていません (git branch -u <リモート>/<ブランチ> で設定するか、push で設定してください)")
+    before = git("rev-parse", "HEAD").strip()
+    r = run_git_net("pull", *flags)
+    if r.returncode != 0:
+        if is_merging():  # 競合 (自動マージできなかった)
+            return {"ok": True, "conflict": True,
+                    "message": f"{up} のマージで競合しました。WIP の競合ファイルを解決してコミットしてください"}
+        if is_rebasing():  # 競合 → 元に戻す
+            subprocess.run(["git", "-C", REPO, "rebase", "--abort"], capture_output=True)
+            raise ValueError(f"{up} の上へのリベースで競合したため中止し、元に戻しました。"
+                             "競合を解決したい場合はコマンドラインで git pull --rebase を実行してください")
+        raise ValueError(net_error(r, "pull に失敗しました") +
+                         ("\n(履歴が分岐しています。方法を「マージ」か「リベース」にして再度 pull してください)" if mode == "ff-only" else ""))
+    if git("rev-parse", "HEAD").strip() == before:
+        return {"ok": True, "message": f"{branch} は既に最新です (変更なし)"}
+    return {"ok": True, "message": f"{branch} に {up} の変更を取り込みました"}
+
+
+def api_push(body):
+    if not has_head():
+        raise ValueError("最初のコミットがないため push できません")
+    branch = api_head()["branch"]
+    if not branch:
+        raise ValueError("ブランチをチェックアウトしていません (detached HEAD では push できません)")
+    args = ["push"]
+    if body.get("force") is True:
+        args.append("--force-with-lease")
+    if not upstream_of_head():
+        remotes = git("remote").split()
+        if not remotes:
+            raise ValueError("リモートが登録されていません")
+        remote = "origin" if "origin" in remotes else remotes[0]
+        if body.get("set_upstream") is not True:
+            return {"needs_upstream": True, "remote": remote, "branch": branch}
+        args += ["-u", remote, branch]
+    before = refs_snapshot()
+    r = run_git_net(*args)
+    if r.returncode != 0:
+        raise ValueError(net_error(r, "push に失敗しました"))
+    changed = count_changed_refs(before, refs_snapshot()) > 0
+    return {"ok": True, "message": f"{branch} を push しました" if changed else f"{branch} を push しました (更新するものはありませんでした)"}
+
+
 POST_ROUTES = {"/api/rebase": api_rebase, "/api/merge": api_merge, "/api/branch": api_branch, "/api/tag": api_tag, "/api/ref-delete": api_delete_ref,
-               "/api/checkout": api_checkout, "/api/wip-commit": api_wip_commit}
+               "/api/checkout": api_checkout, "/api/wip-commit": api_wip_commit,
+               "/api/fetch": api_fetch, "/api/pull": api_pull, "/api/push": api_push}
 
 
 class Handler(BaseHTTPRequestHandler):
