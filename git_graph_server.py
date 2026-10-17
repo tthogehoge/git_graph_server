@@ -242,7 +242,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   table.log tr.cur td { background: #ffe9a0; }
   table.log tr.clickable.cmpA td { background: #cfe3ff; }
   table.log tr.clickable.cmpB td { background: #ffdcb0; }
-  table.log td.h { font-family: monospace; white-space: nowrap; color: #b60; }
+  table.log td.h { width: 1%; font-family: monospace; white-space: nowrap; color: #b60; }
   table.log .meta { font-size: 12px; color: #888; margin: 0; }
   table.files { border-collapse: collapse; margin: 6px 0; font-family: monospace; font-size: 12px; width: 100%; }
   table.files td { padding: 2px 6px; vertical-align: top; }
