@@ -385,7 +385,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 <div id="splitter" role="separator" aria-orientation="vertical" aria-label="右ペインの幅を調整" tabindex="0"></div>
 <div id="panel">
   <div id="listView"><p class="hint">ノードをクリックすると、そのコミットから最初（ルート）までのログを表示します。エッジをクリックすると省略された区間のログを表示します。</p>
-    <p class="hint">Ctrl（Mac は ⌘）+クリックで比較対象 A を選び、別のログのコミットをクリックして比較対象 B を選びます。</p></div>
+    <p class="hint">コミットをダブルクリックして比較対象 A を選び、別のコミットをクリックして比較対象 B を選びます。</p></div>
   <div id="detailView"></div>
 </div>
 <script>
@@ -398,6 +398,7 @@ let curView = "list", selected = null, selectedKey = null, token = 0, observer =
 let curCtx = null, curFiles = [];
 let cmp = [];  // 比較用コミットのハッシュ (先頭が A、次が B)
 const nodeEl = {};  // ハッシュ -> グラフ上のノード要素
+const commitClickTimers = new WeakMap();
 const homeHtml = listView.innerHTML;
 if (!history.state || !history.state.screen) history.replaceState({screen: "home"}, "");
 
@@ -423,6 +424,19 @@ splitter.addEventListener("pointercancel", stopResizing);
 
 function esc(s) {
   return String(s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+}
+function handleCommitClick(ev, target, onSingle, onDouble) {
+  const pending = commitClickTimers.get(target);
+  if (pending) clearTimeout(pending);
+  if (ev.detail === 2) {
+    commitClickTimers.delete(target);
+    onDouble();
+  } else if (ev.detail <= 1) {
+    commitClickTimers.set(target, setTimeout(() => {
+      commitClickTimers.delete(target);
+      onSingle();
+    }, 250));
+  }
 }
 function chips(h) {
   const n = DATA.nodes[h];
@@ -634,7 +648,7 @@ function refreshGraph() {
     });
 }
 
-// ---- 2つのノードの比較 (Ctrl+クリック) ----
+// ---- 2つのノードの比較 (ダブルクリック) ----
 function commitLine(label, c) {
   return '<div class="meta"><span class="tag tag' + label + '">' + label + "</span>" + chips(c.hash) +
     esc(c.hash.slice(0, 7)) + copyLink(c.hash) + " — " + esc(c.message.split("\n")[0]) +
@@ -834,17 +848,18 @@ function doMerge() {
     .finally(() => { btn.disabled = false; });
 }
 function selectCmpA(hash) {
-  cmp = [hash];
+  if (cmp[0] === hash) cmp = cmp.slice(1);
+  else if (cmp[1] === hash) cmp = [hash, cmp[0]];
+  else cmp = cmp.length > 1 ? [hash, cmp[1]] : [hash];
   if (selected) { selected.classList.remove("sel"); selected = null; selectedKey = null; }
   if (curRow) { curRow.classList.remove("cur"); curRow = null; }
   updateCmpClasses();
 }
 function selectCmpB(hash) {
   if (cmp.length < 1 || cmp[0] === hash) return;
-  cmp = [cmp[0], hash];
+  cmp = cmp[1] === hash ? [cmp[0]] : [cmp[0], hash];
   updateCmpClasses();
 }
-
 function restoreScreen(state) {
   if (state.screen === "log") showLog(state.titleHtml, state.rev, state.topHtml, true, state.scroll || 0);
   else if (state.screen === "detail") showDetail(state.hash, true);
@@ -866,12 +881,15 @@ window.addEventListener("popstate", ev => restoreScreen(ev.state || {screen: "ho
 listView.addEventListener("click", ev => {
   const tr = ev.target.closest("tr.clickable");
   if (!tr) return;
-  if (ev.ctrlKey || ev.metaKey) { selectCmpA(tr.dataset.h); return; }
-  if (cmp.length) { selectCmpB(tr.dataset.h); return; }
-  clearCmp();
-  if (curRow) curRow.classList.remove("cur");
-  curRow = tr; tr.classList.add("cur");
-  showDetail(tr.dataset.h);
+  handleCommitClick(ev, tr, () => {
+    if (cmp.length) { selectCmpB(tr.dataset.h); return; }
+    clearCmp();
+    if (curRow) curRow.classList.remove("cur");
+    curRow = tr; tr.classList.add("cur");
+    showDetail(tr.dataset.h);
+  }, () => {
+    selectCmpA(tr.dataset.h);
+  });
 });
 detailView.addEventListener("click", ev => {
   if (ev.target.closest("#wipReload")) { showWip(true); refreshGraph().catch(() => {}); return; }
@@ -912,24 +930,35 @@ function select(g) {
   selectedKey = t ? t.textContent : null;  // グラフを作り直したあとで選択を復元するため
 }
 
-function onNodeClick(ev, g, n) {
+function onNodeClick(g, n) {
   if (n.wip) {  // 作業ツリーの変更 (WIP) ノード: ログではなく変更ファイルの一覧を出す
-    if (ev.ctrlKey || ev.metaKey) return;
     clearCmp(); select(g); showWip();
     return;
   }
-  if (ev.ctrlKey || ev.metaKey) { selectCmpA(n.hash); return; }
   if (cmp.length) { selectCmpB(n.hash); return; }
   select(g);
   showLog("git log --oneline " + esc(n.hash.slice(0, 7)), n.hash,
           chips(n.hash) + '<div class="meta">最初のコミットまでの全ログ</div>');
+}
+function onNodeDoubleClick(g, n) {
+  if (n.wip) { onNodeClick(g, n); return; }
+  selectCmpA(n.hash);
 }
 
 function init() {
   document.querySelectorAll("svg g.node").forEach(g => {
     const t = g.querySelector("title");
     const n = t && DATA.nodes[t.textContent];
-    if (n) { nodeEl[n.hash] = g; g.addEventListener("click", ev => onNodeClick(ev, g, n)); }
+    if (n) {
+      nodeEl[n.hash] = g;
+      const box = g.getBBox(), hit = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      hit.setAttribute("x", box.x); hit.setAttribute("y", box.y);
+      hit.setAttribute("width", box.width); hit.setAttribute("height", box.height);
+      hit.setAttribute("fill", "transparent"); hit.setAttribute("pointer-events", "all");
+      g.insertBefore(hit, g.children[1] || null);
+      g.addEventListener("click", ev => handleCommitClick(ev, g,
+        () => onNodeClick(g, n), () => onNodeDoubleClick(g, n)));
+    }
   });
   document.querySelectorAll("svg g.edge").forEach(g => {
     const t = g.querySelector("title");
