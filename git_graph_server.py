@@ -183,7 +183,7 @@ document.addEventListener("click", ev => {
   const label = a.dataset.label || (a.dataset.label = a.textContent);
   copyText(a.dataset.copy).then(ok => {
     const cls = ok ? "ok" : "ng";
-    a.textContent = ok ? "コピーしました" : "コピーできません"; a.classList.add(cls);
+    a.textContent = ok ? "✅" : "⚠️"; a.classList.add(cls);
     setTimeout(() => { a.textContent = label; a.classList.remove(cls); }, 1500);
   });
 }, true);
@@ -211,10 +211,13 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   .tagA { background: #06c; } .tagB { background: #e67e00; }
   .meta { color: #555; margin: 2px 0; }
   .hint { color: #777; }
-  .copy { color: #06c; cursor: pointer; font-size: 11px; margin-left: 6px; user-select: none; font-family: system-ui, sans-serif; }
-  .copy:hover { text-decoration: underline; } .copy.ok { color: #1a7f37; } .copy.ng { color: #cf222e; }
+  .copy { cursor: pointer; font-size: 12px; margin-left: 6px; user-select: none; text-decoration: none; border-radius: 3px; padding: 0 2px; }
+  .copy:hover { background: #e4e4e4; }
   td.h .copy { opacity: .45; } tr:hover td.h .copy { opacity: 1; }
-  .actions { border: 1px solid #ddd; background: #fafafa; border-radius: 4px; padding: 8px; margin: 8px 0; }
+  .actions { display: none; border: 1px solid #ddd; background: #fafafa; border-radius: 4px; padding: 8px; margin: 8px 0; }
+  .actions.open { display: block; }
+  .tglbtn { border: 1px solid #bbb; background: #f3f3f3; border-radius: 3px; cursor: pointer; padding: 0 6px; margin-left: 4px; font-size: 12px; line-height: 1.4; }
+  .tglbtn:hover { background: #e4e4e4; }
   .actions .arow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0; }
   .actions input[type=text] { padding: 3px 6px; border: 1px solid #bbb; border-radius: 3px; min-width: 0; flex: 1; }
   .abtn { background: #e8eefc; border: 1px solid #b8c7ee; padding: 3px 8px; border-radius: 3px; cursor: pointer; }
@@ -290,7 +293,7 @@ function chips(h) {
 }
 /*__COPY_JS__*/
 function copyLink(h) {  // フルハッシュをコピーするリンク
-  return '<a class="copy" data-copy="' + h + '" title="ハッシュ (40桁) をコピー">コピー</a>';
+  return '<a class="copy" data-copy="' + h + '" title="ハッシュ (40桁) をコピー">📋</a>';
 }
 function api(path, params) {
   return fetch(path + "?" + new URLSearchParams(params)).then(r =>
@@ -395,9 +398,12 @@ function checkoutBtns(h) {
   return localBranches(h).map(b =>
     '<button class="abtn" data-act="checkout-branch" data-branch="' + esc(b) + '">checkout ' + esc(b) + "</button>").join(" ");
 }
+function toggleBtn() {  // ハッシュの行に置く [+] ボタン。押すとブランチ作成などの操作パネルが開く
+  return DATA.writable ? '<button class="tglbtn" id="actToggle" aria-expanded="false" title="ブランチ作成・タグ作成・チェックアウト">+</button>' : "";
+}
 function actionsHtml(h) {  // ブランチ作成 / タグ作成 / チェックアウト (書き込みが有効なときだけ)
   if (!DATA.writable) return "";
-  return '<div class="actions">' +
+  return '<div class="actions" id="actions">' +
     '<div class="arow"><input type="text" id="brName" placeholder="新しいブランチ名">' +
     '<label><input type="checkbox" id="brCo"> 作成後にチェックアウト</label>' +
     '<button class="abtn" data-act="branch">ブランチ作成</button></div>' +
@@ -417,7 +423,7 @@ function showDetail(h) {
     const parents = c.parents.map(p => esc(p.slice(0, 7))).join(", ") || "(なし)";
     detailView.innerHTML = back + "<h2>コミット " + esc(c.hash.slice(0, 7)) + "</h2>" +
       '<span id="dChips">' + chips(c.hash) + "</span>" +
-      '<div class="meta">' + esc(c.hash) + copyLink(c.hash) + "</div>" +
+      '<div class="meta">' + esc(c.hash) + copyLink(c.hash) + toggleBtn() + "</div>" +
       '<div class="meta">Author: ' + esc(c.author) + "</div>" +
       '<div class="meta">Date: ' + esc(c.date) + "</div>" +
       '<div class="meta">Parent: ' + parents + "</div>" +
@@ -555,6 +561,14 @@ listView.addEventListener("click", ev => {
   showDetail(tr.dataset.h);
 });
 detailView.addEventListener("click", ev => {
+  const tg = ev.target.closest("#actToggle");
+  if (tg) {
+    const panel = detailView.querySelector("#actions");
+    const open = panel.classList.toggle("open");
+    tg.textContent = open ? "\u2212" : "+"; tg.setAttribute("aria-expanded", open ? "true" : "false");
+    if (open) { const f = panel.querySelector("#brName"); if (f) f.focus(); }
+    return;
+  }
   if (ev.target.closest("#wipReload")) { showWip(); refreshGraph().catch(() => {}); return; }
   const ab = ev.target.closest(".abtn");
   if (ab) { doAction(ab); return; }
@@ -918,8 +932,8 @@ DIFF_CSS = """
   code { background: #eee; padding: 1px 4px; border-radius: 3px; user-select: all; }
   .plus { color: #1a7f37; } .minus { color: #cf222e; }
   .hint { color: #777; }
-  .copy { color: #06c; cursor: pointer; font-size: 11px; margin-left: 6px; user-select: none; font-family: system-ui, sans-serif; }
-  .copy:hover { text-decoration: underline; } .copy.ok { color: #1a7f37; } .copy.ng { color: #cf222e; }
+  .copy { cursor: pointer; font-size: 12px; margin-left: 6px; user-select: none; text-decoration: none; border-radius: 3px; padding: 0 2px; }
+  .copy:hover { background: #e4e4e4; }
   .tag { display: inline-block; padding: 0 6px; border-radius: 3px; margin-right: 4px; font-weight: bold; color: #fff; }
   .tagA { background: #06c; } .tagB { background: #e67e00; }
   .diff { font-family: monospace; font-size: 12px; white-space: pre; margin-top: 12px; border: 1px solid #ddd; }
@@ -971,7 +985,7 @@ def diff_url(ctx, f):
 def commit_line_html(label, c):
     subject = c["message"].split("\n", 1)[0]
     return (f'<div class="meta"><span class="tag tag{label}">{label}</span>{c["hash"][:7]}'
-            f'<a class="copy" data-copy="{c["hash"]}" title="ハッシュ (40桁) をコピー">コピー</a> — '
+            f'<a class="copy" data-copy="{c["hash"]}" title="ハッシュ (40桁) をコピー">📋</a> — '
             f'{html.escape(subject)} <span class="hint">({html.escape(c["author"])} / '
             f'{html.escape(c["date"])})</span></div>')
 
@@ -1009,7 +1023,7 @@ def render_diff_page(q):
         files, ctx, ref = c["files"], {"hash": c["hash"]}, c["hash"][:7]
         subject = c["message"].split("\n", 1)[0]
         info = (f'<div class="meta">コミット {ref}'
-                f'<a class="copy" data-copy="{c["hash"]}" title="ハッシュ (40桁) をコピー">コピー</a>'
+                f'<a class="copy" data-copy="{c["hash"]}" title="ハッシュ (40桁) をコピー">📋</a>'
                 f' — {html.escape(subject)}</div>'
                 f'<div class="meta">{html.escape(c["author"])} / {html.escape(c["date"])}</div>')
         cmd = f"git show {ref} -- {path}"
