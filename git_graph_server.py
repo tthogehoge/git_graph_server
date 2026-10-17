@@ -18,6 +18,7 @@
   /diff?wip=staged|unstaged|untracked|conflict&path=<file>   作業ツリーの変更の差分ページ
   /api/compare?from=<hash>&to=<hash>                         2コミット間の変更ファイル一覧
   POST /api/branch | /api/tag | /api/checkout (JSON)         ブランチ作成 / タグ作成 / チェックアウト
+  POST /api/wip-commit {paths, message} (JSON)               チェックしたファイルを add してコミット
      書き込みは 127.0.0.1 で待ち受けているときだけ有効 (--read-only で無効化、--allow-write で他アドレスでも許可)
 """
 import argparse
@@ -292,6 +293,12 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   tr.frow { cursor: pointer; } tr.frow:hover td { background: #eef; }
   td.fp { color: #06c; word-break: break-all; } td.fc { text-align: right; white-space: nowrap; } td.fb { white-space: nowrap; }
   td.fp a { color: inherit; text-decoration: none; } td.fp a:hover { text-decoration: underline; }
+  td.fk { width: 1%; padding-right: 0; } td.fk input, h3 .wipall { margin: 0 6px 0 0; vertical-align: middle; cursor: pointer; }
+  .wipbox { border: 1px solid #ddd; background: #fafafa; border-radius: 4px; padding: 8px; margin: 8px 0; }
+  .wipbox textarea { width: 100%; box-sizing: border-box; min-height: 56px; padding: 4px 6px; border: 1px solid #bbb; border-radius: 3px; font: inherit; resize: vertical; }
+  .wipbox .arow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 6px; }
+  .wbtn { background: #1a7f37; color: #fff; border: 1px solid #176b30; padding: 3px 10px; border-radius: 3px; cursor: pointer; }
+  .wbtn:hover { background: #176b30; } .wbtn:disabled { opacity: .5; cursor: default; }
   .plus { color: #1a7f37; } .minus { color: #cf222e; }
   g.node, g.edge { cursor: pointer; }
   g.node:hover polygon { stroke: #e88; } g.edge:hover path { stroke: #e88; }
@@ -466,7 +473,7 @@ const ST_CLASS = {M: "stM", T: "stM", A: "stA", D: "stD", R: "stR", C: "stR", U:
 function badge(f) {  // 変更の種類 (M/A/D/R...) のバッジ。WIP の一覧で使う
   return f.st ? '<span class="st ' + (ST_CLASS[f.st] || "stM") + '">' + esc(f.st) + "</span>" : "";
 }
-function filesHtml(ctx, files, offset) {
+function filesHtml(ctx, files, offset, withCheck) {
   offset = offset || 0;
   if (!files.length) return '<p class="hint">変更されたファイルはありません</p>';
   let add = 0, del = 0, max = 0;
@@ -476,7 +483,7 @@ function filesHtml(ctx, files, offset) {
     const a = f.added || 0, d = f.deleted || 0;
     const pa = a ? Math.max(1, Math.round(a * scale)) : 0, pd = d ? Math.max(1, Math.round(d * scale)) : 0;
     const name = f.old_path ? f.old_path + " => " + f.path : f.path;
-    return '<tr class="frow" data-k="' + (offset + k) + '"><td class="fp">' + badge(f) + '<a href="' + esc(diffUrl(ctx, f)) +
+    return '<tr class="frow" data-k="' + (offset + k) + '">' + (withCheck ? wipCheckCell(f) : "") + '<td class="fp">' + badge(f) + '<a href="' + esc(diffUrl(ctx, f)) +
       '">' + esc(name) + '</a></td><td class="fc">' +
       (f.label ? esc(f.label) : f.added === null ? "Bin" : a + d) + '</td><td class="fb"><span class="plus">' + "+".repeat(pa) +
       '</span><span class="minus">' + "-".repeat(pd) + "</span></td></tr>";
@@ -712,6 +719,7 @@ detailView.addEventListener("click", ev => {
     return;
   }
   if (ev.target.closest("#wipReload")) { showWip(true); refreshGraph().catch(() => {}); return; }
+  if (ev.target.closest("#wipCommit")) { doWipCommit(); return; }
   const ab = ev.target.closest(".abtn");
   if (ab) { doAction(ab); return; }
   if (ev.target.closest(".sbtn")) {
@@ -721,7 +729,7 @@ detailView.addEventListener("click", ev => {
   }
   if (ev.target.closest(".back-btn")) { history.back(); return; }
   const tr = ev.target.closest("tr.frow");
-  if (tr && !ev.target.closest("a") && curCtx)  // 行のどこをクリックしても差分を開く
+  if (tr && !ev.target.closest("a, input, td.fk") && curCtx)  // 行のどこをクリックしても差分を開く
     location.href = diffUrl(curCtx, curFiles[+tr.dataset.k]);
 });
 document.getElementById("compareControls").addEventListener("click", ev => {
@@ -771,26 +779,92 @@ function init() {
 }
 
 // ---- 作業ツリーの変更 (WIP) ----
-function showWip(fromHistory) {
+// チェックしたファイルだけを add してコミットする (TortoiseGit のコミットダイアログと同じ考え方)。
+// 既定ではステージ済みのファイルがチェック済み。チェックを外したステージ済みファイルはステージから外れる。
+let wipSel = {}, wipStaged = new Set(), wipMerging = false, wipMsg = "";  // wipSel: パス → ユーザーが付け外ししたチェック状態
+function wipIsChecked(p) { return p in wipSel ? wipSel[p] : (wipMerging || wipStaged.has(p)); }
+function wipCheckCell(f) {
+  return '<td class="fk"><input type="checkbox" class="wipck" data-kind="' + esc(f.wip) + '" data-path="' + esc(f.path) + '"' +
+    (wipIsChecked(f.path) ? " checked" : "") + "></td>";
+}
+function wipPaths() {  // チェックされたパス (同じファイルが ステージ済み と 未ステージ の両方に出ても1件)
+  const s = new Set();
+  detailView.querySelectorAll(".wipck:checked").forEach(el => s.add(el.dataset.path));
+  return [...s];
+}
+function setWipPath(p, v) {  // 同じパスのチェックボックスをまとめて切り替える
+  wipSel[p] = v;
+  detailView.querySelectorAll(".wipck").forEach(x => { if (x.dataset.path === p) x.checked = v; });
+}
+function wipSync() {  // コミットボタンの件数と、グループの全選択チェックを更新
+  const n = wipPaths().length, b = detailView.querySelector("#wipCommit");
+  if (b) { b.disabled = n === 0; b.textContent = "チェックした " + n + " 件を add してコミット"; }
+  detailView.querySelectorAll(".wipall").forEach(all => {
+    const cks = [...detailView.querySelectorAll('.wipck[data-kind="' + all.dataset.kind + '"]')];
+    const c = cks.filter(x => x.checked).length;
+    all.checked = cks.length > 0 && c === cks.length;
+    all.indeterminate = c > 0 && c < cks.length;
+  });
+}
+function wipSay(text, ok) {
+  const el = detailView.querySelector("#wipMsgOut");
+  if (el) { el.textContent = text; el.className = "amsg " + (ok ? "ok" : "ng"); }
+}
+function doWipCommit() {
+  const paths = wipPaths(), ta = detailView.querySelector("#wipMsg"), msg = ta ? ta.value : "";
+  if (!msg.trim()) { wipSay("コミットメッセージを入力してください", false); return; }
+  if (!paths.length) { wipSay("コミットするファイルにチェックを付けてください", false); return; }
+  const btn = detailView.querySelector("#wipCommit");
+  btn.disabled = true; wipSay("実行中…", true);
+  post("/api/wip-commit", {paths: paths, message: msg})
+    .then(r => {
+      wipMsg = ""; wipSel = {};
+      showWip(true, r.message);
+      refreshGraph().catch(() => {});
+    })
+    .catch(e => { wipSay(e.message, false); wipSync(); });
+}
+detailView.addEventListener("change", ev => {
+  const ck = ev.target.closest(".wipck"), all = ev.target.closest(".wipall");
+  if (ck) setWipPath(ck.dataset.path, ck.checked);
+  else if (all) detailView.querySelectorAll('.wipck[data-kind="' + all.dataset.kind + '"]').forEach(x => setWipPath(x.dataset.path, all.checked));
+  else return;
+  wipSync();
+});
+detailView.addEventListener("input", ev => { if (ev.target.id === "wipMsg") wipMsg = ev.target.value; });
+
+function showWip(fromHistory, okMsg) {
   if (!fromHistory) pushScreen({screen: "wip"});
   const btns = '<button class="back-btn">← 履歴一覧に戻る</button><button class="sbtn" id="wipReload">↻ 更新</button>';
   detailView.innerHTML = btns + '<p class="hint">読み込み中…</p>';
   showView("detail"); curDetailHash = null;
   api("/api/status", {}).then(s => {
+    wipStaged = new Set(s.staged.map(f => f.path)); wipMerging = !!s.merging;
+    const canCommit = !!DATA.writable;  // 書き込みが無効 (--read-only など) のときはチェック欄を出さない
     const sections = [["conflict", "競合", s.conflicts], ["staged", "ステージ済み (git add 済み)", s.staged],
                       ["unstaged", "未ステージの変更", s.unstaged], ["untracked", "未追跡のファイル", s.untracked]];
     let files = [], body = "";
     sections.forEach(([kind, title, items]) => {
       if (!items.length) return;
       const list = items.map(f => Object.assign({wip: kind}, f));
-      body += "<h3>" + title + " (" + list.length + ")</h3>" + filesHtml({}, list, files.length);
+      body += "<h3>" + (canCommit ? '<input type="checkbox" class="wipall" data-kind="' + kind + '" title="このグループを全選択/解除">' : "") +
+        title + " (" + list.length + ")</h3>" + filesHtml({}, list, files.length, canCommit);
       files = files.concat(list);
     });
     curCtx = {}; curFiles = files;
+    const box = canCommit && files.length
+      ? '<div class="wipbox"><textarea id="wipMsg" placeholder="コミットメッセージ"></textarea>' +
+        '<div class="arow"><button class="wbtn" id="wipCommit">コミット</button>' +
+        '<span class="hint">チェックを外したステージ済みファイルはステージから外れます (作業ツリーはそのまま)</span></div>' +
+        '<div class="amsg" id="wipMsgOut"></div></div>' : "";
     detailView.innerHTML = btns + "<h2>作業ツリーの変更 (WIP)</h2>" +
       '<div class="meta">HEAD: ' + (s.head ? chips(s.head) + esc(s.head.slice(0, 7)) : "(コミットなし)") + "</div>" +
-      (body || '<p class="hint">変更はありません</p>') +
+      box + (body || '<p class="hint">変更はありません</p>') +
       (s.truncated ? '<p class="hint">ファイルが多いため先頭のみ表示しています</p>' : "");
+    const ta = detailView.querySelector("#wipMsg");
+    if (ta) ta.value = wipMsg;
+    if (okMsg) wipSay(okMsg, true);
+    wipSync();
   }).catch(e => {
     detailView.innerHTML = btns + '<p class="hint">エラー: ' + esc(e.message) + "</p>";
   });
@@ -895,6 +969,7 @@ def api_status(q):
         s["head"] = git("rev-parse", "--verify", "--quiet", "HEAD").strip()
     except subprocess.CalledProcessError:
         s["head"] = ""
+    s["merging"] = is_merging()
     return s
 
 
@@ -1248,10 +1323,11 @@ def check_ref_name(kind, name):
         raise ValueError(f"{name!r} は{label}名として使えません")
 
 
-def run_git_write(*args):
+def run_git_write(*args, literal=False):
     """git を実行し、失敗したら git のエラーメッセージを ValueError にして返す。"""
+    env = dict(os.environ, GIT_LITERAL_PATHSPECS="1") if literal else None  # パスをglobとして解釈しない
     r = subprocess.run(["git", "-C", REPO, *args], capture_output=True, text=True,
-                       encoding="utf-8", errors="replace")
+                       encoding="utf-8", errors="replace", env=env)
     if r.returncode != 0:
         raise ValueError((r.stderr or r.stdout).strip() or "git コマンドが失敗しました")
     return (r.stdout + r.stderr).strip()
@@ -1318,8 +1394,59 @@ def api_checkout(body):
     return {"ok": True, "message": f"{h[:7]} をチェックアウトしました (detached HEAD)"}
 
 
+def is_merging():
+    return subprocess.run(["git", "-C", REPO, "rev-parse", "-q", "--verify", "MERGE_HEAD"],
+                          capture_output=True).returncode == 0
+
+
+def has_head():
+    return subprocess.run(["git", "-C", REPO, "rev-parse", "-q", "--verify", "HEAD"],
+                          capture_output=True).returncode == 0
+
+
+def api_wip_commit(body):
+    """チェックされたファイルを add してコミットする (TortoiseGit のコミットダイアログと同じ考え方)。
+    ステージ済みでチェックのないファイルは、ステージから外す (作業ツリーの内容はそのまま)。"""
+    if not WIP_ENABLED:
+        raise ValueError("作業ツリーの変更の表示は無効です")
+    msg = str(body.get("message", "")).strip()
+    if not msg:
+        raise ValueError("コミットメッセージを入力してください")
+    paths = body.get("paths")
+    if not isinstance(paths, list) or not paths or not all(isinstance(p, str) for p in paths):
+        raise ValueError("コミットするファイルを選んでください")
+    checked = set(paths)
+    s = parse_status(read_status_raw(), limit=10 ** 9)
+    known = {f["path"] for k in ("staged", "unstaged", "untracked", "conflicts") for f in s[k]}
+    bad = checked - known  # 任意のパスを add させないよう、いま変更ありと報告されているものだけを対象にする
+    if bad:
+        raise ValueError("変更のないファイルが含まれています (更新してやり直してください): " + ", ".join(sorted(bad)[:3]))
+    unstage = []
+    for f in s["staged"]:
+        if f["path"] not in checked:
+            unstage.append(f["path"])
+            if f.get("old_path"):  # リネームは元のパスも一緒に戻す
+                unstage.append(f["old_path"])
+    if is_merging() and (unstage or any(f["path"] not in checked for f in s["conflicts"])):
+        raise ValueError("マージ中は、ステージ済み・競合のファイルをすべて含めてコミットする必要があります")
+    step = 200  # コマンドラインが長くなりすぎないように分割する
+    if unstage:
+        for i in range(0, len(unstage), step):
+            part = unstage[i:i + step]
+            if has_head():
+                run_git_write("reset", "-q", "--", *part, literal=True)
+            else:  # 最初のコミット前は HEAD がないので、インデックスから外す
+                run_git_write("rm", "--cached", "-r", "-q", "-f", "--", *part, literal=True)
+    todo = sorted(checked)
+    for i in range(0, len(todo), step):
+        run_git_write("add", "-A", "--", *todo[i:i + step], literal=True)
+    run_git_write("commit", "-m", msg)
+    h = git("rev-parse", "HEAD").strip()
+    return {"ok": True, "message": f"{h[:7]} をコミットしました ({len(checked)} 件)"}
+
+
 POST_ROUTES = {"/api/branch": api_branch, "/api/tag": api_tag, "/api/ref-delete": api_delete_ref,
-               "/api/checkout": api_checkout}
+               "/api/checkout": api_checkout, "/api/wip-commit": api_wip_commit}
 
 
 class Handler(BaseHTTPRequestHandler):
