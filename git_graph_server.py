@@ -203,7 +203,10 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   #compareControls { position: absolute; top: 42px; right: 14px; z-index: 5; display: flex; align-items: center; gap: 6px; padding: 6px; border: 1px solid #ccc; border-radius: 4px; background: #fff; box-shadow: 0 1px 4px #0002; }
   #compareControls[hidden] { display: none; }
   #compareControls .cmp-hash { font-family: monospace; white-space: nowrap; }
-  #panel { width: 480px; display: flex; flex-direction: column; border-left: 1px solid #ccc; background: #fafafa; box-sizing: border-box; }
+  #splitter { flex: 0 0 6px; cursor: col-resize; background: #eee; border-left: 1px solid #ccc; border-right: 1px solid #ccc; box-sizing: border-box; touch-action: none; }
+  #splitter:hover, body.resizing #splitter { background: #c8d8f0; }
+  body.resizing { cursor: col-resize; user-select: none; }
+  #panel { flex: 0 0 var(--panel-width, 480px); min-width: 240px; display: flex; flex-direction: column; border-left: 1px solid #ccc; background: #fafafa; box-sizing: border-box; }
   #listView, #detailView { flex: 1; min-height: 0; overflow: auto; padding: 14px; box-sizing: border-box; }
   #detailView { display: none; background: #fff; }
   h2 { font-size: 14px; margin: 0 0 8px; }
@@ -274,6 +277,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   </div>
 </div>
 </div>
+<div id="splitter" role="separator" aria-orientation="vertical" aria-label="右ペインの幅を調整" tabindex="0"></div>
 <div id="panel">
   <div id="listView"><p class="hint">ノードをクリックすると、そのコミットから最初（ルート）までのログを表示します。エッジをクリックすると省略された区間のログを表示します。</p>
     <p class="hint">Ctrl（Mac は ⌘）+クリックで比較対象 A を選び、別のログのコミットをクリックして比較対象 B を選びます。</p></div>
@@ -291,6 +295,26 @@ let cmp = [];  // 比較用コミットのハッシュ (先頭が A、次が B)
 const nodeEl = {};  // ハッシュ -> グラフ上のノード要素
 const homeHtml = listView.innerHTML;
 if (!history.state || !history.state.screen) history.replaceState({screen: "home"}, "");
+
+const splitter = document.getElementById("splitter");
+let resizing = false;
+splitter.addEventListener("pointerdown", ev => {
+  resizing = true;
+  splitter.setPointerCapture(ev.pointerId);
+  document.body.classList.add("resizing");
+  ev.preventDefault();
+});
+splitter.addEventListener("pointermove", ev => {
+  if (!resizing) return;
+  const width = Math.max(240, Math.min(window.innerWidth - 166, window.innerWidth - ev.clientX));
+  document.documentElement.style.setProperty("--panel-width", width + "px");
+});
+function stopResizing() {
+  resizing = false;
+  document.body.classList.remove("resizing");
+}
+splitter.addEventListener("pointerup", stopResizing);
+splitter.addEventListener("pointercancel", stopResizing);
 
 function esc(s) {
   return String(s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
