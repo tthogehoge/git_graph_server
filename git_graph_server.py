@@ -18,6 +18,8 @@
   /diff?wip=staged|unstaged|untracked|conflict&path=<file>   作業ツリーの変更の差分ページ
   /api/compare?from=<hash>&to=<hash>                         2コミット間の変更ファイル一覧
   POST /api/branch | /api/tag | /api/checkout (JSON)         ブランチ作成 / タグ作成 / チェックアウト (画面では、比較のAだけを選んだときの操作)
+     チェックアウトが「編集中のファイル」「同名の管理外ファイル」で止まったときは {blocked:true, modified:[..], untracked:[..]} を返す。
+     on_conflict="stash" (全変更を stash -u して実行) / "discard" (止めているファイルだけ破棄・削除して実行) を付けて再送する
   POST /api/merge {hash, no_ff} (JSON)                       選んだコミットを現在の HEAD にマージ
   POST /api/rebase {hash} (JSON)                             現在のブランチを選んだコミットの上にリベース (競合したら中止して元に戻す)
   /api/head                                                  現在のブランチ名 (マージ/リベース前の確認用)
@@ -33,6 +35,7 @@ import re
 import subprocess
 import sys
 import threading
+import time
 import webbrowser
 from collections import Counter, defaultdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -280,6 +283,12 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   .abtn { background: #e8eefc; border: 1px solid #b8c7ee; padding: 3px 8px; border-radius: 3px; cursor: pointer; }
   .abtn:hover { background: #d6e2fb; } .abtn:disabled { opacity: .5; cursor: default; }
   .amsg { margin-top: 4px; white-space: pre-wrap; } .amsg.ok { color: #1a7f37; } .amsg.ng { color: #cf222e; }
+  #coModal { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+  #coModal[hidden] { display: none; }
+  .comodal { background: #fff; border-radius: 6px; padding: 14px 16px; max-width: 560px; max-height: 80vh; overflow: auto; box-shadow: 0 4px 20px rgba(0,0,0,.3); }
+  .comodal ul { margin: 2px 0 8px; padding-left: 20px; font-family: monospace; word-break: break-all; }
+  .comodal .arow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .abtn.danger { background: #fde8e8; border-color: #eeb8b8; } .abtn.danger:hover { background: #fbd3d3; }
   h3 { font-size: 13px; margin: 10px 0 2px; }
   .st { display: inline-block; min-width: 1.3em; text-align: center; font-weight: bold; color: #fff; border-radius: 2px; margin-right: 4px; }
   .stM { background: #d29922; } .stA { background: #1a7f37; } .stD { background: #cf222e; } .stR { background: #6f42c1; } .stU { background: #cf222e; } .stN { background: #888; }
@@ -343,6 +352,15 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     <div class="amsg" id="cmMsg"></div>
   </div>
 </div>
+<div id="coModal" hidden><div class="comodal" role="dialog" aria-modal="true">
+  <div><b>チェックアウトできません</b> — 次のファイルが邪魔をしています。</div>
+  <div id="coFiles"></div>
+  <div class="hint">stash: 編集中の変更と管理外ファイルをすべて stash に退避します (あとで git stash pop で戻せます)。<br>
+  削除: 上のファイルだけを破棄します。編集内容は HEAD の状態に戻り、管理外ファイルは削除されます (元に戻せません)。</div>
+  <div class="arow"><button class="abtn" data-co="stash">stash してチェックアウト</button>
+    <button class="abtn danger" data-co="discard">削除してチェックアウト</button>
+    <button class="abtn" data-co="cancel">キャンセル</button></div>
+</div></div>
 <div id="graph">
   <div id="loading">
     <div class="spin"></div>
@@ -651,6 +669,23 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
   document.getElementById("mergeNoFf").hidden = !canMerge;
 }
 let cmpActOpen = false;
+function askCheckoutConflict(r) {  // チェックアウトを止めているファイルを見せて、stash / 削除 / キャンセルを選んでもらう
+  return new Promise(resolve => {
+    const m = document.getElementById("coModal");
+    const list = fs => "<ul>" + fs.map(f => "<li>" + esc(f) + "</li>").join("") + "</ul>";
+    let html = "";
+    if (r.modified.length) html += "<h3>編集中のファイル</h3>" + list(r.modified);
+    if (r.untracked.length) html += "<h3>チェックアウト先に同名がある管理外ファイル</h3>" + list(r.untracked);
+    document.getElementById("coFiles").innerHTML = html;
+    const done = v => { m.hidden = true; m.onclick = null; resolve(v); };
+    m.hidden = false;
+    m.onclick = ev => {
+      const b = ev.target.closest("[data-co]");
+      if (b) done(b.dataset.co === "cancel" ? null : b.dataset.co);
+      else if (ev.target === m) done(null);
+    };
+  });
+}
 function setCmpMsg(text, ok) {
   const el = document.getElementById("cmMsg");
   el.textContent = text; el.className = "amsg " + (ok ? "ok" : "ng");
@@ -677,8 +712,19 @@ function doCmpAction(btn) {  // Aに対するブランチ作成 / タグ作成 /
   } else return;
   if (ask && !confirm(ask)) return;
   btn.disabled = true; setCmpMsg("実行中…", true);
-  post(url, body)
+  const run = extra => post(url, Object.assign({}, body, extra || {}));
+  run()
     .then(r => {
+      if (!r.blocked) return r;
+      setCmpMsg("", true);
+      return askCheckoutConflict(r).then(mode => {
+        if (!mode) return {cancelled: true, message: "チェックアウトをキャンセルしました"};
+        setCmpMsg("実行中…", true);
+        return run({on_conflict: mode});
+      });
+    })
+    .then(r => {
+      if (r.cancelled) { setCmpMsg(r.message, false); return; }
       setCmpMsg(r.message, true);
       if (act === "branch") document.getElementById("cmBrName").value = "";
       if (act === "tag") { document.getElementById("cmTagName").value = ""; document.getElementById("cmTagMsg").value = ""; }
@@ -1393,14 +1439,106 @@ def check_ref_name(kind, name):
         raise ValueError(f"{name!r} は{label}名として使えません")
 
 
-def run_git_write(*args, literal=False):
+def run_git_write(*args, literal=False, cwd=None):
     """git を実行し、失敗したら git のエラーメッセージを ValueError にして返す。"""
     env = dict(os.environ, GIT_LITERAL_PATHSPECS="1") if literal else None  # パスをglobとして解釈しない
-    r = subprocess.run(["git", "-C", REPO, *args], capture_output=True, text=True,
+    r = subprocess.run(["git", "-C", cwd or REPO, *args], capture_output=True, text=True,
                        encoding="utf-8", errors="replace", env=env)
     if r.returncode != 0:
         raise ValueError((r.stderr or r.stdout).strip() or "git コマンドが失敗しました")
     return (r.stdout + r.stderr).strip()
+
+
+def git_c_locale(*args, cwd=None):
+    """メッセージを解析するため、ロケールを C にして git を実行する (失敗しても例外にしない)。"""
+    env = dict(os.environ, LC_ALL="C", LANGUAGE="C")
+    return subprocess.run(["git", "-C", cwd or REPO, *args], capture_output=True, text=True,
+                          encoding="utf-8", errors="replace", env=env)
+
+
+def parse_checkout_blockers(text):
+    """checkout が止まったときのエラーから、止めているファイルを取り出す。
+    modified: 編集中 (ステージ済み含む) で上書きされてしまうファイル / untracked: 同名の管理外ファイル"""
+    res = {"modified": [], "untracked": []}
+    kind = None
+    for line in text.splitlines():
+        if "would be overwritten by" in line:
+            if "local changes" in line:
+                kind = "modified"
+            elif "untracked working tree files" in line:
+                kind = "untracked"
+            else:
+                kind = None
+            continue
+        if kind and line.startswith("\t") and line.strip():
+            res[kind].append(line[1:])
+        else:
+            kind = None
+    return res
+
+
+def stash_all_changes():
+    """未コミットの変更 (未追跡ファイルも) を stash に退避する。作った stash の名前を返す (変更がなければ None)。"""
+    def top():
+        r = subprocess.run(["git", "-C", REPO, "rev-parse", "-q", "--verify", "refs/stash"],
+                           capture_output=True, text=True)
+        return r.stdout.strip()
+    before = top()
+    run_git_write("stash", "push", "--include-untracked", "-m",
+                  "git_graph: チェックアウト前の退避 " + time.strftime("%Y-%m-%d %H:%M:%S"))
+    return "stash@{0}" if top() != before else None
+
+
+def discard_blockers(blockers):
+    """チェックアウトを止めているファイルだけを破棄する (編集中の変更は HEAD の状態に戻し、管理外ファイルは削除)。"""
+    top = git("rev-parse", "--show-toplevel").strip()
+    top_real = os.path.realpath(top)
+    for path in blockers["modified"]:
+        in_head = git_c_locale("cat-file", "-e", "HEAD:" + path, cwd=top).returncode == 0
+        if in_head:
+            run_git_write("checkout", "HEAD", "--", path, literal=True, cwd=top)
+        else:  # インデックスにだけ追加されたファイル
+            run_git_write("rm", "-f", "-q", "--", path, literal=True, cwd=top)
+    for path in blockers["untracked"]:
+        full = os.path.join(top_real, path)
+        parent = os.path.realpath(os.path.dirname(full))
+        if os.path.commonpath([parent, top_real]) != top_real:
+            raise ValueError(f"リポジトリ外のパスは削除できません: {path}")
+        if os.path.isdir(full) and not os.path.islink(full):
+            raise ValueError(f"ディレクトリは自動削除できません: {path}")
+        if os.path.lexists(full):
+            os.remove(full)
+
+
+def checkout_resolving(args, mode):
+    """git checkout <args> を実行する。成功なら None を返す。
+    編集中のファイル/同名の管理外ファイルで止まったとき、mode が None なら {blocked, modified, untracked} を返し、
+    "stash" なら全変更を退避してから、"discard" なら止めているファイルだけ破棄してから再実行する。"""
+    if mode not in (None, "stash", "discard"):
+        raise ValueError("on_conflict が不正です")
+    stashed = None
+    if mode == "stash":
+        stashed = stash_all_changes()
+    for _ in range(3):
+        r = git_c_locale("checkout", *args)
+        if r.returncode == 0:
+            return {"stashed": stashed} if stashed else None
+        text = (r.stderr + r.stdout).strip()
+        blockers = parse_checkout_blockers(text)
+        if not (blockers["modified"] or blockers["untracked"]):
+            raise ValueError(text or "チェックアウトに失敗しました")
+        if mode is None:
+            return {"blocked": True, **blockers}
+        if mode == "stash":
+            raise ValueError("変更を stash に退避しましたが、まだチェックアウトできません:\n" + text)
+        discard_blockers(blockers)
+    raise ValueError("チェックアウトに失敗しました")
+
+
+def with_stash_note(res, msg):
+    if res and res.get("stashed"):
+        msg += f" (それまでの変更は {res['stashed']} に退避しました。戻すときは git stash pop)"
+    return msg
 
 
 def api_branch(body):
@@ -1408,8 +1546,10 @@ def api_branch(body):
     name = str(body.get("name", "")).strip()
     check_ref_name("branch", name)
     if body.get("checkout"):
-        run_git_write("checkout", "-b", name, h)
-        return {"ok": True, "message": f"ブランチ {name} を作成してチェックアウトしました"}
+        res = checkout_resolving(["-b", name, h], body.get("on_conflict"))
+        if res and res.get("blocked"):
+            return res
+        return {"ok": True, "message": with_stash_note(res, f"ブランチ {name} を作成してチェックアウトしました")}
     run_git_write("branch", name, h)
     return {"ok": True, "message": f"ブランチ {name} を作成しました"}
 
@@ -1457,11 +1597,15 @@ def api_checkout(body):
     if branch:
         branch = str(branch)
         check_ref_name("branch", branch)
-        run_git_write("checkout", branch, "--")
-        return {"ok": True, "message": f"ブランチ {branch} をチェックアウトしました"}
+        res = checkout_resolving([branch, "--"], body.get("on_conflict"))
+        if res and res.get("blocked"):
+            return res
+        return {"ok": True, "message": with_stash_note(res, f"ブランチ {branch} をチェックアウトしました")}
     h = resolve_commit(body.get("hash", ""))
-    run_git_write("checkout", "--detach", h)
-    return {"ok": True, "message": f"{h[:7]} をチェックアウトしました (detached HEAD)"}
+    res = checkout_resolving(["--detach", h], body.get("on_conflict"))
+    if res and res.get("blocked"):
+        return res
+    return {"ok": True, "message": with_stash_note(res, f"{h[:7]} をチェックアウトしました (detached HEAD)")}
 
 
 def is_merging():
