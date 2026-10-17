@@ -13,8 +13,12 @@
   /api/commit?hash=<hash>                                    git show 相当 (変更ファイル一覧つき)
   /diff?hash=<hash>&path=<file>[&old=<旧パス>]               1ファイルの差分ページ (別タブで開く)
   /diff?from=<hash>&to=<hash>&path=<file>[&old=<旧パス>]     2コミット間の差分ページ
-  /api/graph                                                 グラフ(SVG + ノード/エッジ情報)
+  /api/graph                                                 グラフ(SVG + ノード/エッジ情報。未コミットの変更があれば WIP ノードつき)
+  /api/status                                                作業ツリーの変更 (ステージ済み/未ステージ/未追跡/競合)
+  /diff?wip=staged|unstaged|untracked|conflict&path=<file>   作業ツリーの変更の差分ページ
   /api/compare?from=<hash>&to=<hash>                         2コミット間の変更ファイル一覧
+  POST /api/branch | /api/tag | /api/checkout (JSON)         ブランチ作成 / タグ作成 / チェックアウト
+     書き込みは 127.0.0.1 で待ち受けているときだけ有効 (--read-only で無効化、--allow-write で他アドレスでも許可)
 """
 import argparse
 import html
@@ -32,6 +36,9 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 REPO = "."
 OPTS = None
+WRITABLE = False  # ブランチ/タグ作成・チェックアウト等の書き込み操作を許可するか
+WIP_ENABLED = False  # 未コミットの変更を WIP ノードとしてグラフに出すか
+HAS_WORKTREE = False  # ワークツリーのあるリポジトリか (bare でないか)
 COLORS = {"branch": "#b7e4a7", "remote": "#a7c8f0", "tag": "#ffe9a0", "head": "#f4a7a7"}
 
 
@@ -153,6 +160,35 @@ def build_graph(opts):
 # --------------------------------------------------------------------------
 # HTML
 # --------------------------------------------------------------------------
+COPY_JS = """
+function fallbackCopy(text) {
+  const ta = document.createElement("textarea");
+  ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+  document.body.appendChild(ta); ta.select();
+  let ok = false;
+  try { ok = document.execCommand("copy"); } catch (e) {}
+  document.body.removeChild(ta);
+  return ok;
+}
+function copyText(text) {  // localhost / https なら Clipboard API、それ以外 (LAN の http など) は execCommand で代替
+  if (navigator.clipboard && window.isSecureContext)
+    return navigator.clipboard.writeText(text).then(() => true, () => fallbackCopy(text));
+  return Promise.resolve(fallbackCopy(text));
+}
+// .copy リンクは data-copy の値をコピーする。行やリンク本来のクリック処理には渡さない
+document.addEventListener("click", ev => {
+  const a = ev.target.closest(".copy");
+  if (!a) return;
+  ev.preventDefault(); ev.stopPropagation();
+  const label = a.dataset.label || (a.dataset.label = a.textContent);
+  copyText(a.dataset.copy).then(ok => {
+    const cls = ok ? "ok" : "ng";
+    a.textContent = ok ? "コピーしました" : "コピーできません"; a.classList.add(cls);
+    setTimeout(() => { a.textContent = label; a.classList.remove(cls); }, 1500);
+  });
+}, true);
+"""
+
 HTML_TEMPLATE = r"""<!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -161,7 +197,9 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 <style>
   html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-size: 13px; color: #222; }
   body { display: flex; }
-  #graph { flex: 1; overflow: auto; padding: 12px; background: #fff; }
+  #graphWrap { flex: 1; min-width: 0; position: relative; background: #fff; }
+  #graph { position: absolute; inset: 0; overflow: auto; padding: 12px; box-sizing: border-box; }
+  #reload { position: absolute; top: 8px; right: 14px; z-index: 5; margin: 0; }
   #panel { width: 480px; display: flex; flex-direction: column; border-left: 1px solid #ccc; background: #fafafa; box-sizing: border-box; }
   #listView, #detailView { flex: 1; min-height: 0; overflow: auto; padding: 14px; box-sizing: border-box; }
   #detailView { display: none; background: #fff; }
@@ -173,11 +211,26 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   .tagA { background: #06c; } .tagB { background: #e67e00; }
   .meta { color: #555; margin: 2px 0; }
   .hint { color: #777; }
+  .copy { color: #06c; cursor: pointer; font-size: 11px; margin-left: 6px; user-select: none; font-family: system-ui, sans-serif; }
+  .copy:hover { text-decoration: underline; } .copy.ok { color: #1a7f37; } .copy.ng { color: #cf222e; }
+  td.h .copy { opacity: .45; } tr:hover td.h .copy { opacity: 1; }
+  .actions { border: 1px solid #ddd; background: #fafafa; border-radius: 4px; padding: 8px; margin: 8px 0; }
+  .actions .arow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0; }
+  .actions input[type=text] { padding: 3px 6px; border: 1px solid #bbb; border-radius: 3px; min-width: 0; flex: 1; }
+  .abtn { background: #e8eefc; border: 1px solid #b8c7ee; padding: 3px 8px; border-radius: 3px; cursor: pointer; }
+  .abtn:hover { background: #d6e2fb; } .abtn:disabled { opacity: .5; cursor: default; }
+  .amsg { margin-top: 4px; white-space: pre-wrap; } .amsg.ok { color: #1a7f37; } .amsg.ng { color: #cf222e; }
+  h3 { font-size: 13px; margin: 10px 0 2px; }
+  .st { display: inline-block; min-width: 1.3em; text-align: center; font-weight: bold; color: #fff; border-radius: 2px; margin-right: 4px; }
+  .stM { background: #d29922; } .stA { background: #1a7f37; } .stD { background: #cf222e; } .stR { background: #6f42c1; } .stU { background: #cf222e; } .stN { background: #888; }
+  .sbtn:disabled { opacity: .5; cursor: default; }
   table.log { border-collapse: collapse; width: 100%; margin-top: 6px; }
   table.log td { border-bottom: 1px solid #e3e3e3; padding: 4px; vertical-align: top; }
   table.log tr.clickable { cursor: pointer; }
   table.log tr.clickable:hover td { background: #eef; }
   table.log tr.cur td { background: #ffe9a0; }
+  table.log tr.clickable.cmpA td { background: #cfe3ff; }
+  table.log tr.clickable.cmpB td { background: #ffdcb0; }
   table.log td.h { font-family: monospace; white-space: nowrap; color: #b60; }
   table.log .meta { font-size: 12px; color: #888; margin: 0; }
   table.files { border-collapse: collapse; margin: 6px 0; font-family: monospace; font-size: 12px; width: 100%; }
@@ -201,6 +254,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 </style>
 </head>
 <body>
+<div id="graphWrap">
+<button id="reload" class="sbtn" disabled title="グラフを最新の状態に更新">↻ 更新</button>
 <div id="graph">
   <div id="loading">
     <div class="spin"></div>
@@ -208,9 +263,10 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     <div class="hint" id="lsub">リポジトリが大きいと時間がかかります</div>
   </div>
 </div>
+</div>
 <div id="panel">
   <div id="listView"><p class="hint">ノードをクリックすると、そのコミットから最初（ルート）までのログを表示します。エッジをクリックすると省略された区間のログを表示します。</p>
-    <p class="hint">Ctrl（Mac は ⌘）+クリックでノードを2つ選ぶと、その間の差分を表示します。</p></div>
+    <p class="hint">Ctrl（Mac は ⌘）+クリックでノードやログのコミットを2つ選ぶと、その間の差分を表示します。</p></div>
   <div id="detailView"></div>
 </div>
 <script>
@@ -219,9 +275,10 @@ const COLORS = {branch: "#b7e4a7", remote: "#a7c8f0", tag: "#ffe9a0", head: "#f4
 const CHUNK = 500;
 const listView = document.getElementById("listView"), detailView = document.getElementById("detailView");
 const views = {list: listView, detail: detailView}, savedScroll = {list: 0, detail: 0};
-let curView = "list", selected = null, selectedNode = null, token = 0, observer = null, curRow = null;
+let curView = "list", selected = null, selectedKey = null, anchor = null, token = 0, observer = null, curRow = null;
 let curCtx = null, curFiles = [];
-let cmp = [];  // Ctrl+クリックで選んだ比較用ノード [{g, n}] (先頭が A、次が B)
+let cmp = [];  // Ctrl+クリックで選んだ比較用コミットのハッシュ (先頭が A、次が B)
+const nodeEl = {};  // ハッシュ -> グラフ上のノード要素
 
 function esc(s) {
   return String(s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
@@ -230,6 +287,10 @@ function chips(h) {
   const n = DATA.nodes[h];
   if (!n) return "";
   return n.refs.map(r => '<span class="chip" style="background:' + COLORS[r.kind] + '">' + esc(r.name) + "</span>").join("");
+}
+/*__COPY_JS__*/
+function copyLink(h) {  // フルハッシュをコピーするリンク
+  return '<a class="copy" data-copy="' + h + '" title="ハッシュ (40桁) をコピー">コピー</a>';
 }
 function api(path, params) {
   return fetch(path + "?" + new URLSearchParams(params)).then(r =>
@@ -242,8 +303,8 @@ function showView(name, keepScroll) {  // keepScroll: 戻ってきたときに�
   views[name].scrollTop = keepScroll ? savedScroll[name] : 0;
 }
 function rowHtml(c) {  // c = [hash, short, author, date, subject]
-  return '<tr class="clickable" data-h="' + c[0] + '"><td class="h">' + esc(c[1]) + "</td><td>" +
-    chips(c[0]) + esc(c[4]) + '<div class="meta">' + esc(c[2]) + " / " + esc(c[3]) + "</div></td></tr>";
+  return '<tr class="clickable" data-h="' + c[0] + '"><td class="h">' + esc(c[1]) + copyLink(c[0]) + "</td><td>" +
+    '<span class="rc">' + chips(c[0]) + "</span>" + esc(c[4]) + '<div class="meta">' + esc(c[2]) + " / " + esc(c[3]) + "</div></td></tr>";
 }
 
 // git log を CHUNK 件ずつ取得して、末尾が見えたら続きを読み込む (全件読むまで続く)
@@ -266,6 +327,7 @@ function showLog(titleHtml, rev, topHtml) {
       const r = await api("/api/log", {rev: rev, skip: skip, limit: CHUNK});
       if (my !== token) return;
       rows.insertAdjacentHTML("beforeend", r.commits.map(rowHtml).join(""));
+      updateCmpClasses();
       skip += r.commits.length;
       done = !r.has_more;
       if (r.total !== undefined) total = r.total;
@@ -295,10 +357,16 @@ function showLog(titleHtml, rev, topHtml) {
 function diffUrl(ctx, f) {
   const p = Object.assign({}, ctx, {path: f.path});
   if (f.old_path) p.old = f.old_path;
+  if (f.wip) p.wip = f.wip;  // 作業ツリーの変更 (staged / unstaged / untracked / conflict)
   return "/diff?" + new URLSearchParams(p);
 }
 
-function filesHtml(ctx, files) {
+const ST_CLASS = {M: "stM", T: "stM", A: "stA", D: "stD", R: "stR", C: "stR", U: "stU", "?": "stN"};
+function badge(f) {  // 変更の種類 (M/A/D/R...) のバッジ。WIP の一覧で使う
+  return f.st ? '<span class="st ' + (ST_CLASS[f.st] || "stM") + '">' + esc(f.st) + "</span>" : "";
+}
+function filesHtml(ctx, files, offset) {
+  offset = offset || 0;
   if (!files.length) return '<p class="hint">変更されたファイルはありません</p>';
   let add = 0, del = 0, max = 0;
   files.forEach(f => { add += f.added || 0; del += f.deleted || 0; max = Math.max(max, (f.added || 0) + (f.deleted || 0)); });
@@ -307,45 +375,140 @@ function filesHtml(ctx, files) {
     const a = f.added || 0, d = f.deleted || 0;
     const pa = a ? Math.max(1, Math.round(a * scale)) : 0, pd = d ? Math.max(1, Math.round(d * scale)) : 0;
     const name = f.old_path ? f.old_path + " => " + f.path : f.path;
-    return '<tr class="frow" data-k="' + k + '"><td class="fp"><a href="' + esc(diffUrl(ctx, f)) +
+    return '<tr class="frow" data-k="' + (offset + k) + '"><td class="fp">' + badge(f) + '<a href="' + esc(diffUrl(ctx, f)) +
       '" target="_blank" rel="noopener">' + esc(name) + '</a></td><td class="fc">' +
-      (f.added === null ? "Bin" : a + d) + '</td><td class="fb"><span class="plus">' + "+".repeat(pa) +
+      (f.label ? esc(f.label) : f.added === null ? "Bin" : a + d) + '</td><td class="fb"><span class="plus">' + "+".repeat(pa) +
       '</span><span class="minus">' + "-".repeat(pd) + "</span></td></tr>";
   }).join("");
-  return '<div class="meta">' + files.length + " files changed, " + add + " insertions(+), " + del + " deletions(-)</div>" +
+  return '<div class="meta">' + files.length + (files.some(f => f.added !== undefined)
+      ? " files changed, " + add + " insertions(+), " + del + " deletions(-)" : " files") + "</div>" +
     '<table class="files">' + rows + "</table>";
 }
 
+let curDetailHash = null;
+
+function localBranches(h) {
+  const n = DATA.nodes[h];
+  return n ? n.refs.filter(r => r.kind === "branch").map(r => r.name) : [];
+}
+function checkoutBtns(h) {
+  return localBranches(h).map(b =>
+    '<button class="abtn" data-act="checkout-branch" data-branch="' + esc(b) + '">checkout ' + esc(b) + "</button>").join(" ");
+}
+function actionsHtml(h) {  // ブランチ作成 / タグ作成 / チェックアウト (書き込みが有効なときだけ)
+  if (!DATA.writable) return "";
+  return '<div class="actions">' +
+    '<div class="arow"><input type="text" id="brName" placeholder="新しいブランチ名">' +
+    '<label><input type="checkbox" id="brCo"> 作成後にチェックアウト</label>' +
+    '<button class="abtn" data-act="branch">ブランチ作成</button></div>' +
+    '<div class="arow"><input type="text" id="tagName" placeholder="タグ名">' +
+    '<input type="text" id="tagMsg" placeholder="メッセージ (入れると注釈付きタグ)">' +
+    '<button class="abtn" data-act="tag">タグ作成</button></div>' +
+    '<div class="arow"><button class="abtn" data-act="checkout">チェックアウト (detached HEAD)</button>' +
+    '<span id="coBtns">' + checkoutBtns(h) + "</span></div>" +
+    '<div class="amsg" id="actMsg"></div></div>';
+}
 function showDetail(h) {
   const back = '<button class="back-btn">← 履歴一覧に戻る</button>';
   detailView.innerHTML = back + '<p class="hint">読み込み中…</p>';
   showView("detail");
   api("/api/commit", {hash: h}).then(c => {
-    curCtx = {hash: c.hash}; curFiles = c.files;
+    curCtx = {hash: c.hash}; curFiles = c.files; curDetailHash = c.hash;
     const parents = c.parents.map(p => esc(p.slice(0, 7))).join(", ") || "(なし)";
-    detailView.innerHTML = back + "<h2>コミット " + esc(c.hash.slice(0, 7)) + "</h2>" + chips(c.hash) +
-      '<div class="meta">' + esc(c.hash) + "</div>" +
+    detailView.innerHTML = back + "<h2>コミット " + esc(c.hash.slice(0, 7)) + "</h2>" +
+      '<span id="dChips">' + chips(c.hash) + "</span>" +
+      '<div class="meta">' + esc(c.hash) + copyLink(c.hash) + "</div>" +
       '<div class="meta">Author: ' + esc(c.author) + "</div>" +
       '<div class="meta">Date: ' + esc(c.date) + "</div>" +
       '<div class="meta">Parent: ' + parents + "</div>" +
-      "<pre>" + esc(c.message) + "</pre>" + filesHtml(curCtx, c.files) +
+      "<pre>" + esc(c.message) + "</pre>" + actionsHtml(c.hash) + filesHtml(curCtx, c.files) +
       '<div class="meta"><code>git show ' + esc(c.hash.slice(0, 7)) + "</code></div>";
   }).catch(e => {
     detailView.innerHTML = back + '<p class="hint">エラー: ' + esc(e.message) + "</p>";
   });
 }
 
+function post(path, body) {
+  return fetch(path, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)})
+    .then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); }));
+}
+function setActMsg(text, ok) {
+  const el = detailView.querySelector("#actMsg");
+  if (el) { el.textContent = text; el.className = "amsg " + (ok ? "ok" : "ng"); }
+}
+function inputVal(sel) {
+  const el = detailView.querySelector(sel);
+  return el ? el.value.trim() : "";
+}
+function doAction(btn) {
+  const h = curDetailHash, act = btn.dataset.act;
+  let url, body, ask = null;
+  if (act === "branch") {
+    const name = inputVal("#brName");
+    if (!name) { setActMsg("ブランチ名を入力してください", false); return; }
+    url = "/api/branch"; body = {hash: h, name: name, checkout: detailView.querySelector("#brCo").checked};
+    if (body.checkout) ask = "ブランチ " + name + " を作成してチェックアウトします (作業ツリーが切り替わります)。よろしいですか？";
+  } else if (act === "tag") {
+    const name = inputVal("#tagName");
+    if (!name) { setActMsg("タグ名を入力してください", false); return; }
+    url = "/api/tag"; body = {hash: h, name: name, message: inputVal("#tagMsg")};
+  } else if (act === "checkout") {
+    url = "/api/checkout"; body = {hash: h};
+    ask = "コミット " + h.slice(0, 7) + " を detached HEAD でチェックアウトします (作業ツリーが切り替わります)。よろしいですか？";
+  } else if (act === "checkout-branch") {
+    url = "/api/checkout"; body = {branch: btn.dataset.branch};
+    ask = "ブランチ " + btn.dataset.branch + " をチェックアウトします (作業ツリーが切り替わります)。よろしいですか？";
+  } else return;
+  if (ask && !confirm(ask)) return;
+  btn.disabled = true; setActMsg("実行中…", true);
+  post(url, body)
+    .then(r => refreshGraph().then(() => r.message, () => r.message + "\n(グラフの更新に失敗しました。再読み込みしてください)"))
+    .then(msg => {
+      if (curDetailHash !== h) return;  // 実行中に別のコミットへ移った
+      setActMsg(msg, true);
+      const c = detailView.querySelector("#dChips"), co = detailView.querySelector("#coBtns");
+      if (c) c.innerHTML = chips(h);
+      if (co) co.innerHTML = checkoutBtns(h);
+    })
+    .catch(e => { if (curDetailHash === h) setActMsg(e.message, false); })
+    .finally(() => { btn.disabled = false; });
+}
+
+// 操作のあと、グラフを(表示したまま)作り直して新しいブランチ/タグ/HEAD を反映する
+function refreshGraph() {
+  return fetch("/api/graph")
+    .then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); }))
+    .then(r => {
+      const keys = new Set(Object.keys(DATA.nodes).concat(Object.keys(r.nodes)));
+      const gc = document.getElementById("graph"), top0 = gc.scrollTop, left0 = gc.scrollLeft;
+      DATA = {nodes: r.nodes, edges: r.edges, writable: r.writable};
+      gc.innerHTML = r.svg;
+      gc.scrollTop = top0; gc.scrollLeft = left0;
+      selected = null;
+      for (const k in nodeEl) delete nodeEl[k];
+      init();
+      if (selectedKey) {
+        const g = [...gc.querySelectorAll("g.node, g.edge")].find(x => {
+          const t = x.querySelector("title"); return t && t.textContent === selectedKey;
+        });
+        if (g) { g.classList.add("sel"); selected = g; }
+      }
+      updateCmpClasses();
+      keys.forEach(h => listView.querySelectorAll('tr[data-h="' + h + '"] .rc').forEach(el => { el.innerHTML = chips(h); }));
+    });
+}
+
 // ---- 2つのノードの比較 (Ctrl+クリック) ----
 function commitLine(label, c) {
   return '<div class="meta"><span class="tag tag' + label + '">' + label + "</span>" + chips(c.hash) +
-    esc(c.hash.slice(0, 7)) + " — " + esc(c.message.split("\n")[0]) +
+    esc(c.hash.slice(0, 7)) + copyLink(c.hash) + " — " + esc(c.message.split("\n")[0]) +
     '<div class="hint">' + esc(c.author) + " / " + esc(c.date) + "</div></div>";
 }
-function showCompare(a, b) {
+function showCompare(a, b) {  // a, b はコミットのハッシュ
   const btns = '<button class="back-btn">← 履歴一覧に戻る</button><button class="sbtn">A ⇄ B 入れ替え</button>';
   detailView.innerHTML = btns + '<p class="hint">読み込み中…</p>';
   showView("detail");
-  api("/api/compare", {from: a.hash, to: b.hash}).then(r => {
+  api("/api/compare", {from: a, to: b}).then(r => {
     curCtx = {from: r.from.hash, to: r.to.hash}; curFiles = r.files;
     detailView.innerHTML = btns + "<h2>比較 " + esc(r.from.hash.slice(0, 7)) + " → " + esc(r.to.hash.slice(0, 7)) + "</h2>" +
       commitLine("A", r.from) + commitLine("B", r.to) + filesHtml(curCtx, r.files) +
@@ -357,27 +520,47 @@ function showCompare(a, b) {
 function showCmpHint() {
   if (cmp.length !== 1) return;
   detailView.innerHTML = '<button class="back-btn">← 履歴一覧に戻る</button><h2>比較</h2>' +
-    '<p class="hint"><span class="tag tagA">A</span>' + esc(cmp[0].n.hash.slice(0, 7)) +
-    " を選択しました。比較するもう1つのノードを Ctrl（Mac は ⌘）+クリックしてください。</p>";
+    '<p class="hint"><span class="tag tagA">A</span>' + esc(cmp[0].slice(0, 7)) +
+    " を選択しました。比較するもう1つのコミット (グラフのノードまたはログの行) を Ctrl（Mac は ⌘）+クリックしてください。</p>";
   showView("detail");
 }
-function updateCmpClasses() {
-  document.querySelectorAll("svg g.node.cmpA, svg g.node.cmpB").forEach(g => g.classList.remove("cmpA", "cmpB"));
-  cmp.forEach((x, i) => x.g.classList.add(i === 0 ? "cmpA" : "cmpB"));
+function updateCmpClasses() {  // 選択中のコミットを、グラフのノードとログの行の両方でハイライトする
+  document.querySelectorAll(".cmpA, .cmpB").forEach(el => el.classList.remove("cmpA", "cmpB"));
+  cmp.forEach((h, i) => {
+    const cls = i === 0 ? "cmpA" : "cmpB";
+    if (nodeEl[h]) nodeEl[h].classList.add(cls);
+    listView.querySelectorAll('tr[data-h="' + h + '"]').forEach(tr => tr.classList.add(cls));
+  });
 }
 function clearCmp() { cmp = []; updateCmpClasses(); }
+function toggleCmp(hash) {  // 比較用の選択 (最大2つ。3つ目を選ぶと古い方が外れる)
+  if (cmp.length === 0 && anchor && anchor !== hash) cmp = [anchor];  // 直前に通常クリックしたものを A にする
+  const i = cmp.indexOf(hash);
+  if (i >= 0) cmp.splice(i, 1);
+  else { cmp.push(hash); if (cmp.length > 2) cmp.shift(); }
+  if (selected) { selected.classList.remove("sel"); selected = null; selectedKey = null; }
+  if (curRow) { curRow.classList.remove("cur"); curRow = null; }
+  updateCmpClasses();
+  if (cmp.length === 2) showCompare(cmp[0], cmp[1]); else showCmpHint();
+}
 
 listView.addEventListener("click", ev => {
   const tr = ev.target.closest("tr.clickable");
   if (!tr) return;
+  if (ev.ctrlKey || ev.metaKey) { toggleCmp(tr.dataset.h); return; }  // 比較用に選ぶ
+  clearCmp();
   if (curRow) curRow.classList.remove("cur");
   curRow = tr; tr.classList.add("cur");
+  anchor = tr.dataset.h;
   showDetail(tr.dataset.h);
 });
 detailView.addEventListener("click", ev => {
+  if (ev.target.closest("#wipReload")) { showWip(); refreshGraph().catch(() => {}); return; }
+  const ab = ev.target.closest(".abtn");
+  if (ab) { doAction(ab); return; }
   if (ev.target.closest(".sbtn")) {
     cmp.reverse(); updateCmpClasses();
-    if (cmp.length === 2) showCompare(cmp[0].n, cmp[1].n);
+    if (cmp.length === 2) showCompare(cmp[0], cmp[1]);
     return;
   }
   if (ev.target.closest(".back-btn")) { showView("list", true); return; }
@@ -389,21 +572,19 @@ detailView.addEventListener("click", ev => {
 function select(g) {
   if (selected) selected.classList.remove("sel");
   selected = g; g.classList.add("sel");
+  const t = g.querySelector("title");
+  selectedKey = t ? t.textContent : null;  // グラフを作り直したあとで選択を復元するため
 }
 
 function onNodeClick(ev, g, n) {
-  if (ev.ctrlKey || ev.metaKey) {  // 比較用の選択 (最大2つ。3つ目を選ぶと古い方が外れる)
-    if (cmp.length === 0 && selectedNode && selectedNode.g !== g) cmp = [selectedNode];
-    const i = cmp.findIndex(x => x.g === g);
-    if (i >= 0) cmp.splice(i, 1);
-    else { cmp.push({g: g, n: n}); if (cmp.length > 2) cmp.shift(); }
-    if (selected) { selected.classList.remove("sel"); selected = null; }
-    updateCmpClasses();
-    if (cmp.length === 2) showCompare(cmp[0].n, cmp[1].n); else showCmpHint();
+  if (n.wip) {  // 作業ツリーの変更 (WIP) ノード: ログではなく変更ファイルの一覧を出す
+    if (ev.ctrlKey || ev.metaKey) return;
+    clearCmp(); select(g); anchor = null; showWip();
     return;
   }
+  if (ev.ctrlKey || ev.metaKey) { toggleCmp(n.hash); return; }
   clearCmp();
-  select(g); selectedNode = {g: g, n: n};
+  select(g); anchor = n.hash;
   showLog("git log --oneline " + esc(n.hash.slice(0, 7)), n.hash,
           chips(n.hash) + '<div class="meta">最初のコミットまでの全ログ</div>');
 }
@@ -412,7 +593,7 @@ function init() {
   document.querySelectorAll("svg g.node").forEach(g => {
     const t = g.querySelector("title");
     const n = t && DATA.nodes[t.textContent];
-    if (n) g.addEventListener("click", ev => onNodeClick(ev, g, n));
+    if (n) { nodeEl[n.hash] = g; g.addEventListener("click", ev => onNodeClick(ev, g, n)); }
   });
   document.querySelectorAll("svg g.edge").forEach(g => {
     const t = g.querySelector("title");
@@ -421,13 +602,45 @@ function init() {
     const path = g.querySelector("path");
     if (path) { const hit = path.cloneNode(); hit.setAttribute("class", "hit"); g.appendChild(hit); }
     g.addEventListener("click", () => {
-      clearCmp(); selectedNode = null; select(g);
+      clearCmp(); anchor = null; select(g);
       const range = e.from.slice(0, 7) + ".." + e.to.slice(0, 7);
       showLog(esc(e.from.slice(0, 7)) + " → " + esc(e.to.slice(0, 7)), e.from + ".." + e.to,
               '<div class="meta"><code>git log ' + esc(range) + "</code></div>");
     });
   });
 }
+
+// ---- 作業ツリーの変更 (WIP) ----
+function showWip() {
+  const btns = '<button class="back-btn">← 履歴一覧に戻る</button><button class="sbtn" id="wipReload">↻ 更新</button>';
+  detailView.innerHTML = btns + '<p class="hint">読み込み中…</p>';
+  showView("detail"); curDetailHash = null;
+  api("/api/status", {}).then(s => {
+    const sections = [["conflict", "競合", s.conflicts], ["staged", "ステージ済み (git add 済み)", s.staged],
+                      ["unstaged", "未ステージの変更", s.unstaged], ["untracked", "未追跡のファイル", s.untracked]];
+    let files = [], body = "";
+    sections.forEach(([kind, title, items]) => {
+      if (!items.length) return;
+      const list = items.map(f => Object.assign({wip: kind}, f));
+      body += "<h3>" + title + " (" + list.length + ")</h3>" + filesHtml({}, list, files.length);
+      files = files.concat(list);
+    });
+    curCtx = {}; curFiles = files;
+    detailView.innerHTML = btns + "<h2>作業ツリーの変更 (WIP)</h2>" +
+      '<div class="meta">HEAD: ' + (s.head ? chips(s.head) + esc(s.head.slice(0, 7)) : "(コミットなし)") + "</div>" +
+      (body || '<p class="hint">変更はありません</p>') +
+      (s.truncated ? '<p class="hint">ファイルが多いため先頭のみ表示しています</p>' : "");
+  }).catch(e => {
+    detailView.innerHTML = btns + '<p class="hint">エラー: ' + esc(e.message) + "</p>";
+  });
+}
+
+document.getElementById("reload").addEventListener("click", ev => {  // グラフを最新の状態に更新
+  const b = ev.currentTarget;
+  b.disabled = true; b.textContent = "更新中…";
+  refreshGraph().catch(e => alert("更新に失敗しました: " + e.message))
+    .finally(() => { b.disabled = false; b.textContent = "↻ 更新"; });
+});
 
 // ---- グラフの読み込み (サーバー側の作成に時間がかかるので、読み込み中画面を出す) ----
 const t0 = Date.now();
@@ -439,9 +652,10 @@ fetch("/api/graph")
   .then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); }))
   .then(r => {
     clearInterval(timer);
-    DATA = {nodes: r.nodes, edges: r.edges};
+    DATA = {nodes: r.nodes, edges: r.edges, writable: r.writable};
     document.getElementById("graph").innerHTML = r.svg;
     init();
+    document.getElementById("reload").disabled = false;
   })
   .catch(e => {
     clearInterval(timer);
@@ -453,27 +667,142 @@ fetch("/api/graph")
 </html>
 """
 
-_cache = {"key": None, "payload": None}
+HTML_TEMPLATE = HTML_TEMPLATE.replace("/*__COPY_JS__*/", COPY_JS)
+
+_cache = {"base_key": None, "base": None, "payload_key": None, "payload": None}
 _lock = threading.Lock()
+
+CONFLICT_CODES = {"DD", "AU", "UD", "UA", "DU", "AA", "UU"}
+
+
+def read_status_raw():
+    return git("status", "--porcelain=v1", "-z", "--untracked-files=all")
+
+
+def parse_status(raw, limit=5000):
+    """git status --porcelain=v1 -z を ステージ済み / 未ステージ / 未追跡 / 競合 に分ける (パスはリポジトリルート基準)。"""
+    res = {"staged": [], "unstaged": [], "untracked": [], "conflicts": [], "truncated": False}
+    toks = raw.split("\0")
+    i = n = 0
+    while i < len(toks):
+        t = toks[i]
+        i += 1
+        if len(t) < 4 or t[2] != " ":
+            continue
+        xy, path = t[:2], t[3:]
+        old = None
+        if "R" in xy or "C" in xy:  # リネーム/コピーは続くトークンが元のパス
+            old = toks[i] if i < len(toks) else None
+            i += 1
+        if xy == "!!":
+            continue
+        n += 1
+        if n > limit:
+            res["truncated"] = True
+            break
+        if xy == "??":
+            res["untracked"].append({"path": path, "st": "?", "label": "新規"})
+        elif xy in CONFLICT_CODES:
+            res["conflicts"].append({"path": path, "st": "U", "label": "競合"})
+        else:
+            x, y = xy[0], xy[1]
+            if x != " ":
+                res["staged"].append({"path": path, "old_path": old if x in "RC" else None, "st": x})
+            if y != " ":
+                res["unstaged"].append({"path": path, "old_path": None, "st": y})
+    return res
+
+
+def wip_count(status):
+    return len({f["path"] for k in ("staged", "unstaged", "untracked", "conflicts") for f in status[k]})
+
+
+def api_status(q):
+    """作業ツリーの変更 (WIP)。ステージ済み/未ステージには追加・削除行数も付ける。"""
+    if not WIP_ENABLED:
+        raise ValueError("作業ツリーの変更の表示は無効です")
+    s = parse_status(read_status_raw())
+    for key, extra in (("staged", ["--cached"]), ("unstaged", [])):
+        if not s[key]:
+            continue
+        stats = {f["path"]: f for f in parse_numstat(git("diff", *extra, "--numstat", "-z", "-M", "--"))}
+        for f in s[key]:
+            st = stats.get(f["path"])
+            if st:
+                f["added"], f["deleted"] = st["added"], st["deleted"]
+    try:
+        s["head"] = git("rev-parse", "--verify", "--quiet", "HEAD").strip()
+    except subprocess.CalledProcessError:
+        s["head"] = ""
+    return s
+
+
+def wip_diff(kind, path, specs):
+    if not HAS_WORKTREE:
+        raise ValueError("ワークツリーがありません")
+    if kind == "staged":
+        return git("diff", "--cached", "--no-color", "-M", "--", *specs, literal=True)
+    if kind in ("unstaged", "conflict"):
+        return git("diff", "--no-color", "--", path, literal=True)
+    if kind == "untracked":
+        # 任意のファイルを読ませないよう、いま未追跡と報告されているパスだけを対象にする
+        known = {f["path"] for f in parse_status(read_status_raw())["untracked"]}
+        if path not in known:
+            raise ValueError("未追跡ファイルではありません")
+        full = os.path.join(REPO, path)
+        if os.path.islink(full):
+            return f"symlink -> {os.readlink(full)}\n"
+        r = subprocess.run(["git", "-C", REPO, "diff", "--no-index", "--no-color", "--", "/dev/null", path],
+                           capture_output=True, text=True, encoding="utf-8", errors="replace")
+        if r.returncode not in (0, 1):  # 1 は「差分あり」
+            raise ValueError(r.stderr.strip() or "git diff に失敗しました")
+        return r.stdout
+    raise ValueError("bad wip")
+
+
+def add_wip(dot_text, nodes, head, count):
+    """HEAD の子として、破線の WIP ノードを dot とノード情報に追加する。"""
+    label = ('<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3" STYLE="dashed" BGCOLOR="#fff8dc">'
+             f'<TR><TD><B>WIP</B></TD></TR><TR><TD>{count} 件の変更</TD></TR></TABLE>>')
+    lines = f'  "WIP" [label={label}];\n  "{head}" -> "WIP" [style=dashed];\n'
+    i = dot_text.rindex("}")
+    nodes = dict(nodes)
+    nodes["WIP"] = {"hash": "WIP", "refs": [], "wip": True, "count": count}
+    return dot_text[:i] + lines + dot_text[i:], nodes
 
 
 def graph_payload():
-    """グラフ(SVG + ノード/エッジ情報)の JSON を返す。ref と HEAD が変わっていなければキャッシュを使う。"""
+    """グラフ(SVG + ノード/エッジ情報)の JSON を返す。
+    重い部分 (merge-base の総当たり) は ref と HEAD が変わらない限りキャッシュし、
+    作業ツリーの変更 (WIP ノード) だけを毎回付け替える。"""
     with _lock:  # 同時に複数回作らない (2つ目以降はキャッシュを使う)
         try:
-            head = git("rev-parse", "HEAD")
+            head = git("rev-parse", "HEAD").strip()
         except subprocess.CalledProcessError:
             head = ""
         key = git("for-each-ref") + head
-        if _cache["key"] == key:
+        if _cache["base_key"] != key:
+            _cache.update(base_key=key, base=build_graph(OPTS), payload_key=None, payload=None)
+        raw = ""
+        if WIP_ENABLED:
+            try:
+                raw = read_status_raw()
+            except subprocess.CalledProcessError:
+                raw = ""
+        if _cache["payload_key"] == (key, raw):
             return _cache["payload"]
 
-        dot_text, nodes, edges = build_graph(OPTS)
+        dot_text, nodes, edges = _cache["base"]
+        if raw and head in nodes:
+            count = wip_count(parse_status(raw))
+            if count:
+                dot_text, nodes = add_wip(dot_text, nodes, head, count)
         svg = subprocess.run(["dot", "-Tsvg"], input=dot_text, capture_output=True,
                              text=True, check=True).stdout
         svg = svg[svg.index("<svg"):]
-        payload = json.dumps({"svg": svg, "nodes": nodes, "edges": edges}, ensure_ascii=False)
-        _cache.update(key=key, payload=payload)
+        payload = json.dumps({"svg": svg, "nodes": nodes, "edges": edges, "writable": WRITABLE},
+                             ensure_ascii=False)
+        _cache.update(payload_key=(key, raw), payload=payload)
         return payload
 
 
@@ -557,7 +886,10 @@ def api_diff(q):
     if not path or "\0" in path or "\0" in old:
         raise ValueError("bad path")
     specs = [old, path] if old else [path]
-    if "from" in q or "to" in q:
+    wip = q.get("wip", [""])[0]
+    if wip:  # 作業ツリーの変更
+        out = wip_diff(wip, path, specs)
+    elif "from" in q or "to" in q:
         a, b = q.get("from", [""])[0], q.get("to", [""])[0]
         if not (HASH_RE.fullmatch(a) and HASH_RE.fullmatch(b)):
             raise ValueError("bad hash")
@@ -579,12 +911,15 @@ DIFF_CSS = """
   #side a:hover { background: #eef; }
   #side a.cur { background: #ffe9a0; color: #222; font-weight: bold; }
   #side .n { white-space: nowrap; }
+  #side .grp { margin: 10px 0 2px; font-weight: bold; }
   #main { flex: 1; min-width: 0; overflow: auto; padding: 14px 18px; }
   h1 { font-size: 15px; margin: 0 0 6px; word-break: break-all; }
   .meta { color: #555; margin: 2px 0; }
   code { background: #eee; padding: 1px 4px; border-radius: 3px; user-select: all; }
   .plus { color: #1a7f37; } .minus { color: #cf222e; }
   .hint { color: #777; }
+  .copy { color: #06c; cursor: pointer; font-size: 11px; margin-left: 6px; user-select: none; font-family: system-ui, sans-serif; }
+  .copy:hover { text-decoration: underline; } .copy.ok { color: #1a7f37; } .copy.ng { color: #cf222e; }
   .tag { display: inline-block; padding: 0 6px; border-radius: 3px; margin-right: 4px; font-weight: bold; color: #fff; }
   .tagA { background: #06c; } .tagB { background: #e67e00; }
   .diff { font-family: monospace; font-size: 12px; white-space: pre; margin-top: 12px; border: 1px solid #ddd; }
@@ -621,51 +956,81 @@ def diff_lines_html(text):
     return "".join(out)
 
 
+WIP_TITLES = {"conflict": "競合", "staged": "ステージ済み", "unstaged": "未ステージの変更", "untracked": "未追跡のファイル"}
+
+
 def diff_url(ctx, f):
     params = dict(ctx, path=f["path"])
-    if f["old_path"]:
+    if f.get("wip"):
+        params["wip"] = f["wip"]
+    if f.get("old_path"):
         params["old"] = f["old_path"]
     return "/diff?" + urlencode(params)
 
 
 def commit_line_html(label, c):
     subject = c["message"].split("\n", 1)[0]
-    return (f'<div class="meta"><span class="tag tag{label}">{label}</span>{c["hash"][:7]} — '
+    return (f'<div class="meta"><span class="tag tag{label}">{label}</span>{c["hash"][:7]}'
+            f'<a class="copy" data-copy="{c["hash"]}" title="ハッシュ (40桁) をコピー">コピー</a> — '
             f'{html.escape(subject)} <span class="hint">({html.escape(c["author"])} / '
             f'{html.escape(c["date"])})</span></div>')
 
 
+def wip_files():
+    """WIP の全ファイルを 競合 → ステージ済み → 未ステージ → 未追跡 の順に、種別(wip)つきで返す。"""
+    s = api_status({})
+    out = []
+    for kind, key in (("conflict", "conflicts"), ("staged", "staged"),
+                      ("unstaged", "unstaged"), ("untracked", "untracked")):
+        out.extend(dict(f, wip=kind) for f in s[key])
+    return out
+
+
 def render_diff_page(q):
-    """1ファイルの差分ページ。左にそのコミット(または比較)の変更ファイル一覧を出す。"""
+    """1ファイルの差分ページ。左にそのコミット(比較 / WIP)の変更ファイル一覧を出す。"""
     path = q.get("path", [""])[0]
     old = q.get("old", [""])[0]
+    wip = q.get("wip", [""])[0]
     d = api_diff(q)
-    if "from" in q:  # 2コミット間の比較
+    if wip:  # 作業ツリーの変更
+        files, ctx, ref = wip_files(), {}, "WIP"
+        info = f'<div class="meta">作業ツリーの変更 (WIP) — {html.escape(WIP_TITLES.get(wip, wip))}</div>'
+        cmd = {"staged": f"git diff --cached -- {path}",
+               "untracked": f"git diff --no-index /dev/null {path}"}.get(wip, f"git diff -- {path}")
+    elif "from" in q:  # 2コミット間の比較
         c = api_compare(q)
         a, b = c["from"], c["to"]
-        ctx = {"from": a["hash"], "to": b["hash"]}
+        files, ctx = c["files"], {"from": a["hash"], "to": b["hash"]}
         ref = f"{a['hash'][:7]}..{b['hash'][:7]}"
         info = commit_line_html("A", a) + commit_line_html("B", b)
         cmd = f"git diff {a['hash'][:7]} {b['hash'][:7]} -- {path}"
     else:
         c = api_commit(q)
-        ctx = {"hash": c["hash"]}
-        ref = c["hash"][:7]
+        files, ctx, ref = c["files"], {"hash": c["hash"]}, c["hash"][:7]
         subject = c["message"].split("\n", 1)[0]
-        info = (f'<div class="meta">コミット {ref} — {html.escape(subject)}</div>'
+        info = (f'<div class="meta">コミット {ref}'
+                f'<a class="copy" data-copy="{c["hash"]}" title="ハッシュ (40桁) をコピー">コピー</a>'
+                f' — {html.escape(subject)}</div>'
                 f'<div class="meta">{html.escape(c["author"])} / {html.escape(c["date"])}</div>')
         cmd = f"git show {ref} -- {path}"
     name = f"{old} => {path}" if old else path
 
-    side = []
-    for f in c["files"]:
-        fname = f"{f['old_path']} => {f['path']}" if f["old_path"] else f["path"]
-        if f["added"] is None:
+    side, last = [], None
+    for f in files:
+        if wip and f.get("wip") != last:
+            last = f.get("wip")
+            side.append(f'<div class="grp">{html.escape(WIP_TITLES[last])}</div>')
+        fname = f"{f['old_path']} => {f['path']}" if f.get("old_path") else f["path"]
+        if f.get("label"):
+            counts = html.escape(f["label"])
+        elif "added" not in f:
+            counts = ""
+        elif f["added"] is None:
             counts = "Bin"
         else:
             counts = (f'<span class="plus">+{f["added"]}</span> '
                       f'<span class="minus">-{f["deleted"]}</span>')
-        cur = "cur" if f["path"] == path else ""
+        cur = "cur" if f["path"] == path and (not wip or f.get("wip") == wip) else ""
         side.append(f'<a class="{cur}" href="{html.escape(diff_url(ctx, f))}">'
                     f'<span>{html.escape(fname)}</span><span class="n">{counts}</span></a>')
 
@@ -674,7 +1039,7 @@ def render_diff_page(q):
 <title>{html.escape(path)} @ {ref}</title>
 <style>{DIFF_CSS}</style></head><body>
 <div id="side">
-  <div class="meta">{len(c["files"])} files changed</div>
+  <div class="meta">{len(files)} files changed</div>
   {"".join(side)}
 </div>
 <div id="main">
@@ -684,8 +1049,89 @@ def render_diff_page(q):
   {'<p class="hint">大きいため先頭のみ表示しています</p>' if d["truncated"] else ""}
   <div class="diff">{diff_lines_html(d["diff"]) or '<p class="hint">差分はありません</p>'}</div>
 </div>
+<script>{COPY_JS}</script>
 </body></html>
 """
+
+
+# --------------------------------------------------------------------------
+# 書き込み操作 (ブランチ作成 / タグ作成 / チェックアウト)
+# --------------------------------------------------------------------------
+class Forbidden(Exception):
+    pass
+
+
+_write_lock = threading.Lock()
+
+
+def is_loopback(host):
+    return host in ("localhost", "::1") or host.startswith("127.")
+
+
+def resolve_commit(h):
+    if not HASH_RE.fullmatch(h or ""):
+        raise ValueError("bad hash")
+    try:
+        return git("rev-parse", "--verify", "--quiet", h + "^{commit}").strip()
+    except subprocess.CalledProcessError:
+        raise ValueError("コミットが見つかりません")
+
+
+def check_ref_name(kind, name):
+    prefix = {"branch": "refs/heads/", "tag": "refs/tags/"}[kind]
+    label = {"branch": "ブランチ", "tag": "タグ"}[kind]
+    if not name or name.startswith("-") or "\0" in name:
+        raise ValueError(f"{label}名が不正です")
+    r = subprocess.run(["git", "-C", REPO, "check-ref-format", prefix + name], capture_output=True)
+    if r.returncode != 0:
+        raise ValueError(f"{name!r} は{label}名として使えません")
+
+
+def run_git_write(*args):
+    """git を実行し、失敗したら git のエラーメッセージを ValueError にして返す。"""
+    r = subprocess.run(["git", "-C", REPO, *args], capture_output=True, text=True,
+                       encoding="utf-8", errors="replace")
+    if r.returncode != 0:
+        raise ValueError((r.stderr or r.stdout).strip() or "git コマンドが失敗しました")
+    return (r.stdout + r.stderr).strip()
+
+
+def api_branch(body):
+    h = resolve_commit(body.get("hash", ""))
+    name = str(body.get("name", "")).strip()
+    check_ref_name("branch", name)
+    if body.get("checkout"):
+        run_git_write("checkout", "-b", name, h)
+        return {"ok": True, "message": f"ブランチ {name} を作成してチェックアウトしました"}
+    run_git_write("branch", name, h)
+    return {"ok": True, "message": f"ブランチ {name} を作成しました"}
+
+
+def api_tag(body):
+    h = resolve_commit(body.get("hash", ""))
+    name = str(body.get("name", "")).strip()
+    msg = str(body.get("message", "")).strip()
+    check_ref_name("tag", name)
+    if msg:
+        run_git_write("tag", "-a", name, "-m", msg, h)
+        return {"ok": True, "message": f"注釈付きタグ {name} を作成しました"}
+    run_git_write("tag", name, h)
+    return {"ok": True, "message": f"タグ {name} を作成しました"}
+
+
+def api_checkout(body):
+    branch = body.get("branch")
+    if branch:
+        branch = str(branch)
+        check_ref_name("branch", branch)
+        run_git_write("checkout", branch, "--")
+        return {"ok": True, "message": f"ブランチ {branch} をチェックアウトしました"}
+    h = resolve_commit(body.get("hash", ""))
+    run_git_write("checkout", "--detach", h)
+    return {"ok": True, "message": f"{h[:7]} をチェックアウトしました (detached HEAD)"}
+
+
+POST_ROUTES = {"/api/branch": api_branch, "/api/tag": api_tag, "/api/checkout": api_checkout}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -706,6 +1152,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, "text/html", HTML_TEMPLATE)
             elif u.path == "/api/log":
                 self._send(200, "application/json", json.dumps(api_log(q), ensure_ascii=False))
+            elif u.path == "/api/status":
+                self._send(200, "application/json", json.dumps(api_status(q), ensure_ascii=False))
             elif u.path == "/api/graph":
                 self._send(200, "application/json", graph_payload())
             elif u.path == "/api/compare":
@@ -723,12 +1171,49 @@ class Handler(BaseHTTPRequestHandler):
         except subprocess.CalledProcessError as e:
             self._send(500, "text/plain", f"command failed: {e.cmd}\n{e.stderr or ''}")
 
+    def _check_post(self):
+        """他サイトのページからの書き込みを防ぐ (CSRF / DNS rebinding 対策)。"""
+        if not WRITABLE:
+            raise Forbidden("書き込み操作は無効です (--read-only 指定、またはローカル以外で待ち受け中)")
+        ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip()
+        if ctype != "application/json":  # 他サイトからは preflight が必要になるため送れない
+            raise ValueError("Content-Type は application/json にしてください")
+        host = self.headers.get("Host", "")
+        origin = self.headers.get("Origin")
+        if origin is not None and origin != "http://" + host:
+            raise Forbidden("Origin が一致しません")
+        if is_loopback(OPTS.host):
+            name = host if host.endswith("]") or ":" not in host else host.rsplit(":", 1)[0]
+            if name not in ("127.0.0.1", "localhost", "[::1]"):
+                raise Forbidden("Host が不正です")
+
+    def do_POST(self):
+        try:
+            route = POST_ROUTES.get(urlparse(self.path).path)
+            if route is None:
+                self._send(404, "text/plain", "not found")
+                return
+            self._check_post()
+            n = int(self.headers.get("Content-Length") or 0)
+            if n > 100000:
+                raise ValueError("body too large")
+            body = json.loads(self.rfile.read(n) or b"{}")
+            if not isinstance(body, dict):
+                raise ValueError("bad body")
+            with _write_lock:
+                res = route(body)
+            self._send(200, "application/json", json.dumps(res, ensure_ascii=False))
+        except Forbidden as e:
+            self._send(403, "text/plain", str(e))
+        except ValueError as e:  # JSON の不正も含む
+            self._send(400, "text/plain", str(e))
+
     def log_message(self, fmt, *args):  # アクセスログは出さない
         pass
 
 
 def main():
-    global REPO, OPTS
+    global REPO, OPTS, WRITABLE, WIP_ENABLED, HAS_WORKTREE
     ap = argparse.ArgumentParser(description="git commit graph server")
     ap.add_argument("revs", nargs="*", help="対象の rev (省略時は --all)")
     ap.add_argument("-C", dest="repo", default=".", help="リポジトリのパス (既定: カレント)")
@@ -740,13 +1225,24 @@ def main():
     ap.add_argument("--no-count", action="store_true", help="省略数 (+N) の計算をしない")
     ap.add_argument("--rankdir", default="BT", help="BT(下から上) / TB / LR (既定: BT)")
     ap.add_argument("--dot", action="store_true", help="dot を標準出力に出して終了")
+    ap.add_argument("--no-wip", action="store_true", help="未コミットの変更 (WIP ノード) を表示しない")
+    ap.add_argument("--read-only", action="store_true", help="書き込み操作 (ブランチ/タグ作成・チェックアウト) を無効にする")
+    ap.add_argument("--allow-write", action="store_true",
+                    help="127.0.0.1 以外で待ち受けるときも書き込み操作を許可する (既定では無効)")
     OPTS = ap.parse_args()
     REPO = OPTS.repo
+    WRITABLE = (not OPTS.read_only) and (is_loopback(OPTS.host) or OPTS.allow_write)
 
     try:
         git("rev-parse", "--git-dir")
     except (subprocess.CalledProcessError, FileNotFoundError):
         sys.exit(f"{REPO!r} は git リポジトリではありません")
+    # サブディレクトリが指定されても、パスの扱い (status / diff はルート基準) がずれないようルートに揃える
+    r = subprocess.run(["git", "-C", REPO, "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+    HAS_WORKTREE = r.returncode == 0
+    if HAS_WORKTREE:
+        REPO = r.stdout.strip()
+    WIP_ENABLED = HAS_WORKTREE and not OPTS.no_wip
 
     if OPTS.dot:
         print(build_graph(OPTS)[0])
@@ -754,7 +1250,7 @@ def main():
 
     server = ThreadingHTTPServer((OPTS.host, OPTS.port), Handler)
     url = f"http://{OPTS.host}:{OPTS.port}/"
-    print(f"serving {url}  (Ctrl+C で終了)")
+    print(f"serving {url}  (Ctrl+C で終了)  書き込み操作: {'有効' if WRITABLE else '無効'}")
     if OPTS.open:
         webbrowser.open(url)
     try:
