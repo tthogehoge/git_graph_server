@@ -200,6 +200,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   #graphWrap { flex: 1; min-width: 0; position: relative; background: #fff; }
   #graph { position: absolute; inset: 0; overflow: auto; padding: 12px; box-sizing: border-box; }
   #reload { position: absolute; top: 8px; right: 14px; z-index: 5; margin: 0; }
+  #graphStatus { position: absolute; top: 10px; left: 12px; z-index: 5; padding: 4px 8px; border-radius: 3px; background: #fff; color: #555; }
+  #graphStatus[hidden] { display: none; }
   #compareControls { position: absolute; top: 42px; right: 14px; z-index: 5; display: flex; align-items: center; gap: 6px; padding: 6px; border: 1px solid #ccc; border-radius: 4px; background: #fff; box-shadow: 0 1px 4px #0002; }
   #compareControls[hidden] { display: none; }
   #compareControls .cmp-hash { font-family: monospace; white-space: nowrap; }
@@ -267,6 +269,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 <body>
 <div id="graphWrap">
 <button id="reload" class="sbtn" disabled title="グラフを最新の状態に更新">↻ 更新</button>
+<div id="graphStatus" role="status" aria-live="polite" hidden></div>
 <div id="compareControls" hidden>
   <span class="cmp-hash" id="cmpA"></span><span class="cmp-hash" id="cmpB"></span>
   <button class="sbtn" id="compareBtn" disabled>比較</button><button class="sbtn" id="clearCmpBtn">クリア</button>
@@ -533,24 +536,27 @@ function doAction(btn) {
       if (!confirm("ブランチ " + name + " は未マージです。強制削除すると未マージのコミットがブランチから到達できなくなる可能性があります。削除しますか？")) return null;
       return post(url, Object.assign({}, body, {force: true}));
     })
-    .then(r => r ? refreshGraph().then(() => r.message, () => r.message + "\n(グラフの更新に失敗しました。再読み込みしてください)") : null)
-    .then(msg => {
-      if (msg === null) {
+    .then(r => {
+      if (r === null) {
         if (curDetailHash === h) setActMsg("強制削除をキャンセルしました", false);
         return;
       }
-      if (curDetailHash !== h) return;  // 実行中に別のコミットへ移った
-      setActMsg(msg, true);
-      const c = detailView.querySelector("#dChips"), co = detailView.querySelector("#coBtns");
-      if (c) c.innerHTML = detailChips(h);
-      if (co) co.innerHTML = checkoutBtns(h);
+      if (curDetailHash === h) setActMsg(r.message, true);
+      refreshGraph().catch(e => setGraphStatus("グラフ更新に失敗しました: " + e.message));
     })
     .catch(e => { if (curDetailHash === h) setActMsg(e.message, false); })
     .finally(() => { btn.disabled = false; });
 }
 
+function setGraphStatus(message) {
+  const status = document.getElementById("graphStatus");
+  status.textContent = message || "";
+  status.hidden = !message;
+}
+
 // 操作のあと、グラフを(表示したまま)作り直して新しいブランチ/タグ/HEAD を反映する
 function refreshGraph() {
+  setGraphStatus("グラフ更新中…");
   return fetch("/api/graph")
     .then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); }))
     .then(r => {
@@ -570,6 +576,14 @@ function refreshGraph() {
       }
       updateCmpClasses();
       keys.forEach(h => listView.querySelectorAll('tr[data-h="' + h + '"] .rc').forEach(el => { el.innerHTML = chips(h); }));
+      const c = detailView.querySelector("#dChips"), co = detailView.querySelector("#coBtns");
+      if (c && curDetailHash) c.innerHTML = detailChips(curDetailHash);
+      if (co && curDetailHash) co.innerHTML = checkoutBtns(curDetailHash);
+      setGraphStatus("");
+    })
+    .catch(e => {
+      setGraphStatus("グラフ更新に失敗しました: " + e.message);
+      throw e;
     });
 }
 
@@ -744,8 +758,7 @@ function showWip(fromHistory) {
 document.getElementById("reload").addEventListener("click", ev => {  // グラフを最新の状態に更新
   const b = ev.currentTarget;
   b.disabled = true; b.textContent = "更新中…";
-  refreshGraph().catch(e => alert("更新に失敗しました: " + e.message))
-    .finally(() => { b.disabled = false; b.textContent = "↻ 更新"; });
+  refreshGraph().catch(() => {}).finally(() => { b.disabled = false; b.textContent = "↻ 更新"; });
 });
 
 // ---- グラフの読み込み (サーバー側の作成に時間がかかるので、読み込み中画面を出す) ----
