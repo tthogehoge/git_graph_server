@@ -200,6 +200,9 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   #graphWrap { flex: 1; min-width: 0; position: relative; background: #fff; }
   #graph { position: absolute; inset: 0; overflow: auto; padding: 12px; box-sizing: border-box; }
   #reload { position: absolute; top: 8px; right: 14px; z-index: 5; margin: 0; }
+  #compareControls { position: absolute; top: 42px; right: 14px; z-index: 5; display: flex; align-items: center; gap: 6px; padding: 6px; border: 1px solid #ccc; border-radius: 4px; background: #fff; box-shadow: 0 1px 4px #0002; }
+  #compareControls[hidden] { display: none; }
+  #compareControls .cmp-hash { font-family: monospace; white-space: nowrap; }
   #panel { width: 480px; display: flex; flex-direction: column; border-left: 1px solid #ccc; background: #fafafa; box-sizing: border-box; }
   #listView, #detailView { flex: 1; min-height: 0; overflow: auto; padding: 14px; box-sizing: border-box; }
   #detailView { display: none; background: #fff; }
@@ -259,6 +262,10 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 <body>
 <div id="graphWrap">
 <button id="reload" class="sbtn" disabled title="グラフを最新の状態に更新">↻ 更新</button>
+<div id="compareControls" hidden>
+  <span class="cmp-hash" id="cmpA"></span><span class="cmp-hash" id="cmpB"></span>
+  <button class="sbtn" id="compareBtn" disabled>比較</button><button class="sbtn" id="clearCmpBtn">クリア</button>
+</div>
 <div id="graph">
   <div id="loading">
     <div class="spin"></div>
@@ -269,7 +276,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 </div>
 <div id="panel">
   <div id="listView"><p class="hint">ノードをクリックすると、そのコミットから最初（ルート）までのログを表示します。エッジをクリックすると省略された区間のログを表示します。</p>
-    <p class="hint">Ctrl（Mac は ⌘）+クリックでノードやログのコミットを2つ選ぶと、その間の差分を表示します。</p></div>
+    <p class="hint">Ctrl（Mac は ⌘）+クリックで比較対象 A を選び、別のログのコミットをクリックして比較対象 B を選びます。</p></div>
   <div id="detailView"></div>
 </div>
 <script>
@@ -278,9 +285,9 @@ const COLORS = {branch: "#b7e4a7", remote: "#a7c8f0", tag: "#ffe9a0", head: "#f4
 const CHUNK = 500;
 const listView = document.getElementById("listView"), detailView = document.getElementById("detailView");
 const views = {list: listView, detail: detailView}, savedScroll = {list: 0, detail: 0};
-let curView = "list", selected = null, selectedKey = null, anchor = null, token = 0, observer = null, curRow = null;
+let curView = "list", selected = null, selectedKey = null, token = 0, observer = null, curRow = null;
 let curCtx = null, curFiles = [];
-let cmp = [];  // Ctrl+クリックで選んだ比較用コミットのハッシュ (先頭が A、次が B)
+let cmp = [];  // 比較用コミットのハッシュ (先頭が A、次が B)
 const nodeEl = {};  // ハッシュ -> グラフ上のノード要素
 
 function esc(s) {
@@ -523,13 +530,6 @@ function showCompare(a, b) {  // a, b はコミットのハッシュ
     detailView.innerHTML = btns + '<p class="hint">エラー: ' + esc(e.message) + "</p>";
   });
 }
-function showCmpHint() {
-  if (cmp.length !== 1) return;
-  detailView.innerHTML = '<button class="back-btn">← 履歴一覧に戻る</button><h2>比較</h2>' +
-    '<p class="hint"><span class="tag tagA">A</span>' + esc(cmp[0].slice(0, 7)) +
-    " を選択しました。比較するもう1つのコミット (グラフのノードまたはログの行) を Ctrl（Mac は ⌘）+クリックしてください。</p>";
-  showView("detail");
-}
 function updateCmpClasses() {  // 選択中のコミットを、グラフのノードとログの行の両方でハイライトする
   document.querySelectorAll(".cmpA, .cmpB").forEach(el => el.classList.remove("cmpA", "cmpB"));
   cmp.forEach((h, i) => {
@@ -537,27 +537,33 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
     if (nodeEl[h]) nodeEl[h].classList.add(cls);
     listView.querySelectorAll('tr[data-h="' + h + '"]').forEach(tr => tr.classList.add(cls));
   });
+  const controls = document.getElementById("compareControls");
+  controls.hidden = cmp.length === 0;
+  document.getElementById("cmpA").textContent = cmp.length ? "A: " + cmp[0].slice(0, 7) : "";
+  document.getElementById("cmpB").textContent = cmp.length > 1 ? "B: " + cmp[1].slice(0, 7) : "B: 未選択";
+  document.getElementById("compareBtn").disabled = cmp.length !== 2;
 }
 function clearCmp() { cmp = []; updateCmpClasses(); }
-function toggleCmp(hash) {  // 比較用の選択 (最大2つ。3つ目を選ぶと古い方が外れる)
-  if (cmp.length === 0 && anchor && anchor !== hash) cmp = [anchor];  // 直前に通常クリックしたものを A にする
-  const i = cmp.indexOf(hash);
-  if (i >= 0) cmp.splice(i, 1);
-  else { cmp.push(hash); if (cmp.length > 2) cmp.shift(); }
+function selectCmpA(hash) {
+  cmp = [hash];
   if (selected) { selected.classList.remove("sel"); selected = null; selectedKey = null; }
   if (curRow) { curRow.classList.remove("cur"); curRow = null; }
   updateCmpClasses();
-  if (cmp.length === 2) showCompare(cmp[0], cmp[1]); else showCmpHint();
+}
+function selectCmpB(hash) {
+  if (cmp.length < 1 || cmp[0] === hash) return;
+  cmp = [cmp[0], hash];
+  updateCmpClasses();
 }
 
 listView.addEventListener("click", ev => {
   const tr = ev.target.closest("tr.clickable");
   if (!tr) return;
-  if (ev.ctrlKey || ev.metaKey) { toggleCmp(tr.dataset.h); return; }  // 比較用に選ぶ
+  if (ev.ctrlKey || ev.metaKey) { selectCmpA(tr.dataset.h); return; }
+  if (cmp.length) { selectCmpB(tr.dataset.h); return; }
   clearCmp();
   if (curRow) curRow.classList.remove("cur");
   curRow = tr; tr.classList.add("cur");
-  anchor = tr.dataset.h;
   showDetail(tr.dataset.h);
 });
 detailView.addEventListener("click", ev => {
@@ -582,6 +588,10 @@ detailView.addEventListener("click", ev => {
   if (tr && !ev.target.closest("a") && curCtx)  // 行のどこをクリックしても別タブで差分を開く
     window.open(diffUrl(curCtx, curFiles[+tr.dataset.k]), "_blank", "noopener");
 });
+document.getElementById("compareControls").addEventListener("click", ev => {
+  if (ev.target.closest("#compareBtn") && cmp.length === 2) showCompare(cmp[0], cmp[1]);
+  if (ev.target.closest("#clearCmpBtn")) clearCmp();
+});
 
 function select(g) {
   if (selected) selected.classList.remove("sel");
@@ -593,12 +603,11 @@ function select(g) {
 function onNodeClick(ev, g, n) {
   if (n.wip) {  // 作業ツリーの変更 (WIP) ノード: ログではなく変更ファイルの一覧を出す
     if (ev.ctrlKey || ev.metaKey) return;
-    clearCmp(); select(g); anchor = null; showWip();
+    clearCmp(); select(g); showWip();
     return;
   }
-  if (ev.ctrlKey || ev.metaKey) { toggleCmp(n.hash); return; }
-  clearCmp();
-  select(g); anchor = n.hash;
+  if (ev.ctrlKey || ev.metaKey) { selectCmpA(n.hash); return; }
+  select(g);
   showLog("git log --oneline " + esc(n.hash.slice(0, 7)), n.hash,
           chips(n.hash) + '<div class="meta">最初のコミットまでの全ログ</div>');
 }
@@ -616,7 +625,7 @@ function init() {
     const path = g.querySelector("path");
     if (path) { const hit = path.cloneNode(); hit.setAttribute("class", "hit"); g.appendChild(hit); }
     g.addEventListener("click", () => {
-      clearCmp(); anchor = null; select(g);
+      clearCmp(); select(g);
       const range = e.from.slice(0, 7) + ".." + e.to.slice(0, 7);
       showLog(esc(e.from.slice(0, 7)) + " → " + esc(e.to.slice(0, 7)), e.from + ".." + e.to,
               '<div class="meta"><code>git log ' + esc(range) + "</code></div>");
