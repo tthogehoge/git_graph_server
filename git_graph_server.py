@@ -17,7 +17,10 @@
   /api/status                                                作業ツリーの変更 (ステージ済み/未ステージ/未追跡/競合)
   /diff?wip=staged|unstaged|untracked|conflict&path=<file>   作業ツリーの変更の差分ページ
   /api/compare?from=<hash>&to=<hash>                         2コミット間の変更ファイル一覧
-  POST /api/branch | /api/tag | /api/checkout (JSON)         ブランチ作成 / タグ作成 / チェックアウト
+  POST /api/branch | /api/tag | /api/checkout (JSON)         ブランチ作成 / タグ作成 / チェックアウト (画面では、比較のAだけを選んだときの操作)
+  POST /api/merge {hash, no_ff} (JSON)                       選んだコミットを現在の HEAD にマージ
+  POST /api/rebase {hash} (JSON)                             現在のブランチを選んだコミットの上にリベース (競合したら中止して元に戻す)
+  /api/head                                                  現在のブランチ名 (マージ/リベース前の確認用)
   POST /api/wip-commit {paths, message} (JSON)               チェックしたファイルを add してコミット
      書き込みは 127.0.0.1 で待ち受けているときだけ有効 (--read-only で無効化、--allow-write で他アドレスでも許可)
 """
@@ -245,7 +248,12 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   #graphStatus { position: absolute; top: 10px; left: 12px; z-index: 5; padding: 4px 8px; border-radius: 3px; background: #fff; color: #555; }
   #graphStatus[hidden] { display: none; }
   #compareControls { position: absolute; top: 42px; right: 14px; z-index: 5; display: flex; align-items: center; gap: 6px; padding: 6px; border: 1px solid #ccc; border-radius: 4px; background: #fff; box-shadow: 0 1px 4px #0002; }
+  #compareControls { flex-wrap: wrap; max-width: 440px; justify-content: flex-end; }
   #compareControls[hidden] { display: none; }
+  #cmpActions { display: block; flex: 0 0 100%; box-sizing: border-box; margin: 2px 0 0; }
+  #cmpActions[hidden] { display: none; }
+  #compareControls [hidden] { display: none; }
+  #compareControls label { white-space: nowrap; }
   #compareControls .cmp-hash { font-family: monospace; white-space: nowrap; }
   #splitter { flex: 0 0 6px; cursor: col-resize; background: #eee; border-left: 1px solid #ccc; border-right: 1px solid #ccc; box-sizing: border-box; touch-action: none; }
   #splitter:hover, body.resizing #splitter { background: #c8d8f0; }
@@ -266,10 +274,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   .copy { cursor: pointer; font-size: 12px; margin-left: 6px; user-select: none; text-decoration: none; border-radius: 3px; padding: 0 2px; }
   .copy:hover { background: #e4e4e4; }
   td.h .copy { opacity: .45; } tr:hover td.h .copy { opacity: 1; }
-  .actions { display: none; border: 1px solid #ddd; background: #fafafa; border-radius: 4px; padding: 8px; margin: 8px 0; }
-  .actions.open { display: block; }
-  .tglbtn { border: 1px solid #bbb; background: #f3f3f3; border-radius: 3px; cursor: pointer; padding: 0 6px; margin-left: 4px; font-size: 12px; line-height: 1.4; }
-  .tglbtn:hover { background: #e4e4e4; }
+  .actions { border: 1px solid #ddd; background: #fafafa; border-radius: 4px; padding: 8px; margin: 8px 0; }
   .actions .arow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0; }
   .actions input[type=text] { padding: 3px 6px; border: 1px solid #bbb; border-radius: 3px; min-width: 0; flex: 1; }
   .abtn { background: #e8eefc; border: 1px solid #b8c7ee; padding: 3px 8px; border-radius: 3px; cursor: pointer; }
@@ -320,7 +325,23 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 <div id="graphStatus" role="status" aria-live="polite" hidden></div>
 <div id="compareControls" hidden>
   <span class="cmp-hash" id="cmpA"></span><span class="cmp-hash" id="cmpB"></span>
-  <button class="sbtn" id="compareBtn" disabled>比較</button><button class="sbtn" id="clearCmpBtn">クリア</button>
+  <button class="sbtn" id="compareBtn" disabled>比較</button>
+  <button class="sbtn" id="mergeBtn" hidden title="Aを現在のHEADにマージ">マージ</button>
+  <button class="sbtn" id="rebaseBtn" hidden title="現在のブランチをAの上にリベース">リベース</button>
+  <label id="mergeNoFf" hidden title="fast-forwardできる場合でもマージコミットを作る"><input type="checkbox" id="mergeNoFfCk"> --no-ff</label>
+  <button class="sbtn" id="cmpActToggle" hidden aria-expanded="false" title="Aに対するブランチ作成・タグ作成・チェックアウト">操作 ▾</button>
+  <button class="sbtn" id="clearCmpBtn">クリア</button>
+  <div class="actions" id="cmpActions" hidden>
+    <div class="arow"><input type="text" id="cmBrName" placeholder="新しいブランチ名">
+      <label><input type="checkbox" id="cmBrCo"> 作成後にチェックアウト</label>
+      <button class="abtn" data-cact="branch">ブランチ作成</button></div>
+    <div class="arow"><input type="text" id="cmTagName" placeholder="タグ名">
+      <input type="text" id="cmTagMsg" placeholder="メッセージ (入れると注釈付きタグ)">
+      <button class="abtn" data-cact="tag">タグ作成</button></div>
+    <div class="arow"><button class="abtn" data-cact="checkout">チェックアウト (detached HEAD)</button>
+      <span id="cmCoBtns"></span></div>
+    <div class="amsg" id="cmMsg"></div>
+  </div>
 </div>
 <div id="graph">
   <div id="loading">
@@ -499,26 +520,6 @@ function localBranches(h) {
   const n = DATA.nodes[h];
   return n ? n.refs.filter(r => r.kind === "branch").map(r => r.name) : [];
 }
-function checkoutBtns(h) {
-  return localBranches(h).map(b =>
-    '<button class="abtn" data-act="checkout-branch" data-branch="' + esc(b) + '">checkout ' + esc(b) + "</button>").join(" ");
-}
-function toggleBtn() {  // ハッシュの行に置く [+] ボタン。押すとブランチ作成などの操作パネルが開く
-  return DATA.writable ? '<button class="tglbtn" id="actToggle" aria-expanded="false" title="ブランチ作成・タグ作成・チェックアウト">+</button>' : "";
-}
-function actionsHtml(h) {  // ブランチ作成 / タグ作成 / チェックアウト (書き込みが有効なときだけ)
-  if (!DATA.writable) return "";
-  return '<div class="actions" id="actions">' +
-    '<div class="arow"><input type="text" id="brName" placeholder="新しいブランチ名">' +
-    '<label><input type="checkbox" id="brCo"> 作成後にチェックアウト</label>' +
-    '<button class="abtn" data-act="branch">ブランチ作成</button></div>' +
-    '<div class="arow"><input type="text" id="tagName" placeholder="タグ名">' +
-    '<input type="text" id="tagMsg" placeholder="メッセージ (入れると注釈付きタグ)">' +
-    '<button class="abtn" data-act="tag">タグ作成</button></div>' +
-    '<div class="arow"><button class="abtn" data-act="checkout">チェックアウト (detached HEAD)</button>' +
-    '<span id="coBtns">' + checkoutBtns(h) + "</span></div>" +
-    '<div class="amsg" id="actMsg"></div></div>';
-}
 function showDetail(h, fromHistory) {
   if (!fromHistory) pushScreen({screen: "detail", hash: h});
   const back = '<button class="back-btn">← 履歴一覧に戻る</button>';
@@ -529,11 +530,11 @@ function showDetail(h, fromHistory) {
     const parents = c.parents.map(p => esc(p.slice(0, 7))).join(", ") || "(なし)";
     detailView.innerHTML = back + "<h2>コミット " + esc(c.hash.slice(0, 7)) + "</h2>" +
       '<span id="dChips">' + detailChips(c.hash) + "</span>" +
-      '<div class="meta">' + esc(c.hash) + copyLink(c.hash) + toggleBtn() + "</div>" +
+      '<div class="meta">' + esc(c.hash) + copyLink(c.hash) + "</div>" +
       '<div class="meta">Author: ' + esc(c.author) + "</div>" +
       '<div class="meta">Date: ' + esc(c.date) + "</div>" +
       '<div class="meta">Parent: ' + parents + "</div>" +
-      "<pre>" + esc(c.message) + "</pre>" + actionsHtml(c.hash) + filesHtml(curCtx, c.files) +
+      "<pre>" + esc(c.message) + "</pre>" + filesHtml(curCtx, c.files) +
       '<div class="meta"><code>git show ' + esc(c.hash.slice(0, 7)) + "</code></div>";
   }).catch(e => {
     detailView.innerHTML = back + '<p class="hint">エラー: ' + esc(e.message) + "</p>";
@@ -544,55 +545,23 @@ function post(path, body) {
   return fetch(path, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)})
     .then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); }));
 }
-function setActMsg(text, ok) {
-  const el = detailView.querySelector("#actMsg");
-  if (el) { el.textContent = text; el.className = "amsg " + (ok ? "ok" : "ng"); }
-}
-function inputVal(sel) {
-  const el = detailView.querySelector(sel);
-  return el ? el.value.trim() : "";
-}
-function doAction(btn) {
-  const h = curDetailHash, act = btn.dataset.act;
-  let url, body, ask = null;
-  if (act === "branch") {
-    const name = inputVal("#brName");
-    if (!name) { setActMsg("ブランチ名を入力してください", false); return; }
-    url = "/api/branch"; body = {hash: h, name: name, checkout: detailView.querySelector("#brCo").checked};
-    if (body.checkout) ask = "ブランチ " + name + " を作成してチェックアウトします (作業ツリーが切り替わります)。よろしいですか？";
-  } else if (act === "tag") {
-    const name = inputVal("#tagName");
-    if (!name) { setActMsg("タグ名を入力してください", false); return; }
-    url = "/api/tag"; body = {hash: h, name: name, message: inputVal("#tagMsg")};
-  } else if (act === "checkout") {
-    url = "/api/checkout"; body = {hash: h};
-    ask = "コミット " + h.slice(0, 7) + " を detached HEAD でチェックアウトします (作業ツリーが切り替わります)。よろしいですか？";
-  } else if (act === "checkout-branch") {
-    url = "/api/checkout"; body = {branch: btn.dataset.branch};
-    ask = "ブランチ " + btn.dataset.branch + " をチェックアウトします (作業ツリーが切り替わります)。よろしいですか？";
-  } else if (act === "delete-ref") {
-    const kind = btn.dataset.kind, name = btn.dataset.name;
-    url = "/api/ref-delete"; body = {kind: kind, name: name};
-    ask = (kind === "branch" ? "ブランチ" : "タグ") + " " + name + " を削除します。よろしいですか？";
-  } else return;
-  if (ask && !confirm(ask)) return;
-  btn.disabled = true; setActMsg("実行中…", true);
+function doAction(btn) {  // ブランチ/タグのチップの × (削除)
+  if (btn.dataset.act !== "delete-ref") return;
+  const kind = btn.dataset.kind, name = btn.dataset.name;
+  const url = "/api/ref-delete", body = {kind: kind, name: name};
+  if (!confirm((kind === "branch" ? "ブランチ" : "タグ") + " " + name + " を削除します。よろしいですか？")) return;
+  btn.disabled = true; setGraphStatus("削除中…");
   post(url, body)
     .then(r => {
       if (!r.needs_force) return r;
-      const name = body.name;
       if (!confirm("ブランチ " + name + " は未マージです。強制削除すると未マージのコミットがブランチから到達できなくなる可能性があります。削除しますか？")) return null;
       return post(url, Object.assign({}, body, {force: true}));
     })
     .then(r => {
-      if (r === null) {
-        if (curDetailHash === h) setActMsg("強制削除をキャンセルしました", false);
-        return;
-      }
-      if (curDetailHash === h) setActMsg(r.message, true);
-      refreshGraph().catch(e => setGraphStatus("グラフ更新に失敗しました: " + e.message));
+      if (r === null) { setGraphStatus("強制削除をキャンセルしました"); return; }
+      return refreshGraph().catch(() => {}).then(() => setGraphStatus(r.message));
     })
-    .catch(e => { if (curDetailHash === h) setActMsg(e.message, false); })
+    .catch(e => setGraphStatus("削除できませんでした: " + e.message))
     .finally(() => { btn.disabled = false; });
 }
 
@@ -610,7 +579,7 @@ function refreshGraph() {
     .then(r => {
       const keys = new Set(Object.keys(DATA.nodes).concat(Object.keys(r.nodes)));
       const gc = document.getElementById("graph"), top0 = gc.scrollTop, left0 = gc.scrollLeft;
-      DATA = {nodes: r.nodes, edges: r.edges, writable: r.writable};
+      DATA = {nodes: r.nodes, edges: r.edges, writable: r.writable, merge: r.merge};
       gc.innerHTML = r.svg;
       gc.scrollTop = top0; gc.scrollLeft = left0;
       selected = null;
@@ -624,9 +593,8 @@ function refreshGraph() {
       }
       updateCmpClasses();
       keys.forEach(h => listView.querySelectorAll('tr[data-h="' + h + '"] .rc').forEach(el => { el.innerHTML = chips(h); }));
-      const c = detailView.querySelector("#dChips"), co = detailView.querySelector("#coBtns");
+      const c = detailView.querySelector("#dChips");
       if (c && curDetailHash) c.innerHTML = detailChips(curDetailHash);
-      if (co && curDetailHash) co.innerHTML = checkoutBtns(curDetailHash);
       setGraphStatus("");
     })
     .catch(e => {
@@ -667,8 +635,105 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
   document.getElementById("cmpA").textContent = cmp.length ? "A: " + cmp[0].slice(0, 7) : "";
   document.getElementById("cmpB").textContent = cmp.length > 1 ? "B: " + cmp[1].slice(0, 7) : "B: 未選択";
   document.getElementById("compareBtn").disabled = cmp.length !== 2;
+  const canMerge = cmp.length === 1 && !!DATA.writable && !!DATA.merge;  // Aだけ選んでいるときだけマージできる
+  document.getElementById("mergeBtn").hidden = !canMerge;
+  document.getElementById("rebaseBtn").hidden = !canMerge;
+  const canAct = cmp.length === 1 && !!DATA.writable;  // Aだけ選んでいるとき: ブランチ作成・タグ作成・チェックアウト
+  document.getElementById("cmpActToggle").hidden = !canAct;
+  const panel = document.getElementById("cmpActions");
+  panel.hidden = !(canAct && cmpActOpen);
+  if (canAct) {
+    document.getElementById("cmCoBtns").innerHTML = localBranches(cmp[0]).map(b =>
+      '<button class="abtn" data-cact="checkout-branch" data-branch="' + esc(b) + '">checkout ' + esc(b) + "</button>").join(" ");
+  } else {
+    document.getElementById("cmMsg").textContent = "";
+  }
+  document.getElementById("mergeNoFf").hidden = !canMerge;
+}
+let cmpActOpen = false;
+function setCmpMsg(text, ok) {
+  const el = document.getElementById("cmMsg");
+  el.textContent = text; el.className = "amsg " + (ok ? "ok" : "ng");
+}
+function doCmpAction(btn) {  // Aに対するブランチ作成 / タグ作成 / チェックアウト
+  if (cmp.length !== 1) return;
+  const h = cmp[0], act = btn.dataset.cact, val = id => document.getElementById(id).value.trim();
+  let url, body, ask = null;
+  if (act === "branch") {
+    const name = val("cmBrName");
+    if (!name) { setCmpMsg("ブランチ名を入力してください", false); return; }
+    url = "/api/branch"; body = {hash: h, name: name, checkout: document.getElementById("cmBrCo").checked};
+    if (body.checkout) ask = "ブランチ " + name + " を作成してチェックアウトします (作業ツリーが切り替わります)。よろしいですか？";
+  } else if (act === "tag") {
+    const name = val("cmTagName");
+    if (!name) { setCmpMsg("タグ名を入力してください", false); return; }
+    url = "/api/tag"; body = {hash: h, name: name, message: val("cmTagMsg")};
+  } else if (act === "checkout") {
+    url = "/api/checkout"; body = {hash: h};
+    ask = "コミット " + h.slice(0, 7) + " を detached HEAD でチェックアウトします (作業ツリーが切り替わります)。よろしいですか？";
+  } else if (act === "checkout-branch") {
+    url = "/api/checkout"; body = {branch: btn.dataset.branch};
+    ask = "ブランチ " + btn.dataset.branch + " をチェックアウトします (作業ツリーが切り替わります)。よろしいですか？";
+  } else return;
+  if (ask && !confirm(ask)) return;
+  btn.disabled = true; setCmpMsg("実行中…", true);
+  post(url, body)
+    .then(r => {
+      setCmpMsg(r.message, true);
+      if (act === "branch") document.getElementById("cmBrName").value = "";
+      if (act === "tag") { document.getElementById("cmTagName").value = ""; document.getElementById("cmTagMsg").value = ""; }
+      return refreshGraph().catch(() => {});
+    })
+    .catch(e => setCmpMsg(e.message, false))
+    .finally(() => { btn.disabled = false; });
 }
 function clearCmp() { cmp = []; updateCmpClasses(); }
+function doRebase() {
+  if (cmp.length !== 1) return;
+  const h = cmp[0], btn = document.getElementById("rebaseBtn");
+  btn.disabled = true;
+  fetch("/api/head").then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); }))
+    .then(hd => {
+      if (hd.merging) throw new Error("マージまたはリベースの途中です。先に完了してください");
+      if (!hd.branch) throw new Error("ブランチをチェックアウトしていません (detached HEAD ではリベースできません)");
+      if (!confirm("ブランチ " + hd.branch + " を コミット " + h.slice(0, 7) + " の上にリベースします。" +
+                   hd.branch + " のコミットは作り直され、履歴が書き換わります (競合したときは自動で元に戻します)。よろしいですか？")) return null;
+      setGraphStatus("リベース中…");
+      return post("/api/rebase", {hash: h});
+    })
+    .then(r => {
+      if (r === null) { setGraphStatus(""); return; }
+      clearCmp();
+      return refreshGraph().catch(() => {}).then(() => setGraphStatus(r.message));
+    })
+    .catch(e => { setGraphStatus("リベースできませんでした: " + e.message); })
+    .finally(() => { btn.disabled = false; });
+}
+function doMerge() {
+  if (cmp.length !== 1) return;
+  const h = cmp[0], noFf = document.getElementById("mergeNoFfCk").checked;
+  const btn = document.getElementById("mergeBtn");
+  btn.disabled = true;
+  fetch("/api/head").then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); }))
+    .then(hd => {
+      if (hd.merging) throw new Error("マージの途中です。先に競合を解決してコミットしてください");
+      const into = hd.branch ? "ブランチ " + hd.branch : "detached HEAD";
+      if (!confirm("コミット " + h.slice(0, 7) + " を " + into + " にマージします" + (noFf ? " (--no-ff)" : "") +
+                   " (作業ツリーが変わります)。よろしいですか？")) return null;
+      setGraphStatus("マージ中…");
+      return post("/api/merge", {hash: h, no_ff: noFf});
+    })
+    .then(r => {
+      if (r === null) { setGraphStatus(""); return; }
+      clearCmp();
+      return refreshGraph().catch(() => {}).then(() => {
+        setGraphStatus(r.message);
+        if (r.conflict) showWip();
+      });
+    })
+    .catch(e => { setGraphStatus("マージできませんでした: " + e.message); })
+    .finally(() => { btn.disabled = false; });
+}
 function selectCmpA(hash) {
   cmp = [hash];
   if (selected) { selected.classList.remove("sel"); selected = null; selectedKey = null; }
@@ -710,14 +775,6 @@ listView.addEventListener("click", ev => {
   showDetail(tr.dataset.h);
 });
 detailView.addEventListener("click", ev => {
-  const tg = ev.target.closest("#actToggle");
-  if (tg) {
-    const panel = detailView.querySelector("#actions");
-    const open = panel.classList.toggle("open");
-    tg.textContent = open ? "\u2212" : "+"; tg.setAttribute("aria-expanded", open ? "true" : "false");
-    if (open) { const f = panel.querySelector("#brName"); if (f) f.focus(); }
-    return;
-  }
   if (ev.target.closest("#wipReload")) { showWip(true); refreshGraph().catch(() => {}); return; }
   if (ev.target.closest("#wipCommit")) { doWipCommit(); return; }
   const ab = ev.target.closest(".abtn");
@@ -734,6 +791,18 @@ detailView.addEventListener("click", ev => {
 });
 document.getElementById("compareControls").addEventListener("click", ev => {
   if (ev.target.closest("#compareBtn") && cmp.length === 2) showCompare(cmp[0], cmp[1]);
+  const tg = ev.target.closest("#cmpActToggle");
+  if (tg) {
+    cmpActOpen = !cmpActOpen;
+    tg.setAttribute("aria-expanded", cmpActOpen ? "true" : "false"); tg.textContent = cmpActOpen ? "操作 ▴" : "操作 ▾";
+    updateCmpClasses();
+    if (cmpActOpen) document.getElementById("cmBrName").focus();
+    return;
+  }
+  const cab = ev.target.closest(".abtn[data-cact]");
+  if (cab) { doCmpAction(cab); return; }
+  if (ev.target.closest("#mergeBtn")) doMerge();
+  if (ev.target.closest("#rebaseBtn")) doRebase();
   if (ev.target.closest("#clearCmpBtn")) clearCmp();
 });
 
@@ -886,7 +955,7 @@ fetch("/api/graph")
   .then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); }))
   .then(r => {
     clearInterval(timer);
-    DATA = {nodes: r.nodes, edges: r.edges, writable: r.writable};
+    DATA = {nodes: r.nodes, edges: r.edges, writable: r.writable, merge: r.merge};
     document.getElementById("graph").innerHTML = r.svg;
     init();
     document.getElementById("reload").disabled = false;
@@ -1036,7 +1105,8 @@ def graph_payload():
         svg = subprocess.run(["dot", "-Tsvg"], input=dot_text, capture_output=True,
                              text=True, check=True).stdout
         svg = svg[svg.index("<svg"):]
-        payload = json.dumps({"svg": svg, "nodes": nodes, "edges": edges, "writable": WRITABLE},
+        payload = json.dumps({"svg": svg, "nodes": nodes, "edges": edges, "writable": WRITABLE,
+                              "merge": WRITABLE and HAS_WORKTREE},
                              ensure_ascii=False)
         _cache.update(payload_key=(key, raw), payload=payload)
         return payload
@@ -1445,7 +1515,74 @@ def api_wip_commit(body):
     return {"ok": True, "message": f"{h[:7]} をコミットしました ({len(checked)} 件)"}
 
 
-POST_ROUTES = {"/api/branch": api_branch, "/api/tag": api_tag, "/api/ref-delete": api_delete_ref,
+def is_rebasing():
+    for d in ("rebase-merge", "rebase-apply"):
+        r = subprocess.run(["git", "-C", REPO, "rev-parse", "--git-path", d],
+                           capture_output=True, text=True)
+        path = r.stdout.strip()
+        if path and os.path.isdir(os.path.join(REPO, path)):
+            return True
+    return False
+
+
+def api_head(q=None):
+    r = subprocess.run(["git", "-C", REPO, "symbolic-ref", "--short", "-q", "HEAD"],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    return {"branch": r.stdout.strip() or None, "merging": (is_merging() or is_rebasing()) if HAS_WORKTREE else False}
+
+
+def api_merge(body):
+    """選んだコミットを、いまチェックアウトしている HEAD にマージする。
+    競合したときはマージ途中の状態で止める (WIP の一覧に競合ファイルが出るので、解決してコミットする)。"""
+    if not HAS_WORKTREE:
+        raise ValueError("ワークツリーのないリポジトリではマージできません")
+    h = resolve_commit(body.get("hash", ""))
+    if is_merging():
+        raise ValueError("マージの途中です。先に競合を解決してコミットするか、git merge --abort してください")
+    if not has_head():
+        raise ValueError("最初のコミットがないためマージできません")
+    args = ["merge", "--no-edit"]
+    if body.get("no_ff"):
+        args.append("--no-ff")
+    r = subprocess.run(["git", "-C", REPO, *args, h], capture_output=True, text=True,
+                       encoding="utf-8", errors="replace")
+    out = (r.stdout + r.stderr).strip()
+    if r.returncode != 0:
+        if is_merging():  # 競合 (自動マージできなかった)
+            return {"ok": True, "conflict": True,
+                    "message": f"{h[:7]} のマージで競合しました。WIP の競合ファイルを解決してコミットしてください"}
+        raise ValueError(out or "マージに失敗しました")
+    if "Already up to date" in out:
+        return {"ok": True, "message": f"{h[:7]} は既にマージ済みです (変更なし)"}
+    return {"ok": True, "message": f"{h[:7]} をマージしました"}
+
+
+def api_rebase(body):
+    """現在のブランチを、選んだコミットの上にリベースする。競合したら自動で中止して元に戻す。"""
+    if not HAS_WORKTREE:
+        raise ValueError("ワークツリーのないリポジトリではリベースできません")
+    h = resolve_commit(body.get("hash", ""))
+    if is_merging() or is_rebasing():
+        raise ValueError("マージまたはリベースの途中です。先に完了するか中止してください")
+    head = api_head()
+    if not head["branch"]:
+        raise ValueError("ブランチをチェックアウトしていません (detached HEAD ではリベースできません)")
+    before = git("rev-parse", "HEAD").strip()
+    r = subprocess.run(["git", "-C", REPO, "rebase", h], capture_output=True, text=True,
+                       encoding="utf-8", errors="replace")
+    out = (r.stdout + r.stderr).strip()
+    if r.returncode != 0:
+        if is_rebasing():  # 競合 → 元に戻す
+            subprocess.run(["git", "-C", REPO, "rebase", "--abort"], capture_output=True)
+            raise ValueError(f"{h[:7]} の上へのリベースで競合したため中止し、元に戻しました。"
+                             "競合を解決したい場合はコマンドラインで git rebase を実行してください")
+        raise ValueError(out or "リベースに失敗しました")
+    if git("rev-parse", "HEAD").strip() == before:
+        return {"ok": True, "message": f"{head['branch']} は既に {h[:7]} の上にあります (変更なし)"}
+    return {"ok": True, "message": f"{head['branch']} を {h[:7]} の上にリベースしました"}
+
+
+POST_ROUTES = {"/api/rebase": api_rebase, "/api/merge": api_merge, "/api/branch": api_branch, "/api/tag": api_tag, "/api/ref-delete": api_delete_ref,
                "/api/checkout": api_checkout, "/api/wip-commit": api_wip_commit}
 
 
@@ -1471,6 +1608,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, "application/json", json.dumps(api_status(q), ensure_ascii=False))
             elif u.path == "/api/graph":
                 self._send(200, "application/json", graph_payload())
+            elif u.path == "/api/head":
+                self._send(200, "application/json", json.dumps(api_head(q), ensure_ascii=False))
             elif u.path == "/api/compare":
                 self._send(200, "application/json", json.dumps(api_compare(q), ensure_ascii=False))
             elif u.path == "/api/commit":
