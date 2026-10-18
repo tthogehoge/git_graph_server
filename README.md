@@ -32,6 +32,8 @@ If no revisions are specified, all branches and tags are shown. Press `Ctrl+C` t
 
 Set the language with `LANG` when starting the server. Japanese is used for an unset or unsupported language.
 
+English display is currently incomplete; some labels and messages may still appear in Japanese.
+
 ```sh
 LANG=ja_JP.UTF-8 python git_graph_server.py
 LANG=en_US.UTF-8 python git_graph_server.py
