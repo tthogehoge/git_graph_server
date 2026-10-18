@@ -949,8 +949,7 @@ async function doCmpAction(btn) {  // 選択対象に対するブランチ作成
     })
     .then(r => {
       if (r.cancelled) { setCmpMsg(r.message, false); return; }
-      setCmpMsg(r.message, true);
-      return refreshGraph().catch(() => {});
+      return refreshGraph().then(() => setCmpMsg(r.message, true));
     })
     .catch(e => setCmpMsg(e.message, false))
     .finally(() => { btn.disabled = false; });
@@ -1007,9 +1006,9 @@ async function doRemoteAction(btn) {  // fetch / pull / push (pushは操作対�
   }
   p.then(r => {
     if (r.cancelled) { setRemoteMsg(r.message, false); return; }
-    setRemoteMsg(r.message, !r.conflict);
-    return refreshGraph().catch(() => {}).then(() => {
+    return refreshGraph().then(() => {
       if (r.conflict) { setGraphStatus(r.message, "error"); clearCmp(); showWip(); }
+      else setRemoteMsg(r.message, true);
     });
   })
     .catch(e => setRemoteMsg(e.message, false))
