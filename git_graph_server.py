@@ -34,7 +34,7 @@
   POST /api/fetch {prune} | /api/pull {mode} | /api/push {branch, force, set_upstream} (JSON)
      fetch (--all) / pull (mode: ff-only | merge | rebase) / push (branch 指定でそのローカルブランチ、省略で現在のブランチを upstream へ。force は --force-with-lease)
      画面では、比較のAだけを選んだときの「操作」パネルにある。認証の入力待ちで固まらないよう、端末入力を無効にして一定時間でタイムアウトする
-  POST /api/wip-commit {paths, message} (JSON)               チェックしたファイルを add してコミット
+  POST /api/wip-commit {paths, message, amend?} (JSON)        チェックしたファイルを add してコミット / 直前のコミットを amend
      書き込みは 127.0.0.1 で待ち受けているときだけ有効 (--read-only で無効化、--allow-write で他アドレスでも許可)
 """
 import argparse
@@ -261,11 +261,13 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   #graphWrap { flex: 1; min-width: 0; position: relative; background: #fff; }
   #graph { position: absolute; inset: 0; overflow: auto; padding: 12px; box-sizing: border-box; }
   #graphStatus { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); z-index: 5;
-    max-width: calc(100% - 32px); padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px;
-    background: #fff; color: #555; box-shadow: 0 2px 8px #0003; white-space: pre-wrap; overflow-wrap: anywhere; }
-  #graphStatus[hidden] { display: none; }
-  #graphStatus.success { color: #1a7f37; border-color: #8cce9c; }
-  #graphStatus.error { color: #cf222e; border-color: #e7a0a4; }
+    display: flex; flex-direction: column-reverse; gap: 6px; width: max-content; max-width: calc(100% - 32px);
+    max-height: 45%; overflow-y: auto; pointer-events: none; }
+  #graphStatus:empty { display: none; }
+  .graph-toast { padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px; background: #fff;
+    color: #555; box-shadow: 0 2px 8px #0003; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .graph-toast.success { color: #1a7f37; border-color: #8cce9c; }
+  .graph-toast.error { color: #cf222e; border-color: #e7a0a4; }
   #compareControls { position: absolute; top: 8px; right: 14px; z-index: 5; }
   #compareControls [hidden] { display: none; }
   #compareToolbar, #cmpActions { padding: 6px; border: 1px solid #ccc; border-radius: 4px; background: #fff; box-shadow: 0 1px 4px #0002; }
@@ -382,7 +384,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 </head>
 <body>
 <div id="graphWrap">
-<div id="graphStatus" role="status" aria-live="polite" hidden></div>
+<div id="graphStatus" role="region" aria-label="通知"></div>
 <div id="compareControls">
   <div id="compareToolbar">
     <button id="reload" class="sbtn" disabled title="グラフを最新の状態に更新">↻ 更新</button>
@@ -721,19 +723,35 @@ function doAction(btn) {  // ブランチ/タグのチップの × (削除)
     .finally(() => { btn.disabled = false; });
 }
 
-let graphStatusTimer = null;
+const graphStatusTimers = new Map();
 function setGraphStatus(message, type) {
-  const status = document.getElementById("graphStatus");
-  clearTimeout(graphStatusTimer);
-  status.textContent = message || "";
-  status.className = message ? (type || "info") : "";
-  status.hidden = !message;
-  if (message && !message.includes("中…") && !message.startsWith("実行中…")) {
-    graphStatusTimer = setTimeout(() => {
-      status.hidden = true;
-      status.textContent = "";
-      status.className = "";
-    }, 6000);
+  const container = document.getElementById("graphStatus");
+  if (!message) {
+    container.querySelectorAll(".graph-toast.progress").forEach(toast => {
+      clearTimeout(graphStatusTimers.get(toast));
+      graphStatusTimers.delete(toast);
+      toast.remove();
+    });
+    return;
+  }
+  const progress = message.includes("中…") || message.startsWith("実行中…");
+  const toast = [...container.children].find(el =>
+    el.textContent === message && el.classList.contains(progress ? "progress" : (type || "info")));
+  if (toast) {
+    clearTimeout(graphStatusTimers.get(toast));
+    graphStatusTimers.delete(toast);
+  }
+  const item = toast || document.createElement("div");
+  item.className = "graph-toast " + (type || "info") + (progress ? " progress" : "");
+  item.setAttribute("role", "status");
+  item.setAttribute("aria-live", "polite");
+  item.textContent = message;
+  if (!toast) container.appendChild(item);
+  if (!progress) {
+    graphStatusTimers.set(item, setTimeout(() => {
+      item.remove();
+      graphStatusTimers.delete(item);
+    }, 6000));
   }
 }
 
@@ -1223,7 +1241,8 @@ listView.addEventListener("click", ev => {
 });
 detailView.addEventListener("click", ev => {
   if (ev.target.closest("#wipReload")) { showWip(true); refreshGraph().catch(() => {}); return; }
-  if (ev.target.closest("#wipCommit")) { doWipCommit(); return; }
+  if (ev.target.closest("#wipCommit")) { doWipCommit(false); return; }
+  if (ev.target.closest("#wipAmend")) { doWipCommit(true); return; }
   const ab = ev.target.closest(".abtn");
   if (ab) { doAction(ab); return; }
   if (ev.target.closest(".sbtn")) {
@@ -1335,6 +1354,8 @@ function setWipPath(p, v) {  // 同じパスのチェックボックスをまと
 function wipSync() {  // コミットボタンの件数と、グループの全選択チェックを更新
   const n = wipPaths().length, b = detailView.querySelector("#wipCommit");
   if (b) { b.disabled = n === 0; b.textContent = "チェックした " + n + " 件を add してコミット"; }
+  const amendBtn = detailView.querySelector("#wipAmend");
+  if (amendBtn) amendBtn.disabled = n === 0;
   detailView.querySelectorAll(".wipall").forEach(all => {
     const cks = [...detailView.querySelectorAll('.wipck[data-kind="' + all.dataset.kind + '"]')];
     const c = cks.filter(x => x.checked).length;
@@ -1346,13 +1367,17 @@ function wipSay(text, ok) {
   const el = detailView.querySelector("#wipMsgOut");
   if (el) { el.textContent = text; el.className = "amsg " + (ok ? "ok" : "ng"); }
 }
-function doWipCommit() {
+function doWipCommit(amend) {
   const paths = wipPaths(), ta = detailView.querySelector("#wipMsg"), msg = ta ? ta.value : "";
   if (!msg.trim()) { wipSay("コミットメッセージを入力してください", false); return; }
   if (!paths.length) { wipSay("コミットするファイルにチェックを付けてください", false); return; }
+  if (amend && !confirm("選択した変更を直前のコミットに取り込み、コミットを作り直します。履歴が書き換わります。続けますか？")) return;
   const btn = detailView.querySelector("#wipCommit");
-  btn.disabled = true; wipSay("実行中…", true);
-  post("/api/wip-commit", {paths: paths, message: msg})
+  const amendBtn = detailView.querySelector("#wipAmend");
+  btn.disabled = true;
+  if (amendBtn) amendBtn.disabled = true;
+  wipSay("実行中…", true);
+  post("/api/wip-commit", {paths: paths, message: msg, amend: !!amend})
     .then(r => {
       wipMsg = ""; wipSel = {};
       showWip(true, r.message);
@@ -1391,6 +1416,7 @@ function showWip(fromHistory, okMsg) {
     const box = canCommit && files.length
       ? '<div class="wipbox"><textarea id="wipMsg" placeholder="コミットメッセージ"></textarea>' +
         '<div class="arow"><button class="wbtn" id="wipCommit">コミット</button>' +
+        (s.head && !s.merging && !s.rebasing ? '<button class="wbtn" id="wipAmend">直前のコミットを amend</button>' : "") +
         '<span class="hint">チェックを外したステージ済みファイルはステージから外れます (作業ツリーはそのまま)</span></div>' +
         '<div class="amsg" id="wipMsgOut"></div></div>' : "";
     detailView.innerHTML = btns + "<h2>作業ツリーの変更 (WIP)</h2>" +
@@ -1508,6 +1534,7 @@ def api_status(q):
     except subprocess.CalledProcessError:
         s["head"] = ""
     s["merging"] = is_merging()
+    s["rebasing"] = is_rebasing()
     return s
 
 
@@ -2126,6 +2153,12 @@ def api_wip_commit(body):
     ステージ済みでチェックのないファイルは、ステージから外す (作業ツリーの内容はそのまま)。"""
     if not WIP_ENABLED:
         raise ValueError("作業ツリーの変更の表示は無効です")
+    amend = body.get("amend") is True
+    if amend:
+        if not has_head():
+            raise ValueError("amend するコミットがありません")
+        if is_merging() or is_rebasing():
+            raise ValueError("マージまたはリベース中は amend できません")
     msg = str(body.get("message", "")).strip()
     if not msg:
         raise ValueError("コミットメッセージを入力してください")
@@ -2157,9 +2190,10 @@ def api_wip_commit(body):
     todo = sorted(checked)
     for i in range(0, len(todo), step):
         run_git_write("add", "-A", "--", *todo[i:i + step], literal=True)
-    run_git_write("commit", "-m", msg)
+    run_git_write("commit", *(["--amend"] if amend else []), "-m", msg)
     h = git("rev-parse", "HEAD").strip()
-    return {"ok": True, "message": f"{h[:7]} をコミットしました ({len(checked)} 件)"}
+    verb = "amend" if amend else "コミット"
+    return {"ok": True, "message": f"{h[:7]} を {verb} しました ({len(checked)} 件)"}
 
 
 def is_rebasing():
