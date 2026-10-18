@@ -22,6 +22,11 @@
      on_conflict="stash" (全変更を stash -u して実行) / "discard" (止めているファイルだけ破棄・削除して実行) を付けて再送する
   POST /api/merge {hash, no_ff} (JSON)                       選んだコミットを現在の HEAD にマージ
   POST /api/rebase {hash} (JSON)                             現在のブランチを選んだコミットの上にリベース (競合したら中止して元に戻す)
+  POST /api/cherry-pick {hash} (JSON)                        選んだコミットを現在の HEAD にチェリーピック (競合したら中止して元に戻す)
+  /api/rebase-todo?hash=<hash>                               対話的リベースの対象コミット一覧 (古い順。git rebase -i が作る todo と同じ)
+  POST /api/rebase-i {hash, todo:[{hash, action, message}]}  対話的リベース (git rebase -i 相当)
+     action は pick / reword (message が新しいコミットメッセージ) / squash / fixup / drop。todo の並び順がそのまま適用順になる。
+     競合やエラーで止まったときは自動で中止して元に戻す (edit は未対応)
   /api/head                                                  現在のブランチ名 (マージ/リベース前の確認用)
   POST /api/fetch {prune} | /api/pull {mode} | /api/push {branch, force, set_upstream} (JSON)
      fetch (--all) / pull (mode: ff-only | merge | rebase) / push (branch 指定でそのローカルブランチ、省略で現在のブランチを upstream へ。force は --force-with-lease)
@@ -35,8 +40,10 @@ import itertools
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import webbrowser
@@ -305,6 +312,21 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   .dialog-buttons button { margin: 0; }
   .comodal ul { margin: 2px 0 8px; padding-left: 20px; font-family: monospace; word-break: break-all; }
   .comodal .arow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .action-dialog.wide { width: min(760px, calc(100vw - 48px)); }
+  .ri-note { color: #555; margin-bottom: 4px; }
+  .ri-list { display: flex; flex-direction: column; gap: 4px; }
+  .ri-row { border: 1px solid #ddd; border-radius: 4px; padding: 4px 6px; background: #fff; }
+  .ri-main { display: flex; align-items: center; gap: 6px; }
+  .ri-main select { flex: none; width: 90px; padding: 2px; }
+  .ri-main code { flex: none; color: #555; }
+  .ri-subj { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ri-author { flex: none; color: #888; font-size: 11px; }
+  .ri-main button { flex: none; padding: 0 6px; cursor: pointer; }
+  .ri-row textarea { box-sizing: border-box; width: 100%; margin-top: 4px; font: inherit; padding: 4px 6px; }
+  .ri-row textarea[hidden] { display: none; }
+  .ri-row.drop { background: #f6f6f6; } .ri-row.drop .ri-subj { text-decoration: line-through; color: #999; }
+  .ri-row.squash, .ri-row.fixup { margin-left: 22px; background: #f3f8ff; }
+  #actionError { margin-top: 8px; white-space: pre-wrap; } #actionError:empty { display: none; }
   .abtn.danger { background: #fde8e8; border-color: #eeb8b8; } .abtn.danger:hover { background: #fbd3d3; }
   h3 { font-size: 13px; margin: 10px 0 2px; }
   .st { display: inline-block; min-width: 1.3em; text-align: center; font-weight: bold; color: #fff; border-radius: 2px; margin-right: 4px; }
@@ -366,6 +388,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     <div class="menu-section" id="aActions" hidden>
       <button class="abtn" id="mergeBtn" title="Aを現在のHEADにマージ">マージ</button>
       <button class="abtn" id="rebaseBtn" title="現在のブランチをAの上にリベース">リベース</button>
+      <button class="abtn" id="cherryBtn" title="Aを現在のHEADにチェリーピック">チェリーピック</button>
+      <button class="abtn" id="irebaseBtn" title="現在のブランチをAの上に、コミットの並べ替え・squash・メッセージ変更・削除をしながらリベース (git rebase -i)">対話的リベース</button>
       <button class="abtn" data-cact="branch">ブランチ作成</button>
       <button class="abtn" data-cact="tag">タグ作成</button>
       <button class="abtn" data-cact="checkout">チェックアウト</button>
@@ -378,6 +402,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   <form class="action-dialog" id="actionForm" role="dialog" aria-modal="true" aria-labelledby="actionTitle">
     <h2 id="actionTitle"></h2>
     <div class="action-fields" id="actionFields"></div>
+    <div class="amsg ng" id="actionError" role="alert"></div>
     <div class="dialog-buttons">
       <button type="button" class="abtn" data-dialog-cancel>キャンセル</button>
       <button type="submit" class="abtn" id="actionSubmit"></button>
@@ -706,9 +731,11 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
   const canMerge = cmp.length === 1 && !!DATA.writable && !!DATA.merge;  // Aだけ選んでいるときだけマージできる
   document.getElementById("mergeBtn").disabled = !canMerge;
   document.getElementById("rebaseBtn").disabled = !canMerge;
+  document.getElementById("irebaseBtn").disabled = !canMerge;
+  document.getElementById("cherryBtn").disabled = !canMerge;
   const canWrite = !!DATA.writable;
   document.querySelectorAll("#aActions button")
-    .forEach(el => { el.disabled = !canWrite || (["mergeBtn", "rebaseBtn"].includes(el.id) && !DATA.merge); });
+    .forEach(el => { el.disabled = !canWrite || (["mergeBtn", "rebaseBtn", "irebaseBtn", "cherryBtn"].includes(el.id) && !DATA.merge); });
   document.querySelectorAll("#remoteActions button")
     .forEach(el => { el.disabled = !canWrite || (el.dataset.cact === "pull" && !DATA.merge); });
   document.querySelector('#remoteActions [data-cact="pull"]').title =
@@ -735,9 +762,12 @@ function askCheckoutConflict(r) {  // チェックアウトを止めているフ
     };
   });
 }
-function openActionDialog(title, fields, submitLabel) {
+function openActionDialog(title, fields, submitLabel, opts) {  // opts: {wide, validate(values) -> エラー文 or null}
+  opts = opts || {};
   return new Promise(resolve => {
     const modal = document.getElementById("actionModal"), form = document.getElementById("actionForm");
+    form.className = "action-dialog" + (opts.wide ? " wide" : "");
+    document.getElementById("actionError").textContent = "";
     const finish = value => {
       modal.hidden = true;
       form.onsubmit = null;
@@ -754,6 +784,11 @@ function openActionDialog(title, fields, submitLabel) {
       ev.preventDefault();
       const values = Object.fromEntries(new FormData(form).entries());
       form.querySelectorAll('input[type="checkbox"][name]').forEach(input => { values[input.name] = input.checked; });
+      if (opts.validate) {
+        const err = opts.validate(values);
+        document.getElementById("actionError").textContent = err || "";
+        if (err) return;
+      }
       finish(values);
     };
     modal.onclick = ev => {
@@ -906,6 +941,102 @@ function doRebase() {
     .catch(e => { setGraphStatus("リベースできませんでした: " + e.message); })
     .finally(() => { btn.disabled = false; });
 }
+function doCherryPick() {
+  if (cmp.length !== 1) return;
+  const h = cmp[0], btn = document.getElementById("cherryBtn");
+  btn.disabled = true;
+  fetch("/api/head").then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); }))
+    .then(hd => {
+      if (hd.merging) throw new Error("マージまたはリベースの途中です。先に完了してください");
+      if (!confirm("コミット " + h.slice(0, 7) + " を " + (hd.branch ? "ブランチ " + hd.branch : "現在の HEAD (detached)") +
+                   " にチェリーピックします。新しいコミットが作られます (競合したときは自動で元に戻します)。よろしいですか？")) return null;
+      setGraphStatus("チェリーピック中…");
+      return post("/api/cherry-pick", {hash: h});
+    })
+    .then(r => {
+      if (r === null) { setGraphStatus(""); return; }
+      clearCmp();
+      return refreshGraph().catch(() => {}).then(() => setGraphStatus(r.message));
+    })
+    .catch(e => { setGraphStatus("チェリーピックできませんでした: " + e.message); })
+    .finally(() => { btn.disabled = false; });
+}
+async function doRebaseI() {  // 対話的リベース (git rebase -i 相当)
+  if (cmp.length !== 1) return;
+  const h = cmp[0], btn = document.getElementById("irebaseBtn");
+  btn.disabled = true;
+  try {
+    const hd = await fetch("/api/head").then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); }));
+    if (hd.merging) throw new Error("マージまたはリベースの途中です。先に完了してください");
+    setGraphStatus("対象のコミットを読み込み中…");
+    const info = await fetch("/api/rebase-todo?hash=" + encodeURIComponent(h))
+      .then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); }));
+    setGraphStatus("");
+    const msgs = {};
+    const opt = (v, label) => '<option value="' + v + '">' + label + "</option>";
+    const rows = info.commits.map(c => {
+      msgs[c.hash] = c.message;
+      return '<div class="ri-row pick" data-h="' + c.hash + '"><div class="ri-main">' +
+        '<select name="act_' + c.hash + '">' + opt("pick", "pick") + opt("reword", "reword") + opt("squash", "squash") +
+        opt("fixup", "fixup") + opt("drop", "drop") + "</select>" +
+        "<code>" + esc(c.short) + '</code><span class="ri-subj" title="' + esc(c.subject) + '">' + esc(c.subject) + "</span>" +
+        '<span class="ri-author">' + esc(c.author) + " " + esc(c.date) + "</span>" +
+        '<button type="button" data-ri="up" title="上へ (先に適用)">▲</button>' +
+        '<button type="button" data-ri="down" title="下へ (後で適用)">▼</button></div>' +
+        '<textarea name="msg_' + c.hash + '" rows="3" hidden>' + esc(c.message) + "</textarea></div>";
+    }).join("");
+    const fields = '<div class="ri-note">ブランチ <b>' + esc(info.branch) + "</b> を <code>" + esc(h.slice(0, 7)) +
+      "</code> の上にリベースします。上から順に適用されます (上が古いコミット)。<br>" +
+      "squash / fixup は直前のコミットにまとめます。reword を選ぶとメッセージを編集できます " +
+      "(reword したコミットにまとめた場合は、ここで書いたメッセージが使われます)。</div>" +
+      '<div class="ri-list">' + rows + "</div>";
+    const fieldsEl = document.getElementById("actionFields");
+    const validate = values => {
+      const acts = Object.keys(values).filter(k => k.startsWith("act_"));
+      const kept = acts.filter(k => values[k] !== "drop");
+      if (kept.length && ["squash", "fixup"].includes(values[kept[0]]))
+        return "先頭のコミットは squash / fixup にできません (まとめ先のコミットが必要です)";
+      const bad = acts.find(k => values[k] === "reword" && !(values["msg_" + k.slice(4)] || "").trim());
+      if (bad) return "reword するコミットのメッセージを入力してください";
+      return null;
+    };
+    const p = openActionDialog("対話的リベース", fields, "リベース実行", {wide: true, validate: validate});
+    fieldsEl.onclick = ev => {  // 並べ替え
+      const b = ev.target.closest("[data-ri]");
+      if (!b) return;
+      const row = b.closest(".ri-row");
+      if (b.dataset.ri === "up" && row.previousElementSibling) row.parentNode.insertBefore(row, row.previousElementSibling);
+      if (b.dataset.ri === "down" && row.nextElementSibling) row.parentNode.insertBefore(row.nextElementSibling, row);
+    };
+    fieldsEl.onchange = ev => {  // 操作の種類に合わせて表示を切り替える
+      const sel = ev.target.closest("select");
+      if (!sel) return;
+      const row = sel.closest(".ri-row");
+      row.className = "ri-row " + sel.value;
+      row.querySelector("textarea").hidden = sel.value !== "reword";
+    };
+    const values = await p;
+    fieldsEl.onclick = null; fieldsEl.onchange = null;
+    if (!values) return;
+    const todo = Object.keys(values).filter(k => k.startsWith("act_"))
+      .map(k => ({hash: k.slice(4), action: values[k], message: values["msg_" + k.slice(4)] || ""}));
+    const n = a => todo.filter(t => t.action === a).length;
+    const note = [n("reword") && "メッセージ変更 " + n("reword"), n("squash") && "squash " + n("squash"),
+                  n("fixup") && "fixup " + n("fixup"), n("drop") && "削除 " + n("drop")].filter(Boolean).join(" / ");
+    if (!confirm("ブランチ " + info.branch + " の " + todo.length + " 件のコミットを、コミット " + h.slice(0, 7) +
+                 " の上に対話的リベースします" + (note ? " (" + note + ")" : "") + "。\n" +
+                 "コミットは作り直され、履歴が書き換わります (競合などで止まったときは自動で元に戻します)。よろしいですか？")) return;
+    setGraphStatus("リベース中…");
+    const r = await post("/api/rebase-i", {hash: h, todo: todo});
+    clearCmp();
+    await refreshGraph().catch(() => {});
+    setGraphStatus(r.message);
+  } catch (e) {
+    setGraphStatus("対話的リベースできませんでした: " + e.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
 async function doMerge() {
   if (cmp.length !== 1) return;
   const options = await openActionDialog("マージ", '<label class="check" title="fast-forwardできる場合でもマージコミットを作る">' +
@@ -997,6 +1128,8 @@ document.getElementById("cmpActions").addEventListener("click", ev => {
   if (ev.target.closest("#compareBtn") && cmp.length === 2) { showCompare(cmp[0], cmp[1]); return; }
   if (ev.target.closest("#mergeBtn")) { doMerge(); return; }
   if (ev.target.closest("#rebaseBtn")) { doRebase(); return; }
+  if (ev.target.closest("#irebaseBtn")) { doRebaseI(); return; }
+  if (ev.target.closest("#cherryBtn")) { doCherryPick(); return; }
   const cab = ev.target.closest(".abtn[data-cact]");
   if (cab) {
     (["fetch", "pull", "push"].includes(cab.dataset.cact) ? doRemoteAction : doCmpAction)(cab);
@@ -1897,6 +2030,173 @@ def api_rebase(body):
     return {"ok": True, "message": f"{head['branch']} を {h[:7]} の上にリベースしました"}
 
 
+def is_cherry_picking():
+    return subprocess.run(["git", "-C", REPO, "rev-parse", "-q", "--verify", "CHERRY_PICK_HEAD"],
+                          capture_output=True).returncode == 0
+
+
+def api_cherry_pick(body):
+    """選んだコミットを、いまチェックアウトしている HEAD にチェリーピックする。
+    競合したときと、変更が空になるとき (既に取り込み済み) は、中止して元に戻す。"""
+    if not HAS_WORKTREE:
+        raise ValueError("ワークツリーのないリポジトリではチェリーピックできません")
+    h = resolve_commit(body.get("hash", ""))
+    if is_merging() or is_rebasing() or is_cherry_picking():
+        raise ValueError("マージ・リベース・チェリーピックの途中です。先に完了するか中止してください")
+    if not has_head():
+        raise ValueError("最初のコミットがないためチェリーピックできません")
+    if len(git("rev-list", "--parents", "-n", "1", h).split()) > 2:
+        raise ValueError("マージコミットはチェリーピックできません (どちらの親側の変更を取るか決められないため)")
+    before = git("rev-parse", "HEAD").strip()
+    r = subprocess.run(["git", "-C", REPO, "cherry-pick", h], capture_output=True, text=True,
+                       encoding="utf-8", errors="replace")
+    out = (r.stdout + r.stderr).strip()
+    if r.returncode != 0:
+        if is_cherry_picking():
+            unmerged = subprocess.run(["git", "-C", REPO, "diff", "--name-only", "--diff-filter=U"],
+                                      capture_output=True, text=True).stdout.strip()
+            subprocess.run(["git", "-C", REPO, "cherry-pick", "--abort"], capture_output=True)
+            if not unmerged:  # 競合ではなく、変更が空になった
+                raise ValueError(f"{h[:7]} の変更は既に HEAD に含まれているため、チェリーピックするものがありません")
+            raise ValueError(f"{h[:7]} のチェリーピックで競合したため中止し、元に戻しました。"
+                             "競合を解決したい場合はコマンドラインで git cherry-pick を実行してください")
+        raise ValueError(out or "チェリーピックに失敗しました")
+    if git("rev-parse", "HEAD").strip() == before:
+        return {"ok": True, "message": f"{h[:7]} は変更なしでした"}
+    return {"ok": True, "message": f"{h[:7]} をチェリーピックしました"}
+
+
+REBASE_I_MAX = 200  # 対話的リベースで一度に扱うコミット数の上限
+REBASE_I_ACTIONS = ("pick", "reword", "squash", "fixup", "drop")
+
+
+def rebase_todo_hashes(base):
+    """git rebase -i <base> が最初に作る todo と同じコミット列 (古い順)。"""
+    out = git("rev-list", "--reverse", "--topo-order", "--right-only", "--cherry-pick",
+              "--no-merges", base + "...HEAD")
+    return out.split()
+
+
+def check_rebase_i_range(base):
+    """対話的リベースできる範囲か調べて、対象コミットのハッシュ (古い順) を返す。"""
+    r = subprocess.run(["git", "-C", REPO, "rev-list", "--count", "--merges", base + "..HEAD"],
+                       capture_output=True, text=True)
+    if r.returncode == 0 and r.stdout.strip() not in ("", "0"):
+        raise ValueError("マージコミットを含む範囲は対話的リベースできません (マージが失われてしまうため)")
+    hashes = rebase_todo_hashes(base)
+    if not hashes:
+        raise ValueError(f"{base[:7]} の上に載せ直すコミットがありません")
+    if len(hashes) > REBASE_I_MAX:
+        raise ValueError(f"対象のコミットが {len(hashes)} 件あり多すぎます (上限 {REBASE_I_MAX} 件)。"
+                         "もっと HEAD に近いコミットを選んでください")
+    return hashes
+
+
+def api_rebase_todo(q):
+    """対話的リベースの対象コミット一覧 (画面の編集ダイアログに出す)。"""
+    if not HAS_WORKTREE:
+        raise ValueError("ワークツリーのないリポジトリではリベースできません")
+    base = resolve_commit((q.get("hash") or [""])[0])
+    head = api_head()
+    if not head["branch"]:
+        raise ValueError("ブランチをチェックアウトしていません (detached HEAD ではリベースできません)")
+    hashes = check_rebase_i_range(base)
+    out = git("log", "--no-walk=unsorted", "--date=short", "--format=%H%x1f%an%x1f%ad%x1f%s%x1f%B%x1e", *hashes)
+    commits = []
+    for rec in out.split("\x1e"):
+        rec = rec.lstrip("\n")
+        if not rec:
+            continue
+        h, an, ad, subj, msg = rec.split("\x1f", 4)
+        commits.append({"hash": h, "short": h[:7], "author": an, "date": ad, "subject": subj, "message": msg.strip()})
+    return {"base": base, "branch": head["branch"], "commits": commits}
+
+
+def api_rebase_i(body):
+    """git rebase -i 相当。画面で編集した todo (順序と pick/reword/squash/fixup/drop) をそのまま実行する。
+    エディタは起こさず、todo は GIT_SEQUENCE_EDITOR で差し替える。reword は、そのコミット (squash/fixup を
+    まとめた後) に exec で commit --amend -F を挟んで新しいメッセージにする。
+    競合やエラーで止まったときは自動で rebase --abort して元に戻す。"""
+    if not HAS_WORKTREE:
+        raise ValueError("ワークツリーのないリポジトリではリベースできません")
+    base = resolve_commit(body.get("hash", ""))
+    if is_merging() or is_rebasing():
+        raise ValueError("マージまたはリベースの途中です。先に完了するか中止してください")
+    head = api_head()
+    if not head["branch"]:
+        raise ValueError("ブランチをチェックアウトしていません (detached HEAD ではリベースできません)")
+    if not has_head():
+        raise ValueError("最初のコミットがないためリベースできません")
+    items = body.get("todo")
+    if not isinstance(items, list) or not items or not all(isinstance(i, dict) for i in items):
+        raise ValueError("todo が不正です")
+    todo = []
+    for it in items:
+        act, h = it.get("action"), str(it.get("hash", ""))
+        if act not in REBASE_I_ACTIONS or not re.fullmatch(r"[0-9a-f]{40}", h):
+            raise ValueError("todo が不正です")
+        msg = str(it.get("message") or "").strip()
+        if act == "reword" and not msg:
+            raise ValueError(f"{h[:7]} の新しいコミットメッセージを入力してください")
+        todo.append((act, h, msg))
+    expected = check_rebase_i_range(base)
+    if sorted(h for _, h, _ in todo) != sorted(expected):
+        raise ValueError("対象のコミットが変わっています。画面を更新して、もう一度やり直してください")
+    kept = [t for t in todo if t[0] != "drop"]
+    if kept and kept[0][0] in ("squash", "fixup"):
+        raise ValueError("先頭のコミットは squash / fixup にできません (まとめ先のコミットが必要です)")
+
+    def fwd(path):  # sh から使うので区切りは / にそろえる (Windows 対策)
+        return path.replace("\\", "/")
+
+    before = git("rev-parse", "HEAD").strip()
+    tmp = tempfile.mkdtemp(prefix="git_graph_rebase_")
+    try:
+        lines, pending = [], None  # pending: 直前のグループの reword 用 exec 行
+        for act, h, msg in todo:
+            if act in ("pick", "reword"):
+                if pending:
+                    lines.append(pending)
+                    pending = None
+                lines.append(f"pick {h}")
+                if act == "reword":
+                    mp = os.path.join(tmp, f"msg{len(lines)}.txt")
+                    with open(mp, "w", encoding="utf-8", newline="\n") as f:
+                        f.write(msg + "\n")
+                    pending = f'exec git commit --amend -q -F "{fwd(mp)}"'
+            else:  # squash / fixup / drop
+                lines.append(f"{act} {h}")
+        if pending:
+            lines.append(pending)
+        todo_path = os.path.join(tmp, "todo.txt")
+        with open(todo_path, "w", encoding="utf-8", newline="\n") as f:
+            f.write("\n".join(lines) + "\n")
+        script = os.path.join(tmp, "seq_editor.py")
+        with open(script, "w", encoding="utf-8") as f:
+            f.write("import shutil, sys\nshutil.copyfile(sys.argv[1], sys.argv[2])\n")  # argv[2] が git の todo
+        env = dict(os.environ, GIT_EDITOR=":", GIT_TERMINAL_PROMPT="0",
+                   GIT_SEQUENCE_EDITOR=f'"{fwd(sys.executable)}" "{fwd(script)}" "{fwd(todo_path)}"')
+        r = subprocess.run(["git", "-C", REPO, "rebase", "-i", base], capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", env=env)
+        out = (r.stdout + r.stderr).strip()
+        if r.returncode != 0:
+            if is_rebasing():  # 競合など → 元に戻す
+                subprocess.run(["git", "-C", REPO, "rebase", "--abort"], capture_output=True)
+                tail = "\n".join(out.splitlines()[-6:])
+                raise ValueError("対話的リベースの途中で競合またはエラーが起きたため、中止して元に戻しました。\n" + tail +
+                                 "\n競合を解決したい場合はコマンドラインで git rebase -i を実行してください")
+            raise ValueError(out or "リベースに失敗しました")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    if git("rev-parse", "HEAD").strip() == before:
+        return {"ok": True, "message": f"{head['branch']} は変更なしでした"}
+    n = Counter(a for a, _, _ in todo)
+    parts = [f"{label} {n[k]}" for k, label in (("reword", "メッセージ変更"), ("squash", "squash"),
+                                               ("fixup", "fixup"), ("drop", "削除")) if n[k]]
+    return {"ok": True, "message": f"{head['branch']} を {base[:7]} の上に対話的リベースしました" +
+            (" (" + " / ".join(parts) + ")" if parts else "")}
+
+
 # --------------------------------------------------------------------------
 # リモートとの通信 (fetch / pull / push)
 # --------------------------------------------------------------------------
@@ -2030,7 +2330,7 @@ def api_push(body):
     return {"ok": True, "message": f"{branch} を push しました" if changed else f"{branch} を push しました (更新するものはありませんでした)"}
 
 
-POST_ROUTES = {"/api/rebase": api_rebase, "/api/merge": api_merge, "/api/branch": api_branch, "/api/tag": api_tag, "/api/ref-delete": api_delete_ref,
+POST_ROUTES = {"/api/rebase": api_rebase, "/api/rebase-i": api_rebase_i, "/api/cherry-pick": api_cherry_pick, "/api/merge": api_merge, "/api/branch": api_branch, "/api/tag": api_tag, "/api/ref-delete": api_delete_ref,
                "/api/checkout": api_checkout, "/api/wip-commit": api_wip_commit,
                "/api/fetch": api_fetch, "/api/pull": api_pull, "/api/push": api_push}
 
@@ -2057,6 +2357,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, "application/json", json.dumps(api_status(q), ensure_ascii=False))
             elif u.path == "/api/graph":
                 self._send(200, "application/json", graph_payload())
+            elif u.path == "/api/rebase-todo":
+                self._send(200, "application/json", json.dumps(api_rebase_todo(q), ensure_ascii=False))
             elif u.path == "/api/head":
                 self._send(200, "application/json", json.dumps(api_head(q), ensure_ascii=False))
             elif u.path == "/api/compare":
