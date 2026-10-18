@@ -4,9 +4,11 @@
 
 Licensed under the [MIT License](LICENSE).
 
-A local browser UI for viewing Git commit graphs, logs, diffs, and working-tree changes. It also supports operations such as branch, tag, merge, rebase, and stash management.
+A Linux-oriented local browser UI for viewing Git commit graphs, logs, diffs, and working-tree changes. It also supports operations such as branch, tag, merge, rebase, and stash management.
 
 ## Requirements
+
+Linux is the supported platform.
 
 - Python 3 (standard library only)
 - Git
