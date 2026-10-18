@@ -11,6 +11,9 @@
   http://127.0.0.1:8000/                 グラフ (リロードで最新の状態に更新)
   /api/log?rev=<40桁hash>[..<40桁hash>]&skip=0&limit=500   git log (ページング)
   /api/commit?hash=<hash>                                    git show 相当 (変更ファイル一覧つき)
+  /files?hash=<40桁hash>                                     コミットのファイル一覧 (別タブで開く)
+  /api/tree?hash=<hash>&path=<directory>                     コミットのディレクトリ内容
+  /api/file?hash=<hash>&path=<file>                          コミットのファイル内容
   /diff?hash=<hash>&path=<file>[&old=<旧パス>]               1ファイルの差分ページ (別タブで開く)
   /diff?from=<hash>&to=<hash>&path=<file>[&old=<旧パス>]     2コミット間の差分ページ
   /api/graph                                                 グラフ(SVG + ノード/エッジ情報。未コミットの変更があれば WIP ノードつき)
@@ -429,6 +432,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     </div>
     <hr class="menu-separator" id="selectionMenuSeparator" hidden>
     <div class="menu-section" id="aActions" hidden>
+      <button class="abtn" id="filesBtn" title="対象コミットのファイル一覧を別タブで開く">ファイル表示</button>
       <button class="abtn" id="mergeBtn" title="Aを現在のHEADにマージ">マージ</button>
       <button class="abtn" id="rebaseBtn" title="現在のブランチをAの上にリベース">リベース</button>
       <button class="abtn" id="cherryBtn" title="Aを現在のHEADにチェリーピック">チェリーピック</button>
@@ -891,8 +895,9 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
   document.getElementById("irebaseBtn").disabled = !canMerge;
   document.getElementById("cherryBtn").disabled = !canMerge;
   const canWrite = !!DATA.writable;
+  document.getElementById("filesBtn").disabled = !actionHash || isStash;
   document.querySelectorAll("#aActions button")
-    .forEach(el => { el.disabled = !canWrite || (["mergeBtn", "rebaseBtn", "irebaseBtn", "cherryBtn"].includes(el.id) && !DATA.merge); });
+    .forEach(el => { if (el.id !== "filesBtn") el.disabled = !canWrite || (["mergeBtn", "rebaseBtn", "irebaseBtn", "cherryBtn"].includes(el.id) && !DATA.merge); });
   document.querySelectorAll("#remoteActions button")
     .forEach(el => { el.disabled = !canWrite || (el.dataset.cact === "pull" && !DATA.merge); });
   document.querySelectorAll("#remoteConfigActions button").forEach(el => { el.disabled = !canWrite; });
@@ -1343,6 +1348,10 @@ detailView.addEventListener("click", ev => {
 document.getElementById("cmpActions").addEventListener("click", ev => {
   if (ev.target.closest("#compareBtn") && compareAHash && compareBHash) {
     showCompare(compareAHash, compareBHash);
+    return;
+  }
+  if (ev.target.closest("#filesBtn") && actionHash && !stashByHash[actionHash]) {
+    window.open("/files?hash=" + encodeURIComponent(actionHash), "_blank", "noopener");
     return;
   }
   if (ev.target.closest("#stashListBtn")) { showStashList(); return; }
@@ -1909,6 +1918,51 @@ def api_commit(q):
     return info
 
 
+FILE_CONTENT_LIMIT = 2_000_000
+
+
+def validate_file_path(path, allow_empty=True):
+    """リポジトリルートからの相対パスとして安全な形にする。"""
+    if "\0" in path or (not allow_empty and not path) or path.startswith("/"):
+        raise ValueError("bad path")
+    parts = path.split("/") if path else []
+    if any(p in ("", ".", "..") for p in parts):
+        raise ValueError("bad path")
+    return path
+
+
+def api_tree(q):
+    h = resolve_commit(q.get("hash", [""])[0])
+    path = validate_file_path(q.get("path", [""])[0])
+    treeish = h if not path else h + ":" + path
+    try:
+        raw = git("ls-tree", "-z", "-l", treeish)
+    except subprocess.CalledProcessError:
+        raise ValueError("ディレクトリが見つかりません")
+    entries = []
+    for item in raw.split("\0"):
+        if not item:
+            continue
+        head, name = item.split("\t", 1)
+        mode, kind, obj, size = (head.split() + [""])[:4]
+        entries.append({"name": name, "type": kind, "size": None if size == "-" else int(size), "mode": mode})
+    return {"hash": h, "path": path, "entries": sorted(entries, key=lambda x: (x["type"] != "tree", x["name"]))}
+
+
+def api_file(q):
+    h = resolve_commit(q.get("hash", [""])[0])
+    path = validate_file_path(q.get("path", [""])[0], allow_empty=False)
+    spec = h + ":" + path
+    kind = git("cat-file", "-t", spec).strip()
+    if kind != "blob":
+        raise ValueError("ファイルではありません")
+    raw = subprocess.check_output(["git", "-C", REPO, "cat-file", "blob", spec])
+    truncated = len(raw) > FILE_CONTENT_LIMIT
+    data = raw[:FILE_CONTENT_LIMIT]
+    return {"hash": h, "path": path, "content": data.decode("utf-8", errors="replace"),
+            "binary": b"\0" in data, "truncated": truncated, "size": len(raw)}
+
+
 def api_compare(q):
     """2つのコミット間の差分 (from → to) のファイル一覧。"""
     a = commit_info(q.get("from", [""])[0])
@@ -2121,6 +2175,131 @@ def render_diff_page(q):
 <script>{COPY_JS}</script>
 </body></html>
 """
+
+
+FILES_CSS = """
+  html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-size: 13px; color: #222; }
+  body { display: flex; }
+  #tree { width: 360px; flex: none; overflow: auto; border-right: 1px solid #ccc; background: #fafafa; padding: 12px; box-sizing: border-box; }
+  #main { flex: 1; min-width: 0; overflow: auto; padding: 14px 18px; box-sizing: border-box; }
+  h1 { font-size: 15px; margin: 0 0 8px; word-break: break-all; }
+  h2 { font-size: 14px; margin: 0 0 8px; }
+  .meta, .hint { color: #666; margin: 3px 0; }
+  .crumb { margin: 8px 0; word-break: break-all; }
+  .crumb a, .entry { color: #06c; text-decoration: none; cursor: pointer; }
+  .crumb a:hover, .entry:hover { text-decoration: underline; }
+  .entry { display: flex; gap: 8px; padding: 4px 6px; border-radius: 3px; font-family: monospace; }
+  .entry:hover { background: #eef; }
+  .entry .size { margin-left: auto; color: #777; white-space: nowrap; }
+  pre { white-space: pre-wrap; word-break: break-word; background: #fff; border: 1px solid #ddd; padding: 10px; font: 12px monospace; }
+  pre.code { color: #24292f; tab-size: 4; }
+  .tok-keyword { color: #8250df; font-weight: 600; }
+  .tok-string { color: #0a7b35; }
+  .tok-comment { color: #6e7781; font-style: italic; }
+  .tok-number { color: #0550ae; }
+  .tok-type { color: #953800; }
+  .tok-tag { color: #116329; }
+  .tok-attr { color: #8250df; }
+  .tok-regex { color: #cf222e; }
+  .binary { color: #777; padding: 10px; border: 1px solid #ddd; }
+"""
+
+
+FILES_PAGE = r"""<!DOCTYPE html>
+<html lang="ja"><head><meta charset="utf-8"><title>ファイル表示</title><style>__CSS__</style></head>
+<body><aside id="tree"><h1>ファイル表示</h1><div class="meta" id="commit"></div><div id="list"></div></aside>
+<main id="main"><h2 id="title">ファイルを選択してください</h2><div id="content" class="hint">左の一覧からファイルをクリックしてください。</div></main>
+<script>
+const qs = new URLSearchParams(location.search), hash = qs.get("hash");
+const list = document.getElementById("list"), content = document.getElementById("content"), title = document.getElementById("title");
+let current = "";
+function esc(s) { return String(s).replace(/[&<>\"]/g, c => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", "\"":"&quot;"}[c])); }
+function api(path, params) { return fetch(path + "?" + new URLSearchParams(params)).then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); })); }
+function showError(e) { list.innerHTML = '<p class="hint">エラー: ' + esc(e.message) + '</p>'; }
+function loadTree(path, push) {
+  current = path;
+  if (push) history.pushState({path: path}, "", "?hash=" + encodeURIComponent(hash) + (path ? "&path=" + encodeURIComponent(path) : ""));
+  api("/api/tree", {hash: hash, path: path}).then(r => {
+    document.getElementById("commit").textContent = r.hash.slice(0, 7);
+    const parts = path ? path.split("/") : [];
+    let crumb = '<div class="crumb"><a data-dir="">📁 ルート</a>';
+    parts.forEach((p, i) => { const d = parts.slice(0, i + 1).join("/"); crumb += ' / <a data-dir="' + esc(d) + '">' + esc(p) + '</a>'; });
+    crumb += '</div>';
+    list.innerHTML = crumb + (r.entries.length ? r.entries.map(e => {
+      const p = path ? path + "/" + e.name : e.name;
+      const icon = e.type === "tree" ? "📁" : "📄";
+      const size = e.size === null ? "" : e.size.toLocaleString() + " B";
+      return '<div class="entry" data-type="' + e.type + '" data-path="' + esc(p) + '"><span>' + icon + ' ' + esc(e.name) + '</span><span class="size">' + size + '</span></div>';
+    }).join("") : '<p class="hint">空のディレクトリです</p>');
+    list.querySelectorAll("[data-dir]").forEach(a => a.onclick = () => loadTree(a.dataset.dir, true));
+    list.querySelectorAll(".entry").forEach(a => a.onclick = () => a.dataset.type === "tree" ? loadTree(a.dataset.path, true) : loadFile(a.dataset.path));
+  }).catch(showError);
+}
+function loadFile(path) {
+  api("/api/file", {hash: hash, path: path}).then(r => {
+    const lang = languageFor(r.path);
+    title.textContent = r.path + (lang ? " (" + lang + ")" : "");
+    content.className = r.binary ? "binary" : "";
+    content.innerHTML = r.binary ? "バイナリファイルのため内容を表示できません。" : '<pre class="code"><code>' + highlight(r.content, lang) + '</code></pre>' + (r.truncated ? '<p class="hint">大きいため先頭のみ表示しています。</p>' : '');
+  }).catch(e => { title.textContent = path; content.className = "hint"; content.textContent = "エラー: " + e.message; });
+}
+const KEYWORDS = {
+  python: "and as assert async await break case class continue def del elif else except finally for from global if import in is lambda match nonlocal not or pass raise return try while with yield None True False self",
+  javascript: "as async await break case catch class const continue debugger default delete do else export extends false finally for from function get if import in instanceof let new null of return set static super switch this throw true try typeof undefined var void while with yield",
+  typescript: "as async await break case catch class const continue debugger default delete do else export extends false finally for from function get if import in instanceof interface let new null of private protected public readonly return set static super switch this throw true try typeof type undefined var void while with yield",
+  java: "abstract assert boolean break byte case catch char class const continue default do double else enum extends final finally float for if implements import instanceof int interface long native new package private protected public return short static strictfp super switch synchronized this throw throws transient try void volatile while true false null",
+  c: "auto break case char const continue default do double else enum extern float for goto if inline int long register restrict return short signed sizeof static struct switch typedef union unsigned void volatile while true false NULL",
+  go: "break default func interface select case defer go map struct chan else goto package switch const fallthrough if range type continue for import return var true false nil",
+  rust: "as async await break const continue crate dyn else enum extern false fn for if impl in let loop match mod move mut pub ref return self Self static struct super trait true type unsafe use where while",
+  sql: "select from where and or not insert into update delete create alter drop table index view join inner left right full outer on as group by order having limit offset distinct union all null is like values set",
+  shell: "if then else elif fi for while in do done case esac function select time coproc true false",
+  ruby: "BEGIN END alias and begin break case class def defined do else elsif end ensure false for if in module next nil not or redo rescue retry return self super then true undef unless until when while yield require attr_reader attr_writer attr_accessor include extend private protected public",
+  json: "true false null"
+};
+Object.keys(KEYWORDS).forEach(k => KEYWORDS[k] = new Set(KEYWORDS[k].split(" ")));
+function languageFor(path) {
+  const name = path.toLowerCase().split("/").pop();
+  if (["dockerfile", "makefile"].includes(name)) return "shell";
+  const ext = name.includes(".") ? name.split(".").pop() : "";
+  return ({py:"python", pyw:"python", js:"javascript", jsx:"javascript", mjs:"javascript", cjs:"javascript", ts:"typescript", tsx:"typescript", java:"java", c:"c", h:"c", cc:"c", cpp:"c", hpp:"c", go:"go", rs:"rust", rb:"ruby", ru:"ruby", sql:"sql", sh:"shell", bash:"shell", zsh:"shell", json:"json", css:"css", html:"html", htm:"html", xml:"html", md:"markdown", markdown:"markdown", yml:"yaml", yaml:"yaml"})[ext] || "";
+}
+function token(cls, text) { return '<span class="tok-' + cls + '">' + esc(text) + '</span>'; }
+function highlight(source, lang) {
+  if (!lang || lang === "markdown") return esc(source);
+  if (lang === "html") return source.split(/(<[^>]*>)/g).map(x => x.startsWith("<") ? token("tag", x) : esc(x)).join("");
+  const words = KEYWORDS[lang] || new Set(), out = [];
+  let i = 0;
+  while (i < source.length) {
+    const rest = source.slice(i), ch = source[i];
+    const lineComment = (["python", "ruby", "shell", "yaml"].includes(lang)) && ch === "#";
+    const slashComment = (ch === "/" && (source[i + 1] === "/" || source[i + 1] === "*"));
+    if (lineComment || slashComment) {
+      const end = lineComment ? source.indexOf("\n", i) : (source[i + 1] === "/" ? source.indexOf("\n", i) : source.indexOf("*/", i) + 2);
+      const j = end < (lineComment ? 0 : 2) ? source.length : end;
+      out.push(token("comment", source.slice(i, j))); i = j; continue;
+    }
+    const triple = lang === "python" && (source.startsWith("'''", i) || source.startsWith('\"\"\"', i));
+    if (triple || ch === "'" || ch === '"' || (ch === "`" && ["javascript", "typescript"].includes(lang))) {
+      const quote = triple ? source.slice(i, i + 3) : ch; let j = i + quote.length;
+      if (triple) {
+        const end = source.indexOf(quote, j);
+        j = end < 0 ? source.length : end + quote.length;
+      } else {
+        while (j < source.length) { if (source[j] === "\\") j += 2; else if (source[j++] === quote) break; }
+      }
+      out.push(token("string", source.slice(i, j))); i = j; continue;
+    }
+    const number = rest.match(/^(?:0x[\da-f]+|\d+(?:\.\d+)?(?:e[+-]?\d+)?)/i);
+    if (number) { out.push(token("number", number[0])); i += number[0].length; continue; }
+    const word = rest.match(/^[A-Za-z_$][\w$]*/);
+    if (word) { const w = word[0]; out.push(words.has(w) ? token("keyword", w) : esc(w)); i += w.length; continue; }
+    out.push(esc(ch)); i++;
+  }
+  return out.join("");
+}
+window.onpopstate = () => loadTree(new URLSearchParams(location.search).get("path") || "", false);
+if (!hash) showError(new Error("コミットが指定されていません")); else loadTree(qs.get("path") || "", false);
+</script></body></html>""".replace("__CSS__", FILES_CSS)
 
 
 # --------------------------------------------------------------------------
@@ -2899,6 +3078,13 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, "application/json", json.dumps(api_compare(q), ensure_ascii=False))
             elif u.path == "/api/commit":
                 self._send(200, "application/json", json.dumps(api_commit(q), ensure_ascii=False))
+            elif u.path == "/api/tree":
+                self._send(200, "application/json", json.dumps(api_tree(q), ensure_ascii=False))
+            elif u.path == "/api/file":
+                self._send(200, "application/json", json.dumps(api_file(q), ensure_ascii=False))
+            elif u.path == "/files":
+                h = resolve_commit(q.get("hash", [""])[0])
+                self._send(200, "text/html", FILES_PAGE.replace("__HASH__", html.escape(h)))
             elif u.path == "/diff":
                 self._send(200, "text/html", render_diff_page(q))
             else:
