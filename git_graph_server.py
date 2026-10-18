@@ -69,7 +69,7 @@ WRITABLE = False  # ブランチ/タグ作成・チェックアウト等の書�
 WIP_ENABLED = False  # 未コミットの変更を WIP ノードとしてグラフに出すか
 HAS_WORKTREE = False  # ワークツリーのあるリポジトリか (bare でないか)
 FAST_LAYOUT_NODES = 300  # これより多くのノードを描くときは dot の最適化を軽くする (--full-layout で無効)
-COLORS = {"branch": "#b7e4a7", "remote": "#a7c8f0", "tag": "#ffe9a0", "head": "#f4a7a7"}
+COLORS = {"branch": "#b7e4a7", "current": "#b7e4a7", "remote": "#a7c8f0", "tag": "#ffe9a0", "head": "#f4a7a7"}
 
 
 def git(*args, literal=False):
@@ -98,6 +98,10 @@ def build_graph(opts):
             children[x].append(h)
 
     labels = defaultdict(list)  # commit -> [(name, kind)]
+    try:
+        current_branch = git("symbolic-ref", "--short", "-q", "HEAD").strip()
+    except subprocess.CalledProcessError:
+        current_branch = ""
     fmt = "%(objectname)%09%(refname)%09%(*objectname)"
     for line in git("for-each-ref", f"--format={fmt}").splitlines():
         obj, ref, peeled = (line.split("\t") + [""])[:3]
@@ -105,7 +109,8 @@ def build_graph(opts):
         if target not in parents:
             continue
         if ref.startswith("refs/heads/"):
-            labels[target].append((ref[len("refs/heads/"):], "branch"))
+            name = ref[len("refs/heads/"):]
+            labels[target].append((name, "current" if name == current_branch else "branch"))
         elif ref.startswith("refs/remotes/"):
             if opts.no_remotes or ref.endswith("/HEAD"):
                 continue
@@ -192,8 +197,10 @@ def build_graph(opts):
         '  edge [fontname="Helvetica", fontsize=9];',
     ]
     for h in keep_order:
-        rows = [f'<TR><TD BGCOLOR="{COLORS[kind]}"><B>{html.escape(name)}</B></TD></TR>'
-                for name, kind in labels.get(h, [])]
+        rows = []
+        for name, kind in labels.get(h, []):
+            marker = "★ " if kind == "current" else ""
+            rows.append(f'<TR><TD BGCOLOR="{COLORS[kind]}"><B>{marker}{html.escape(name)}</B></TD></TR>')
         rows.append(f'<TR><TD>{h[:7]}<BR/>{html.escape(subjects[h][:30])}</TD></TR>')
         label = ('<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="3">'
                  + "".join(rows) + "</TABLE>>")
@@ -253,7 +260,15 @@ function updatePushActions() {
 }
 function updateCurrentBranch() {
   return fetch("/api/head").then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); }))
-    .then(head => { currentBranch = head.branch; currentBranchLoaded = true; updatePushActions(); });
+    .then(head => {
+      currentBranch = head.branch; currentBranchLoaded = true;
+      Object.keys(DATA.nodes).forEach(h => {
+        document.querySelectorAll('tr[data-h="' + h + '"] .rc').forEach(el => { el.innerHTML = chips(h); });
+      });
+      const c = detailView.querySelector("#dChips");
+      if (c && curDetailHash) c.innerHTML = detailChips(curDetailHash);
+      updatePushActions();
+    });
 }
 function copyText(text) {  // localhost / https なら Clipboard API、それ以外 (LAN の http など) は execCommand で代替
   if (navigator.clipboard && window.isSecureContext)
@@ -498,7 +513,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 </div>
 <script>
 let DATA = {nodes: {}, edges: {}};
-const COLORS = {branch: "#b7e4a7", remote: "#a7c8f0", tag: "#ffe9a0", head: "#f4a7a7"};
+const COLORS = {branch: "#b7e4a7", current: "#b7e4a7", remote: "#a7c8f0", tag: "#ffe9a0", head: "#f4a7a7"};
 const CHUNK = 500;
 const listView = document.getElementById("listView"), detailView = document.getElementById("detailView");
 const views = {list: listView, detail: detailView}, savedScroll = {list: 0, detail: 0};
@@ -538,17 +553,24 @@ function esc(s) {
 function chips(h) {
   const n = DATA.nodes[h];
   if (!n) return "";
-  return n.refs.map(r => '<span class="chip" style="background:' + COLORS[r.kind] + '">' + esc(r.name) + "</span>").join("");
+  return n.refs.map(r => {
+    const current = (r.kind === "branch" || r.kind === "current") && r.name === currentBranch;
+    return '<span class="chip" style="background:' + COLORS[r.kind] + '"' +
+      (current ? ' title="カレントブランチ"' : "") + '>' + (current ? "★ " : "") + esc(r.name) + "</span>";
+  }).join("");
 }
 function detailChips(h) {
   const n = DATA.nodes[h];
   if (!n) return "";
   return n.refs.map(r => {
-    const deletable = DATA.writable && (r.kind === "branch" || r.kind === "tag");
-    return '<span class="chip" style="background:' + COLORS[r.kind] + '">' + esc(r.name) +
-      (deletable ? '<button class="abtn ref-delete" data-act="delete-ref" data-kind="' + r.kind +
-        '" data-name="' + esc(r.name) + '" title="' + r.kind + ' ' + esc(r.name) + ' を削除" aria-label="' +
-        r.kind + ' ' + esc(r.name) + ' を削除">×</button>' : "") + "</span>";
+    const current = (r.kind === "branch" || r.kind === "current") && r.name === currentBranch;
+    const deletable = DATA.writable && (r.kind === "branch" || r.kind === "current" || r.kind === "tag");
+    const refKind = r.kind === "current" ? "branch" : r.kind;
+    return '<span class="chip" style="background:' + COLORS[r.kind] + '"' +
+      (current ? ' title="カレントブランチ"' : "") + '>' + (current ? "★ " : "") + esc(r.name) +
+      (deletable ? '<button class="abtn ref-delete" data-act="delete-ref" data-kind="' + refKind +
+        '" data-name="' + esc(r.name) + '" title="' + refKind + ' ' + esc(r.name) + ' を削除" aria-label="' +
+        refKind + ' ' + esc(r.name) + ' を削除">×</button>' : "") + "</span>";
   }).join("");
 }
 /*__COPY_JS__*/
@@ -672,7 +694,7 @@ let curDetailHash = null;
 
 function localBranches(h) {
   const n = DATA.nodes[h];
-  return n ? n.refs.filter(r => r.kind === "branch").map(r => r.name) : [];
+  return n ? n.refs.filter(r => r.kind === "branch" || r.kind === "current").map(r => r.name) : [];
 }
 function showStashList(fromHistory) {
   loadStashes();
@@ -704,7 +726,7 @@ function doStash(op) {
 function showReflog(branch) {  // branch が空なら HEAD の reflog
   const names = [];
   Object.values(DATA.nodes).forEach(n => n.refs.forEach(r => {
-    if (r.kind === "branch" && !names.includes(r.name)) names.push(r.name);
+    if ((r.kind === "branch" || r.kind === "current") && !names.includes(r.name)) names.push(r.name);
   }));
   names.sort();
   if (branch && !names.includes(branch)) names.push(branch);
@@ -1569,9 +1591,9 @@ function showWip(fromHistory, okMsg) {
       : "チェックを外したステージ済みファイルはステージから外れます (作業ツリーはそのまま)";
     const box = canCommit && (files.length || wipAmendOn)
       ? '<div class="wipbox">' +
+        '<textarea id="wipMsg" placeholder="コミットメッセージ"></textarea>' +
         (canAmend ? '<label class="amendrow"><input type="checkbox" id="wipAmendCk"' + (wipAmendOn ? " checked" : "") +
           '>直前のコミットを amend する (履歴が書き換わります)</label>' : "") +
-        '<textarea id="wipMsg" placeholder="コミットメッセージ"></textarea>' +
         '<div class="arow"><button class="wbtn" id="wipCommit">コミット</button>' +
         '<span class="hint">' + hint + '</span></div>' +
         '<div class="amsg" id="wipMsgOut"></div></div>' : "";
