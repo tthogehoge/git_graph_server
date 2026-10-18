@@ -286,15 +286,18 @@ def build_graph(opts):
         current_branch = git("symbolic-ref", "--short", "-q", "HEAD").strip()
     except subprocess.CalledProcessError:
         current_branch = ""
-    fmt = "%(objectname)%09%(refname)%09%(*objectname)"
+    # %(HEAD) は現在 checkout 中の ref だけ "*" になるため、
+    # symbolic-ref の名前比較よりも ref 自体を確実に判定できる。
+    fmt = "%(objectname)%09%(refname)%09%(*objectname)%09%(HEAD)"
     for line in git("for-each-ref", f"--format={fmt}").splitlines():
-        obj, ref, peeled = (line.split("\t") + [""])[:3]
+        obj, ref, peeled, head_mark = (line.split("\t") + [""])[:4]
         target = peeled or obj
         if target not in parents:
             continue
         if ref.startswith("refs/heads/"):
             name = ref[len("refs/heads/"):]
-            labels[target].append((name, "current" if name == current_branch else "branch"))
+            is_current = name == current_branch or head_mark == "*"
+            labels[target].append((name, "current" if is_current else "branch"))
         elif ref.startswith("refs/remotes/"):
             if opts.no_remotes or ref.endswith("/HEAD"):
                 continue
@@ -747,7 +750,7 @@ function chips(h) {
   const n = DATA.nodes[h];
   if (!n) return "";
   return n.refs.map(r => {
-    const current = (r.kind === "branch" || r.kind === "current") && r.name === currentBranch;
+    const current = r.kind === "current" || (r.kind === "branch" && r.name === currentBranch);
     return '<span class="chip" style="background:' + COLORS[r.kind] + '"' +
       (current ? ' title="カレントブランチ"' : "") + '>' + (current ? "★ " : "") + esc(r.name) + "</span>";
   }).join("");
@@ -756,7 +759,7 @@ function detailChips(h) {
   const n = DATA.nodes[h];
   if (!n) return "";
   return n.refs.map(r => {
-    const current = (r.kind === "branch" || r.kind === "current") && r.name === currentBranch;
+    const current = r.kind === "current" || (r.kind === "branch" && r.name === currentBranch);
     const deletable = DATA.writable && (r.kind === "branch" || r.kind === "current" || r.kind === "tag");
     const refKind = r.kind === "current" ? "branch" : r.kind;
     return '<span class="chip" style="background:' + COLORS[r.kind] + '"' +
@@ -2048,7 +2051,14 @@ def graph_payload():
             head = git("rev-parse", "HEAD").strip()
         except subprocess.CalledProcessError:
             head = ""
-        key = git("for-each-ref") + head
+        # 同じコミットを指すブランチ間で checkout すると、HEAD と refs は
+        # 変わらないため、現在ブランチを含めないと current (★) の表示が
+        # キャッシュされたままになる。
+        try:
+            current_branch = git("symbolic-ref", "--short", "-q", "HEAD").strip()
+        except subprocess.CalledProcessError:
+            current_branch = ""
+        key = git("for-each-ref") + "\0" + head + "\0" + current_branch
         if _cache["base_key"] != key:
             _cache.update(base_key=key, base=build_graph(OPTS), payload_key=None, payload=None)
         raw = ""
