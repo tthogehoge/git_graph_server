@@ -2206,7 +2206,9 @@ FILES_CSS = """
 
 
 FILES_PAGE = r"""<!DOCTYPE html>
-<html lang="ja"><head><meta charset="utf-8"><title>ファイル表示</title><style>__CSS__</style></head>
+<html lang="ja"><head><meta charset="utf-8"><title>ファイル表示</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+<style>__CSS__</style><script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script></head>
 <body><aside id="tree"><h1>ファイル表示</h1><div class="meta" id="commit"></div><div id="list"></div></aside>
 <main id="main"><h2 id="title">ファイルを選択してください</h2><div id="content" class="hint">左の一覧からファイルをクリックしてください。</div></main>
 <script>
@@ -2240,7 +2242,7 @@ function loadFile(path) {
     const lang = languageFor(r.path);
     title.textContent = r.path + (lang ? " (" + lang + ")" : "");
     content.className = r.binary ? "binary" : "";
-    content.innerHTML = r.binary ? "バイナリファイルのため内容を表示できません。" : '<pre class="code"><code>' + highlight(r.content, lang) + '</code></pre>' + (r.truncated ? '<p class="hint">大きいため先頭のみ表示しています。</p>' : '');
+    content.innerHTML = r.binary ? "バイナリファイルのため内容を表示できません。" : '<pre class="code"><code>' + highlightCode(r.content, lang) + '</code></pre>' + (r.truncated ? '<p class="hint">大きいため先頭のみ表示しています。</p>' : '');
   }).catch(e => { title.textContent = path; content.className = "hint"; content.textContent = "エラー: " + e.message; });
 }
 const KEYWORDS = {
@@ -2296,6 +2298,12 @@ function highlight(source, lang) {
     out.push(esc(ch)); i++;
   }
   return out.join("");
+}
+function highlightCode(source, lang) {
+  if (window.hljs && lang && hljs.getLanguage(lang)) {
+    try { return hljs.highlight(source, {language: lang, ignoreIllegals: true}).value; } catch (e) {}
+  }
+  return highlight(source, lang);
 }
 window.onpopstate = () => loadTree(new URLSearchParams(location.search).get("path") || "", false);
 if (!hash) showError(new Error("コミットが指定されていません")); else loadTree(qs.get("path") || "", false);
