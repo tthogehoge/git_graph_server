@@ -65,11 +65,195 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 REPO = "."
 OPTS = None
+UI_LANG = "ja"  # サーバー起動時に決定する UI の言語
 WRITABLE = False  # ブランチ/タグ作成・チェックアウト等の書き込み操作を許可するか
 WIP_ENABLED = False  # 未コミットの変更を WIP ノードとしてグラフに出すか
 HAS_WORKTREE = False  # ワークツリーのあるリポジトリか (bare でないか)
 FAST_LAYOUT_NODES = 300  # これより多くのノードを描くときは dot の最適化を軽くする (--full-layout で無効)
 COLORS = {"branch": "#b7e4a7", "current": "#b7e4a7", "remote": "#a7c8f0", "tag": "#ffe9a0", "head": "#f4a7a7"}
+
+# UI の翻訳データ。外部ファイルを使わず、このファイルだけで完結させる。
+TRANSLATIONS = {
+    "ja": {
+        "reload": "↻ 更新",
+        "clear": "クリア",
+        "actions": "操作 ▾",
+        "cancel": "キャンセル",
+        "loading_graph": "コミットグラフを作成中…",
+        "loading_graph_hint": "リポジトリが大きいと時間がかかります",
+        "create_branch": "ブランチ作成",
+        "create_tag": "タグ作成",
+        "checkout": "チェックアウト",
+        "files": "ファイル表示",
+        "merge": "マージ",
+        "rebase": "リベース",
+        "cherry_pick": "チェリーピック",
+        "reset": "対象へリセット",
+        "interactive_rebase": "対話的リベース",
+        "compare_ab": "AB比較",
+        "stash_list": "stash一覧",
+        "reflog": "reflog",
+        "stash_apply": "stash 適用 (apply)",
+        "stash_pop": "stash 適用して削除 (pop)",
+        "stash_drop": "stash 削除 (drop)",
+        "remote_add": "remote 追加",
+        "remote_remove": "remote 削除",
+        "checkout_blocked": "チェックアウトできません",
+        "checkout_blocked_hint": "次のファイルが邪魔をしています。",
+        "stash_checkout": "stash してチェックアウト",
+        "discard_checkout": "削除してチェックアウト",
+        "graph_help_1": "ノードをクリックすると、そのコミットから最初（ルート）までのログを表示します。エッジをクリックすると省略された区間のログを表示します。",
+        "graph_help_2": "コミットをクリックすると操作対象になります。ログ行の上にマウスを置くと、比較 A / B に設定するボタンが表示されます。",
+        "push_current": "カレントブランチを push",
+        "current_branch": "カレントブランチ",
+        "target": "対象",
+        "reload_busy": "更新中…",
+        "target_label": "対象",
+        "commit_label": "コミット",
+        "changes_count": "件の変更",
+        "back_history": "← 履歴一覧に戻る",
+        "all_log_to_root": "最初のコミットまでの全ログ",
+        "loaded_count": "件を読み込み済み",
+        "file_view": "ファイル表示",
+        "select_file": "ファイルを選択してください",
+        "select_file_hint": "左の一覧からファイルをクリックしてください。",
+        "file_log": "このファイルのログ",
+        "file_content": "ファイル内容",
+        "binary_file": "バイナリファイルのため内容を表示できません。",
+        "change_history": "の変更履歴",
+        "loading": "読み込み中…",
+        "error": "エラー: ",
+        "root": "ルート",
+        "empty_directory": "空のディレクトリです",
+        "wip_loading": "読み込み中…",
+        "wip_title": "作業ツリーの変更 (WIP)",
+        "no_changes": "変更はありません",
+        "wip_commit_message": "コミットメッセージ",
+        "wip_commit": "コミット",
+        "wip_execute": "実行中…",
+        "staged": "ステージ済み (git add 済み)",
+        "unstaged": "未ステージの変更",
+        "untracked": "未追跡のファイル",
+        "conflict": "競合",
+        "amend_content": "amend 後のコミットの内容 (直前のコミットの親との差分)",
+        "message_required": "コミットメッセージを入力してください",
+        "select_files": "コミットするファイルにチェックを付けてください",
+        "amend_checkbox": "直前のコミットを amend する (履歴が書き換わります)",
+        "amend_hint": "直前のコミットのファイルはチェック済みで、外すとコミットから外れます (作業ツリーはそのまま)。[WIP] は未コミットの変更で、チェックすると取り込みます",
+        "wip_hint": "チェックを外したステージ済みファイルはステージから外れます (作業ツリーはそのまま)",
+        "select_all": "このグループを全選択/解除",
+        "truncated_files": "ファイルが多いため先頭のみ表示しています",
+        "new_file": "新規",
+        "wip_file_remove_title": "外すと、このファイルは直前のコミットから外れます (作業ツリーの内容は残ります)",
+        "amend_confirm": "直前のコミットを作り直します (メッセージも置き換えます)。{drop}\n履歴が書き換わります。続けますか？",
+        "amend_drop": "直前のコミットから {n} 件のファイルを外します (作業ツリーの内容は残ります)。",
+        "working_tree": "作業ツリーの変更 (WIP)",
+        "files_changed": "ファイル変更",
+        "large_file_diff": "大きいため先頭のみ表示しています",
+        "no_diff": "差分はありません",
+    },
+    "en": {
+        "reload": "↻ Reload",
+        "clear": "Clear",
+        "actions": "Actions ▾",
+        "cancel": "Cancel",
+        "loading_graph": "Building commit graph…",
+        "loading_graph_hint": "Large repositories may take longer",
+        "create_branch": "Create branch",
+        "create_tag": "Create tag",
+        "checkout": "Checkout",
+        "files": "Show files",
+        "merge": "Merge",
+        "rebase": "Rebase",
+        "cherry_pick": "Cherry-pick",
+        "reset": "Reset to target",
+        "interactive_rebase": "Interactive rebase",
+        "compare_ab": "Compare A/B",
+        "stash_list": "Stash list",
+        "reflog": "Reflog",
+        "stash_apply": "Apply stash",
+        "stash_pop": "Apply and drop stash",
+        "stash_drop": "Drop stash",
+        "remote_add": "Add remote",
+        "remote_remove": "Remove remote",
+        "checkout_blocked": "Checkout cannot proceed",
+        "checkout_blocked_hint": "The following files are blocking checkout.",
+        "stash_checkout": "Stash and checkout",
+        "discard_checkout": "Discard and checkout",
+        "graph_help_1": "Click a node to show the log from that commit to the root. Click an edge to show the log for the collapsed section.",
+        "graph_help_2": "Click a commit to select it for an operation. Hover over a log row to show buttons for comparison A / B.",
+        "push_current": "Push current branch",
+        "current_branch": "Current branch",
+        "target": "Target",
+        "reload_busy": "Reloading…",
+        "target_label": "Target",
+        "commit_label": "Commit",
+        "changes_count": "changes",
+        "back_history": "← Back to history",
+        "all_log_to_root": "Full log to the first commit",
+        "loaded_count": "loaded",
+        "file_view": "File view",
+        "select_file": "Select a file",
+        "select_file_hint": "Click a file in the list on the left.",
+        "file_log": "File log",
+        "file_content": "File content",
+        "binary_file": "Cannot display the contents of a binary file.",
+        "change_history": " change history",
+        "loading": "Loading…",
+        "error": "Error: ",
+        "root": "Root",
+        "empty_directory": "This directory is empty.",
+        "wip_loading": "Loading…",
+        "wip_title": "Working tree changes (WIP)",
+        "no_changes": "No changes.",
+        "wip_commit_message": "Commit message",
+        "wip_commit": "Commit",
+        "wip_execute": "Running…",
+        "staged": "Staged (git add)",
+        "unstaged": "Unstaged changes",
+        "untracked": "Untracked files",
+        "conflict": "Conflicts",
+        "amend_content": "Contents of amended commit (diff from the previous commit's parent)",
+        "message_required": "Enter a commit message",
+        "select_files": "Select files to commit",
+        "amend_checkbox": "Amend the previous commit (this rewrites history)",
+        "amend_hint": "Files from the previous commit are selected; uncheck to remove them from the commit (working-tree contents are kept). [WIP] means uncommitted changes; select them to include them.",
+        "wip_hint": "Unchecking a staged file unstages it (working-tree contents are kept).",
+        "select_all": "Select/deselect the entire group",
+        "truncated_files": "Only the first files are shown because there are many files",
+        "new_file": "New",
+        "wip_file_remove_title": "Uncheck to remove this file from the previous commit (working-tree contents are kept)",
+        "amend_confirm": "The previous commit will be recreated (and its message replaced).{drop}\nHistory will be rewritten. Continue?",
+        "amend_drop": " {n} file(s) will be removed from the previous commit (working-tree contents are kept).",
+        "working_tree": "Working tree changes (WIP)",
+        "files_changed": "files changed",
+        "large_file_diff": "Only the beginning is shown because the diff is large",
+        "no_diff": "No differences",
+    },
+}
+
+
+def detect_language():
+    """起動時の環境変数から UI 言語を決める。サーバー起動後は変更しない。"""
+    value = (
+        os.environ.get("LANGUAGE")
+        or os.environ.get("LC_ALL")
+        or os.environ.get("LC_MESSAGES")
+        or os.environ.get("LANG")
+        or "ja"
+    )
+    lang = value.lower().split(":", 1)[0].split("_", 1)[0].split("-", 1)[0]
+    if value.upper() in {"C", "POSIX"}:
+        lang = "en"
+    return lang if lang in TRANSLATIONS else "ja"
+
+
+def render_main_page():
+    """起動時に決めた言語の翻訳データを HTML に埋め込む。"""
+    translations = json.dumps(TRANSLATIONS[UI_LANG], ensure_ascii=False)
+    return (HTML_TEMPLATE
+            .replace('<html lang="ja">', f'<html lang="{UI_LANG}">')
+            .replace("/*__I18N__*/", f"const I18N = {translations};"))
 
 
 def git(*args, literal=False):
@@ -249,8 +433,8 @@ function fallbackCopy(text) {
 }
 function updatePushActions() {
   const current = document.getElementById("pushCurrentBtn");
-  current.textContent = "カレントブランチを push" + (currentBranch ? " (" + currentBranch + ")" : "");
-  current.title = currentBranch ? currentBranch + " を push" : "カレントブランチを push";
+  current.textContent = t("push_current") + (currentBranch ? " (" + currentBranch + ")" : "");
+  current.title = currentBranch ? currentBranch + " push" : t("push_current");
   current.disabled = !currentBranchLoaded || !currentBranch || !DATA.writable;
   const branches = currentBranchLoaded && actionHash
     ? localBranches(actionHash).filter(branch => branch !== currentBranch) : [];
@@ -432,11 +616,11 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 <div id="graphStatus" role="region" aria-label="通知"></div>
 <div id="compareControls">
   <div id="compareToolbar">
-    <button id="reload" class="sbtn" disabled title="グラフを最新の状態に更新">↻ 更新</button>
+    <button id="reload" class="sbtn" disabled title="グラフを最新の状態に更新" data-i18n="reload">↻ 更新</button>
     <span class="cmp-hash" id="actionTarget"></span>
     <span class="cmp-hash" id="cmpA"></span><span class="cmp-hash" id="cmpB"></span>
-    <button class="sbtn" id="cmpActToggle" aria-expanded="false" aria-controls="cmpActions">操作 ▾</button>
-    <button class="sbtn" id="clearCmpBtn">クリア</button>
+    <button class="sbtn" id="cmpActToggle" aria-expanded="false" aria-controls="cmpActions" data-i18n="actions">操作 ▾</button>
+    <button class="sbtn" id="clearCmpBtn" data-i18n="clear">クリア</button>
   </div>
   <div class="actions" id="cmpActions" hidden>
     <div class="menu-section" id="remoteActions">
@@ -449,32 +633,32 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     </div>
     <hr class="menu-separator" id="selectionMenuSeparator" hidden>
     <div class="menu-section" id="aActions" hidden>
-      <button class="abtn" id="filesBtn" title="対象コミットのファイル一覧を別タブで開く">ファイル表示</button>
-      <button class="abtn" id="mergeBtn" title="Aを現在のHEADにマージ">マージ</button>
-      <button class="abtn" id="rebaseBtn" title="現在のブランチをAの上にリベース">リベース</button>
-      <button class="abtn" id="irebaseBtn" title="現在のブランチをAの上に、コミットの並べ替え・squash・メッセージ変更・削除をしながらリベース (git rebase -i)">対話的リベース</button>
-      <button class="abtn" id="cherryBtn" title="Aを現在のHEADにチェリーピック">チェリーピック</button>
-      <button class="abtn danger" id="resetBtn" title="現在のHEADを対象コミットへリセット">対象へリセット</button>
-      <button class="abtn" data-cact="branch">ブランチ作成</button>
-      <button class="abtn" data-cact="tag">タグ作成</button>
-      <button class="abtn" data-cact="checkout">チェックアウト</button>
+      <button class="abtn" id="filesBtn" title="対象コミットのファイル一覧を別タブで開く" data-i18n="files">ファイル表示</button>
+      <button class="abtn" id="mergeBtn" title="Aを現在のHEADにマージ" data-i18n="merge">マージ</button>
+      <button class="abtn" id="rebaseBtn" title="現在のブランチをAの上にリベース" data-i18n="rebase">リベース</button>
+      <button class="abtn" id="irebaseBtn" title="現在のブランチをAの上に、コミットの並べ替え・squash・メッセージ変更・削除をしながらリベース (git rebase -i)" data-i18n="interactive_rebase">対話的リベース</button>
+      <button class="abtn" id="cherryBtn" title="Aを現在のHEADにチェリーピック" data-i18n="cherry_pick">チェリーピック</button>
+      <button class="abtn danger" id="resetBtn" title="現在のHEADを対象コミットへリセット" data-i18n="reset">対象へリセット</button>
+      <button class="abtn" data-cact="branch" data-i18n="create_branch">ブランチ作成</button>
+      <button class="abtn" data-cact="tag" data-i18n="create_tag">タグ作成</button>
+      <button class="abtn" data-cact="checkout" data-i18n="checkout">チェックアウト</button>
     </div>
     <hr class="menu-separator" id="compareMenuSeparator" hidden>
-    <button class="abtn" id="compareBtn" hidden>AB比較</button>
+    <button class="abtn" id="compareBtn" hidden data-i18n="compare_ab">AB比較</button>
     <hr class="menu-separator">
     <div class="menu-section" id="viewActions">
-      <button class="abtn" id="stashListBtn" title="stash の一覧 (git stash list)">stash一覧</button>
-      <button class="abtn" id="reflogBtn" title="reflog (HEAD。ブランチは画面で切り替え)">reflog</button>
+      <button class="abtn" id="stashListBtn" title="stash の一覧 (git stash list)" data-i18n="stash_list">stash一覧</button>
+      <button class="abtn" id="reflogBtn" title="reflog (HEAD。ブランチは画面で切り替え)" data-i18n="reflog">reflog</button>
     </div>
     <div class="menu-section" id="stashActions" hidden>
-      <button class="abtn" id="stashApplyBtn" title="この stash の変更を作業ツリーに適用 (stash は残す)">stash 適用 (apply)</button>
-      <button class="abtn" id="stashPopBtn" title="この stash の変更を作業ツリーに適用して、stash を削除">stash 適用して削除 (pop)</button>
-      <button class="abtn danger" id="stashDropBtn" title="この stash を削除">stash 削除 (drop)</button>
+      <button class="abtn" id="stashApplyBtn" title="この stash の変更を作業ツリーに適用 (stash は残す)" data-i18n="stash_apply">stash 適用 (apply)</button>
+      <button class="abtn" id="stashPopBtn" title="この stash の変更を作業ツリーに適用して、stash を削除" data-i18n="stash_pop">stash 適用して削除 (pop)</button>
+      <button class="abtn danger" id="stashDropBtn" title="この stash を削除" data-i18n="stash_drop">stash 削除 (drop)</button>
     </div>
     <hr class="menu-separator">
     <div class="menu-section" id="remoteConfigActions">
-      <button class="abtn" data-cact="remote-add" title="リモートを追加 (git remote add)">remote 追加</button>
-      <button class="abtn danger" data-cact="remote-remove" title="リモートを削除 (git remote remove)。リモート追跡ブランチも消えます">remote 削除</button>
+      <button class="abtn" data-cact="remote-add" title="リモートを追加 (git remote add)" data-i18n="remote_add">remote 追加</button>
+      <button class="abtn danger" data-cact="remote-remove" title="リモートを削除 (git remote remove)。リモート追跡ブランチも消えます" data-i18n="remote_remove">remote 削除</button>
     </div>
   </div>
 </div>
@@ -484,35 +668,43 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     <div class="action-fields" id="actionFields"></div>
     <div class="amsg ng" id="actionError" role="alert"></div>
     <div class="dialog-buttons">
-      <button type="button" class="abtn" data-dialog-cancel>キャンセル</button>
+      <button type="button" class="abtn" data-dialog-cancel data-i18n="cancel">キャンセル</button>
       <button type="submit" class="abtn" id="actionSubmit"></button>
     </div>
   </form>
 </div>
 <div id="coModal" hidden><div class="comodal" role="dialog" aria-modal="true">
-  <div><b>チェックアウトできません</b> — 次のファイルが邪魔をしています。</div>
+  <div><b data-i18n="checkout_blocked">チェックアウトできません</b> — <span data-i18n="checkout_blocked_hint">次のファイルが邪魔をしています。</span></div>
   <div id="coFiles"></div>
   <div class="hint">stash: 編集中の変更と管理外ファイルをすべて stash に退避します (あとで git stash pop で戻せます)。<br>
   削除: 上のファイルだけを破棄します。編集内容は HEAD の状態に戻り、管理外ファイルは削除されます (元に戻せません)。</div>
-  <div class="arow"><button class="abtn" data-co="stash">stash してチェックアウト</button>
-    <button class="abtn danger" data-co="discard">削除してチェックアウト</button>
+  <div class="arow"><button class="abtn" data-co="stash" data-i18n="stash_checkout">stash してチェックアウト</button>
+    <button class="abtn danger" data-co="discard" data-i18n="discard_checkout">削除してチェックアウト</button>
     <button class="abtn" data-co="cancel">キャンセル</button></div>
 </div></div>
 <div id="graph">
   <div id="loading">
     <div class="spin"></div>
-    <div>コミットグラフを作成中…</div>
-    <div class="hint" id="lsub">リポジトリが大きいと時間がかかります</div>
+    <div data-i18n="loading_graph">コミットグラフを作成中…</div>
+    <div class="hint" id="lsub" data-i18n="loading_graph_hint">リポジトリが大きいと時間がかかります</div>
   </div>
 </div>
 </div>
 <div id="splitter" role="separator" aria-orientation="vertical" aria-label="右ペインの幅を調整" tabindex="0"></div>
 <div id="panel">
-  <div id="listView"><p class="hint">ノードをクリックすると、そのコミットから最初（ルート）までのログを表示します。エッジをクリックすると省略された区間のログを表示します。</p>
-    <p class="hint">コミットをクリックすると操作対象になります。ログ行の上にマウスを置くと、比較 A / B に設定するボタンが表示されます。</p></div>
+  <div id="listView"><p class="hint" data-i18n="graph_help_1">ノードをクリックすると、そのコミットから最初（ルート）までのログを表示します。エッジをクリックすると省略された区間のログを表示します。</p>
+    <p class="hint" data-i18n="graph_help_2">コミットをクリックすると操作対象になります。ログ行の上にマウスを置くと、比較 A / B に設定するボタンが表示されます。</p></div>
   <div id="detailView"></div>
 </div>
 <script>
+/*__I18N__*/
+function t(key, values = {}) {
+  let text = I18N[key] || key;
+  Object.entries(values).forEach(([name, value]) => { text = text.replaceAll("{" + name + "}", value); });
+  return text;
+}
+document.querySelectorAll("[data-i18n]").forEach(el => { el.textContent = t(el.dataset.i18n); });
+
 let DATA = {nodes: {}, edges: {}};
 const COLORS = {branch: "#b7e4a7", current: "#b7e4a7", remote: "#a7c8f0", tag: "#ffe9a0", head: "#f4a7a7"};
 const CHUNK = 500;
@@ -638,7 +830,7 @@ function showLog(titleHtml, rev, topHtml, fromHistory, restoreScroll, src) {
       done = !r.has_more;
       if (r.total !== undefined) total = r.total;
       count.textContent = total === null ? skip + " 件"
-        : (done ? "全 " + total + " 件" : skip + " / " + total + " 件を読み込み済み");
+        : (done ? "" + total + " " + t("changes_count") : skip + " / " + total + " " + t("loaded_count"));
       sentinel.textContent = done ? (skip === 0 ? "(なし)" : "") : "読み込み中…";
     } catch (e) {
       sentinel.textContent = "エラー: " + e.message; done = true;
@@ -744,13 +936,13 @@ listView.addEventListener("change", ev => {
 });
 function showDetail(h, fromHistory) {
   if (!fromHistory) pushScreen({screen: "detail", hash: h});
-  const back = '<button class="back-btn">← 履歴一覧に戻る</button>';
+  const back = '<button class="back-btn">' + t("back_history") + '</button>';
   detailView.innerHTML = back + '<p class="hint">読み込み中…</p>';
   showView("detail");
   api("/api/commit", {hash: h}).then(c => {
     curCtx = {hash: c.hash}; curFiles = c.files; curDetailHash = c.hash;
     const parents = c.parents.map(p => esc(p.slice(0, 7))).join(", ") || "(なし)";
-    detailView.innerHTML = back + "<h2>コミット " + esc(c.hash.slice(0, 7)) + "</h2>" +
+    detailView.innerHTML = back + "<h2>" + t("commit_label") + " " + esc(c.hash.slice(0, 7)) + "</h2>" +
       '<span id="dChips">' + detailChips(c.hash) + "</span>" +
       '<div class="meta">' + esc(c.hash) + copyLink(c.hash) + "</div>" +
       '<div class="meta">Author: ' + esc(c.author) + "</div>" +
@@ -875,7 +1067,7 @@ function commitLine(label, c) {
 }
 function showCompare(a, b, fromHistory) {  // a, b はコミットのハッシュ
   if (!fromHistory) pushScreen({screen: "compare", a: a, b: b});
-  const btns = '<button class="back-btn">← 履歴一覧に戻る</button><button class="sbtn">A ⇄ B 入れ替え</button>';
+  const btns = '<button class="back-btn">' + t("back_history") + '</button><button class="sbtn">A ⇄ B 入れ替え</button>';
   detailView.innerHTML = btns + '<p class="hint">読み込み中…</p>';
   showView("detail");
   api("/api/compare", {from: a, to: b}).then(r => {
@@ -901,11 +1093,11 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
     if (nodeEl[actionHash]) nodeEl[actionHash].classList.add("actionTarget");
     listView.querySelectorAll('tr[data-h="' + actionHash + '"]').forEach(tr => tr.classList.add("actionTarget"));
   }
-  document.getElementById("actionTarget").textContent = actionHash ? "対象: " + actionHash.slice(0, 7) : "";
+  document.getElementById("actionTarget").textContent = actionHash ? t("target_label") + ": " + actionHash.slice(0, 7) : "";
   document.getElementById("cmpA").textContent = compareAHash ? "A: " + compareAHash.slice(0, 7) : "";
   document.getElementById("cmpB").textContent = compareBHash ? "B: " + compareBHash.slice(0, 7) : "";
   document.getElementById("cmpActToggle").setAttribute("aria-expanded", cmpActOpen ? "true" : "false");
-  document.getElementById("cmpActToggle").textContent = cmpActOpen ? "操作 ▴" : "操作 ▾";
+  document.getElementById("cmpActToggle").textContent = cmpActOpen ? t("actions").replace("▾", "▴") : t("actions");
   document.getElementById("clearCmpBtn").disabled = !compareAHash && !compareBHash && !actionHash;
   document.getElementById("cmpActions").hidden = !cmpActOpen;
   document.getElementById("compareBtn").hidden = !compareAHash || !compareBHash;
@@ -1479,7 +1671,7 @@ function onNodeClick(g, n) {
   selectActionTarget(n.hash);
   select(g);
   showLog("git log --oneline " + esc(n.hash.slice(0, 7)), n.hash,
-          chips(n.hash) + '<div class="meta">最初のコミットまでの全ログ</div>');
+          chips(n.hash) + '<div class="meta">' + t("all_log_to_root") + '</div>');
 }
 
 function init() {
@@ -1522,7 +1714,7 @@ function wipIsChecked(f) {  // amend: 直前のコミットのファイルは、
 }
 function wipCheckCell(f) {
   return '<td class="fk"><input type="checkbox" class="wipck" data-kind="' + esc(f.wip) + '" data-path="' + esc(f.path) + '"' +
-    (wipIsChecked(f) ? " checked" : "") + (f.in_head ? ' title="外すと、このファイルは直前のコミットから外れます (作業ツリーの内容は残ります)"' : "") + "></td>";
+    (wipIsChecked(f) ? " checked" : "") + (f.in_head ? ' title="' + t("wip_file_remove_title") + '"' : "") + "></td>";
 }
 function wipCks(kind) {  // 操作できる (disabled でない) チェックボックス
   return [...detailView.querySelectorAll(".wipck" + (kind ? '[data-kind="' + kind + '"]' : ""))].filter(x => !x.disabled);
@@ -1540,7 +1732,7 @@ function wipSync() {  // コミットボタンの件数と、グループの全�
   const n = wipPaths().length, b = detailView.querySelector("#wipCommit");
   if (b) {
     b.disabled = n === 0;
-    b.textContent = "チェックした " + n + " 件を add して" + (wipAmendOn ? " amend" : "コミット");
+    b.textContent = t("wip_commit") + " (" + n + ")" + (wipAmendOn ? " amend" : "");
   }
   detailView.querySelectorAll(".wipall").forEach(all => {
     const cks = wipCks(all.dataset.kind), c = cks.filter(x => x.checked).length;
@@ -1563,17 +1755,16 @@ function setWipAmend(on) {  // amend のチェックを切り替える: 差分�
 }
 function doWipCommit() {
   const amend = wipAmendOn, paths = wipPaths(), ta = detailView.querySelector("#wipMsg"), msg = ta ? ta.value : "";
-  if (!msg.trim()) { wipSay("コミットメッセージを入力してください", false); return; }
-  if (!amend && !paths.length) { wipSay("コミットするファイルにチェックを付けてください", false); return; }
+  if (!msg.trim()) { wipSay(t("message_required"), false); return; }
+  if (!amend && !paths.length) { wipSay(t("select_files"), false); return; }
   if (amend) {
     const chk = new Set(paths), drops = curFiles.filter(f => f.in_head && !chk.has(f.path)).length;
-    if (!confirm("直前のコミットを作り直します (メッセージも置き換えます)。" +
-        (drops ? "\n直前のコミットから " + drops + " 件のファイルを外します (作業ツリーの内容は残ります)。" : "") +
-        "\n履歴が書き換わります。続けますか？")) return;
+    const dropText = drops ? "\n" + t("amend_drop", {n: drops}) : "";
+    if (!confirm(t("amend_confirm", {drop: dropText}))) return;
   }
   const btn = detailView.querySelector("#wipCommit");
   if (btn) btn.disabled = true;
-  wipSay("実行中…", true);
+  wipSay(t("wip_execute"), true);
   post("/api/wip-commit", {paths: paths, message: msg, amend: amend})
     .then(r => {
       wipMsg = ""; wipMsgNormal = ""; wipSel = {}; wipAmendOn = false;
@@ -1594,8 +1785,8 @@ detailView.addEventListener("input", ev => { if (ev.target.id === "wipMsg") wipM
 
 function showWip(fromHistory, okMsg) {
   if (!fromHistory) pushScreen({screen: "wip"});
-  const btns = '<button class="back-btn">← 履歴一覧に戻る</button><button class="sbtn" id="wipReload">↻ 更新</button>';
-  detailView.innerHTML = btns + '<p class="hint">読み込み中…</p>';
+  const btns = '<button class="back-btn">' + t("back_history") + '</button><button class="sbtn" id="wipReload">' + t("reload") + '</button>';
+  detailView.innerHTML = btns + '<p class="hint">' + t("wip_loading") + '</p>';
   showView("detail"); curDetailHash = null;
   api("/api/status", wipAmendOn ? {amend: 1} : {}).then(s => {
     wipStaged = new Set(s.staged.map(f => f.path)); wipMerging = !!s.merging; wipHeadMsg = s.head_message || "";
@@ -1605,33 +1796,33 @@ function showWip(fromHistory, okMsg) {
     }
     const canCommit = !!DATA.writable;  // 書き込みが無効 (--read-only など) のときはチェック欄を出さない
     const sections = wipAmendOn
-      ? [["amend", "amend 後のコミットの内容 (直前のコミットの親との差分)", s.amend_files]]
-      : [["conflict", "競合", s.conflicts], ["staged", "ステージ済み (git add 済み)", s.staged],
-         ["unstaged", "未ステージの変更", s.unstaged], ["untracked", "未追跡のファイル", s.untracked]];
+      ? [["amend", t("amend_content"), s.amend_files]]
+      : [["conflict", t("conflict"), s.conflicts], ["staged", t("staged"), s.staged],
+         ["unstaged", t("unstaged"), s.unstaged], ["untracked", t("untracked"), s.untracked]];
     let files = [], body = "";
     sections.forEach(([kind, title, items]) => {
       if (!items.length) return;
       const list = items.map(f => Object.assign({wip: kind}, f));
-      body += "<h3>" + (canCommit ? '<input type="checkbox" class="wipall" data-kind="' + kind + '" title="このグループを全選択/解除">' : "") +
+      body += "<h3>" + (canCommit ? '<input type="checkbox" class="wipall" data-kind="' + kind + '" title="' + t("select_all") + '">' : "") +
         title + " (" + list.length + ")</h3>" + filesHtml({}, list, files.length, canCommit);
       files = files.concat(list);
     });
     curCtx = {}; curFiles = files;
     const hint = wipAmendOn
-      ? "直前のコミットのファイルはチェック済みで、外すとコミットから外れます (作業ツリーはそのまま)。[WIP] は未コミットの変更で、チェックすると取り込みます"
-      : "チェックを外したステージ済みファイルはステージから外れます (作業ツリーはそのまま)";
+      ? t("amend_hint")
+      : t("wip_hint");
     const box = canCommit && (files.length || wipAmendOn)
       ? '<div class="wipbox">' +
-        '<textarea id="wipMsg" placeholder="コミットメッセージ"></textarea>' +
+        '<textarea id="wipMsg" placeholder="' + t("wip_commit_message") + '"></textarea>' +
         (canAmend ? '<label class="amendrow"><input type="checkbox" id="wipAmendCk"' + (wipAmendOn ? " checked" : "") +
-          '>直前のコミットを amend する (履歴が書き換わります)</label>' : "") +
-        '<div class="arow"><button class="wbtn" id="wipCommit">コミット</button>' +
+          '>' + t("amend_checkbox") + '</label>' : "") +
+        '<div class="arow"><button class="wbtn" id="wipCommit">' + t("wip_commit") + '</button>' +
         '<span class="hint">' + hint + '</span></div>' +
         '<div class="amsg" id="wipMsgOut"></div></div>' : "";
-    detailView.innerHTML = btns + "<h2>作業ツリーの変更 (WIP)</h2>" +
+    detailView.innerHTML = btns + "<h2>" + t("wip_title") + "</h2>" +
       '<div class="meta">HEAD: ' + (s.head ? chips(s.head) + esc(s.head.slice(0, 7)) : "(コミットなし)") + "</div>" +
-      (body || '<p class="hint">変更はありません</p>') + box +
-      (s.truncated ? '<p class="hint">ファイルが多いため先頭のみ表示しています</p>' : "");
+      (body || '<p class="hint">' + t("no_changes") + '</p>') + box +
+      (s.truncated ? '<p class="hint">' + t("truncated_files") + '</p>' : "");
     const ta = detailView.querySelector("#wipMsg");
     if (ta) ta.value = wipMsg;
     if (okMsg) wipSay(okMsg, true);
@@ -1643,8 +1834,8 @@ function showWip(fromHistory, okMsg) {
 
 document.getElementById("reload").addEventListener("click", ev => {  // グラフを最新の状態に更新
   const b = ev.currentTarget;
-  b.disabled = true; b.textContent = "更新中…";
-  refreshGraph().catch(() => {}).finally(() => { b.disabled = false; b.textContent = "↻ 更新"; });
+  b.disabled = true; b.textContent = t("reload_busy");
+  refreshGraph().catch(() => {}).finally(() => { b.disabled = false; b.textContent = t("reload"); });
 });
 
 // ---- グラフの読み込み (サーバー側の作成に時間がかかるので、読み込み中画面を出す) ----
@@ -1710,7 +1901,7 @@ def parse_status(raw, limit=5000):
             res["truncated"] = True
             break
         if xy == "??":
-            res["untracked"].append({"path": path, "st": "?", "label": "新規"})
+            res["untracked"].append({"path": path, "st": "?", "label": TRANSLATIONS[UI_LANG]["new_file"]})
         elif xy in CONFLICT_CODES:
             res["conflicts"].append({"path": path, "st": "U", "label": "競合"})
         else:
@@ -1838,8 +2029,9 @@ def wip_diff(kind, path, specs):
 
 def add_wip(dot_text, nodes, head, count):
     """HEAD の子として、破線の WIP ノードを dot とノード情報に追加する。"""
+    changes = TRANSLATIONS[UI_LANG]["changes_count"]
     label = ('<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3" STYLE="dashed" BGCOLOR="#fff8dc">'
-             f'<TR><TD><B>WIP</B></TD></TR><TR><TD>{count} 件の変更</TD></TR></TABLE>>')
+             f'<TR><TD><B>WIP</B></TD></TR><TR><TD>{count} {changes}</TD></TR></TABLE>>')
     lines = f'  "WIP" [label={label}];\n  "{head}" -> "WIP" [style=dashed];\n'
     i = dot_text.rindex("}")
     nodes = dict(nodes)
@@ -2170,6 +2362,16 @@ def diff_lines_html(text):
 WIP_TITLES = {"amend": "amend 後のコミットの内容 (直前のコミットの親との差分)", "conflict": "競合", "staged": "ステージ済み", "unstaged": "未ステージの変更", "untracked": "未追跡のファイル"}
 
 
+def localized_wip_title(kind):
+    return {
+        "amend": TRANSLATIONS[UI_LANG]["amend_content"],
+        "conflict": TRANSLATIONS[UI_LANG]["conflict"],
+        "staged": TRANSLATIONS[UI_LANG]["staged"],
+        "unstaged": TRANSLATIONS[UI_LANG]["unstaged"],
+        "untracked": TRANSLATIONS[UI_LANG]["untracked"],
+    }.get(kind, kind)
+
+
 def diff_url(ctx, f):
     params = dict(ctx, path=f["path"])
     if f.get("wip"):
@@ -2211,7 +2413,7 @@ def render_diff_page(q):
     d = api_diff(q)
     if wip:  # 作業ツリーの変更
         files, ctx, ref = wip_files(wip), {}, "WIP"
-        info = f'<div class="meta">作業ツリーの変更 (WIP) — {html.escape(WIP_TITLES.get(wip, wip))}</div>'
+        info = f'<div class="meta">{html.escape(TRANSLATIONS[UI_LANG]["working_tree"])} — {html.escape(localized_wip_title(wip))}</div>'
         cmd = {"staged": f"git diff --cached -- {path}", "amend": f"git diff HEAD^ -- {path}",
                "untracked": f"git diff --no-index /dev/null {path}"}.get(wip, f"git diff -- {path}")
     elif "from" in q:  # 2コミット間の比較
@@ -2225,7 +2427,7 @@ def render_diff_page(q):
         c = api_commit(q)
         files, ctx, ref = c["files"], {"hash": c["hash"]}, c["hash"][:7]
         subject = c["message"].split("\n", 1)[0]
-        info = (f'<div class="meta">コミット {ref}'
+        info = (f'<div class="meta">{html.escape(TRANSLATIONS[UI_LANG]["commit_label"])} {ref}'
                 f'<a class="copy" data-copy="{c["hash"]}" title="ハッシュ (40桁) をコピー">📋</a>'
                 f' — {html.escape(subject)}</div>'
                 f'<div class="meta">{html.escape(c["author"])} / {html.escape(c["date"])}</div>')
@@ -2236,7 +2438,7 @@ def render_diff_page(q):
     for f in files:
         if wip and f.get("wip") != last:
             last = f.get("wip")
-            side.append(f'<div class="grp">{html.escape(WIP_TITLES[last])}</div>')
+            side.append(f'<div class="grp">{html.escape(localized_wip_title(last))}</div>')
         fname = f"{f['old_path']} => {f['path']}" if f.get("old_path") else f["path"]
         if f.get("label"):
             counts = html.escape(f["label"])
@@ -2252,19 +2454,19 @@ def render_diff_page(q):
                     f'<span>{html.escape(fname)}</span><span class="n">{counts}</span></a>')
 
     return f"""<!DOCTYPE html>
-<html lang="ja"><head><meta charset="utf-8">
+<html lang="{UI_LANG}"><head><meta charset="utf-8">
 <title>{html.escape(path)} @ {ref}</title>
 <style>{DIFF_CSS}</style></head><body>
 <div id="side">
-  <div class="meta">{len(files)} files changed</div>
+  <div class="meta">{len(files)} {TRANSLATIONS[UI_LANG]["files_changed"]}</div>
   {"".join(side)}
 </div>
 <div id="main">
   <h1>{html.escape(name)}</h1>
   {info}
   <div class="meta"><code>{html.escape(cmd)}</code></div>
-  {'<p class="hint">大きいため先頭のみ表示しています</p>' if d["truncated"] else ""}
-  <div class="diff">{diff_lines_html(d["diff"]) or '<p class="hint">差分はありません</p>'}</div>
+  {'<p class="hint">' + TRANSLATIONS[UI_LANG]["large_file_diff"] + '</p>' if d["truncated"] else ""}
+  <div class="diff">{diff_lines_html(d["diff"]) or '<p class="hint">' + TRANSLATIONS[UI_LANG]["no_diff"] + '</p>'}</div>
 </div>
 <script>{COPY_JS}</script>
 </body></html>
@@ -2309,21 +2511,25 @@ FILES_CSS = """
 
 
 FILES_PAGE = r"""<!DOCTYPE html>
-<html lang="ja"><head><meta charset="utf-8"><title>ファイル表示</title>
+<html lang="ja"><head><meta charset="utf-8"><title data-i18n="file_view">ファイル表示</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
 <style>__CSS__</style><script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script></head>
-<body><aside id="tree"><h1>ファイル表示</h1><div class="meta" id="commit"></div><div id="list"></div></aside>
-<main id="main"><h2 id="title">ファイルを選択してください</h2>
-<div id="fileActions" class="file-actions" hidden><button id="fileLogBtn">このファイルのログ</button><button id="fileContentBtn" hidden>ファイル内容</button></div>
-<div id="content" class="hint">左の一覧からファイルをクリックしてください。</div></main>
+<body><aside id="tree"><h1 data-i18n="file_view">ファイル表示</h1><div class="meta" id="commit"></div><div id="list"></div></aside>
+<main id="main"><h2 id="title" data-i18n="select_file">ファイルを選択してください</h2>
+<div id="fileActions" class="file-actions" hidden><button id="fileLogBtn" data-i18n="file_log">このファイルのログ</button><button id="fileContentBtn" hidden data-i18n="file_content">ファイル内容</button></div>
+<div id="content" class="hint" data-i18n="select_file_hint">左の一覧からファイルをクリックしてください。</div></main>
 <script>
+/*__FILE_I18N__*/
+function t(key) { return I18N[key] || key; }
+document.querySelectorAll("[data-i18n]").forEach(el => { el.textContent = t(el.dataset.i18n); });
+
 const qs = new URLSearchParams(location.search), hash = qs.get("hash");
 const list = document.getElementById("list"), content = document.getElementById("content"), title = document.getElementById("title");
 const fileActions = document.getElementById("fileActions"), fileLogBtn = document.getElementById("fileLogBtn"), fileContentBtn = document.getElementById("fileContentBtn");
 let current = "", currentFile = "";
 function esc(s) { return String(s).replace(/[&<>\"]/g, c => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", "\"":"&quot;"}[c])); }
 function api(path, params) { return fetch(path + "?" + new URLSearchParams(params)).then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); })); }
-function showError(e) { list.innerHTML = '<p class="hint">エラー: ' + esc(e.message) + '</p>'; }
+function showError(e) { list.innerHTML = '<p class="hint">' + t("error") + esc(e.message) + '</p>'; }
 function loadTree(path, push) {
   current = path;
   fileActions.hidden = true;
@@ -2331,7 +2537,7 @@ function loadTree(path, push) {
   api("/api/tree", {hash: hash, path: path}).then(r => {
     document.getElementById("commit").textContent = r.hash.slice(0, 7);
     const parts = path ? path.split("/") : [];
-    let crumb = '<div class="crumb"><a data-dir="">📁 ルート</a>';
+    let crumb = '<div class="crumb"><a data-dir="">📁 ' + t("root") + '</a>';
     parts.forEach((p, i) => { const d = parts.slice(0, i + 1).join("/"); crumb += ' / <a data-dir="' + esc(d) + '">' + esc(p) + '</a>'; });
     crumb += '</div>';
     list.innerHTML = crumb + (r.entries.length ? r.entries.map(e => {
@@ -2339,7 +2545,7 @@ function loadTree(path, push) {
       const icon = e.type === "tree" ? "📁" : "📄";
       const size = e.size === null ? "" : e.size.toLocaleString() + " B";
       return '<div class="entry" data-type="' + e.type + '" data-path="' + esc(p) + '"><span>' + icon + ' ' + esc(e.name) + '</span><span class="size">' + size + '</span></div>';
-    }).join("") : '<p class="hint">空のディレクトリです</p>');
+    }).join("") : '<p class="hint">' + t("empty_directory") + '</p>');
     list.querySelectorAll("[data-dir]").forEach(a => a.onclick = () => loadTree(a.dataset.dir, true));
     list.querySelectorAll(".entry").forEach(a => a.onclick = () => a.dataset.type === "tree" ? loadTree(a.dataset.path, true) : loadFile(a.dataset.path));
   }).catch(showError);
@@ -2353,8 +2559,8 @@ function loadFile(path) {
     const lang = languageFor(r.path);
     title.textContent = r.path + (lang ? " (" + lang + ")" : "");
     content.className = r.binary ? "binary" : "";
-    content.innerHTML = r.binary ? "バイナリファイルのため内容を表示できません。" : '<pre class="code"><code>' + highlightCode(r.content, lang) + '</code></pre>' + (r.truncated ? '<p class="hint">大きいため先頭のみ表示しています。</p>' : '');
-  }).catch(e => { title.textContent = path; content.className = "hint"; content.textContent = "エラー: " + e.message; });
+    content.innerHTML = r.binary ? t("binary_file") : '<pre class="code"><code>' + highlightCode(r.content, lang) + '</code></pre>' + (r.truncated ? '<p class="hint">' + t("large_file_head") + '</p>' : '');
+  }).catch(e => { title.textContent = path; content.className = "hint"; content.textContent = t("error") + e.message; });
 }
 function loadFileLog(path) {
   if (window.opener && !window.opener.closed) {
@@ -2364,16 +2570,16 @@ function loadFileLog(path) {
   }
   fileLogBtn.hidden = true;
   fileContentBtn.hidden = false;
-  title.textContent = path + " の変更履歴";
+  title.textContent = path + t("change_history");
   content.className = "hint";
-  content.textContent = "読み込み中…";
+  content.textContent = t("loading");
   api("/api/log", {rev: hash, path: path}).then(r => {
     const rows = r.commits.map(c => '<tr><td class="hash">' + esc(c[1]) +
       '</td><td class="date">' + esc(c[3]) + '</td><td>' + esc(c[4]) + '</td></tr>').join("");
     content.className = "";
-    content.innerHTML = '<div class="meta">' + r.total + ' 件</div>' +
-      (rows ? '<table class="file-log"><tbody>' + rows + '</tbody></table>' : '<p class="hint">履歴がありません</p>');
-  }).catch(e => { content.className = "hint"; content.textContent = "エラー: " + e.message; });
+    content.innerHTML = '<div class="meta">' + r.total + ' ' + t("commits_count") + '</div>' +
+      (rows ? '<table class="file-log"><tbody>' + rows + '</tbody></table>' : '<p class="hint">' + t("no_history") + '</p>');
+  }).catch(e => { content.className = "hint"; content.textContent = t("error") + e.message; });
 }
 fileLogBtn.onclick = () => { if (currentFile) loadFileLog(currentFile); };
 fileContentBtn.onclick = () => { if (currentFile) loadFile(currentFile); };
@@ -2438,8 +2644,22 @@ function highlightCode(source, lang) {
   return highlight(source, lang);
 }
 window.onpopstate = () => loadTree(new URLSearchParams(location.search).get("path") || "", false);
-if (!hash) showError(new Error("コミットが指定されていません")); else loadTree(qs.get("path") || "", false);
+if (!hash) showError(new Error(t("commit_required"))); else loadTree(qs.get("path") || "", false);
 </script></body></html>""".replace("__CSS__", FILES_CSS)
+
+
+def render_files_page():
+    translations = dict(TRANSLATIONS[UI_LANG])
+    translations.update({
+        "large_file_head": "大きいため先頭のみ表示しています。" if UI_LANG == "ja" else "Only the beginning is shown because the file is large.",
+        "commits_count": "件" if UI_LANG == "ja" else "commits",
+        "no_history": "履歴がありません" if UI_LANG == "ja" else "No history.",
+        "commit_required": "コミットが指定されていません" if UI_LANG == "ja" else "No commit was specified",
+    })
+    data = json.dumps(translations, ensure_ascii=False)
+    return (FILES_PAGE
+            .replace('<html lang="ja">', f'<html lang="{UI_LANG}">')
+            .replace("/*__FILE_I18N__*/", f"const I18N = {data};"))
 
 
 # --------------------------------------------------------------------------
@@ -3212,7 +3432,7 @@ class Handler(BaseHTTPRequestHandler):
         q = parse_qs(u.query)
         try:
             if u.path == "/":
-                self._send(200, "text/html", HTML_TEMPLATE)
+                self._send(200, "text/html", render_main_page())
             elif u.path == "/api/log":
                 self._send(200, "application/json", json.dumps(api_log(q), ensure_ascii=False))
             elif u.path == "/api/stash-list":
@@ -3239,7 +3459,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, "application/json", json.dumps(api_file(q), ensure_ascii=False))
             elif u.path == "/files":
                 h = resolve_commit(q.get("hash", [""])[0])
-                self._send(200, "text/html", FILES_PAGE.replace("__HASH__", html.escape(h)))
+                self._send(200, "text/html", render_files_page().replace("__HASH__", html.escape(h)))
             elif u.path == "/diff":
                 self._send(200, "text/html", render_diff_page(q))
             else:
@@ -3293,7 +3513,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    global REPO, OPTS, WRITABLE, WIP_ENABLED, HAS_WORKTREE
+    global REPO, OPTS, UI_LANG, WRITABLE, WIP_ENABLED, HAS_WORKTREE
     ap = argparse.ArgumentParser(description="git commit graph server")
     ap.add_argument("revs", nargs="*", help="対象の rev (省略時は --all)")
     ap.add_argument("-C", dest="repo", default=".", help="リポジトリのパス (既定: カレント)")
@@ -3314,6 +3534,7 @@ def main():
     ap.add_argument("--lan", action="store_true",
                     help="--host 0.0.0.0 --allow-write の省略形 (他の端末からも操作可。認証はないので信頼できるネットワークで)")
     OPTS = ap.parse_args()
+    UI_LANG = detect_language()
     if OPTS.lan:
         if OPTS.host == "127.0.0.1":  # --host を明示しているときはそちらを優先する
             OPTS.host = "0.0.0.0"
