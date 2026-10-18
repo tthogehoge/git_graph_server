@@ -24,6 +24,7 @@
      チェックアウトが「編集中のファイル」「同名の管理外ファイル」で止まったときは {blocked:true, modified:[..], untracked:[..]} を返す。
      on_conflict="stash" (全変更を stash -u して実行) / "discard" (止めているファイルだけ破棄・削除して実行) を付けて再送する
   POST /api/merge {hash, no_ff} (JSON)                       選んだコミットを現在の HEAD にマージ
+  POST /api/reset {hash, mode} (JSON)                       現在の HEAD を選んだコミットへ reset (mode: soft | mixed | hard)
   POST /api/rebase {hash} (JSON)                             現在のブランチを選んだコミットの上にリベース (競合したら中止して元に戻す)
   POST /api/cherry-pick {hash} (JSON)                        選んだコミットを現在の HEAD にチェリーピック (競合したら中止して元に戻す)
   /api/rebase-todo?hash=<hash>                               対話的リベースの対象コミット一覧 (古い順。git rebase -i が作る todo と同じ)
@@ -436,6 +437,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       <button class="abtn" id="mergeBtn" title="Aを現在のHEADにマージ">マージ</button>
       <button class="abtn" id="rebaseBtn" title="現在のブランチをAの上にリベース">リベース</button>
       <button class="abtn" id="cherryBtn" title="Aを現在のHEADにチェリーピック">チェリーピック</button>
+      <button class="abtn danger" id="resetBtn" title="現在のHEADを対象コミットへリセット">対象へリセット</button>
       <button class="abtn" id="irebaseBtn" title="現在のブランチをAの上に、コミットの並べ替え・squash・メッセージ変更・削除をしながらリベース (git rebase -i)">対話的リベース</button>
       <button class="abtn" data-cact="branch">ブランチ作成</button>
       <button class="abtn" data-cact="tag">タグ作成</button>
@@ -894,10 +896,11 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
   document.getElementById("rebaseBtn").disabled = !canMerge;
   document.getElementById("irebaseBtn").disabled = !canMerge;
   document.getElementById("cherryBtn").disabled = !canMerge;
+  document.getElementById("resetBtn").disabled = !canMerge;
   const canWrite = !!DATA.writable;
   document.getElementById("filesBtn").disabled = !actionHash || isStash;
   document.querySelectorAll("#aActions button")
-    .forEach(el => { if (el.id !== "filesBtn") el.disabled = !canWrite || (["mergeBtn", "rebaseBtn", "irebaseBtn", "cherryBtn"].includes(el.id) && !DATA.merge); });
+    .forEach(el => { if (el.id !== "filesBtn") el.disabled = !canWrite || (["mergeBtn", "rebaseBtn", "irebaseBtn", "cherryBtn", "resetBtn"].includes(el.id) && !DATA.merge); });
   document.querySelectorAll("#remoteActions button")
     .forEach(el => { el.disabled = !canWrite || (el.dataset.cact === "pull" && !DATA.merge); });
   document.querySelectorAll("#remoteConfigActions button").forEach(el => { el.disabled = !canWrite; });
@@ -1169,6 +1172,34 @@ function doCherryPick() {
     .catch(e => { setGraphStatus("チェリーピックできませんでした: " + e.message); })
     .finally(() => { btn.disabled = false; });
 }
+async function doReset() {
+  if (!actionHash) return;
+  const h = actionHash, btn = document.getElementById("resetBtn");
+  const options = await openActionDialog("対象へリセット",
+    '<label>リセット方式<select name="mode">' +
+    '<option value="mixed" selected>mixed（インデックスを対象に合わせる）</option>' +
+    '<option value="soft">soft（HEADだけを対象へ移動）</option>' +
+    '<option value="hard">hard（作業ツリーも対象に合わせる）</option>' +
+    '</select></label>', "リセット");
+  if (!options) return;
+  const mode = options.mode;
+  const description = mode === "hard" ? "インデックスと作業ツリーの変更も破棄" :
+    mode === "soft" ? "インデックスと作業ツリーの変更を残す" : "インデックスを対象に合わせる";
+  if (!confirm("HEADをコミット " + h.slice(0, 7) + " へ " + mode + " リセットします。\n" +
+               description + "します。よろしいですか？")) return;
+  btn.disabled = true;
+  setGraphStatus("リセット中…");
+  try {
+    const r = await post("/api/reset", {hash: h, mode: mode});
+    clearCmp();
+    await refreshGraph().catch(() => {});
+    setGraphStatus(r.message, "success");
+  } catch (e) {
+    setGraphStatus("リセットできませんでした: " + e.message, "error");
+  } finally {
+    btn.disabled = false;
+  }
+}
 async function doRebaseI() {  // 対話的リベース (git rebase -i 相当)
   if (!actionHash) return;
   const h = actionHash, btn = document.getElementById("irebaseBtn");
@@ -1363,6 +1394,7 @@ document.getElementById("cmpActions").addEventListener("click", ev => {
   if (ev.target.closest("#rebaseBtn")) { doRebase(); return; }
   if (ev.target.closest("#irebaseBtn")) { doRebaseI(); return; }
   if (ev.target.closest("#cherryBtn")) { doCherryPick(); return; }
+  if (ev.target.closest("#resetBtn")) { doReset(); return; }
   const cab = ev.target.closest(".abtn[data-cact]");
   if (cab) {
     const act = cab.dataset.cact;
@@ -2512,6 +2544,21 @@ def api_checkout(body):
     return {"ok": True, "message": with_stash_note(res, f"{h[:7]} をチェックアウトしました (detached HEAD)")}
 
 
+def api_reset(body):
+    """現在の HEAD を選択したコミットへ移動する。"""
+    mode = body.get("mode", "mixed")
+    if mode not in ("soft", "mixed", "hard"):
+        raise ValueError("リセット方式が不正です")
+    if is_merging() or is_rebasing() or is_cherry_picking():
+        raise ValueError("マージ、リベース、またはチェリーピックの途中はリセットできません")
+    h = resolve_commit(body.get("hash", ""))
+    before = git("rev-parse", "HEAD").strip() if has_head() else None
+    run_git_write("reset", "--" + mode, h)
+    if before == h:
+        return {"ok": True, "message": f"HEAD は既に {h[:7]} です (変更なし)"}
+    return {"ok": True, "message": f"HEAD を {h[:7]} へ {mode} リセットしました"}
+
+
 def is_merging():
     return subprocess.run(["git", "-C", REPO, "rev-parse", "-q", "--verify", "MERGE_HEAD"],
                           capture_output=True).returncode == 0
@@ -3045,7 +3092,7 @@ def api_push(body):
 
 
 POST_ROUTES = {"/api/stash": api_stash, "/api/rebase": api_rebase, "/api/rebase-i": api_rebase_i, "/api/cherry-pick": api_cherry_pick, "/api/merge": api_merge, "/api/branch": api_branch, "/api/tag": api_tag, "/api/ref-delete": api_delete_ref,
-               "/api/checkout": api_checkout, "/api/wip-commit": api_wip_commit,
+               "/api/checkout": api_checkout, "/api/reset": api_reset, "/api/wip-commit": api_wip_commit,
                "/api/fetch": api_fetch, "/api/pull": api_pull, "/api/push": api_push,
                "/api/remote-add": api_remote_add, "/api/remote-remove": api_remote_remove}
 
