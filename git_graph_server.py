@@ -922,8 +922,9 @@ async function doCmpAction(btn) {  // 選択対象に対するブランチ作成
     if (!body.name) { setCmpMsg("タグ名を入力してください", false); return; }
   } else if (act === "checkout") {
     const branches = localBranches(h);
-    values = await openActionDialog("チェックアウト", '<label>切り替え先<select name="branch"><option value="">コミットを detached HEAD でチェックアウト</option>' +
+    values = await openActionDialog("チェックアウト", '<label>切り替え先<select name="branch">' +
       branches.map(branch => '<option value="' + esc(branch) + '">' + esc(branch) + '</option>').join("") +
+      '<option value="">コミットを detached HEAD でチェックアウト</option>' +
       '</select></label>', "チェックアウト");
     if (!values) return;
     if (values.branch) {
