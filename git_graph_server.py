@@ -28,6 +28,9 @@
      action は pick / reword (message が新しいコミットメッセージ) / squash / fixup / drop。todo の並び順がそのまま適用順になる。
      競合やエラーで止まったときは自動で中止して元に戻す (edit は未対応)
   /api/head                                                  現在のブランチ名 (マージ/リベース前の確認用)
+  /api/stash-list                                            stash の一覧 (git stash list)。画面では「操作」メニューの「stash一覧」
+  POST /api/stash {hash, op} (JSON)                          stash の apply / pop / drop (hash は stash のコミット。op は apply | pop | drop)。画面では、stash を比較のAに選んだときの操作
+  /api/reflog?[branch=<名前>]&skip=0&limit=500               reflog (省略時は HEAD、branch 指定でそのローカルブランチ)。画面では「操作」メニューの「reflog」
   POST /api/fetch {prune} | /api/pull {mode} | /api/push {branch, force, set_upstream} (JSON)
      fetch (--all) / pull (mode: ff-only | merge | rebase) / push (branch 指定でそのローカルブランチ、省略で現在のブランチを upstream へ。force は --force-with-lease)
      画面では、比較のAだけを選んだときの「操作」パネルにある。認証の入力待ちで固まらないよう、端末入力を無効にして一定時間でタイムアウトする
@@ -378,6 +381,11 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     <button class="sbtn" id="clearCmpBtn">クリア</button>
   </div>
   <div class="actions" id="cmpActions" hidden>
+    <div class="menu-section" id="viewActions">
+      <button class="abtn" id="stashListBtn" title="stash の一覧 (git stash list)">stash一覧</button>
+      <button class="abtn" id="reflogBtn" title="reflog (HEAD。ブランチは画面で切り替え)">reflog</button>
+    </div>
+    <hr class="menu-separator">
     <div class="menu-section" id="remoteActions">
       <button class="abtn" data-cact="push">push</button>
       <button class="abtn" data-cact="pull">pull</button>
@@ -393,6 +401,11 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       <button class="abtn" data-cact="branch">ブランチ作成</button>
       <button class="abtn" data-cact="tag">タグ作成</button>
       <button class="abtn" data-cact="checkout">チェックアウト</button>
+    </div>
+    <div class="menu-section" id="stashActions" hidden>
+      <button class="abtn" id="stashApplyBtn" title="この stash の変更を作業ツリーに適用 (stash は残す)">stash 適用 (apply)</button>
+      <button class="abtn" id="stashPopBtn" title="この stash の変更を作業ツリーに適用して、stash を削除">stash 適用して削除 (pop)</button>
+      <button class="abtn danger" id="stashDropBtn" title="この stash を削除">stash 削除 (drop)</button>
     </div>
     <div class="amsg" id="cmRemoteMsg" role="status" aria-live="polite"></div>
     <div class="amsg" id="cmMsg"></div>
@@ -522,8 +535,9 @@ function rowHtml(c) {  // c = [hash, short, author, date, subject]
 }
 
 // git log を CHUNK 件ずつ取得して、末尾が見えたら続きを読み込む (全件読むまで続く)
-function showLog(titleHtml, rev, topHtml, fromHistory, restoreScroll) {
-  if (!fromHistory) pushScreen({screen: "log", titleHtml: titleHtml, rev: rev, topHtml: topHtml});
+// src を渡すと /api/log の代わりに src.path (src.params を付けて) から同じ形式の一覧を取る (stash 一覧 / reflog)
+function showLog(titleHtml, rev, topHtml, fromHistory, restoreScroll, src) {
+  if (!fromHistory) pushScreen({screen: "log", titleHtml: titleHtml, rev: rev, topHtml: topHtml, src: src || null});
   const my = ++token;
   if (observer) { observer.disconnect(); observer = null; }
   curRow = null;
@@ -531,6 +545,7 @@ function showLog(titleHtml, rev, topHtml, fromHistory, restoreScroll) {
     '<div class="meta" id="count">読み込み中…</div>' +
     '<table class="log"><tbody id="rows"></tbody></table><div id="sentinel" class="hint"></div>';
   showView("list");
+  listView.dataset.src = src ? src.path : "";
   const rows = listView.querySelector("#rows"), count = listView.querySelector("#count"),
         sentinel = listView.querySelector("#sentinel");
   let skip = 0, done = false, loading = false, total = null;
@@ -539,7 +554,8 @@ function showLog(titleHtml, rev, topHtml, fromHistory, restoreScroll) {
     if (loading || done || my !== token) return;
     loading = true;
     try {
-      const r = await api("/api/log", {rev: rev, skip: skip, limit: CHUNK});
+      const r = src ? await api(src.path, Object.assign({}, src.params, {skip: skip, limit: CHUNK}))
+                    : await api("/api/log", {rev: rev, skip: skip, limit: CHUNK});
       if (my !== token) return;
       rows.insertAdjacentHTML("beforeend", r.commits.map(rowHtml).join(""));
       updateCmpClasses();
@@ -551,7 +567,7 @@ function showLog(titleHtml, rev, topHtml, fromHistory, restoreScroll) {
       if (r.total !== undefined) total = r.total;
       count.textContent = total === null ? skip + " 件"
         : (done ? "全 " + total + " 件" : skip + " / " + total + " 件を読み込み済み");
-      sentinel.textContent = done ? "" : "読み込み中…";
+      sentinel.textContent = done ? (skip === 0 ? "(なし)" : "") : "読み込み中…";
     } catch (e) {
       sentinel.textContent = "エラー: " + e.message; done = true;
     } finally {
@@ -609,6 +625,51 @@ function localBranches(h) {
   const n = DATA.nodes[h];
   return n ? n.refs.filter(r => r.kind === "branch").map(r => r.name) : [];
 }
+function showStashList(fromHistory) {
+  loadStashes();
+  showLog("stash 一覧", "", '<div class="meta">git stash list (新しい順)。クリックで内容 (HEAD との差分) を表示します。' +
+          "ダブルクリックで選ぶと、「操作」メニューで apply / pop / drop できます</div>",
+          !!fromHistory, 0, {path: "/api/stash-list", params: {}});
+}
+function doStash(op) {
+  if (cmp.length !== 1) return;
+  const h = cmp[0], sel = stashByHash[h];
+  if (!sel) return;
+  const label = {apply: "適用", pop: "適用して削除", drop: "削除"}[op];
+  const msg = {
+    apply: sel + " の変更を作業ツリーに適用します (stash は残ります)。競合したときは作業ツリーに競合が残ります。よろしいですか？",
+    pop: sel + " の変更を作業ツリーに適用し、成功したら stash を削除します。競合したときは作業ツリーに競合が残り、stash も残ります。よろしいですか？",
+    drop: sel + " を削除します。よろしいですか？ (削除直後なら git stash store " + h.slice(0, 7) + " で戻せます)",
+  }[op];
+  if (!confirm(msg)) return;
+  document.querySelectorAll("#stashActions button").forEach(b => { b.disabled = true; });
+  setGraphStatus("stash を処理中…");
+  const reload = () => Promise.all([loadStashes(), refreshGraph().catch(() => {})]).then(() => {
+    if (curView === "list" && listView.dataset.src === "/api/stash-list") showStashList(true);
+  });
+  post("/api/stash", {hash: h, op: op})
+    .then(r => { clearCmp(); return reload().then(() => setGraphStatus(r.message)); })
+    .catch(e => reload().then(() => setGraphStatus("stash の" + label + "ができませんでした: " + e.message)))
+    .finally(() => updateCmpClasses());
+}
+function showReflog(branch) {  // branch が空なら HEAD の reflog
+  const names = [];
+  Object.values(DATA.nodes).forEach(n => n.refs.forEach(r => {
+    if (r.kind === "branch" && !names.includes(r.name)) names.push(r.name);
+  }));
+  names.sort();
+  if (branch && !names.includes(branch)) names.push(branch);
+  const opts = ['<option value=""' + (branch ? "" : " selected") + ">HEAD</option>"].concat(names.map(n =>
+    '<option value="' + esc(n) + '"' + (n === branch ? " selected" : "") + ">" + esc(n) + "</option>")).join("");
+  const top = '<div class="meta"><label>対象: <select class="reflog-ref">' + opts + "</select></label></div>" +
+    '<div class="meta">git reflog (新しい順)。クリックでそのコミットの内容を表示します</div>';
+  showLog("reflog " + esc(branch || "HEAD"), "", top, false, 0,
+          {path: "/api/reflog", params: branch ? {branch: branch} : {}});
+}
+listView.addEventListener("change", ev => {
+  const sel = ev.target.closest(".reflog-ref");
+  if (sel) showReflog(sel.value);
+});
 function showDetail(h, fromHistory) {
   if (!fromHistory) pushScreen({screen: "detail", hash: h});
   const back = '<button class="back-btn">← 履歴一覧に戻る</button>';
@@ -681,6 +742,7 @@ function refreshGraph() {
         if (g) { g.classList.add("sel"); selected = g; }
       }
       updateCmpClasses();
+      loadStashes();
       keys.forEach(h => listView.querySelectorAll('tr[data-h="' + h + '"] .rc').forEach(el => { el.innerHTML = chips(h); }));
       const c = detailView.querySelector("#dChips");
       if (c && curDetailHash) c.innerHTML = detailChips(curDetailHash);
@@ -726,7 +788,9 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
   document.getElementById("clearCmpBtn").disabled = cmp.length === 0;
   document.getElementById("cmpActions").hidden = !cmpActOpen;
   document.getElementById("compareBtn").hidden = cmp.length !== 2;
-  document.getElementById("aActions").hidden = cmp.length !== 1;
+  const isStash = cmp.length === 1 && !!stashByHash[cmp[0]];  // Aに選んだのが stash のときは、コミット用の操作の代わりに stash 用の操作を出す
+  document.getElementById("aActions").hidden = cmp.length !== 1 || isStash;
+  document.getElementById("stashActions").hidden = !isStash;
   document.getElementById("selectionMenuSeparator").hidden = cmp.length === 0;
   const canMerge = cmp.length === 1 && !!DATA.writable && !!DATA.merge;  // Aだけ選んでいるときだけマージできる
   document.getElementById("mergeBtn").disabled = !canMerge;
@@ -740,11 +804,23 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
     .forEach(el => { el.disabled = !canWrite || (el.dataset.cact === "pull" && !DATA.merge); });
   document.querySelector('#remoteActions [data-cact="pull"]').title =
     DATA.merge ? "" : "pull には書き込み可能なワークツリーが必要です";
+  document.getElementById("stashApplyBtn").disabled = !DATA.merge;  // apply / pop はワークツリーが必要
+  document.getElementById("stashPopBtn").disabled = !DATA.merge;
+  document.getElementById("stashDropBtn").disabled = !canWrite;
   if (cmp.length !== 1) {
     document.getElementById("cmMsg").textContent = "";
   }
 }
 let cmpActOpen = false;
+let stashByHash = {};  // stash のコミットのハッシュ -> stash@{n} (Aに stash を選んだときの操作を出すため)
+function loadStashes() {
+  return fetch("/api/stash-list").then(r => r.ok ? r.json() : null).then(r => {
+    if (!r) return;
+    stashByHash = {};
+    r.commits.forEach(c => { stashByHash[c[0]] = c[2]; });
+    updateCmpClasses();
+  }).catch(() => {});
+}
 function askCheckoutConflict(r) {  // チェックアウトを止めているファイルを見せて、stash / 削除 / キャンセルを選んでもらう
   return new Promise(resolve => {
     const m = document.getElementById("coModal");
@@ -1079,7 +1155,7 @@ function selectCmpB(hash) {
   updateCmpClasses();
 }
 function restoreScreen(state) {
-  if (state.screen === "log") showLog(state.titleHtml, state.rev, state.topHtml, true, state.scroll || 0);
+  if (state.screen === "log") showLog(state.titleHtml, state.rev, state.topHtml, true, state.scroll || 0, state.src);
   else if (state.screen === "detail") showDetail(state.hash, true);
   else if (state.screen === "compare") {
     cmp = [state.a, state.b];
@@ -1126,6 +1202,11 @@ detailView.addEventListener("click", ev => {
 });
 document.getElementById("cmpActions").addEventListener("click", ev => {
   if (ev.target.closest("#compareBtn") && cmp.length === 2) { showCompare(cmp[0], cmp[1]); return; }
+  if (ev.target.closest("#stashListBtn")) { showStashList(); return; }
+  if (ev.target.closest("#stashApplyBtn")) { doStash("apply"); return; }
+  if (ev.target.closest("#stashPopBtn")) { doStash("pop"); return; }
+  if (ev.target.closest("#stashDropBtn")) { doStash("drop"); return; }
+  if (ev.target.closest("#reflogBtn")) { showReflog(""); return; }
   if (ev.target.closest("#mergeBtn")) { doMerge(); return; }
   if (ev.target.closest("#rebaseBtn")) { doRebase(); return; }
   if (ev.target.closest("#irebaseBtn")) { doRebaseI(); return; }
@@ -1309,6 +1390,7 @@ fetch("/api/graph")
     init();
     updateCmpClasses();
     document.getElementById("reload").disabled = false;
+    loadStashes();
     restoreScreen(history.state || {screen: "home"});
   })
   .catch(e => {
@@ -1473,10 +1555,7 @@ def api_log(q):
     rev = q.get("rev", [""])[0]
     if not REV_RE.fullmatch(rev):
         raise ValueError("bad rev")
-    skip = int(q.get("skip", ["0"])[0])
-    limit = min(int(q.get("limit", ["500"])[0]), 2000)
-    if skip < 0 or limit < 1:
-        raise ValueError("bad paging")
+    skip, limit = paging(q)
     out = git("log", "--date=short", f"--skip={skip}", "-n", str(limit),
               "--format=%H%x1f%h%x1f%an%x1f%ad%x1f%s", rev, "--")
     commits = [l.split("\x1f") for l in out.splitlines() if l]
@@ -1484,6 +1563,89 @@ def api_log(q):
     if skip == 0:
         res["total"] = int(git("rev-list", "--count", rev, "--").strip())
     return res
+
+
+def paging(q):
+    skip = int(q.get("skip", ["0"])[0])
+    limit = min(int(q.get("limit", ["500"])[0]), 2000)
+    if skip < 0 or limit < 1:
+        raise ValueError("bad paging")
+    return skip, limit
+
+
+def api_stash_list(q):
+    """stash の一覧 (新しい順)。api_log と同じ [hash, short, 選択子, 日時, 件名] の形で返す。"""
+    try:
+        out = git("stash", "list", "--format=%H%x1f%h%x1f%gd%x1f%ci%x1f%gs")
+    except subprocess.CalledProcessError:
+        out = ""
+    commits = []
+    for l in out.splitlines():
+        h, short, sel, date, subj = (l.split("\x1f") + [""] * 5)[:5]
+        commits.append([h, short, sel, date[:16], subj])
+    return {"commits": commits, "has_more": False, "total": len(commits)}
+
+
+def api_reflog(q):
+    """reflog (新しい順)。branch 省略で HEAD、指定でそのローカルブランチ。"""
+    branch = q.get("branch", [""])[0]
+    if branch:
+        check_ref_name("branch", branch)
+        ref, label = "refs/heads/" + branch, branch
+        if subprocess.run(["git", "-C", REPO, "show-ref", "--verify", "--quiet", ref]).returncode != 0:
+            raise ValueError("ブランチが見つかりません")
+    else:
+        ref, label = "HEAD", "HEAD"
+    skip, limit = paging(q)
+    try:  # --date=iso にすると %gd が "名前@{日時}" になる (リフログの時刻を出したい)。番号は並び順から振る
+        out = git("reflog", "show", "--date=iso", f"--skip={skip}", "-n", str(limit),
+                  "--format=%H%x1f%h%x1f%gd%x1f%gs", ref, "--")
+    except subprocess.CalledProcessError:  # コミットがまだない / reflog がない
+        out = ""
+    commits = []
+    for i, l in enumerate(x for x in out.splitlines() if x):
+        h, short, gd, subj = (l.split("\x1f") + [""] * 4)[:4]
+        when = gd[gd.find("@{") + 2:-1][:16] if "@{" in gd else ""
+        commits.append([h, short, f"{label}@{{{skip + i}}}", when, subj])
+    res = {"commits": commits, "has_more": len(commits) == limit}
+    if skip == 0:
+        res["total"] = len(commits) if not res["has_more"] else sum(
+            1 for _ in git("reflog", "show", "--format=%H", ref, "--").splitlines())
+    return res
+
+
+def api_stash(body):
+    """stash の apply / pop / drop。stash の位置 (stash@{n}) は変わるので、コミットのハッシュから毎回引き直す。
+    apply / pop で競合したときは、git の通常の動作どおり作業ツリーに競合を残す (pop は stash も残る)。"""
+    op = body.get("op")
+    if op not in ("apply", "pop", "drop"):
+        raise ValueError("bad op")
+    h = resolve_commit(body.get("hash", ""))
+    sel = None
+    for l in git("stash", "list", "--format=%H %gd").splitlines():
+        sh, _, name = l.partition(" ")
+        if sh == h:
+            sel = name
+            break
+    if sel is None:
+        raise ValueError("stash が見つかりません (一覧を開き直してください)")
+    if op == "drop":
+        run_git_write("stash", "drop", sel)
+        return {"ok": True, "message": f"{sel} を削除しました (戻すときは git stash store {h[:7]})"}
+    if not HAS_WORKTREE:
+        raise ValueError("ワークツリーのないリポジトリでは stash を適用できません")
+    if is_merging() or is_rebasing() or is_cherry_picking():
+        raise ValueError("マージ・リベース・チェリーピックの途中です。先に完了するか中止してください")
+    r = subprocess.run(["git", "-C", REPO, "stash", op, sel], capture_output=True, text=True,
+                       encoding="utf-8", errors="replace")
+    if r.returncode != 0:
+        unmerged = subprocess.run(["git", "-C", REPO, "diff", "--name-only", "--diff-filter=U"],
+                                  capture_output=True, text=True).stdout.strip()
+        if unmerged:
+            raise ValueError(f"{sel} の適用で競合しました。作業ツリーに競合が残っています (WIP で確認できます)"
+                             + ("。stash は残してあります" if op == "pop" else "") + "\n" + unmerged)
+        raise ValueError((r.stderr or r.stdout).strip() or "stash の適用に失敗しました")
+    return {"ok": True, "message": f"{sel} を" + ("適用しました" if op == "apply" else "適用して削除しました")}
 
 
 def commit_info(h):
@@ -2330,7 +2492,7 @@ def api_push(body):
     return {"ok": True, "message": f"{branch} を push しました" if changed else f"{branch} を push しました (更新するものはありませんでした)"}
 
 
-POST_ROUTES = {"/api/rebase": api_rebase, "/api/rebase-i": api_rebase_i, "/api/cherry-pick": api_cherry_pick, "/api/merge": api_merge, "/api/branch": api_branch, "/api/tag": api_tag, "/api/ref-delete": api_delete_ref,
+POST_ROUTES = {"/api/stash": api_stash, "/api/rebase": api_rebase, "/api/rebase-i": api_rebase_i, "/api/cherry-pick": api_cherry_pick, "/api/merge": api_merge, "/api/branch": api_branch, "/api/tag": api_tag, "/api/ref-delete": api_delete_ref,
                "/api/checkout": api_checkout, "/api/wip-commit": api_wip_commit,
                "/api/fetch": api_fetch, "/api/pull": api_pull, "/api/push": api_push}
 
@@ -2353,6 +2515,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, "text/html", HTML_TEMPLATE)
             elif u.path == "/api/log":
                 self._send(200, "application/json", json.dumps(api_log(q), ensure_ascii=False))
+            elif u.path == "/api/stash-list":
+                self._send(200, "application/json", json.dumps(api_stash_list(q), ensure_ascii=False))
+            elif u.path == "/api/reflog":
+                self._send(200, "application/json", json.dumps(api_reflog(q), ensure_ascii=False))
             elif u.path == "/api/status":
                 self._send(200, "application/json", json.dumps(api_status(q), ensure_ascii=False))
             elif u.path == "/api/graph":
