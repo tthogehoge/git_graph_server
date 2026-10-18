@@ -276,6 +276,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   .menu-section { display: flex; flex-direction: column; gap: 4px; }
   .menu-separator { border: 0; border-top: 1px solid #ccc; width: 100%; margin: 0; }
   #compareControls .cmp-hash { font-family: monospace; white-space: nowrap; }
+  #compareControls #actionTarget { color: #6f42c1; }
   #splitter { flex: 0 0 6px; cursor: col-resize; background: #eee; border-left: 1px solid #ccc; border-right: 1px solid #ccc; box-sizing: border-box; touch-action: none; }
   #splitter:hover, body.resizing #splitter { background: #c8d8f0; }
   body.resizing { cursor: col-resize; user-select: none; }
@@ -343,6 +344,12 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   table.log tr.clickable.cmpA td { background: #cfe3ff; }
   table.log tr.clickable.cmpB td { background: #ffdcb0; }
   table.log td.h { width: 1%; font-family: monospace; white-space: nowrap; color: #b60; }
+  table.log .cmp-pick { display: flex; gap: 3px; margin-top: 3px; opacity: 0; }
+  table.log tr:hover .cmp-pick, table.log tr:focus-within .cmp-pick { opacity: 1; }
+  table.log .cmp-pick .sbtn { margin: 0; padding: 1px 5px; font-size: 11px; }
+  table.log tr.actionTarget td { box-shadow: inset 0 2px #6f42c1, inset 0 -2px #6f42c1; }
+  g.node.actionTarget polygon { stroke: #6f42c1; stroke-width: 3; }
+  @media (hover: none) { table.log .cmp-pick { opacity: 1; } }
   table.log .meta { font-size: 12px; color: #888; margin: 0; }
   table.files { border-collapse: collapse; margin: 6px 0; font-family: monospace; font-size: 12px; width: 100%; }
   table.files td { padding: 2px 6px; vertical-align: top; }
@@ -376,6 +383,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 <div id="compareControls">
   <div id="compareToolbar">
     <button id="reload" class="sbtn" disabled title="グラフを最新の状態に更新">↻ 更新</button>
+    <span class="cmp-hash" id="actionTarget"></span>
     <span class="cmp-hash" id="cmpA"></span><span class="cmp-hash" id="cmpB"></span>
     <button class="sbtn" id="cmpActToggle" aria-expanded="false" aria-controls="cmpActions">操作 ▾</button>
     <button class="sbtn" id="clearCmpBtn">クリア</button>
@@ -392,7 +400,6 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       <button class="abtn" data-cact="fetch">fetch</button>
     </div>
     <hr class="menu-separator" id="selectionMenuSeparator" hidden>
-    <button class="abtn" id="compareBtn" hidden>比較</button>
     <div class="menu-section" id="aActions" hidden>
       <button class="abtn" id="mergeBtn" title="Aを現在のHEADにマージ">マージ</button>
       <button class="abtn" id="rebaseBtn" title="現在のブランチをAの上にリベース">リベース</button>
@@ -409,6 +416,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     </div>
     <div class="amsg" id="cmRemoteMsg" role="status" aria-live="polite"></div>
     <div class="amsg" id="cmMsg"></div>
+    <hr class="menu-separator" id="compareMenuSeparator" hidden>
+    <button class="abtn" id="compareBtn" hidden>AB比較</button>
   </div>
 </div>
 <div id="actionModal" hidden>
@@ -442,7 +451,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 <div id="splitter" role="separator" aria-orientation="vertical" aria-label="右ペインの幅を調整" tabindex="0"></div>
 <div id="panel">
   <div id="listView"><p class="hint">ノードをクリックすると、そのコミットから最初（ルート）までのログを表示します。エッジをクリックすると省略された区間のログを表示します。</p>
-    <p class="hint">コミットをダブルクリックして比較対象 A を選び、別のコミットをクリックして比較対象 B を選びます。</p></div>
+    <p class="hint">コミットをクリックすると操作対象になります。ログ行の上にマウスを置くと、比較 A / B に設定するボタンが表示されます。</p></div>
   <div id="detailView"></div>
 </div>
 <script>
@@ -453,9 +462,9 @@ const listView = document.getElementById("listView"), detailView = document.getE
 const views = {list: listView, detail: detailView}, savedScroll = {list: 0, detail: 0};
 let curView = "list", selected = null, selectedKey = null, token = 0, observer = null, curRow = null;
 let curCtx = null, curFiles = [];
-let cmp = [];  // 比較用コミットのハッシュ (先頭が A、次が B)
+let compareAHash = null, compareBHash = null;
+let actionHash = null;  // マージ / リベースなどの操作対象
 const nodeEl = {};  // ハッシュ -> グラフ上のノード要素
-const commitClickTimers = new WeakMap();
 const homeHtml = listView.innerHTML;
 if (!history.state || !history.state.screen) history.replaceState({screen: "home"}, "");
 
@@ -481,19 +490,6 @@ splitter.addEventListener("pointercancel", stopResizing);
 
 function esc(s) {
   return String(s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
-}
-function handleCommitClick(ev, target, onSingle, onDouble) {
-  const pending = commitClickTimers.get(target);
-  if (pending) clearTimeout(pending);
-  if (ev.detail === 2) {
-    commitClickTimers.delete(target);
-    onDouble();
-  } else if (ev.detail <= 1) {
-    commitClickTimers.set(target, setTimeout(() => {
-      commitClickTimers.delete(target);
-      onSingle();
-    }, 250));
-  }
 }
 function chips(h) {
   const n = DATA.nodes[h];
@@ -526,11 +522,20 @@ function showView(name, keepScroll) {  // keepScroll: 戻ってきたときに�
   views[name].scrollTop = keepScroll ? savedScroll[name] : 0;
 }
 function pushScreen(state) {
-  history.replaceState(Object.assign({}, history.state, {scroll: views[curView].scrollTop}), "");
-  history.pushState(state, "");
+  const uiState = {compareA: compareAHash, compareB: compareBHash, actionHash: actionHash, cmpActOpen: cmpActOpen};
+  history.replaceState(Object.assign({}, history.state, uiState, {scroll: views[curView].scrollTop}), "");
+  history.pushState(Object.assign({}, state, uiState), "");
+}
+function saveUiState() {
+  if (!history.state) return;
+  history.replaceState(Object.assign({}, history.state, {
+    compareA: compareAHash, compareB: compareBHash, actionHash: actionHash, cmpActOpen: cmpActOpen
+  }), "");
 }
 function rowHtml(c) {  // c = [hash, short, author, date, subject]
-  return '<tr class="clickable" data-h="' + c[0] + '"><td class="h">' + esc(c[1]) + copyLink(c[0]) + "</td><td>" +
+  return '<tr class="clickable" data-h="' + c[0] + '"><td class="h">' + esc(c[1]) + copyLink(c[0]) +
+    '<div class="cmp-pick"><button type="button" class="sbtn" data-cmp="A" title="比較 A に設定">A</button>' +
+    '<button type="button" class="sbtn" data-cmp="B" title="比較 B に設定">B</button></div></td><td>' +
     '<span class="rc">' + chips(c[0]) + "</span>" + esc(c[4]) + '<div class="meta">' + esc(c[2]) + " / " + esc(c[3]) + "</div></td></tr>";
 }
 
@@ -628,12 +633,12 @@ function localBranches(h) {
 function showStashList(fromHistory) {
   loadStashes();
   showLog("stash 一覧", "", '<div class="meta">git stash list (新しい順)。クリックで内容 (HEAD との差分) を表示します。' +
-          "ダブルクリックで選ぶと、「操作」メニューで apply / pop / drop できます</div>",
+          "操作対象に選ぶと、「操作」メニューで apply / pop / drop できます</div>",
           !!fromHistory, 0, {path: "/api/stash-list", params: {}});
 }
 function doStash(op) {
-  if (cmp.length !== 1) return;
-  const h = cmp[0], sel = stashByHash[h];
+  if (!actionHash) return;
+  const h = actionHash, sel = stashByHash[h];
   if (!sel) return;
   const label = {apply: "適用", pop: "適用して削除", drop: "削除"}[op];
   const msg = {
@@ -754,7 +759,7 @@ function refreshGraph() {
     });
 }
 
-// ---- 2つのノードの比較 (ダブルクリック) ----
+// ---- コミット比較 ----
 function commitLine(label, c) {
   return '<div class="meta"><span class="tag tag' + label + '">' + label + "</span>" + chips(c.hash) +
     esc(c.hash.slice(0, 7)) + copyLink(c.hash) + " — " + esc(c.message.split("\n")[0]) +
@@ -775,24 +780,33 @@ function showCompare(a, b, fromHistory) {  // a, b はコミットのハッシ�
   });
 }
 function updateCmpClasses() {  // 選択中のコミットを、グラフのノードとログの行の両方でハイライトする
-  document.querySelectorAll(".cmpA, .cmpB").forEach(el => el.classList.remove("cmpA", "cmpB"));
-  cmp.forEach((h, i) => {
-    const cls = i === 0 ? "cmpA" : "cmpB";
-    if (nodeEl[h]) nodeEl[h].classList.add(cls);
-    listView.querySelectorAll('tr[data-h="' + h + '"]').forEach(tr => tr.classList.add(cls));
-  });
-  document.getElementById("cmpA").textContent = cmp.length ? "A: " + cmp[0].slice(0, 7) : "";
-  document.getElementById("cmpB").textContent = cmp.length ? (cmp.length > 1 ? "B: " + cmp[1].slice(0, 7) : "B: 未選択") : "";
+  document.querySelectorAll(".cmpA, .cmpB, .actionTarget").forEach(el => el.classList.remove("cmpA", "cmpB", "actionTarget"));
+  if (compareAHash) {
+    if (nodeEl[compareAHash]) nodeEl[compareAHash].classList.add("cmpA");
+    listView.querySelectorAll('tr[data-h="' + compareAHash + '"]').forEach(tr => tr.classList.add("cmpA"));
+  }
+  if (compareBHash) {
+    if (nodeEl[compareBHash]) nodeEl[compareBHash].classList.add("cmpB");
+    listView.querySelectorAll('tr[data-h="' + compareBHash + '"]').forEach(tr => tr.classList.add("cmpB"));
+  }
+  if (actionHash) {
+    if (nodeEl[actionHash]) nodeEl[actionHash].classList.add("actionTarget");
+    listView.querySelectorAll('tr[data-h="' + actionHash + '"]').forEach(tr => tr.classList.add("actionTarget"));
+  }
+  document.getElementById("actionTarget").textContent = actionHash ? "対象: " + actionHash.slice(0, 7) : "";
+  document.getElementById("cmpA").textContent = compareAHash ? "A: " + compareAHash.slice(0, 7) : "";
+  document.getElementById("cmpB").textContent = compareBHash ? "B: " + compareBHash.slice(0, 7) : "";
   document.getElementById("cmpActToggle").setAttribute("aria-expanded", cmpActOpen ? "true" : "false");
   document.getElementById("cmpActToggle").textContent = cmpActOpen ? "操作 ▴" : "操作 ▾";
-  document.getElementById("clearCmpBtn").disabled = cmp.length === 0;
+  document.getElementById("clearCmpBtn").disabled = !compareAHash && !compareBHash && !actionHash;
   document.getElementById("cmpActions").hidden = !cmpActOpen;
-  document.getElementById("compareBtn").hidden = cmp.length !== 2;
-  const isStash = cmp.length === 1 && !!stashByHash[cmp[0]];  // Aに選んだのが stash のときは、コミット用の操作の代わりに stash 用の操作を出す
-  document.getElementById("aActions").hidden = cmp.length !== 1 || isStash;
+  document.getElementById("compareBtn").hidden = !compareAHash || !compareBHash;
+  document.getElementById("compareMenuSeparator").hidden = !compareAHash || !compareBHash;
+  const isStash = !!actionHash && !!stashByHash[actionHash];
+  document.getElementById("aActions").hidden = !actionHash || isStash;
   document.getElementById("stashActions").hidden = !isStash;
-  document.getElementById("selectionMenuSeparator").hidden = cmp.length === 0;
-  const canMerge = cmp.length === 1 && !!DATA.writable && !!DATA.merge;  // Aだけ選んでいるときだけマージできる
+  document.getElementById("selectionMenuSeparator").hidden = !actionHash && !compareAHash && !compareBHash;
+  const canMerge = !!actionHash && !isStash && !!DATA.writable && !!DATA.merge;
   document.getElementById("mergeBtn").disabled = !canMerge;
   document.getElementById("rebaseBtn").disabled = !canMerge;
   document.getElementById("irebaseBtn").disabled = !canMerge;
@@ -807,12 +821,12 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
   document.getElementById("stashApplyBtn").disabled = !DATA.merge;  // apply / pop はワークツリーが必要
   document.getElementById("stashPopBtn").disabled = !DATA.merge;
   document.getElementById("stashDropBtn").disabled = !canWrite;
-  if (cmp.length !== 1) {
+  if (!actionHash) {
     document.getElementById("cmMsg").textContent = "";
   }
 }
 let cmpActOpen = false;
-let stashByHash = {};  // stash のコミットのハッシュ -> stash@{n} (Aに stash を選んだときの操作を出すため)
+let stashByHash = {};  // stash のコミットのハッシュ -> stash@{n}
 function loadStashes() {
   return fetch("/api/stash-list").then(r => r.ok ? r.json() : null).then(r => {
     if (!r) return;
@@ -883,9 +897,9 @@ function setRemoteMsg(text, ok) {
   const el = document.getElementById("cmRemoteMsg");
   el.textContent = text; el.className = "amsg " + (ok ? "ok" : "ng");
 }
-async function doCmpAction(btn) {  // Aに対するブランチ作成 / タグ作成 / チェックアウト
-  if (cmp.length !== 1) return;
-  const h = cmp[0], act = btn.dataset.cact;
+async function doCmpAction(btn) {  // 選択対象に対するブランチ作成 / タグ作成 / チェックアウト
+  if (!actionHash) return;
+  const h = actionHash, act = btn.dataset.cact;
   let values, url, body, ask = null;
   if (act === "branch") {
     values = await openActionDialog("ブランチ作成", '<label>ブランチ名<input type="text" name="name" required autofocus></label>' +
@@ -935,7 +949,7 @@ async function doCmpAction(btn) {  // Aに対するブランチ作成 / タグ�
     .catch(e => setCmpMsg(e.message, false))
     .finally(() => { btn.disabled = false; });
 }
-async function doRemoteAction(btn) {  // fetch / pull / push (pushはAを選択中ならAのブランチ、未選択なら現在のブランチ)
+async function doRemoteAction(btn) {  // fetch / pull / push (pushは操作対象選択中ならそのコミットのブランチを対象にする)
   const act = btn.dataset.cact;
   const url = "/api/" + act;
   let body = {}, ask = null;
@@ -954,11 +968,11 @@ async function doRemoteAction(btn) {  // fetch / pull / push (pushはAを選択�
     ask = "リモートの変更を pull します (" + {"ff-only": "fast-forwardのみ", "merge": "マージ", "rebase": "リベース"}[mode] +
           ")。作業ツリーが変わります。よろしいですか？";
   } else if (act === "push") {
-    let target = null;  // Aを選んでいるときは、Aを指しているローカルブランチをpushする
+    let target = null;
     let branchField = "";
-    if (cmp.length === 1) {
-      const bs = localBranches(cmp[0]);
-      if (!bs.length) { setRemoteMsg("A (" + cmp[0].slice(0, 7) + ") を指すローカルブランチがないため push できません", false); return; }
+    if (actionHash) {
+      const bs = localBranches(actionHash);
+      if (!bs.length) { setRemoteMsg("対象 (" + actionHash.slice(0, 7) + ") を指すローカルブランチがないため push できません", false); return; }
       branchField = '<label>push するブランチ<select name="branch">' +
         bs.map(b => '<option value="' + esc(b) + '">' + esc(b) + "</option>").join("") + "</select></label>";
     }
@@ -995,10 +1009,15 @@ async function doRemoteAction(btn) {  // fetch / pull / push (pushはAを選択�
     .catch(e => setRemoteMsg(e.message, false))
     .finally(() => { btn.disabled = false; });
 }
-function clearCmp() { cmp = []; updateCmpClasses(); }
+function clearCmp() {
+  compareAHash = null; compareBHash = null; actionHash = null;
+  updateCmpClasses();
+  saveUiState();
+}
+function selectActionTarget(hash) { actionHash = hash; updateCmpClasses(); saveUiState(); }
 function doRebase() {
-  if (cmp.length !== 1) return;
-  const h = cmp[0], btn = document.getElementById("rebaseBtn");
+  if (!actionHash) return;
+  const h = actionHash, btn = document.getElementById("rebaseBtn");
   btn.disabled = true;
   fetch("/api/head").then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); }))
     .then(hd => {
@@ -1018,8 +1037,8 @@ function doRebase() {
     .finally(() => { btn.disabled = false; });
 }
 function doCherryPick() {
-  if (cmp.length !== 1) return;
-  const h = cmp[0], btn = document.getElementById("cherryBtn");
+  if (!actionHash) return;
+  const h = actionHash, btn = document.getElementById("cherryBtn");
   btn.disabled = true;
   fetch("/api/head").then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); }))
     .then(hd => {
@@ -1038,8 +1057,8 @@ function doCherryPick() {
     .finally(() => { btn.disabled = false; });
 }
 async function doRebaseI() {  // 対話的リベース (git rebase -i 相当)
-  if (cmp.length !== 1) return;
-  const h = cmp[0], btn = document.getElementById("irebaseBtn");
+  if (!actionHash) return;
+  const h = actionHash, btn = document.getElementById("irebaseBtn");
   btn.disabled = true;
   try {
     const hd = await fetch("/api/head").then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); }));
@@ -1114,11 +1133,11 @@ async function doRebaseI() {  // 対話的リベース (git rebase -i 相当)
   }
 }
 async function doMerge() {
-  if (cmp.length !== 1) return;
+  if (!actionHash) return;
   const options = await openActionDialog("マージ", '<label class="check" title="fast-forwardできる場合でもマージコミットを作る">' +
     '<input type="checkbox" name="noFf"> --no-ff</label>', "マージ");
   if (!options) return;
-  const h = cmp[0], noFf = options.noFf;
+  const h = actionHash, noFf = options.noFf;
   const btn = document.getElementById("mergeBtn");
   btn.disabled = true;
   fetch("/api/head").then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); }))
@@ -1142,24 +1161,30 @@ async function doMerge() {
     .finally(() => { btn.disabled = false; });
 }
 function selectCmpA(hash) {
-  if (cmp[0] === hash) cmp = cmp.slice(1);
-  else if (cmp[1] === hash) cmp = [hash, cmp[0]];
-  else cmp = cmp.length > 1 ? [hash, cmp[1]] : [hash];
-  if (selected) { selected.classList.remove("sel"); selected = null; selectedKey = null; }
-  if (curRow) { curRow.classList.remove("cur"); curRow = null; }
+  compareAHash = hash;
+  if (compareBHash === hash) compareBHash = null;
   updateCmpClasses();
+  saveUiState();
+}
+function selectCompareHash(slot, hash) {
+  if (slot === "A") selectCmpA(hash);
+  else selectCmpB(hash);
 }
 function selectCmpB(hash) {
-  if (cmp.length < 1 || cmp[0] === hash) return;
-  cmp = cmp[1] === hash ? [cmp[0]] : [cmp[0], hash];
+  compareBHash = hash;
+  if (compareAHash === hash) compareAHash = null;
   updateCmpClasses();
+  saveUiState();
 }
 function restoreScreen(state) {
+  if (Object.prototype.hasOwnProperty.call(state, "compareA")) compareAHash = state.compareA;
+  if (Object.prototype.hasOwnProperty.call(state, "compareB")) compareBHash = state.compareB;
+  if (Object.prototype.hasOwnProperty.call(state, "actionHash")) actionHash = state.actionHash;
+  if (Object.prototype.hasOwnProperty.call(state, "cmpActOpen")) cmpActOpen = state.cmpActOpen;
   if (state.screen === "log") showLog(state.titleHtml, state.rev, state.topHtml, true, state.scroll || 0, state.src);
   else if (state.screen === "detail") showDetail(state.hash, true);
   else if (state.screen === "compare") {
-    cmp = [state.a, state.b];
-    updateCmpClasses();
+    compareAHash = state.a; compareBHash = state.b;
     showCompare(state.a, state.b, true);
   }
   else if (state.screen === "wip") showWip(true);
@@ -1169,21 +1194,26 @@ function restoreScreen(state) {
     listView.innerHTML = homeHtml;
     showView("list");
   }
+  updateCmpClasses();
 }
 window.addEventListener("popstate", ev => restoreScreen(ev.state || {screen: "home"}));
 
 listView.addEventListener("click", ev => {
+  if (ev.detail > 1) return;
   const tr = ev.target.closest("tr.clickable");
   if (!tr) return;
-  handleCommitClick(ev, tr, () => {
-    if (cmp.length) { selectCmpB(tr.dataset.h); return; }
-    clearCmp();
-    if (curRow) curRow.classList.remove("cur");
-    curRow = tr; tr.classList.add("cur");
-    showDetail(tr.dataset.h);
-  }, () => {
-    selectCmpA(tr.dataset.h);
-  });
+  const cmpButton = ev.target.closest("[data-cmp]");
+  if (cmpButton) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    selectCompareHash(cmpButton.dataset.cmp, tr.dataset.h);
+    return;
+  }
+  if (ev.target.closest(".copy")) return;
+  selectActionTarget(tr.dataset.h);
+  if (curRow) curRow.classList.remove("cur");
+  curRow = tr; tr.classList.add("cur");
+  showDetail(tr.dataset.h);
 });
 detailView.addEventListener("click", ev => {
   if (ev.target.closest("#wipReload")) { showWip(true); refreshGraph().catch(() => {}); return; }
@@ -1191,8 +1221,10 @@ detailView.addEventListener("click", ev => {
   const ab = ev.target.closest(".abtn");
   if (ab) { doAction(ab); return; }
   if (ev.target.closest(".sbtn")) {
-    cmp.reverse(); updateCmpClasses();
-    if (cmp.length === 2) showCompare(cmp[0], cmp[1]);
+    [compareAHash, compareBHash] = [compareBHash, compareAHash];
+    updateCmpClasses();
+    saveUiState();
+    if (compareAHash && compareBHash) showCompare(compareAHash, compareBHash);
     return;
   }
   if (ev.target.closest(".back-btn")) { history.back(); return; }
@@ -1201,7 +1233,10 @@ detailView.addEventListener("click", ev => {
     location.href = diffUrl(curCtx, curFiles[+tr.dataset.k]);
 });
 document.getElementById("cmpActions").addEventListener("click", ev => {
-  if (ev.target.closest("#compareBtn") && cmp.length === 2) { showCompare(cmp[0], cmp[1]); return; }
+  if (ev.target.closest("#compareBtn") && compareAHash && compareBHash) {
+    showCompare(compareAHash, compareBHash);
+    return;
+  }
   if (ev.target.closest("#stashListBtn")) { showStashList(); return; }
   if (ev.target.closest("#stashApplyBtn")) { doStash("apply"); return; }
   if (ev.target.closest("#stashPopBtn")) { doStash("pop"); return; }
@@ -1221,6 +1256,7 @@ document.getElementById("compareToolbar").addEventListener("click", ev => {
   if (ev.target.closest("#cmpActToggle")) {
     cmpActOpen = !cmpActOpen;
     updateCmpClasses();
+    saveUiState();
   } else if (ev.target.closest("#clearCmpBtn")) {
     clearCmp();
   }
@@ -1237,14 +1273,10 @@ function onNodeClick(g, n) {
     clearCmp(); select(g); showWip();
     return;
   }
-  if (cmp.length) { selectCmpB(n.hash); return; }
+  selectActionTarget(n.hash);
   select(g);
   showLog("git log --oneline " + esc(n.hash.slice(0, 7)), n.hash,
           chips(n.hash) + '<div class="meta">最初のコミットまでの全ログ</div>');
-}
-function onNodeDoubleClick(g, n) {
-  if (n.wip) { onNodeClick(g, n); return; }
-  selectCmpA(n.hash);
 }
 
 function init() {
@@ -1258,8 +1290,7 @@ function init() {
       hit.setAttribute("width", box.width); hit.setAttribute("height", box.height);
       hit.setAttribute("fill", "transparent"); hit.setAttribute("pointer-events", "all");
       g.insertBefore(hit, g.children[1] || null);
-      g.addEventListener("click", ev => handleCommitClick(ev, g,
-        () => onNodeClick(g, n), () => onNodeDoubleClick(g, n)));
+      g.addEventListener("click", ev => { if (ev.detail <= 1) onNodeClick(g, n); });
     }
   });
   document.querySelectorAll("svg g.edge").forEach(g => {
