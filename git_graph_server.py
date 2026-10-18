@@ -231,6 +231,21 @@ function fallbackCopy(text) {
   document.body.removeChild(ta);
   return ok;
 }
+function updatePushActions() {
+  const current = document.getElementById("pushCurrentBtn");
+  current.textContent = "カレントブランチを push" + (currentBranch ? " (" + currentBranch + ")" : "");
+  current.title = currentBranch ? currentBranch + " を push" : "カレントブランチを push";
+  current.disabled = !currentBranchLoaded || !currentBranch || !DATA.writable;
+  const branches = currentBranchLoaded && actionHash
+    ? localBranches(actionHash).filter(branch => branch !== currentBranch) : [];
+  document.getElementById("selectedPushActions").innerHTML = branches.map(branch =>
+    '<button class="abtn" data-cact="push" data-branch="' + esc(branch) + '">' + esc(branch) + " を push</button>"
+  ).join("");
+}
+function updateCurrentBranch() {
+  return fetch("/api/head").then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); }))
+    .then(head => { currentBranch = head.branch; currentBranchLoaded = true; updatePushActions(); });
+}
 function copyText(text) {  // localhost / https なら Clipboard API、それ以外 (LAN の http など) は execCommand で代替
   if (navigator.clipboard && window.isSecureContext)
     return navigator.clipboard.writeText(text).then(() => true, () => fallbackCopy(text));
@@ -397,13 +412,11 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     <button class="sbtn" id="clearCmpBtn">クリア</button>
   </div>
   <div class="actions" id="cmpActions" hidden>
-    <div class="menu-section" id="viewActions">
-      <button class="abtn" id="stashListBtn" title="stash の一覧 (git stash list)">stash一覧</button>
-      <button class="abtn" id="reflogBtn" title="reflog (HEAD。ブランチは画面で切り替え)">reflog</button>
-    </div>
-    <hr class="menu-separator">
     <div class="menu-section" id="remoteActions">
-      <button class="abtn" data-cact="push">push</button>
+      <div class="menu-section" id="pushActions">
+        <button class="abtn" id="pushCurrentBtn" data-cact="push">push</button>
+        <div class="menu-section" id="selectedPushActions"></div>
+      </div>
       <button class="abtn" data-cact="pull">pull</button>
       <button class="abtn" data-cact="fetch">fetch</button>
     </div>
@@ -417,13 +430,18 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       <button class="abtn" data-cact="tag">タグ作成</button>
       <button class="abtn" data-cact="checkout">チェックアウト</button>
     </div>
+    <hr class="menu-separator" id="compareMenuSeparator" hidden>
+    <button class="abtn" id="compareBtn" hidden>AB比較</button>
+    <hr class="menu-separator">
+    <div class="menu-section" id="viewActions">
+      <button class="abtn" id="stashListBtn" title="stash の一覧 (git stash list)">stash一覧</button>
+      <button class="abtn" id="reflogBtn" title="reflog (HEAD。ブランチは画面で切り替え)">reflog</button>
+    </div>
     <div class="menu-section" id="stashActions" hidden>
       <button class="abtn" id="stashApplyBtn" title="この stash の変更を作業ツリーに適用 (stash は残す)">stash 適用 (apply)</button>
       <button class="abtn" id="stashPopBtn" title="この stash の変更を作業ツリーに適用して、stash を削除">stash 適用して削除 (pop)</button>
       <button class="abtn danger" id="stashDropBtn" title="この stash を削除">stash 削除 (drop)</button>
     </div>
-    <hr class="menu-separator" id="compareMenuSeparator" hidden>
-    <button class="abtn" id="compareBtn" hidden>AB比較</button>
   </div>
 </div>
 <div id="actionModal" hidden>
@@ -470,6 +488,8 @@ let curView = "list", selected = null, selectedKey = null, token = 0, observer =
 let curCtx = null, curFiles = [];
 let compareAHash = null, compareBHash = null;
 let actionHash = null;  // マージ / リベースなどの操作対象
+let currentBranch = null;
+let currentBranchLoaded = false;
 const nodeEl = {};  // ハッシュ -> グラフ上のノード要素
 const homeHtml = listView.innerHTML;
 if (!history.state || !history.state.screen) history.replaceState({screen: "home"}, "");
@@ -794,6 +814,7 @@ function refreshGraph() {
       }
       updateCmpClasses();
       loadStashes();
+      updateCurrentBranch().catch(e => setGraphStatus("カレントブランチを取得できませんでした: " + e.message, "error"));
       keys.forEach(h => listView.querySelectorAll('tr[data-h="' + h + '"] .rc').forEach(el => { el.innerHTML = chips(h); }));
       const c = detailView.querySelector("#dChips");
       if (c && curDetailHash) c.innerHTML = detailChips(curDetailHash);
@@ -862,6 +883,7 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
     .forEach(el => { el.disabled = !canWrite || (["mergeBtn", "rebaseBtn", "irebaseBtn", "cherryBtn"].includes(el.id) && !DATA.merge); });
   document.querySelectorAll("#remoteActions button")
     .forEach(el => { el.disabled = !canWrite || (el.dataset.cact === "pull" && !DATA.merge); });
+  updatePushActions();
   document.querySelector('#remoteActions [data-cact="pull"]').title =
     DATA.merge ? "" : "pull には書き込み可能なワークツリーが必要です";
   document.getElementById("stashApplyBtn").disabled = !DATA.merge;  // apply / pop はワークツリーが必要
@@ -990,7 +1012,7 @@ async function doCmpAction(btn) {  // 選択対象に対するブランチ作成
     .catch(e => setCmpMsg(e.message, false))
     .finally(() => { btn.disabled = false; });
 }
-async function doRemoteAction(btn) {  // fetch / pull / push (pushは操作対象選択中ならそのコミットのブランチを対象にする)
+async function doRemoteAction(btn) {  // fetch / pull / push (別ブランチの push はブランチごとのボタン)
   const act = btn.dataset.cact;
   const url = "/api/" + act;
   let body = {}, ask = null;
@@ -1009,18 +1031,10 @@ async function doRemoteAction(btn) {  // fetch / pull / push (pushは操作対�
     ask = "リモートの変更を pull します (" + {"ff-only": "fast-forwardのみ", "merge": "マージ", "rebase": "リベース"}[mode] +
           ")。作業ツリーが変わります。よろしいですか？";
   } else if (act === "push") {
-    let target = null;
-    let branchField = "";
-    if (actionHash) {
-      const bs = localBranches(actionHash);
-      if (!bs.length) { setRemoteMsg("対象 (" + actionHash.slice(0, 7) + ") を指すローカルブランチがないため push できません", false); return; }
-      branchField = '<label>push するブランチ<select name="branch">' +
-        bs.map(b => '<option value="' + esc(b) + '">' + esc(b) + "</option>").join("") + "</select></label>";
-    }
-    const values = await openActionDialog("push", branchField +
+    const target = btn.dataset.branch || null;
+    const values = await openActionDialog("push",
       '<label class="check"><input type="checkbox" name="force"> --force-with-lease (リモート履歴を書き換える)</label>', "push");
     if (!values) return;
-    target = values.branch || null;
     body = {force: values.force};
     if (target) body.branch = target;
     const what = target ? "ブランチ " + target : "現在のブランチ";
@@ -1471,6 +1485,7 @@ fetch("/api/graph")
     updateCmpClasses();
     document.getElementById("reload").disabled = false;
     loadStashes();
+    updateCurrentBranch().catch(e => setGraphStatus("カレントブランチを取得できませんでした: " + e.message, "error"));
     restoreScreen(history.state || {screen: "home"});
   })
   .catch(e => {
