@@ -1194,7 +1194,7 @@ function openActionDialog(title, fields, submitLabel, opts) {  // opts: {wide, v
   });
 }
 function setCmpMsg(text, ok) {
-  setGraphStatus(text, ok ? "success" : "error");
+  setGraphStatus(text, ok ? "success" : "error", !ok);
 }
 function setRemoteMsg(text, ok) {
   setGraphStatus(text, ok ? "success" : "error");
