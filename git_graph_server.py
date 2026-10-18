@@ -262,12 +262,15 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   #graph { position: absolute; inset: 0; overflow: auto; padding: 12px; box-sizing: border-box; }
   #graphStatus { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); z-index: 5;
     display: flex; flex-direction: column-reverse; gap: 6px; width: max-content; max-width: calc(100% - 32px);
-    max-height: 45%; overflow-y: auto; pointer-events: none; }
+    max-height: 45%; overflow-y: auto; pointer-events: auto; }
   #graphStatus:empty { display: none; }
-  .graph-toast { padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px; background: #fff;
-    color: #555; box-shadow: 0 2px 8px #0003; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .graph-toast { display: flex; align-items: flex-start; gap: 10px; padding: 8px 10px 8px 12px;
+    border: 1px solid #ccc; border-radius: 4px; background: #fff; color: #555;
+    box-shadow: 0 2px 8px #0003; white-space: pre-wrap; overflow-wrap: anywhere; }
   .graph-toast.success { color: #1a7f37; border-color: #8cce9c; }
   .graph-toast.error { color: #cf222e; border-color: #e7a0a4; }
+  .graph-toast-message { flex: 1; min-width: 0; }
+  .graph-toast-close { flex: none; border: 0; background: transparent; color: inherit; cursor: pointer; font: inherit; padding: 0 2px; }
   #compareControls { position: absolute; top: 8px; right: 14px; z-index: 5; }
   #compareControls [hidden] { display: none; }
   #compareToolbar, #cmpActions { padding: 6px; border: 1px solid #ccc; border-radius: 4px; background: #fff; box-shadow: 0 1px 4px #0002; }
@@ -719,13 +722,20 @@ function doAction(btn) {  // ブランチ/タグのチップの × (削除)
       if (r === null) { setGraphStatus("強制削除をキャンセルしました"); return; }
       return refreshGraph().catch(() => {}).then(() => setGraphStatus(r.message));
     })
-    .catch(e => setGraphStatus("削除できませんでした: " + e.message, "error"))
+    .catch(e => setGraphStatus("削除できませんでした: " + e.message, "error", true))
     .finally(() => { btn.disabled = false; });
 }
 
 const graphStatusTimers = new Map();
-function setGraphStatus(message, type) {
+function setGraphStatus(message, type, clearProgress) {
   const container = document.getElementById("graphStatus");
+  if (clearProgress) {
+    container.querySelectorAll(".graph-toast.progress").forEach(toast => {
+      clearTimeout(graphStatusTimers.get(toast));
+      graphStatusTimers.delete(toast);
+      toast.remove();
+    });
+  }
   if (!message) {
     container.querySelectorAll(".graph-toast.progress").forEach(toast => {
       clearTimeout(graphStatusTimers.get(toast));
@@ -736,7 +746,7 @@ function setGraphStatus(message, type) {
   }
   const progress = message.includes("中…") || message.startsWith("実行中…");
   const toast = [...container.children].find(el =>
-    el.textContent === message && el.classList.contains(progress ? "progress" : (type || "info")));
+    el.dataset.message === message && el.classList.contains(progress ? "progress" : (type || "info")));
   if (toast) {
     clearTimeout(graphStatusTimers.get(toast));
     graphStatusTimers.delete(toast);
@@ -745,13 +755,20 @@ function setGraphStatus(message, type) {
   item.className = "graph-toast " + (type || "info") + (progress ? " progress" : "");
   item.setAttribute("role", "status");
   item.setAttribute("aria-live", "polite");
-  item.textContent = message;
+  item.dataset.message = message;
+  item.innerHTML = '<span class="graph-toast-message"></span><button type="button" class="graph-toast-close" aria-label="通知を閉じる" title="通知を閉じる">×</button>';
+  item.querySelector(".graph-toast-message").textContent = message;
+  item.querySelector(".graph-toast-close").addEventListener("click", () => {
+    clearTimeout(graphStatusTimers.get(item));
+    graphStatusTimers.delete(item);
+    item.remove();
+  });
   if (!toast) container.appendChild(item);
   if (!progress) {
     graphStatusTimers.set(item, setTimeout(() => {
       item.remove();
       graphStatusTimers.delete(item);
-    }, 6000));
+    }, 15000));
   }
 }
 
