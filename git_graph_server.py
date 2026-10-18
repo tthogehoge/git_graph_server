@@ -32,7 +32,9 @@
   POST /api/stash {hash, op} (JSON)                          stash の apply / pop / drop (hash は stash のコミット。op は apply | pop | drop)。画面では、stash を比較のAに選んだときの操作
   /api/reflog?[branch=<名前>]&skip=0&limit=500               reflog (省略時は HEAD、branch 指定でそのローカルブランチ)。画面では「操作」メニューの「reflog」
   POST /api/fetch {prune} | /api/pull {mode} | /api/push {branch, force, set_upstream} (JSON)
-     fetch (--all) / pull (mode: ff-only | merge | rebase) / push (branch 指定でそのローカルブランチ、省略で現在のブランチを upstream へ。force は --force-with-lease)
+     fetch (--all) / pull (mode: ff-only | merge | rebase) / push (branch 指定でそのローカルブランチ、省略で現在のブランチ。force は --force-with-lease)
+     push 先は git と同じ優先順位で決める: branch.<名前>.pushRemote > remote.pushDefault > upstream (branch.<名前>.remote)。
+     どれも無いとき (リモートが複数なら) {needs_upstream, remote, remotes} を返し、remote を付けて set_upstream:true で再送する
      画面では、比較のAだけを選んだときの「操作」パネルにある。認証の入力待ちで固まらないよう、端末入力を無効にして一定時間でタイムアウトする
   POST /api/wip-commit {paths, message, amend?} (JSON)        チェックしたファイルを add してコミット / 直前のコミットを amend
      書き込みは 127.0.0.1 で待ち受けているときだけ有効 (--read-only で無効化、--allow-write で他アドレスでも許可)
@@ -1048,10 +1050,18 @@ async function doRemoteAction(btn) {  // fetch / pull / push (別ブランチの
   if (act === "push") {
     p = p.then(r => {
       if (!r.needs_upstream) return r;
-      if (!confirm("ブランチ " + r.branch + " には upstream が設定されていません。" + r.remote + "/" + r.branch +
-                   " として push し、upstream に設定しますか？")) return {cancelled: true, message: "push をキャンセルしました"};
+      const cancelled = {cancelled: true, message: "push をキャンセルしました"};
+      let remote = r.remote;
+      if (r.remotes && r.remotes.length > 1) {  // リモートが複数: push 先を選ばせる
+        const input = prompt("ブランチ " + r.branch + " には upstream が設定されていません。\npush 先のリモートを入力してください (" +
+                             r.remotes.join(" / ") + ")。\n" + r.branch + " として push し、upstream に設定します。", r.remote);
+        if (input === null) return cancelled;
+        remote = input.trim();
+        if (r.remotes.indexOf(remote) < 0) throw new Error("リモート " + remote + " は登録されていません");
+      } else if (!confirm("ブランチ " + r.branch + " には upstream が設定されていません。" + r.remote + "/" + r.branch +
+                          " として push し、upstream に設定しますか？")) return cancelled;
       setRemoteMsg("実行中… (リモートとの通信に時間がかかることがあります)", true);
-      return post(url, Object.assign({}, body, {set_upstream: true}));
+      return post(url, Object.assign({}, body, {set_upstream: true, remote: remote}));
     });
   }
   p.then(r => {
@@ -2468,15 +2478,16 @@ def api_rebase_i(body):
 NET_TIMEOUT = 300  # 秒。認証待ちなどで固まったままロックを握り続けないようにする
 
 
-def run_git_net(*args):
+def run_git_net(*args, timeout=None):
     """リモートと通信する git を実行する。端末への入力待ち (パスワードなど) で固まらないようにする。"""
     env = dict(os.environ, GIT_TERMINAL_PROMPT="0")
+    timeout = timeout or NET_TIMEOUT
     try:
         return subprocess.run(["git", "-C", REPO, *args], capture_output=True, text=True,
-                              encoding="utf-8", errors="replace", env=env, timeout=NET_TIMEOUT,
+                              encoding="utf-8", errors="replace", env=env, timeout=timeout,
                               stdin=subprocess.DEVNULL, start_new_session=True)  # 制御端末を切り離し ssh が /dev/tty に尋ねないように
     except subprocess.TimeoutExpired:
-        raise ValueError(f"git {args[0]} が {NET_TIMEOUT} 秒でタイムアウトしました。認証の入力待ちなどで止まった可能性があります"
+        raise ValueError(f"git {args[0]} が {timeout} 秒でタイムアウトしました。認証の入力待ちなどで止まった可能性があります"
                          " (認証情報を credential helper や ssh-agent に登録してください)")
 
 
@@ -2507,10 +2518,12 @@ def api_fetch(body):
     if body.get("prune") is True:
         args.append("--prune")
     before = refs_snapshot()
-    r = run_git_net(*args)
-    if r.returncode != 0:
-        raise ValueError(net_error(r, "fetch に失敗しました"))
+    # リモートは順に取得されるので、複数あるぶんだけタイムアウトを延ばす (最大 4 倍)
+    r = run_git_net(*args, timeout=NET_TIMEOUT * min(max(len(git("remote").split()), 1), 4))
     n = count_changed_refs(before, refs_snapshot())
+    if r.returncode != 0:  # 一部のリモートだけ失敗しても、git は残りのリモートを取得している
+        raise ValueError(net_error(r, "fetch に失敗しました") +
+                         (f"\n(失敗しなかったリモートの分は取得済みです: {n} 件のリモート追跡ブランチ/タグが更新されました)" if n else ""))
     return {"ok": True, "message": f"fetch しました ({n} 件のリモート追跡ブランチ/タグが更新されました)" if n
             else "fetch しました (更新はありません)"}
 
@@ -2557,6 +2570,12 @@ def branch_config(branch, key):
     return r.stdout.strip() if r.returncode == 0 else None
 
 
+def git_config(key):
+    r = subprocess.run(["git", "-C", REPO, "config", "--get", key],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    return r.stdout.strip() if r.returncode == 0 else None
+
+
 def api_push(body):
     """ブランチを push する。body.branch があればそのローカルブランチ (チェックアウト中でなくてもよい)、
     なければ現在のブランチ。upstream があればその先へ、なければ set_upstream 確認のうえ -u で push する。"""
@@ -2576,23 +2595,41 @@ def api_push(body):
     args = ["push"]
     if body.get("force") is True:
         args.append("--force-with-lease")
-    remote, merge = branch_config(branch, "remote"), branch_config(branch, "merge")
-    if remote and remote != "." and merge:
+    remotes = git("remote").split()
+    if not remotes:
+        raise ValueError("リモートが登録されていません")
+    upstream_remote, merge = branch_config(branch, "remote"), branch_config(branch, "merge")
+    has_upstream = bool(upstream_remote and upstream_remote != "." and merge)
+    # push 先: branch.<名前>.pushRemote > remote.pushDefault (git の優先順位と同じ)
+    push_remote = branch_config(branch, "pushRemote") or git_config("remote.pushDefault")
+    if push_remote:
+        if push_remote not in remotes:
+            raise ValueError(f"push 先のリモート {push_remote!r} (pushRemote / remote.pushDefault) は登録されていません")
+        remote = push_remote
+        # upstream と同じリモートなら upstream のブランチ名へ、別のリモート (fork など) なら同名のブランチへ
+        dest = merge if (has_upstream and push_remote == upstream_remote) else f"refs/heads/{branch}"
+        args += [remote, f"refs/heads/{branch}:{dest}"]
+    elif has_upstream:
+        remote = upstream_remote
         args += [remote, f"refs/heads/{branch}:{merge}"]  # upstream が別名でもその先へ push する
     else:
-        remotes = git("remote").split()
-        if not remotes:
-            raise ValueError("リモートが登録されていません")
-        remote = "origin" if "origin" in remotes else remotes[0]
+        default = "origin" if "origin" in remotes else remotes[0]
+        chosen = body.get("remote")
         if body.get("set_upstream") is not True:
-            return {"needs_upstream": True, "remote": remote, "branch": branch}
+            return {"needs_upstream": True, "remote": default, "remotes": remotes, "branch": branch}
+        if chosen is None:
+            chosen = default
+        if not isinstance(chosen, str) or chosen not in remotes:  # 登録済みの名前だけ許可 (オプション注入も防ぐ)
+            raise ValueError(f"リモート {chosen!r} は登録されていません")
+        remote = chosen
         args += ["-u", remote, f"refs/heads/{branch}:refs/heads/{branch}"]
     before = refs_snapshot()
     r = run_git_net(*args)
     if r.returncode != 0:
         raise ValueError(net_error(r, "push に失敗しました"))
     changed = count_changed_refs(before, refs_snapshot()) > 0
-    return {"ok": True, "message": f"{branch} を push しました" if changed else f"{branch} を push しました (更新するものはありませんでした)"}
+    where = f" ({remote})" if len(remotes) > 1 else ""
+    return {"ok": True, "message": f"{branch} を push しました{where}" if changed else f"{branch} を push しました{where} (更新するものはありませんでした)"}
 
 
 POST_ROUTES = {"/api/stash": api_stash, "/api/rebase": api_rebase, "/api/rebase-i": api_rebase_i, "/api/cherry-pick": api_cherry_pick, "/api/merge": api_merge, "/api/branch": api_branch, "/api/tag": api_tag, "/api/ref-delete": api_delete_ref,
