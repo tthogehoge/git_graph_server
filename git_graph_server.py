@@ -357,6 +357,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   .action-dialog h2 { font-size: 16px; margin: 0 0 12px; }
   .action-fields { display: flex; flex-direction: column; gap: 10px; }
   .action-fields label { display: flex; flex-direction: column; gap: 4px; }
+  .action-fields label[hidden] { display: none; }
   .action-fields label.check { flex-direction: row; align-items: center; }
   .action-fields input[type=text], .action-fields select { box-sizing: border-box; width: 100%; padding: 5px 7px; }
   .dialog-buttons { display: flex; justify-content: flex-end; gap: 6px; margin-top: 14px; }
@@ -451,9 +452,9 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       <button class="abtn" id="filesBtn" title="対象コミットのファイル一覧を別タブで開く">ファイル表示</button>
       <button class="abtn" id="mergeBtn" title="Aを現在のHEADにマージ">マージ</button>
       <button class="abtn" id="rebaseBtn" title="現在のブランチをAの上にリベース">リベース</button>
+      <button class="abtn" id="irebaseBtn" title="現在のブランチをAの上に、コミットの並べ替え・squash・メッセージ変更・削除をしながらリベース (git rebase -i)">対話的リベース</button>
       <button class="abtn" id="cherryBtn" title="Aを現在のHEADにチェリーピック">チェリーピック</button>
       <button class="abtn danger" id="resetBtn" title="現在のHEADを対象コミットへリセット">対象へリセット</button>
-      <button class="abtn" id="irebaseBtn" title="現在のブランチをAの上に、コミットの並べ替え・squash・メッセージ変更・削除をしながらリベース (git rebase -i)">対話的リベース</button>
       <button class="abtn" data-cact="branch">ブランチ作成</button>
       <button class="abtn" data-cact="tag">タグ作成</button>
       <button class="abtn" data-cact="checkout">チェックアウト</button>
@@ -966,7 +967,9 @@ function openActionDialog(title, fields, submitLabel, opts) {  // opts: {wide, v
     const modal = document.getElementById("actionModal"), form = document.getElementById("actionForm");
     form.className = "action-dialog" + (opts.wide ? " wide" : "");
     document.getElementById("actionError").textContent = "";
+    let cleanup = null;
     const finish = value => {
+      if (cleanup) cleanup();
       modal.hidden = true;
       form.onsubmit = null;
       modal.onclick = null;
@@ -978,6 +981,7 @@ function openActionDialog(title, fields, submitLabel, opts) {  // opts: {wide, v
     document.getElementById("actionFields").innerHTML = fields;
     document.getElementById("actionSubmit").textContent = submitLabel;
     modal.hidden = false;
+    if (opts.onOpen) cleanup = opts.onOpen(form) || null;
     form.onsubmit = ev => {
       ev.preventDefault();
       const values = Object.fromEntries(new FormData(form).entries());
@@ -1025,9 +1029,25 @@ async function doCmpAction(btn) {  // 選択対象に対するブランチ作成
     values = await openActionDialog("チェックアウト", '<label>切り替え先<select name="branch">' +
       branches.map(branch => '<option value="' + esc(branch) + '">' + esc(branch) + '</option>').join("") +
       '<option value="">コミットを detached HEAD でチェックアウト</option>' +
-      '</select></label>', "チェックアウト");
+      '<option value="__new_branch__">新しいブランチを作成してチェックアウト</option>' +
+      '</select></label>' +
+      '<label id="newBranchField" hidden>新しいブランチ名<input type="text" name="newBranch" placeholder="新規作成時のみ入力"></label>', "チェックアウト", {
+        onOpen: form => {
+          const select = form.elements.branch, field = form.querySelector("#newBranchField");
+          const update = () => { field.hidden = select.value !== "__new_branch__"; };
+          select.addEventListener("change", update);
+          update();
+          return () => select.removeEventListener("change", update);
+        },
+        validate: values => values.branch === "__new_branch__" && !values.newBranch.trim() ?
+          "新しいブランチ名を入力してください" : null
+      });
     if (!values) return;
-    if (values.branch) {
+    if (values.branch === "__new_branch__") {
+      const name = values.newBranch.trim();
+      url = "/api/branch"; body = {hash: h, name: name, checkout: true};
+      ask = "ブランチ " + name + " を作成してチェックアウトします (作業ツリーが切り替わります)。よろしいですか？";
+    } else if (values.branch) {
       url = "/api/checkout"; body = {branch: values.branch};
       ask = "ブランチ " + values.branch + " をチェックアウトします (作業ツリーが切り替わります)。よろしいですか？";
     } else {
