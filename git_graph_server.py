@@ -260,8 +260,12 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   body { display: flex; }
   #graphWrap { flex: 1; min-width: 0; position: relative; background: #fff; }
   #graph { position: absolute; inset: 0; overflow: auto; padding: 12px; box-sizing: border-box; }
-  #graphStatus { position: absolute; top: 10px; left: 12px; z-index: 5; padding: 4px 8px; border-radius: 3px; background: #fff; color: #555; }
+  #graphStatus { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); z-index: 5;
+    max-width: calc(100% - 32px); padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px;
+    background: #fff; color: #555; box-shadow: 0 2px 8px #0003; white-space: pre-wrap; overflow-wrap: anywhere; }
   #graphStatus[hidden] { display: none; }
+  #graphStatus.success { color: #1a7f37; border-color: #8cce9c; }
+  #graphStatus.error { color: #cf222e; border-color: #e7a0a4; }
   #compareControls { position: absolute; top: 8px; right: 14px; z-index: 5; }
   #compareControls [hidden] { display: none; }
   #compareToolbar, #cmpActions { padding: 6px; border: 1px solid #ccc; border-radius: 4px; background: #fff; box-shadow: 0 1px 4px #0002; }
@@ -301,7 +305,6 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   .actions input[type=text] { padding: 3px 6px; border: 1px solid #bbb; border-radius: 3px; min-width: 0; flex: 1; }
   .abtn { background: #e8eefc; border: 1px solid #b8c7ee; padding: 3px 8px; border-radius: 3px; cursor: pointer; }
   .abtn:hover { background: #d6e2fb; } .abtn:disabled { opacity: .5; cursor: default; }
-  .amsg { margin-top: 4px; white-space: pre-wrap; } .amsg.ok { color: #1a7f37; } .amsg.ng { color: #cf222e; }
   #coModal, #actionModal { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: flex; align-items: center; justify-content: center; z-index: 1000; }
   #coModal[hidden] { display: none; }
   #actionModal[hidden] { display: none; }
@@ -414,8 +417,6 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       <button class="abtn" id="stashPopBtn" title="この stash の変更を作業ツリーに適用して、stash を削除">stash 適用して削除 (pop)</button>
       <button class="abtn danger" id="stashDropBtn" title="この stash を削除">stash 削除 (drop)</button>
     </div>
-    <div class="amsg" id="cmRemoteMsg" role="status" aria-live="polite"></div>
-    <div class="amsg" id="cmMsg"></div>
     <hr class="menu-separator" id="compareMenuSeparator" hidden>
     <button class="abtn" id="compareBtn" hidden>AB比較</button>
   </div>
@@ -716,14 +717,24 @@ function doAction(btn) {  // ブランチ/タグのチップの × (削除)
       if (r === null) { setGraphStatus("強制削除をキャンセルしました"); return; }
       return refreshGraph().catch(() => {}).then(() => setGraphStatus(r.message));
     })
-    .catch(e => setGraphStatus("削除できませんでした: " + e.message))
+    .catch(e => setGraphStatus("削除できませんでした: " + e.message, "error"))
     .finally(() => { btn.disabled = false; });
 }
 
-function setGraphStatus(message) {
+let graphStatusTimer = null;
+function setGraphStatus(message, type) {
   const status = document.getElementById("graphStatus");
+  clearTimeout(graphStatusTimer);
   status.textContent = message || "";
+  status.className = message ? (type || "info") : "";
   status.hidden = !message;
+  if (message && !message.includes("中…") && !message.startsWith("実行中…")) {
+    graphStatusTimer = setTimeout(() => {
+      status.hidden = true;
+      status.textContent = "";
+      status.className = "";
+    }, 6000);
+  }
 }
 
 // 操作のあと、グラフを(表示したまま)作り直して新しいブランチ/タグ/HEAD を反映する
@@ -754,7 +765,7 @@ function refreshGraph() {
       setGraphStatus("");
     })
     .catch(e => {
-      setGraphStatus("グラフ更新に失敗しました: " + e.message);
+      setGraphStatus("グラフ更新に失敗しました: " + e.message, "error");
       throw e;
     });
 }
@@ -821,9 +832,6 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
   document.getElementById("stashApplyBtn").disabled = !DATA.merge;  // apply / pop はワークツリーが必要
   document.getElementById("stashPopBtn").disabled = !DATA.merge;
   document.getElementById("stashDropBtn").disabled = !canWrite;
-  if (!actionHash) {
-    document.getElementById("cmMsg").textContent = "";
-  }
 }
 let cmpActOpen = false;
 let stashByHash = {};  // stash のコミットのハッシュ -> stash@{n}
@@ -890,12 +898,10 @@ function openActionDialog(title, fields, submitLabel, opts) {  // opts: {wide, v
   });
 }
 function setCmpMsg(text, ok) {
-  const el = document.getElementById("cmMsg");
-  el.textContent = text; el.className = "amsg " + (ok ? "ok" : "ng");
+  setGraphStatus(text, ok ? "success" : "error");
 }
 function setRemoteMsg(text, ok) {
-  const el = document.getElementById("cmRemoteMsg");
-  el.textContent = text; el.className = "amsg " + (ok ? "ok" : "ng");
+  setGraphStatus(text, ok ? "success" : "error");
 }
 async function doCmpAction(btn) {  // 選択対象に対するブランチ作成 / タグ作成 / チェックアウト
   if (!actionHash) return;
@@ -1003,7 +1009,7 @@ async function doRemoteAction(btn) {  // fetch / pull / push (pushは操作対�
     if (r.cancelled) { setRemoteMsg(r.message, false); return; }
     setRemoteMsg(r.message, !r.conflict);
     return refreshGraph().catch(() => {}).then(() => {
-      if (r.conflict) { setGraphStatus(r.message); clearCmp(); showWip(); }
+      if (r.conflict) { setGraphStatus(r.message, "error"); clearCmp(); showWip(); }
     });
   })
     .catch(e => setRemoteMsg(e.message, false))
@@ -1033,7 +1039,7 @@ function doRebase() {
       clearCmp();
       return refreshGraph().catch(() => {}).then(() => setGraphStatus(r.message));
     })
-    .catch(e => { setGraphStatus("リベースできませんでした: " + e.message); })
+    .catch(e => { setGraphStatus("リベースできませんでした: " + e.message, "error"); })
     .finally(() => { btn.disabled = false; });
 }
 function doCherryPick() {
@@ -1157,7 +1163,7 @@ async function doMerge() {
         if (r.conflict) showWip();
       });
     })
-    .catch(e => { setGraphStatus("マージできませんでした: " + e.message); })
+    .catch(e => { setGraphStatus("マージできませんでした: " + e.message, "error"); })
     .finally(() => { btn.disabled = false; });
 }
 function selectCmpA(hash) {
