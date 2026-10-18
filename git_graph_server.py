@@ -23,8 +23,8 @@
   POST /api/merge {hash, no_ff} (JSON)                       選んだコミットを現在の HEAD にマージ
   POST /api/rebase {hash} (JSON)                             現在のブランチを選んだコミットの上にリベース (競合したら中止して元に戻す)
   /api/head                                                  現在のブランチ名 (マージ/リベース前の確認用)
-  POST /api/fetch {prune} | /api/pull {mode} | /api/push {force, set_upstream} (JSON)
-     fetch (--all) / pull (mode: ff-only | merge | rebase) / push (現在のブランチを upstream へ。force は --force-with-lease)
+  POST /api/fetch {prune} | /api/pull {mode} | /api/push {branch, force, set_upstream} (JSON)
+     fetch (--all) / pull (mode: ff-only | merge | rebase) / push (branch 指定でそのローカルブランチ、省略で現在のブランチを upstream へ。force は --force-with-lease)
      画面では、比較のAだけを選んだときの「操作」パネルにある。認証の入力待ちで固まらないよう、端末入力を無効にして一定時間でタイムアウトする
   POST /api/wip-commit {paths, message} (JSON)               チェックしたファイルを add してコミット
      書き込みは 127.0.0.1 で待ち受けているときだけ有効 (--read-only で無効化、--allow-write で他アドレスでも許可)
@@ -250,13 +250,13 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   body { display: flex; }
   #graphWrap { flex: 1; min-width: 0; position: relative; background: #fff; }
   #graph { position: absolute; inset: 0; overflow: auto; padding: 12px; box-sizing: border-box; }
-  #reload { position: absolute; top: 8px; right: 14px; z-index: 5; margin: 0; }
   #graphStatus { position: absolute; top: 10px; left: 12px; z-index: 5; padding: 4px 8px; border-radius: 3px; background: #fff; color: #555; }
   #graphStatus[hidden] { display: none; }
-  #compareControls { position: absolute; top: 42px; right: 14px; z-index: 5; }
+  #compareControls { position: absolute; top: 8px; right: 14px; z-index: 5; }
   #compareControls [hidden] { display: none; }
   #compareToolbar, #cmpActions { padding: 6px; border: 1px solid #ccc; border-radius: 4px; background: #fff; box-shadow: 0 1px 4px #0002; }
   #compareToolbar { display: flex; align-items: center; gap: 6px; }
+  #compareToolbar .sbtn { margin: 0; }
   #cmpActions { position: absolute; top: 100%; right: 0; display: flex; flex-direction: column; gap: 6px; box-sizing: border-box; min-width: 250px; max-width: min(440px, calc(100vw - 24px)); max-height: calc(100vh - 70px); overflow: auto; margin-top: 4px; }
   #cmpActions[hidden] { display: none; }
   #cmpActions label { white-space: nowrap; }
@@ -347,10 +347,10 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 </head>
 <body>
 <div id="graphWrap">
-<button id="reload" class="sbtn" disabled title="グラフを最新の状態に更新">↻ 更新</button>
 <div id="graphStatus" role="status" aria-live="polite" hidden></div>
 <div id="compareControls">
   <div id="compareToolbar">
+    <button id="reload" class="sbtn" disabled title="グラフを最新の状態に更新">↻ 更新</button>
     <span class="cmp-hash" id="cmpA"></span><span class="cmp-hash" id="cmpB"></span>
     <button class="sbtn" id="cmpActToggle" aria-expanded="false" aria-controls="cmpActions">操作 ▾</button>
     <button class="sbtn" id="clearCmpBtn">クリア</button>
@@ -824,7 +824,7 @@ async function doCmpAction(btn) {  // Aに対するブランチ作成 / タグ�
     .catch(e => setCmpMsg(e.message, false))
     .finally(() => { btn.disabled = false; });
 }
-async function doRemoteAction(btn) {  // fetch / pull / push (リモートとの通信。Aの選択とは無関係に現在のブランチが対象)
+async function doRemoteAction(btn) {  // fetch / pull / push (pushはAを選択中ならAのブランチ、未選択なら現在のブランチ)
   const act = btn.dataset.cact;
   const url = "/api/" + act;
   let body = {}, ask = null;
@@ -843,12 +843,24 @@ async function doRemoteAction(btn) {  // fetch / pull / push (リモートとの
     ask = "リモートの変更を pull します (" + {"ff-only": "fast-forwardのみ", "merge": "マージ", "rebase": "リベース"}[mode] +
           ")。作業ツリーが変わります。よろしいですか？";
   } else if (act === "push") {
-    const values = await openActionDialog("push", '<label class="check"><input type="checkbox" name="force"> --force-with-lease (リモート履歴を書き換える)</label>', "push");
+    let target = null;  // Aを選んでいるときは、Aを指しているローカルブランチをpushする
+    let branchField = "";
+    if (cmp.length === 1) {
+      const bs = localBranches(cmp[0]);
+      if (!bs.length) { setRemoteMsg("A (" + cmp[0].slice(0, 7) + ") を指すローカルブランチがないため push できません", false); return; }
+      branchField = '<label>push するブランチ<select name="branch">' +
+        bs.map(b => '<option value="' + esc(b) + '">' + esc(b) + "</option>").join("") + "</select></label>";
+    }
+    const values = await openActionDialog("push", branchField +
+      '<label class="check"><input type="checkbox" name="force"> --force-with-lease (リモート履歴を書き換える)</label>', "push");
     if (!values) return;
+    target = values.branch || null;
     body = {force: values.force};
+    if (target) body.branch = target;
+    const what = target ? "ブランチ " + target : "現在のブランチ";
     ask = body.force
-      ? "現在のブランチを --force-with-lease で push します。リモートの履歴が書き換わります。よろしいですか？"
-      : "現在のブランチを push します。よろしいですか？";
+      ? what + " を --force-with-lease で push します。リモートの履歴が書き換わります。よろしいですか？"
+      : what + " を push します。よろしいですか？";
   } else return;
   if (ask && !confirm(ask)) return;
   btn.disabled = true; setRemoteMsg("実行中… (リモートとの通信に時間がかかることがあります)", true);
@@ -1974,23 +1986,42 @@ def api_pull(body):
     return {"ok": True, "message": f"{branch} に {up} の変更を取り込みました"}
 
 
+def branch_config(branch, key):
+    r = subprocess.run(["git", "-C", REPO, "config", "--get", f"branch.{branch}.{key}"],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    return r.stdout.strip() if r.returncode == 0 else None
+
+
 def api_push(body):
+    """ブランチを push する。body.branch があればそのローカルブランチ (チェックアウト中でなくてもよい)、
+    なければ現在のブランチ。upstream があればその先へ、なければ set_upstream 確認のうえ -u で push する。"""
     if not has_head():
         raise ValueError("最初のコミットがないため push できません")
-    branch = api_head()["branch"]
-    if not branch:
-        raise ValueError("ブランチをチェックアウトしていません (detached HEAD では push できません)")
+    branch = body.get("branch")
+    if branch:
+        if not isinstance(branch, str) or branch.startswith("-"):
+            raise ValueError("ブランチ名が不正です")
+        if subprocess.run(["git", "-C", REPO, "rev-parse", "-q", "--verify", f"refs/heads/{branch}"],
+                          capture_output=True).returncode != 0:
+            raise ValueError(f"ローカルブランチ {branch} が見つかりません")
+    else:
+        branch = api_head()["branch"]
+        if not branch:
+            raise ValueError("ブランチをチェックアウトしていません (detached HEAD では push できません)")
     args = ["push"]
     if body.get("force") is True:
         args.append("--force-with-lease")
-    if not upstream_of_head():
+    remote, merge = branch_config(branch, "remote"), branch_config(branch, "merge")
+    if remote and remote != "." and merge:
+        args += [remote, f"refs/heads/{branch}:{merge}"]  # upstream が別名でもその先へ push する
+    else:
         remotes = git("remote").split()
         if not remotes:
             raise ValueError("リモートが登録されていません")
         remote = "origin" if "origin" in remotes else remotes[0]
         if body.get("set_upstream") is not True:
             return {"needs_upstream": True, "remote": remote, "branch": branch}
-        args += ["-u", remote, branch]
+        args += ["-u", remote, f"refs/heads/{branch}:refs/heads/{branch}"]
     before = refs_snapshot()
     r = run_git_net(*args)
     if r.returncode != 0:
