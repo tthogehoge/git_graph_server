@@ -1599,7 +1599,7 @@ function showWip(fromHistory, okMsg) {
         '<div class="amsg" id="wipMsgOut"></div></div>' : "";
     detailView.innerHTML = btns + "<h2>作業ツリーの変更 (WIP)</h2>" +
       '<div class="meta">HEAD: ' + (s.head ? chips(s.head) + esc(s.head.slice(0, 7)) : "(コミットなし)") + "</div>" +
-      box + (body || '<p class="hint">変更はありません</p>') +
+      (body || '<p class="hint">変更はありません</p>') + box +
       (s.truncated ? '<p class="hint">ファイルが多いため先頭のみ表示しています</p>' : "");
     const ta = detailView.querySelector("#wipMsg");
     if (ta) ta.value = wipMsg;
