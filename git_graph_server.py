@@ -9,7 +9,7 @@
   python git_graph_server.py --dot              # dot を標準出力に出して終了
 
   http://127.0.0.1:8000/                 グラフ (リロードで最新の状態に更新)
-  /api/log?rev=<40桁hash>[..<40桁hash>]&skip=0&limit=500   git log (ページング)
+  /api/log?rev=<40桁hash>[..<40桁hash>]&path=<ファイル>&skip=0&limit=500   git log (ページング、path指定でファイル限定)
   /api/commit?hash=<hash>                                    git show 相当 (変更ファイル一覧つき)
   /files?hash=<40桁hash>                                     コミットのファイル一覧 (別タブで開く)
   /api/tree?hash=<hash>&path=<directory>                     コミットのディレクトリ内容
@@ -1363,6 +1363,17 @@ function restoreScreen(state) {
   updateCmpClasses();
 }
 window.addEventListener("popstate", ev => restoreScreen(ev.state || {screen: "home"}));
+window.addEventListener("message", ev => {
+  if (ev.origin !== location.origin || !ev.data || ev.data.type !== "git-graph-file-log") return;
+  const hash = ev.data.hash, path = ev.data.path;
+  if (typeof hash !== "string" || typeof path !== "string" || !hash || !path) return;
+  showLog("ファイルログ: " + esc(path), hash,
+          '<div class="meta"><code>git log ' + esc(hash.slice(0, 7)) + " -- " + esc(path) + "</code></div>",
+          false, 0, {path: "/api/log", params: {rev: hash, path: path}});
+  if (ev.source && ev.source !== window) {
+    try { ev.source.close(); } catch (e) {}
+  }
+});
 
 listView.addEventListener("click", ev => {
   if (ev.detail > 1) return;
@@ -1404,7 +1415,7 @@ document.getElementById("cmpActions").addEventListener("click", ev => {
     return;
   }
   if (ev.target.closest("#filesBtn") && actionHash && !stashByHash[actionHash]) {
-    window.open("/files?hash=" + encodeURIComponent(actionHash), "_blank", "noopener");
+    window.open("/files?hash=" + encodeURIComponent(actionHash), "_blank");
     return;
   }
   if (ev.target.closest("#stashListBtn")) { showStashList(); return; }
@@ -1863,13 +1874,22 @@ def api_log(q):
     rev = q.get("rev", [""])[0]
     if not REV_RE.fullmatch(rev):
         raise ValueError("bad rev")
+    path = q.get("path", [""])[0]
+    if "\0" in path:
+        raise ValueError("bad path")
     skip, limit = paging(q)
-    out = git("log", "--date=short", f"--skip={skip}", "-n", str(limit),
-              "--format=%H%x1f%h%x1f%an%x1f%ad%x1f%s", rev, "--")
+    args = ["log", "--date=short", f"--skip={skip}", "-n", str(limit),
+            "--format=%H%x1f%h%x1f%an%x1f%ad%x1f%s", rev, "--"]
+    if path:
+        args.append(path)
+    out = git(*args, literal=bool(path))
     commits = [l.split("\x1f") for l in out.splitlines() if l]
     res = {"commits": commits, "has_more": len(commits) == limit}
     if skip == 0:
-        res["total"] = int(git("rev-list", "--count", rev, "--").strip())
+        count_args = ["rev-list", "--count", rev, "--"]
+        if path:
+            count_args.append(path)
+        res["total"] = int(git(*count_args, literal=bool(path)).strip())
     return res
 
 
@@ -2256,6 +2276,15 @@ FILES_CSS = """
   .tok-attr { color: #8250df; }
   .tok-regex { color: #cf222e; }
   .binary { color: #777; padding: 10px; border: 1px solid #ddd; }
+  .file-actions { display: flex; gap: 6px; margin: 8px 0; }
+  .file-actions button { background: #e8eefc; border: 1px solid #b8c7ee; padding: 4px 8px; border-radius: 3px; cursor: pointer; }
+  .file-actions button:hover { background: #d6e2fb; }
+  table.file-log { border-collapse: collapse; width: 100%; margin-top: 8px; }
+  table.file-log td { border-bottom: 1px solid #e3e3e3; padding: 5px 6px; vertical-align: top; }
+  table.file-log td.hash { width: 1%; font-family: monospace; white-space: nowrap; }
+  table.file-log td.date { width: 1%; color: #777; white-space: nowrap; }
+  table.file-log a { color: inherit; text-decoration: none; }
+  table.file-log tr:hover td { background: #eef; }
 """
 
 
@@ -2264,16 +2293,20 @@ FILES_PAGE = r"""<!DOCTYPE html>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
 <style>__CSS__</style><script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script></head>
 <body><aside id="tree"><h1>ファイル表示</h1><div class="meta" id="commit"></div><div id="list"></div></aside>
-<main id="main"><h2 id="title">ファイルを選択してください</h2><div id="content" class="hint">左の一覧からファイルをクリックしてください。</div></main>
+<main id="main"><h2 id="title">ファイルを選択してください</h2>
+<div id="fileActions" class="file-actions" hidden><button id="fileLogBtn">このファイルのログ</button><button id="fileContentBtn" hidden>ファイル内容</button></div>
+<div id="content" class="hint">左の一覧からファイルをクリックしてください。</div></main>
 <script>
 const qs = new URLSearchParams(location.search), hash = qs.get("hash");
 const list = document.getElementById("list"), content = document.getElementById("content"), title = document.getElementById("title");
-let current = "";
+const fileActions = document.getElementById("fileActions"), fileLogBtn = document.getElementById("fileLogBtn"), fileContentBtn = document.getElementById("fileContentBtn");
+let current = "", currentFile = "";
 function esc(s) { return String(s).replace(/[&<>\"]/g, c => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", "\"":"&quot;"}[c])); }
 function api(path, params) { return fetch(path + "?" + new URLSearchParams(params)).then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); })); }
 function showError(e) { list.innerHTML = '<p class="hint">エラー: ' + esc(e.message) + '</p>'; }
 function loadTree(path, push) {
   current = path;
+  fileActions.hidden = true;
   if (push) history.pushState({path: path}, "", "?hash=" + encodeURIComponent(hash) + (path ? "&path=" + encodeURIComponent(path) : ""));
   api("/api/tree", {hash: hash, path: path}).then(r => {
     document.getElementById("commit").textContent = r.hash.slice(0, 7);
@@ -2292,6 +2325,10 @@ function loadTree(path, push) {
   }).catch(showError);
 }
 function loadFile(path) {
+  currentFile = path;
+  fileActions.hidden = false;
+  fileLogBtn.hidden = false;
+  fileContentBtn.hidden = true;
   api("/api/file", {hash: hash, path: path}).then(r => {
     const lang = languageFor(r.path);
     title.textContent = r.path + (lang ? " (" + lang + ")" : "");
@@ -2299,6 +2336,27 @@ function loadFile(path) {
     content.innerHTML = r.binary ? "バイナリファイルのため内容を表示できません。" : '<pre class="code"><code>' + highlightCode(r.content, lang) + '</code></pre>' + (r.truncated ? '<p class="hint">大きいため先頭のみ表示しています。</p>' : '');
   }).catch(e => { title.textContent = path; content.className = "hint"; content.textContent = "エラー: " + e.message; });
 }
+function loadFileLog(path) {
+  if (window.opener && !window.opener.closed) {
+    window.opener.postMessage({type: "git-graph-file-log", hash: hash, path: path}, location.origin);
+    window.close();
+    return;
+  }
+  fileLogBtn.hidden = true;
+  fileContentBtn.hidden = false;
+  title.textContent = path + " の変更履歴";
+  content.className = "hint";
+  content.textContent = "読み込み中…";
+  api("/api/log", {rev: hash, path: path}).then(r => {
+    const rows = r.commits.map(c => '<tr><td class="hash">' + esc(c[1]) +
+      '</td><td class="date">' + esc(c[3]) + '</td><td>' + esc(c[4]) + '</td></tr>').join("");
+    content.className = "";
+    content.innerHTML = '<div class="meta">' + r.total + ' 件</div>' +
+      (rows ? '<table class="file-log"><tbody>' + rows + '</tbody></table>' : '<p class="hint">履歴がありません</p>');
+  }).catch(e => { content.className = "hint"; content.textContent = "エラー: " + e.message; });
+}
+fileLogBtn.onclick = () => { if (currentFile) loadFileLog(currentFile); };
+fileContentBtn.onclick = () => { if (currentFile) loadFile(currentFile); };
 const KEYWORDS = {
   python: "and as assert async await break case class continue def del elif else except finally for from global if import in is lambda match nonlocal not or pass raise return try while with yield None True False self",
   javascript: "as async await break case catch class const continue debugger default delete do else export extends false finally for from function get if import in instanceof let new null of return set static super switch this throw true try typeof undefined var void while with yield",
