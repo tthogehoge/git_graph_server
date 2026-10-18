@@ -2,6 +2,8 @@
 
 [日本語版 README](README_JP.md)
 
+Licensed under the [MIT License](LICENSE).
+
 A local browser UI for viewing Git commit graphs, logs, diffs, and working-tree changes. It also supports operations such as branch, tag, merge, rebase, and stash management.
 
 ## Requirements

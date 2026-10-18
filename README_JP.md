@@ -1,5 +1,7 @@
 # git_graph_server
 
+ライセンス: [MIT License](LICENSE)
+
 Git のコミットグラフ、ログ、差分、作業ツリーの変更をブラウザで確認するローカルサーバーです。ブランチ、タグ、merge、rebase、stash などの操作にも対応しています。
 
 ## 必要なもの
