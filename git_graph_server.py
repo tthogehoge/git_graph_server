@@ -14,8 +14,8 @@
   /diff?hash=<hash>&path=<file>[&old=<旧パス>]               1ファイルの差分ページ (別タブで開く)
   /diff?from=<hash>&to=<hash>&path=<file>[&old=<旧パス>]     2コミット間の差分ページ
   /api/graph                                                 グラフ(SVG + ノード/エッジ情報。未コミットの変更があれば WIP ノードつき)
-  /api/status                                                作業ツリーの変更 (ステージ済み/未ステージ/未追跡/競合)
-  /diff?wip=staged|unstaged|untracked|conflict&path=<file>   作業ツリーの変更の差分ページ
+  /api/status                                                作業ツリーの変更 (ステージ済み/未ステージ/未追跡/競合)。?amend=1 で 直前のコミットの親との差分 (amend_files) も返す
+  /diff?wip=staged|unstaged|untracked|conflict|amend&path=<file>   作業ツリーの変更の差分ページ
   /api/compare?from=<hash>&to=<hash>                         2コミット間の変更ファイル一覧
   POST /api/branch | /api/tag | /api/checkout (JSON)         ブランチ作成 / タグ作成 / チェックアウト (画面では、比較のAだけを選んだときの操作)
      チェックアウトが「編集中のファイル」「同名の管理外ファイル」で止まったときは {blocked:true, modified:[..], untracked:[..]} を返す。
@@ -36,8 +36,11 @@
      push 先は git と同じ優先順位で決める: branch.<名前>.pushRemote > remote.pushDefault > upstream (branch.<名前>.remote)。
      どれも無いとき (リモートが複数なら) {needs_upstream, remote, remotes} を返し、remote を付けて set_upstream:true で再送する
      画面では、比較のAだけを選んだときの「操作」パネルにある。認証の入力待ちで固まらないよう、端末入力を無効にして一定時間でタイムアウトする
-  POST /api/wip-commit {paths, message, amend?} (JSON)        チェックしたファイルを add してコミット / 直前のコミットを amend
+  /api/remotes                                               登録済みのリモート [{name, url}]
+  POST /api/remote-add {name, url, fetch?} / /api/remote-remove {name} (JSON)   リモートの追加 (任意で fetch) / 削除 (リモート追跡ブランチも消える)
+  POST /api/wip-commit {paths, message, amend?} (JSON)        チェックしたファイルを add してコミット (amend=true なら直前のコミットを作り直す。amend のときだけ paths は空でも可)
      書き込みは 127.0.0.1 で待ち受けているときだけ有効 (--read-only で無効化、--allow-write で他アドレスでも許可)
+     --lan は --host 0.0.0.0 --allow-write の省略形 (LAN の他の端末から操作できる。認証はないので信頼できるネットワークで使うこと)
 """
 import argparse
 import html
@@ -385,6 +388,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   .wipbox { border: 1px solid #ddd; background: #fafafa; border-radius: 4px; padding: 8px; margin: 8px 0; }
   .wipbox textarea { width: 100%; box-sizing: border-box; min-height: 56px; padding: 4px 6px; border: 1px solid #bbb; border-radius: 3px; font: inherit; resize: vertical; }
   .wipbox .arow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 6px; }
+  .wipbox .amendrow { display: block; margin: 0 0 6px; cursor: pointer; }
+  .wipbox .amendrow input { margin: 0 6px 0 0; vertical-align: middle; }
   .wbtn { background: #1a7f37; color: #fff; border: 1px solid #176b30; padding: 3px 10px; border-radius: 3px; cursor: pointer; }
   .wbtn:hover { background: #176b30; } .wbtn:disabled { opacity: .5; cursor: default; }
   .plus { color: #1a7f37; } .minus { color: #cf222e; }
@@ -443,6 +448,11 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       <button class="abtn" id="stashApplyBtn" title="この stash の変更を作業ツリーに適用 (stash は残す)">stash 適用 (apply)</button>
       <button class="abtn" id="stashPopBtn" title="この stash の変更を作業ツリーに適用して、stash を削除">stash 適用して削除 (pop)</button>
       <button class="abtn danger" id="stashDropBtn" title="この stash を削除">stash 削除 (drop)</button>
+    </div>
+    <hr class="menu-separator">
+    <div class="menu-section" id="remoteConfigActions">
+      <button class="abtn" data-cact="remote-add" title="リモートを追加 (git remote add)">remote 追加</button>
+      <button class="abtn danger" data-cact="remote-remove" title="リモートを削除 (git remote remove)。リモート追跡ブランチも消えます">remote 削除</button>
     </div>
   </div>
 </div>
@@ -642,7 +652,7 @@ function filesHtml(ctx, files, offset, withCheck) {
     const a = f.added || 0, d = f.deleted || 0;
     const pa = a ? Math.max(1, Math.round(a * scale)) : 0, pd = d ? Math.max(1, Math.round(d * scale)) : 0;
     const name = f.old_path ? f.old_path + " => " + f.path : f.path;
-    return '<tr class="frow" data-k="' + (offset + k) + '">' + (withCheck ? wipCheckCell(f) : "") + '<td class="fp">' + badge(f) + '<a href="' + esc(diffUrl(ctx, f)) +
+    return '<tr class="frow" data-k="' + (offset + k) + '">' + (withCheck ? wipCheckCell(f) : "") + '<td class="fp">' + badge(f) + (f.tag ? '<span class="hint">[' + esc(f.tag) + '] </span>' : "") + '<a href="' + esc(diffUrl(ctx, f)) +
       '">' + esc(name) + '</a></td><td class="fc">' +
       (f.label ? esc(f.label) : f.added === null ? "Bin" : a + d) + '</td><td class="fb"><span class="plus">' + "+".repeat(pa) +
       '</span><span class="minus">' + "-".repeat(pd) + "</span></td></tr>";
@@ -885,6 +895,7 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
     .forEach(el => { el.disabled = !canWrite || (["mergeBtn", "rebaseBtn", "irebaseBtn", "cherryBtn"].includes(el.id) && !DATA.merge); });
   document.querySelectorAll("#remoteActions button")
     .forEach(el => { el.disabled = !canWrite || (el.dataset.cact === "pull" && !DATA.merge); });
+  document.querySelectorAll("#remoteConfigActions button").forEach(el => { el.disabled = !canWrite; });
   updatePushActions();
   document.querySelector('#remoteActions [data-cact="pull"]').title =
     DATA.merge ? "" : "pull には書き込み可能なワークツリーが必要です";
@@ -1071,6 +1082,38 @@ async function doRemoteAction(btn) {  // fetch / pull / push (別ブランチの
       else setRemoteMsg(r.message, true);
     });
   })
+    .catch(e => setRemoteMsg(e.message, false))
+    .finally(() => { btn.disabled = false; });
+}
+async function doRemoteConfig(btn) {  // remote 追加 / 削除
+  let url, body, ask = null;
+  if (btn.dataset.cact === "remote-add") {
+    const values = await openActionDialog("remote 追加",
+      '<label>名前<input type="text" name="name" placeholder="origin" required autofocus></label>' +
+      '<label>URL<input type="text" name="url" required></label>' +
+      '<label class="check"><input type="checkbox" name="fetch" checked> 追加後に fetch する</label>', "追加");
+    if (!values) return;
+    body = {name: values.name.trim(), url: values.url.trim(), fetch: !!values.fetch};
+    if (!body.name || !body.url) { setRemoteMsg("名前と URL を入力してください", false); return; }
+    url = "/api/remote-add";
+  } else {
+    let list;
+    try { list = (await api("/api/remotes", {})).remotes; } catch (e) { setRemoteMsg(e.message, false); return; }
+    if (!list.length) { setRemoteMsg("リモートが登録されていません", false); return; }
+    const values = await openActionDialog("remote 削除",
+      '<label>削除するリモート<select name="name">' + list.map(r =>
+        '<option value="' + esc(r.name) + '">' + esc(r.name) + (r.url ? " — " + esc(r.url) : "") + "</option>").join("") +
+      "</select></label>", "削除");
+    if (!values) return;
+    body = {name: values.name};
+    url = "/api/remote-remove";
+    ask = "リモート " + body.name + " を削除します。\nこのリモートのリモート追跡ブランチ (" + body.name + "/…) と設定も消えます (リモート側は変わりません)。よろしいですか？";
+  }
+  if (ask && !confirm(ask)) return;
+  btn.disabled = true;
+  setRemoteMsg(body.fetch ? "実行中… (fetch に時間がかかることがあります)" : "実行中…", true);
+  post(url, body)
+    .then(r => refreshGraph().then(() => setRemoteMsg(r.message, r.ok !== false && !r.fetch_failed)))
     .catch(e => setRemoteMsg(e.message, false))
     .finally(() => { btn.disabled = false; });
 }
@@ -1282,8 +1325,7 @@ listView.addEventListener("click", ev => {
 });
 detailView.addEventListener("click", ev => {
   if (ev.target.closest("#wipReload")) { showWip(true); refreshGraph().catch(() => {}); return; }
-  if (ev.target.closest("#wipCommit")) { doWipCommit(false); return; }
-  if (ev.target.closest("#wipAmend")) { doWipCommit(true); return; }
+  if (ev.target.closest("#wipCommit")) { doWipCommit(); return; }
   const ab = ev.target.closest(".abtn");
   if (ab) { doAction(ab); return; }
   if (ev.target.closest(".sbtn")) {
@@ -1314,7 +1356,8 @@ document.getElementById("cmpActions").addEventListener("click", ev => {
   if (ev.target.closest("#cherryBtn")) { doCherryPick(); return; }
   const cab = ev.target.closest(".abtn[data-cact]");
   if (cab) {
-    (["fetch", "pull", "push"].includes(cab.dataset.cact) ? doRemoteAction : doCmpAction)(cab);
+    const act = cab.dataset.cact;
+    (["fetch", "pull", "push"].includes(act) ? doRemoteAction : act.startsWith("remote-") ? doRemoteConfig : doCmpAction)(cab);
     return;
   }
 });
@@ -1378,28 +1421,36 @@ function init() {
 // チェックしたファイルだけを add してコミットする (TortoiseGit のコミットダイアログと同じ考え方)。
 // 既定ではステージ済みのファイルがチェック済み。チェックを外したステージ済みファイルはステージから外れる。
 let wipSel = {}, wipStaged = new Set(), wipMerging = false, wipMsg = "";  // wipSel: パス → ユーザーが付け外ししたチェック状態
-function wipIsChecked(p) { return p in wipSel ? wipSel[p] : (wipMerging || wipStaged.has(p)); }
+// amend モード: チェック中は「直前のコミットの親」と作業ツリーの差分を出し、メッセージも直前のものを入れる
+let wipAmendOn = false, wipMsgNormal = "", wipHeadMsg = "";  // wipMsgNormal: amend にする前に書いていたメッセージ (解除で戻す)
+function wipIsChecked(f) {  // amend: 直前のコミットのファイルは、外さない限りコミットに残る (チェック済みが既定)
+  return f.path in wipSel ? wipSel[f.path] : (wipMerging || !!f.in_head || wipStaged.has(f.path));
+}
 function wipCheckCell(f) {
   return '<td class="fk"><input type="checkbox" class="wipck" data-kind="' + esc(f.wip) + '" data-path="' + esc(f.path) + '"' +
-    (wipIsChecked(f.path) ? " checked" : "") + "></td>";
+    (wipIsChecked(f) ? " checked" : "") + (f.in_head ? ' title="外すと、このファイルは直前のコミットから外れます (作業ツリーの内容は残ります)"' : "") + "></td>";
+}
+function wipCks(kind) {  // 操作できる (disabled でない) チェックボックス
+  return [...detailView.querySelectorAll(".wipck" + (kind ? '[data-kind="' + kind + '"]' : ""))].filter(x => !x.disabled);
 }
 function wipPaths() {  // チェックされたパス (同じファイルが ステージ済み と 未ステージ の両方に出ても1件)
   const s = new Set();
-  detailView.querySelectorAll(".wipck:checked").forEach(el => s.add(el.dataset.path));
+  wipCks().forEach(el => { if (el.checked) s.add(el.dataset.path); });
   return [...s];
 }
 function setWipPath(p, v) {  // 同じパスのチェックボックスをまとめて切り替える
   wipSel[p] = v;
-  detailView.querySelectorAll(".wipck").forEach(x => { if (x.dataset.path === p) x.checked = v; });
+  wipCks().forEach(x => { if (x.dataset.path === p) x.checked = v; });
 }
 function wipSync() {  // コミットボタンの件数と、グループの全選択チェックを更新
   const n = wipPaths().length, b = detailView.querySelector("#wipCommit");
-  if (b) { b.disabled = n === 0; b.textContent = "チェックした " + n + " 件を add してコミット"; }
-  const amendBtn = detailView.querySelector("#wipAmend");
-  if (amendBtn) amendBtn.disabled = n === 0;
+  if (b) {
+    b.disabled = n === 0;
+    b.textContent = "チェックした " + n + " 件を add して" + (wipAmendOn ? " amend" : "コミット");
+  }
   detailView.querySelectorAll(".wipall").forEach(all => {
-    const cks = [...detailView.querySelectorAll('.wipck[data-kind="' + all.dataset.kind + '"]')];
-    const c = cks.filter(x => x.checked).length;
+    const cks = wipCks(all.dataset.kind), c = cks.filter(x => x.checked).length;
+    all.disabled = cks.length === 0;
     all.checked = cks.length > 0 && c === cks.length;
     all.indeterminate = c > 0 && c < cks.length;
   });
@@ -1408,28 +1459,40 @@ function wipSay(text, ok) {
   const el = detailView.querySelector("#wipMsgOut");
   if (el) { el.textContent = text; el.className = "amsg " + (ok ? "ok" : "ng"); }
 }
-function doWipCommit(amend) {
-  const paths = wipPaths(), ta = detailView.querySelector("#wipMsg"), msg = ta ? ta.value : "";
+function setWipAmend(on) {  // amend のチェックを切り替える: 差分の一覧とメッセージを入れ替えて再表示
+  if (on === wipAmendOn) return;
+  wipSel = {};  // 一覧が変わるので、付け外ししたチェックはリセット
+  if (on) { wipMsgNormal = wipMsg; wipMsg = wipHeadMsg; }  // 直前のコミットのメッセージを入れておく
+  else { wipMsg = wipMsgNormal; wipMsgNormal = ""; }
+  wipAmendOn = on;
+  showWip(true);
+}
+function doWipCommit() {
+  const amend = wipAmendOn, paths = wipPaths(), ta = detailView.querySelector("#wipMsg"), msg = ta ? ta.value : "";
   if (!msg.trim()) { wipSay("コミットメッセージを入力してください", false); return; }
-  if (!paths.length) { wipSay("コミットするファイルにチェックを付けてください", false); return; }
-  if (amend && !confirm("選択した変更を直前のコミットに取り込み、コミットを作り直します。履歴が書き換わります。続けますか？")) return;
+  if (!amend && !paths.length) { wipSay("コミットするファイルにチェックを付けてください", false); return; }
+  if (amend) {
+    const chk = new Set(paths), drops = curFiles.filter(f => f.in_head && !chk.has(f.path)).length;
+    if (!confirm("直前のコミットを作り直します (メッセージも置き換えます)。" +
+        (drops ? "\n直前のコミットから " + drops + " 件のファイルを外します (作業ツリーの内容は残ります)。" : "") +
+        "\n履歴が書き換わります。続けますか？")) return;
+  }
   const btn = detailView.querySelector("#wipCommit");
-  const amendBtn = detailView.querySelector("#wipAmend");
-  btn.disabled = true;
-  if (amendBtn) amendBtn.disabled = true;
+  if (btn) btn.disabled = true;
   wipSay("実行中…", true);
-  post("/api/wip-commit", {paths: paths, message: msg, amend: !!amend})
+  post("/api/wip-commit", {paths: paths, message: msg, amend: amend})
     .then(r => {
-      wipMsg = ""; wipSel = {};
+      wipMsg = ""; wipMsgNormal = ""; wipSel = {}; wipAmendOn = false;
       showWip(true, r.message);
       refreshGraph().catch(() => {});
     })
     .catch(e => { wipSay(e.message, false); wipSync(); });
 }
 detailView.addEventListener("change", ev => {
+  if (ev.target.id === "wipAmendCk") { setWipAmend(ev.target.checked); return; }
   const ck = ev.target.closest(".wipck"), all = ev.target.closest(".wipall");
   if (ck) setWipPath(ck.dataset.path, ck.checked);
-  else if (all) detailView.querySelectorAll('.wipck[data-kind="' + all.dataset.kind + '"]').forEach(x => setWipPath(x.dataset.path, all.checked));
+  else if (all) wipCks(all.dataset.kind).forEach(x => setWipPath(x.dataset.path, all.checked));
   else return;
   wipSync();
 });
@@ -1440,11 +1503,17 @@ function showWip(fromHistory, okMsg) {
   const btns = '<button class="back-btn">← 履歴一覧に戻る</button><button class="sbtn" id="wipReload">↻ 更新</button>';
   detailView.innerHTML = btns + '<p class="hint">読み込み中…</p>';
   showView("detail"); curDetailHash = null;
-  api("/api/status", {}).then(s => {
-    wipStaged = new Set(s.staged.map(f => f.path)); wipMerging = !!s.merging;
+  api("/api/status", wipAmendOn ? {amend: 1} : {}).then(s => {
+    wipStaged = new Set(s.staged.map(f => f.path)); wipMerging = !!s.merging; wipHeadMsg = s.head_message || "";
+    const canAmend = !!(s.head && !s.merging && !s.rebasing);
+    if (wipAmendOn && !s.amend_files) {  // マージ中になったなどで amend できなくなった: 通常のコミットに戻す
+      wipMsg = wipMsgNormal; wipMsgNormal = ""; wipAmendOn = false;
+    }
     const canCommit = !!DATA.writable;  // 書き込みが無効 (--read-only など) のときはチェック欄を出さない
-    const sections = [["conflict", "競合", s.conflicts], ["staged", "ステージ済み (git add 済み)", s.staged],
-                      ["unstaged", "未ステージの変更", s.unstaged], ["untracked", "未追跡のファイル", s.untracked]];
+    const sections = wipAmendOn
+      ? [["amend", "amend 後のコミットの内容 (直前のコミットの親との差分)", s.amend_files]]
+      : [["conflict", "競合", s.conflicts], ["staged", "ステージ済み (git add 済み)", s.staged],
+         ["unstaged", "未ステージの変更", s.unstaged], ["untracked", "未追跡のファイル", s.untracked]];
     let files = [], body = "";
     sections.forEach(([kind, title, items]) => {
       if (!items.length) return;
@@ -1454,11 +1523,16 @@ function showWip(fromHistory, okMsg) {
       files = files.concat(list);
     });
     curCtx = {}; curFiles = files;
-    const box = canCommit && files.length
-      ? '<div class="wipbox"><textarea id="wipMsg" placeholder="コミットメッセージ"></textarea>' +
+    const hint = wipAmendOn
+      ? "直前のコミットのファイルはチェック済みで、外すとコミットから外れます (作業ツリーはそのまま)。[WIP] は未コミットの変更で、チェックすると取り込みます"
+      : "チェックを外したステージ済みファイルはステージから外れます (作業ツリーはそのまま)";
+    const box = canCommit && (files.length || wipAmendOn)
+      ? '<div class="wipbox">' +
+        (canAmend ? '<label class="amendrow"><input type="checkbox" id="wipAmendCk"' + (wipAmendOn ? " checked" : "") +
+          '>直前のコミットを amend する (履歴が書き換わります)</label>' : "") +
+        '<textarea id="wipMsg" placeholder="コミットメッセージ"></textarea>' +
         '<div class="arow"><button class="wbtn" id="wipCommit">コミット</button>' +
-        (s.head && !s.merging && !s.rebasing ? '<button class="wbtn" id="wipAmend">直前のコミットを amend</button>' : "") +
-        '<span class="hint">チェックを外したステージ済みファイルはステージから外れます (作業ツリーはそのまま)</span></div>' +
+        '<span class="hint">' + hint + '</span></div>' +
         '<div class="amsg" id="wipMsgOut"></div></div>' : "";
     detailView.innerHTML = btns + "<h2>作業ツリーの変更 (WIP)</h2>" +
       '<div class="meta">HEAD: ' + (s.head ? chips(s.head) + esc(s.head.slice(0, 7)) : "(コミットなし)") + "</div>" +
@@ -1558,6 +1632,63 @@ def wip_count(status):
     return len({f["path"] for k in ("staged", "unstaged", "untracked", "conflicts") for f in status[k]})
 
 
+def amend_base():
+    """amend 後のコミットの親 (HEAD^)。最初のコミットなら空ツリー。"""
+    try:
+        return git("rev-parse", "--verify", "--quiet", "HEAD^").strip()
+    except subprocess.CalledProcessError:
+        return git("hash-object", "-t", "tree", "/dev/null").strip()
+
+
+def parse_name_status(raw):
+    """--name-status -z の出力を {新しいパス: (変更の種類(M/A/D/R...), 元のパス or None)} にする。"""
+    toks = raw.split("\0")
+    out, i = {}, 0
+    while i < len(toks):
+        t = toks[i].lstrip("\n")
+        if not t:
+            i += 1
+            continue
+        if t[0] in "RC":
+            if i + 2 >= len(toks):
+                break
+            out[toks[i + 2]] = (t[0], toks[i + 1])
+            i += 3
+        else:
+            if i + 1 >= len(toks):
+                break
+            out[toks[i + 1]] = (t[0], None)
+            i += 2
+    return out
+
+
+def amend_head_changes(base):
+    """直前のコミット (HEAD) が変更したファイル {新しいパス: 元のパス or None}。"""
+    names = parse_name_status(git("diff", "--name-status", "-z", "-M", base, "HEAD", "--"))
+    return {path: old for path, (_, old) in names.items()}
+
+
+def amend_files(s):
+    """amend 後のコミットの内容 = 「直前のコミットの親」と作業ツリーの差分のファイル一覧。
+    直前のコミットで変更したファイルは in_head=True (チェックを外すとコミットから外れる)。WIP の変更があるものは tag=WIP。"""
+    base = amend_base()
+    letters = parse_name_status(git("diff", "--name-status", "-z", "-M", base, "--"))
+    in_head = amend_head_changes(base)
+    pending = {f["path"] for k in ("staged", "unstaged") for f in s[k]}
+    out = []
+    for f in parse_numstat(git("diff", "--numstat", "-z", "-M", base, "--")):
+        f["st"] = letters.get(f["path"], ("M", None))[0]
+        f["wip"] = "amend"
+        if f["path"] in in_head:
+            f["in_head"] = True
+        if f["path"] in pending:
+            f["tag"] = "WIP"
+        out.append(f)
+    for f in s["untracked"]:
+        out.append(dict(f, wip="amend", tag="WIP"))
+    return out
+
+
 def api_status(q):
     """作業ツリーの変更 (WIP)。ステージ済み/未ステージには追加・削除行数も付ける。"""
     if not WIP_ENABLED:
@@ -1577,6 +1708,10 @@ def api_status(q):
         s["head"] = ""
     s["merging"] = is_merging()
     s["rebasing"] = is_rebasing()
+    if s["head"]:
+        s["head_message"] = commit_info(s["head"])["message"]  # amend のときにメッセージの初期値にする
+        if q.get("amend", [""])[0] == "1" and not s["merging"] and not s["rebasing"]:
+            s["amend_files"] = amend_files(s)
     return s
 
 
@@ -1600,6 +1735,10 @@ def wip_diff(kind, path, specs):
         if r.returncode not in (0, 1):  # 1 は「差分あり」
             raise ValueError(r.stderr.strip() or "git diff に失敗しました")
         return r.stdout
+    if kind == "amend":  # 直前のコミットの親 と 作業ツリー の差分 (未追跡ファイルは新規ファイルとして)
+        if path in {f["path"] for f in parse_status(read_status_raw())["untracked"]}:
+            return wip_diff("untracked", path, specs)
+        return git("diff", "--no-color", "-M", amend_base(), "--", *specs, literal=True)
     raise ValueError("bad wip")
 
 
@@ -1880,7 +2019,7 @@ def diff_lines_html(text):
     return "".join(out)
 
 
-WIP_TITLES = {"conflict": "競合", "staged": "ステージ済み", "unstaged": "未ステージの変更", "untracked": "未追跡のファイル"}
+WIP_TITLES = {"amend": "amend 後のコミットの内容 (直前のコミットの親との差分)", "conflict": "競合", "staged": "ステージ済み", "unstaged": "未ステージの変更", "untracked": "未追跡のファイル"}
 
 
 def diff_url(ctx, f):
@@ -1900,8 +2039,14 @@ def commit_line_html(label, c):
             f'{html.escape(c["date"])})</span></div>')
 
 
-def wip_files():
-    """WIP の全ファイルを 競合 → ステージ済み → 未ステージ → 未追跡 の順に、種別(wip)つきで返す。"""
+def wip_files(kind=""):
+    """WIP の全ファイルを 競合 → ステージ済み → 未ステージ → 未追跡 の順に、種別(wip)つきで返す。
+    kind が amend のときは、amend 後のコミットの内容 (直前のコミットの親との差分) を返す。"""
+    if kind == "amend":
+        s = api_status({"amend": ["1"]})
+        if "amend_files" not in s:
+            raise ValueError("amend できる状態ではありません (コミットがない、またはマージ・リベース中です)")
+        return s["amend_files"]
     s = api_status({})
     out = []
     for kind, key in (("conflict", "conflicts"), ("staged", "staged"),
@@ -1917,9 +2062,9 @@ def render_diff_page(q):
     wip = q.get("wip", [""])[0]
     d = api_diff(q)
     if wip:  # 作業ツリーの変更
-        files, ctx, ref = wip_files(), {}, "WIP"
+        files, ctx, ref = wip_files(wip), {}, "WIP"
         info = f'<div class="meta">作業ツリーの変更 (WIP) — {html.escape(WIP_TITLES.get(wip, wip))}</div>'
-        cmd = {"staged": f"git diff --cached -- {path}",
+        cmd = {"staged": f"git diff --cached -- {path}", "amend": f"git diff HEAD^ -- {path}",
                "untracked": f"git diff --no-index /dev/null {path}"}.get(wip, f"git diff -- {path}")
     elif "from" in q:  # 2コミット間の比較
         c = api_compare(q)
@@ -2190,6 +2335,11 @@ def has_head():
                           capture_output=True).returncode == 0
 
 
+def has_parent():
+    return subprocess.run(["git", "-C", REPO, "rev-parse", "-q", "--verify", "HEAD^"],
+                          capture_output=True).returncode == 0
+
+
 def api_wip_commit(body):
     """チェックされたファイルを add してコミットする (TortoiseGit のコミットダイアログと同じ考え方)。
     ステージ済みでチェックのないファイルは、ステージから外す (作業ツリーの内容はそのまま)。"""
@@ -2205,12 +2355,15 @@ def api_wip_commit(body):
     if not msg:
         raise ValueError("コミットメッセージを入力してください")
     paths = body.get("paths")
-    if not isinstance(paths, list) or not paths or not all(isinstance(p, str) for p in paths):
-        raise ValueError("コミットするファイルを選んでください")
+    if not isinstance(paths, list) or not all(isinstance(p, str) for p in paths) or (not paths and not amend):
+        raise ValueError("コミットするファイルを選んでください")  # amend はメッセージだけの変更 (paths が空) もできる
     checked = set(paths)
     s = parse_status(read_status_raw(), limit=10 ** 9)
     known = {f["path"] for k in ("staged", "unstaged", "untracked", "conflicts") for f in s[k]}
-    bad = checked - known  # 任意のパスを add させないよう、いま変更ありと報告されているものだけを対象にする
+    head_changes = amend_head_changes(amend_base()) if amend else {}  # 直前のコミットが変更したファイル (チェックを外すとコミットから外す)
+    if amend and head_changes and not checked:  # index を触る前に確認する (空のコミットは git が拒否する)
+        raise ValueError("直前のコミットのファイルをすべて外すと、コミットが空になります (コミットごと取り消すなら git reset HEAD^)")
+    bad = checked - known - set(head_changes)  # 任意のパスを add させないよう、いま変更ありと報告されているものだけを対象にする
     if bad:
         raise ValueError("変更のないファイルが含まれています (更新してやり直してください): " + ", ".join(sorted(bad)[:3]))
     unstage = []
@@ -2229,13 +2382,30 @@ def api_wip_commit(body):
                 run_git_write("reset", "-q", "--", *part, literal=True)
             else:  # 最初のコミット前は HEAD がないので、インデックスから外す
                 run_git_write("rm", "--cached", "-r", "-q", "-f", "--", *part, literal=True)
+    drop = []  # amend: チェックを外した「直前のコミットのファイル」は、コミットから外す (親の状態に戻す。作業ツリーはそのまま)
+    for path, old in head_changes.items():
+        if path not in checked:
+            drop.append(path)
+            if old:
+                drop.append(old)
+    if drop:
+        base = amend_base()
+        for i in range(0, len(drop), step):
+            part = drop[i:i + step]
+            if has_parent():
+                run_git_write("reset", "-q", base, "--", *part, literal=True)
+            else:  # 最初のコミットには親がないので、インデックスから外す
+                run_git_write("rm", "--cached", "-r", "-q", "-f", "--", *part, literal=True)
     todo = sorted(checked)
     for i in range(0, len(todo), step):
         run_git_write("add", "-A", "--", *todo[i:i + step], literal=True)
     run_git_write("commit", *(["--amend"] if amend else []), "-m", msg)
     h = git("rev-parse", "HEAD").strip()
     verb = "amend" if amend else "コミット"
-    return {"ok": True, "message": f"{h[:7]} を {verb} しました ({len(checked)} 件)"}
+    tail = f" ({len(checked)} 件)" if checked else " (メッセージのみ)"
+    if drop:
+        tail += f"、{len([d for d in head_changes if d not in checked])} 件をコミットから外しました"
+    return {"ok": True, "message": f"{h[:7]} を {verb} しました{tail}"}
 
 
 def is_rebasing():
@@ -2528,6 +2698,61 @@ def api_fetch(body):
             else "fetch しました (更新はありません)"}
 
 
+def list_remotes():
+    """登録済みのリモート [{name, url}] (url は fetch 用)。"""
+    out = {}
+    for line in git("remote", "-v").splitlines():
+        m = re.fullmatch(r"(\S+)\t(.*) \((fetch|push)\)", line)
+        if m and (m.group(3) == "fetch" or m.group(1) not in out):
+            out[m.group(1)] = m.group(2)
+    for name in git("remote").split():  # url が無いリモートも出す
+        out.setdefault(name, "")
+    return [{"name": n, "url": u} for n, u in out.items()]
+
+
+def api_remotes(q):
+    return {"remotes": list_remotes()}
+
+
+def check_remote_name(name):
+    if not isinstance(name, str) or not name or name.startswith("-") or "\0" in name or name != name.strip():
+        raise ValueError("リモート名が不正です")
+    r = subprocess.run(["git", "-C", REPO, "check-ref-format", "refs/remotes/" + name + "/HEAD"], capture_output=True)
+    if r.returncode != 0:
+        raise ValueError(f"{name!r} はリモート名として使えません")
+
+
+def api_remote_add(body):
+    """リモートを追加する。fetch:true なら続けて fetch する (fetch に失敗してもリモートは追加済み)。"""
+    name, url = body.get("name"), body.get("url")
+    check_remote_name(name)
+    if not isinstance(url, str) or not url.strip() or "\0" in url or "\n" in url:
+        raise ValueError("URL が不正です")
+    url = url.strip()
+    if url.startswith("-") or re.match(r"(ext|fd)::", url):  # オプション注入と、任意コマンドを実行できる転送方式を避ける
+        raise ValueError("この URL は使えません")
+    if name in {r["name"] for r in list_remotes()}:
+        raise ValueError(f"リモート {name} は既に登録されています")
+    run_git_write("remote", "add", "--", name, url)
+    msg = f"リモート {name} を追加しました"
+    if body.get("fetch") is True:
+        r = run_git_net("fetch", name)
+        if r.returncode != 0:
+            return {"ok": True, "fetch_failed": True,
+                    "message": msg + "が、fetch に失敗しました: " + net_error(r, "fetch に失敗しました")}
+        msg += " (fetch しました)"
+    return {"ok": True, "message": msg}
+
+
+def api_remote_remove(body):
+    """リモートを削除する (リモート追跡ブランチと設定も消える。リモート側は変わらない)。"""
+    name = body.get("name")
+    if not isinstance(name, str) or name not in {r["name"] for r in list_remotes()}:  # 登録済みの名前だけ許可
+        raise ValueError("リモートが見つかりません")
+    run_git_write("remote", "remove", "--", name)
+    return {"ok": True, "message": f"リモート {name} を削除しました (リモート追跡ブランチも削除しました)"}
+
+
 def api_pull(body):
     """現在のブランチに upstream の変更を取り込む。
     merge で競合したときはマージ途中で止める (WIP で解決)。rebase で競合したときは中止して元に戻す。"""
@@ -2634,7 +2859,8 @@ def api_push(body):
 
 POST_ROUTES = {"/api/stash": api_stash, "/api/rebase": api_rebase, "/api/rebase-i": api_rebase_i, "/api/cherry-pick": api_cherry_pick, "/api/merge": api_merge, "/api/branch": api_branch, "/api/tag": api_tag, "/api/ref-delete": api_delete_ref,
                "/api/checkout": api_checkout, "/api/wip-commit": api_wip_commit,
-               "/api/fetch": api_fetch, "/api/pull": api_pull, "/api/push": api_push}
+               "/api/fetch": api_fetch, "/api/pull": api_pull, "/api/push": api_push,
+               "/api/remote-add": api_remote_add, "/api/remote-remove": api_remote_remove}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -2661,6 +2887,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, "application/json", json.dumps(api_reflog(q), ensure_ascii=False))
             elif u.path == "/api/status":
                 self._send(200, "application/json", json.dumps(api_status(q), ensure_ascii=False))
+            elif u.path == "/api/remotes":
+                self._send(200, "application/json", json.dumps(api_remotes(q), ensure_ascii=False))
             elif u.path == "/api/graph":
                 self._send(200, "application/json", graph_payload())
             elif u.path == "/api/rebase-todo":
@@ -2742,7 +2970,13 @@ def main():
     ap.add_argument("--read-only", action="store_true", help="書き込み操作 (ブランチ/タグ作成・チェックアウト) を無効にする")
     ap.add_argument("--allow-write", action="store_true",
                     help="127.0.0.1 以外で待ち受けるときも書き込み操作を許可する (既定では無効)")
+    ap.add_argument("--lan", action="store_true",
+                    help="--host 0.0.0.0 --allow-write の省略形 (他の端末からも操作可。認証はないので信頼できるネットワークで)")
     OPTS = ap.parse_args()
+    if OPTS.lan:
+        if OPTS.host == "127.0.0.1":  # --host を明示しているときはそちらを優先する
+            OPTS.host = "0.0.0.0"
+        OPTS.allow_write = True
     REPO = OPTS.repo
     WRITABLE = (not OPTS.read_only) and (is_loopback(OPTS.host) or OPTS.allow_write)
 
@@ -2762,8 +2996,12 @@ def main():
         return
 
     server = ThreadingHTTPServer((OPTS.host, OPTS.port), Handler)
-    url = f"http://{OPTS.host}:{OPTS.port}/"
+    url = f"http://{'localhost' if OPTS.host == '0.0.0.0' else OPTS.host}:{OPTS.port}/"  # 0.0.0.0 はブラウザで開く宛先にならない
     print(f"serving {url}  (Ctrl+C で終了)  書き込み操作: {'有効' if WRITABLE else '無効'}")
+    if OPTS.host == "0.0.0.0":
+        print(f"  待ち受け: 0.0.0.0:{OPTS.port} (他の端末からは http://<このPCのIP>:{OPTS.port}/ )")
+        if WRITABLE:
+            print("  注意: 認証はありません。同じネットワークの誰でもブランチ作成・コミット・push などができます")
     if OPTS.open:
         webbrowser.open(url)
     try:
