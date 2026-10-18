@@ -253,13 +253,18 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   #reload { position: absolute; top: 8px; right: 14px; z-index: 5; margin: 0; }
   #graphStatus { position: absolute; top: 10px; left: 12px; z-index: 5; padding: 4px 8px; border-radius: 3px; background: #fff; color: #555; }
   #graphStatus[hidden] { display: none; }
-  #compareControls { position: absolute; top: 42px; right: 14px; z-index: 5; display: flex; align-items: center; gap: 6px; padding: 6px; border: 1px solid #ccc; border-radius: 4px; background: #fff; box-shadow: 0 1px 4px #0002; }
-  #compareControls { flex-wrap: wrap; max-width: 440px; justify-content: flex-end; }
-  #compareControls[hidden] { display: none; }
-  #cmpActions { display: block; flex: 0 0 100%; box-sizing: border-box; margin: 2px 0 0; }
-  #cmpActions[hidden] { display: none; }
+  #compareControls { position: absolute; top: 42px; right: 14px; z-index: 5; }
   #compareControls [hidden] { display: none; }
-  #compareControls label { white-space: nowrap; }
+  #compareToolbar, #cmpActions { padding: 6px; border: 1px solid #ccc; border-radius: 4px; background: #fff; box-shadow: 0 1px 4px #0002; }
+  #compareToolbar { display: flex; align-items: center; gap: 6px; }
+  #cmpActions { position: absolute; top: 100%; right: 0; display: flex; flex-direction: column; gap: 6px; box-sizing: border-box; min-width: 250px; max-width: min(440px, calc(100vw - 24px)); max-height: calc(100vh - 70px); overflow: auto; margin-top: 4px; }
+  #cmpActions[hidden] { display: none; }
+  #cmpActions label { white-space: nowrap; }
+  #cmpActions select { max-width: 100%; }
+  .menu-row { display: flex; flex-direction: column; gap: 4px; }
+  .menu-row > .abtn { align-self: stretch; text-align: left; }
+  .menu-section { display: flex; flex-direction: column; gap: 4px; }
+  .menu-separator { border: 0; border-top: 1px solid #ccc; width: 100%; margin: 0; }
   #compareControls .cmp-hash { font-family: monospace; white-space: nowrap; }
   #splitter { flex: 0 0 6px; cursor: col-resize; background: #eee; border-left: 1px solid #ccc; border-right: 1px solid #ccc; box-sizing: border-box; touch-action: none; }
   #splitter:hover, body.resizing #splitter { background: #c8d8f0; }
@@ -286,9 +291,18 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   .abtn { background: #e8eefc; border: 1px solid #b8c7ee; padding: 3px 8px; border-radius: 3px; cursor: pointer; }
   .abtn:hover { background: #d6e2fb; } .abtn:disabled { opacity: .5; cursor: default; }
   .amsg { margin-top: 4px; white-space: pre-wrap; } .amsg.ok { color: #1a7f37; } .amsg.ng { color: #cf222e; }
-  #coModal { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+  #coModal, #actionModal { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: flex; align-items: center; justify-content: center; z-index: 1000; }
   #coModal[hidden] { display: none; }
+  #actionModal[hidden] { display: none; }
   .comodal { background: #fff; border-radius: 6px; padding: 14px 16px; max-width: 560px; max-height: 80vh; overflow: auto; box-shadow: 0 4px 20px rgba(0,0,0,.3); }
+  .action-dialog { background: #fff; border-radius: 6px; padding: 14px 16px; width: min(420px, calc(100vw - 48px)); max-height: 80vh; overflow: auto; box-shadow: 0 4px 20px rgba(0,0,0,.3); }
+  .action-dialog h2 { font-size: 16px; margin: 0 0 12px; }
+  .action-fields { display: flex; flex-direction: column; gap: 10px; }
+  .action-fields label { display: flex; flex-direction: column; gap: 4px; }
+  .action-fields label.check { flex-direction: row; align-items: center; }
+  .action-fields input[type=text], .action-fields select { box-sizing: border-box; width: 100%; padding: 5px 7px; }
+  .dialog-buttons { display: flex; justify-content: flex-end; gap: 6px; margin-top: 14px; }
+  .dialog-buttons button { margin: 0; }
   .comodal ul { margin: 2px 0 8px; padding-left: 20px; font-family: monospace; word-break: break-all; }
   .comodal .arow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
   .abtn.danger { background: #fde8e8; border-color: #eeb8b8; } .abtn.danger:hover { background: #fbd3d3; }
@@ -335,35 +349,40 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 <div id="graphWrap">
 <button id="reload" class="sbtn" disabled title="グラフを最新の状態に更新">↻ 更新</button>
 <div id="graphStatus" role="status" aria-live="polite" hidden></div>
-<div id="compareControls" hidden>
-  <span class="cmp-hash" id="cmpA"></span><span class="cmp-hash" id="cmpB"></span>
-  <button class="sbtn" id="compareBtn" disabled>比較</button>
-  <button class="sbtn" id="mergeBtn" hidden title="Aを現在のHEADにマージ">マージ</button>
-  <button class="sbtn" id="rebaseBtn" hidden title="現在のブランチをAの上にリベース">リベース</button>
-  <label id="mergeNoFf" hidden title="fast-forwardできる場合でもマージコミットを作る"><input type="checkbox" id="mergeNoFfCk"> --no-ff</label>
-  <button class="sbtn" id="cmpActToggle" hidden aria-expanded="false" title="Aに対するブランチ作成・タグ作成・チェックアウト">操作 ▾</button>
-  <button class="sbtn" id="clearCmpBtn">クリア</button>
+<div id="compareControls">
+  <div id="compareToolbar">
+    <span class="cmp-hash" id="cmpA"></span><span class="cmp-hash" id="cmpB"></span>
+    <button class="sbtn" id="cmpActToggle" aria-expanded="false" aria-controls="cmpActions">操作 ▾</button>
+    <button class="sbtn" id="clearCmpBtn">クリア</button>
+  </div>
   <div class="actions" id="cmpActions" hidden>
-    <div class="arow"><input type="text" id="cmBrName" placeholder="新しいブランチ名">
-      <label><input type="checkbox" id="cmBrCo"> 作成後にチェックアウト</label>
-      <button class="abtn" data-cact="branch">ブランチ作成</button></div>
-    <div class="arow"><input type="text" id="cmTagName" placeholder="タグ名">
-      <input type="text" id="cmTagMsg" placeholder="メッセージ (入れると注釈付きタグ)">
-      <button class="abtn" data-cact="tag">タグ作成</button></div>
-    <div class="arow"><button class="abtn" data-cact="checkout">チェックアウト (detached HEAD)</button>
-      <span id="cmCoBtns"></span></div>
-    <div class="arow"><button class="abtn" data-cact="fetch">fetch</button>
-      <label title="リモートで削除されたブランチの追跡ブランチをローカルからも消す"><input type="checkbox" id="cmFetchPrune"> --prune</label></div>
-    <div class="arow" id="cmPullRow"><button class="abtn" data-cact="pull">pull</button>
-      <select id="cmPullMode" title="取り込み方法">
-        <option value="ff-only">fast-forwardのみ (--ff-only)</option>
-        <option value="merge">マージ (--no-rebase)</option>
-        <option value="rebase">リベース (--rebase)</option>
-      </select></div>
-    <div class="arow"><button class="abtn" data-cact="push">push</button>
-      <label title="リモートが自分の知らない更新をしていたら拒否される安全な強制push"><input type="checkbox" id="cmPushForce"> --force-with-lease</label></div>
+    <div class="menu-section" id="remoteActions">
+      <button class="abtn" data-cact="push">push</button>
+      <button class="abtn" data-cact="pull">pull</button>
+      <button class="abtn" data-cact="fetch">fetch</button>
+    </div>
+    <hr class="menu-separator" id="selectionMenuSeparator" hidden>
+    <button class="abtn" id="compareBtn" hidden>比較</button>
+    <div class="menu-section" id="aActions" hidden>
+      <button class="abtn" id="mergeBtn" title="Aを現在のHEADにマージ">マージ</button>
+      <button class="abtn" id="rebaseBtn" title="現在のブランチをAの上にリベース">リベース</button>
+      <button class="abtn" data-cact="branch">ブランチ作成</button>
+      <button class="abtn" data-cact="tag">タグ作成</button>
+      <button class="abtn" data-cact="checkout">チェックアウト</button>
+    </div>
+    <div class="amsg" id="cmRemoteMsg" role="status" aria-live="polite"></div>
     <div class="amsg" id="cmMsg"></div>
   </div>
+</div>
+<div id="actionModal" hidden>
+  <form class="action-dialog" id="actionForm" role="dialog" aria-modal="true" aria-labelledby="actionTitle">
+    <h2 id="actionTitle"></h2>
+    <div class="action-fields" id="actionFields"></div>
+    <div class="dialog-buttons">
+      <button type="button" class="abtn" data-dialog-cancel>キャンセル</button>
+      <button type="submit" class="abtn" id="actionSubmit"></button>
+    </div>
+  </form>
 </div>
 <div id="coModal" hidden><div class="comodal" role="dialog" aria-modal="true">
   <div><b>チェックアウトできません</b> — 次のファイルが邪魔をしています。</div>
@@ -675,26 +694,28 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
     if (nodeEl[h]) nodeEl[h].classList.add(cls);
     listView.querySelectorAll('tr[data-h="' + h + '"]').forEach(tr => tr.classList.add(cls));
   });
-  const controls = document.getElementById("compareControls");
-  controls.hidden = cmp.length === 0;
   document.getElementById("cmpA").textContent = cmp.length ? "A: " + cmp[0].slice(0, 7) : "";
-  document.getElementById("cmpB").textContent = cmp.length > 1 ? "B: " + cmp[1].slice(0, 7) : "B: 未選択";
-  document.getElementById("compareBtn").disabled = cmp.length !== 2;
+  document.getElementById("cmpB").textContent = cmp.length ? (cmp.length > 1 ? "B: " + cmp[1].slice(0, 7) : "B: 未選択") : "";
+  document.getElementById("cmpActToggle").setAttribute("aria-expanded", cmpActOpen ? "true" : "false");
+  document.getElementById("cmpActToggle").textContent = cmpActOpen ? "操作 ▴" : "操作 ▾";
+  document.getElementById("clearCmpBtn").disabled = cmp.length === 0;
+  document.getElementById("cmpActions").hidden = !cmpActOpen;
+  document.getElementById("compareBtn").hidden = cmp.length !== 2;
+  document.getElementById("aActions").hidden = cmp.length !== 1;
+  document.getElementById("selectionMenuSeparator").hidden = cmp.length === 0;
   const canMerge = cmp.length === 1 && !!DATA.writable && !!DATA.merge;  // Aだけ選んでいるときだけマージできる
-  document.getElementById("mergeBtn").hidden = !canMerge;
-  document.getElementById("rebaseBtn").hidden = !canMerge;
-  const canAct = cmp.length === 1 && !!DATA.writable;  // Aだけ選んでいるとき: ブランチ作成・タグ作成・チェックアウト
-  document.getElementById("cmpActToggle").hidden = !canAct;
-  const panel = document.getElementById("cmpActions");
-  panel.hidden = !(canAct && cmpActOpen);
-  if (canAct) {
-    document.getElementById("cmCoBtns").innerHTML = localBranches(cmp[0]).map(b =>
-      '<button class="abtn" data-cact="checkout-branch" data-branch="' + esc(b) + '">checkout ' + esc(b) + "</button>").join(" ");
-  } else {
+  document.getElementById("mergeBtn").disabled = !canMerge;
+  document.getElementById("rebaseBtn").disabled = !canMerge;
+  const canWrite = !!DATA.writable;
+  document.querySelectorAll("#aActions button")
+    .forEach(el => { el.disabled = !canWrite || (["mergeBtn", "rebaseBtn"].includes(el.id) && !DATA.merge); });
+  document.querySelectorAll("#remoteActions button")
+    .forEach(el => { el.disabled = !canWrite || (el.dataset.cact === "pull" && !DATA.merge); });
+  document.querySelector('#remoteActions [data-cact="pull"]').title =
+    DATA.merge ? "" : "pull には書き込み可能なワークツリーが必要です";
+  if (cmp.length !== 1) {
     document.getElementById("cmMsg").textContent = "";
   }
-  document.getElementById("mergeNoFf").hidden = !canMerge;
-  document.getElementById("cmPullRow").hidden = !DATA.merge;  // pull はワークツリーが要る
 }
 let cmpActOpen = false;
 function askCheckoutConflict(r) {  // チェックアウトを止めているファイルを見せて、stash / 削除 / キャンセルを選んでもらう
@@ -714,29 +735,73 @@ function askCheckoutConflict(r) {  // チェックアウトを止めているフ
     };
   });
 }
+function openActionDialog(title, fields, submitLabel) {
+  return new Promise(resolve => {
+    const modal = document.getElementById("actionModal"), form = document.getElementById("actionForm");
+    const finish = value => {
+      modal.hidden = true;
+      form.onsubmit = null;
+      modal.onclick = null;
+      window.removeEventListener("keydown", onKeyDown);
+      resolve(value);
+    };
+    const onKeyDown = ev => { if (ev.key === "Escape") finish(null); };
+    document.getElementById("actionTitle").textContent = title;
+    document.getElementById("actionFields").innerHTML = fields;
+    document.getElementById("actionSubmit").textContent = submitLabel;
+    modal.hidden = false;
+    form.onsubmit = ev => {
+      ev.preventDefault();
+      const values = Object.fromEntries(new FormData(form).entries());
+      form.querySelectorAll('input[type="checkbox"][name]').forEach(input => { values[input.name] = input.checked; });
+      finish(values);
+    };
+    modal.onclick = ev => {
+      if (ev.target === modal || ev.target.closest("[data-dialog-cancel]")) finish(null);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    const first = form.querySelector("input, select");
+    if (first) first.focus();
+  });
+}
 function setCmpMsg(text, ok) {
   const el = document.getElementById("cmMsg");
   el.textContent = text; el.className = "amsg " + (ok ? "ok" : "ng");
 }
-function doCmpAction(btn) {  // Aに対するブランチ作成 / タグ作成 / チェックアウト
+function setRemoteMsg(text, ok) {
+  const el = document.getElementById("cmRemoteMsg");
+  el.textContent = text; el.className = "amsg " + (ok ? "ok" : "ng");
+}
+async function doCmpAction(btn) {  // Aに対するブランチ作成 / タグ作成 / チェックアウト
   if (cmp.length !== 1) return;
-  const h = cmp[0], act = btn.dataset.cact, val = id => document.getElementById(id).value.trim();
-  let url, body, ask = null;
+  const h = cmp[0], act = btn.dataset.cact;
+  let values, url, body, ask = null;
   if (act === "branch") {
-    const name = val("cmBrName");
-    if (!name) { setCmpMsg("ブランチ名を入力してください", false); return; }
-    url = "/api/branch"; body = {hash: h, name: name, checkout: document.getElementById("cmBrCo").checked};
-    if (body.checkout) ask = "ブランチ " + name + " を作成してチェックアウトします (作業ツリーが切り替わります)。よろしいですか？";
+    values = await openActionDialog("ブランチ作成", '<label>ブランチ名<input type="text" name="name" required autofocus></label>' +
+      '<label class="check"><input type="checkbox" name="checkout"> 作成後にチェックアウト</label>', "作成");
+    if (!values) return;
+    url = "/api/branch"; body = {hash: h, name: values.name.trim(), checkout: values.checkout};
+    if (!body.name) { setCmpMsg("ブランチ名を入力してください", false); return; }
+    if (body.checkout) ask = "ブランチ " + body.name + " を作成してチェックアウトします (作業ツリーが切り替わります)。よろしいですか？";
   } else if (act === "tag") {
-    const name = val("cmTagName");
-    if (!name) { setCmpMsg("タグ名を入力してください", false); return; }
-    url = "/api/tag"; body = {hash: h, name: name, message: val("cmTagMsg")};
+    values = await openActionDialog("タグ作成", '<label>タグ名<input type="text" name="name" required autofocus></label>' +
+      '<label>メッセージ (任意)<input type="text" name="message"></label>', "作成");
+    if (!values) return;
+    url = "/api/tag"; body = {hash: h, name: values.name.trim(), message: values.message.trim()};
+    if (!body.name) { setCmpMsg("タグ名を入力してください", false); return; }
   } else if (act === "checkout") {
-    url = "/api/checkout"; body = {hash: h};
-    ask = "コミット " + h.slice(0, 7) + " を detached HEAD でチェックアウトします (作業ツリーが切り替わります)。よろしいですか？";
-  } else if (act === "checkout-branch") {
-    url = "/api/checkout"; body = {branch: btn.dataset.branch};
-    ask = "ブランチ " + btn.dataset.branch + " をチェックアウトします (作業ツリーが切り替わります)。よろしいですか？";
+    const branches = localBranches(h);
+    values = await openActionDialog("チェックアウト", '<label>切り替え先<select name="branch"><option value="">コミットを detached HEAD でチェックアウト</option>' +
+      branches.map(branch => '<option value="' + esc(branch) + '">' + esc(branch) + '</option>').join("") +
+      '</select></label>', "チェックアウト");
+    if (!values) return;
+    if (values.branch) {
+      url = "/api/checkout"; body = {branch: values.branch};
+      ask = "ブランチ " + values.branch + " をチェックアウトします (作業ツリーが切り替わります)。よろしいですか？";
+    } else {
+      url = "/api/checkout"; body = {hash: h};
+      ask = "コミット " + h.slice(0, 7) + " を detached HEAD でチェックアウトします (作業ツリーが切り替わります)。よろしいですか？";
+    }
   } else return;
   if (ask && !confirm(ask)) return;
   btn.disabled = true; setCmpMsg("実行中…", true);
@@ -754,50 +819,57 @@ function doCmpAction(btn) {  // Aに対するブランチ作成 / タグ作成 /
     .then(r => {
       if (r.cancelled) { setCmpMsg(r.message, false); return; }
       setCmpMsg(r.message, true);
-      if (act === "branch") document.getElementById("cmBrName").value = "";
-      if (act === "tag") { document.getElementById("cmTagName").value = ""; document.getElementById("cmTagMsg").value = ""; }
       return refreshGraph().catch(() => {});
     })
     .catch(e => setCmpMsg(e.message, false))
     .finally(() => { btn.disabled = false; });
 }
-function doRemoteAction(btn) {  // fetch / pull / push (リモートとの通信。Aの選択とは無関係に現在のブランチが対象)
-  const act = btn.dataset.cact, ck = id => document.getElementById(id).checked;
+async function doRemoteAction(btn) {  // fetch / pull / push (リモートとの通信。Aの選択とは無関係に現在のブランチが対象)
+  const act = btn.dataset.cact;
   const url = "/api/" + act;
   let body = {}, ask = null;
   if (act === "fetch") {
-    body = {prune: ck("cmFetchPrune")};
+    const values = await openActionDialog("fetch", '<label class="check"><input type="checkbox" name="prune"> --prune (リモートで削除された追跡ブランチも削除)</label>', "fetch");
+    if (!values) return;
+    body = {prune: values.prune};
   } else if (act === "pull") {
-    const mode = document.getElementById("cmPullMode").value;
+    const values = await openActionDialog("pull", '<label>取り込み方法<select name="mode">' +
+      '<option value="ff-only">fast-forwardのみ (--ff-only)</option>' +
+      '<option value="merge">マージ (--no-rebase)</option>' +
+      '<option value="rebase">リベース (--rebase)</option></select></label>', "pull");
+    if (!values) return;
+    const mode = values.mode;
     body = {mode: mode};
     ask = "リモートの変更を pull します (" + {"ff-only": "fast-forwardのみ", "merge": "マージ", "rebase": "リベース"}[mode] +
           ")。作業ツリーが変わります。よろしいですか？";
   } else if (act === "push") {
-    body = {force: ck("cmPushForce")};
+    const values = await openActionDialog("push", '<label class="check"><input type="checkbox" name="force"> --force-with-lease (リモート履歴を書き換える)</label>', "push");
+    if (!values) return;
+    body = {force: values.force};
     ask = body.force
       ? "現在のブランチを --force-with-lease で push します。リモートの履歴が書き換わります。よろしいですか？"
       : "現在のブランチを push します。よろしいですか？";
   } else return;
   if (ask && !confirm(ask)) return;
-  btn.disabled = true; setCmpMsg("実行中… (リモートとの通信に時間がかかることがあります)", true);
+  btn.disabled = true; setRemoteMsg("実行中… (リモートとの通信に時間がかかることがあります)", true);
   let p = post(url, body);
   if (act === "push") {
     p = p.then(r => {
       if (!r.needs_upstream) return r;
       if (!confirm("ブランチ " + r.branch + " には upstream が設定されていません。" + r.remote + "/" + r.branch +
                    " として push し、upstream に設定しますか？")) return {cancelled: true, message: "push をキャンセルしました"};
-      setCmpMsg("実行中… (リモートとの通信に時間がかかることがあります)", true);
+      setRemoteMsg("実行中… (リモートとの通信に時間がかかることがあります)", true);
       return post(url, Object.assign({}, body, {set_upstream: true}));
     });
   }
   p.then(r => {
-    if (r.cancelled) { setCmpMsg(r.message, false); return; }
-    setCmpMsg(r.message, !r.conflict);
+    if (r.cancelled) { setRemoteMsg(r.message, false); return; }
+    setRemoteMsg(r.message, !r.conflict);
     return refreshGraph().catch(() => {}).then(() => {
       if (r.conflict) { setGraphStatus(r.message); clearCmp(); showWip(); }
     });
   })
-    .catch(e => setCmpMsg(e.message, false))
+    .catch(e => setRemoteMsg(e.message, false))
     .finally(() => { btn.disabled = false; });
 }
 function clearCmp() { cmp = []; updateCmpClasses(); }
@@ -822,9 +894,12 @@ function doRebase() {
     .catch(e => { setGraphStatus("リベースできませんでした: " + e.message); })
     .finally(() => { btn.disabled = false; });
 }
-function doMerge() {
+async function doMerge() {
   if (cmp.length !== 1) return;
-  const h = cmp[0], noFf = document.getElementById("mergeNoFfCk").checked;
+  const options = await openActionDialog("マージ", '<label class="check" title="fast-forwardできる場合でもマージコミットを作る">' +
+    '<input type="checkbox" name="noFf"> --no-ff</label>', "マージ");
+  if (!options) return;
+  const h = cmp[0], noFf = options.noFf;
   const btn = document.getElementById("mergeBtn");
   btn.disabled = true;
   fetch("/api/head").then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); }))
@@ -906,23 +981,24 @@ detailView.addEventListener("click", ev => {
   if (tr && !ev.target.closest("a, input, td.fk") && curCtx)  // 行のどこをクリックしても差分を開く
     location.href = diffUrl(curCtx, curFiles[+tr.dataset.k]);
 });
-document.getElementById("compareControls").addEventListener("click", ev => {
-  if (ev.target.closest("#compareBtn") && cmp.length === 2) showCompare(cmp[0], cmp[1]);
-  const tg = ev.target.closest("#cmpActToggle");
-  if (tg) {
-    cmpActOpen = !cmpActOpen;
-    tg.setAttribute("aria-expanded", cmpActOpen ? "true" : "false"); tg.textContent = cmpActOpen ? "操作 ▴" : "操作 ▾";
-    updateCmpClasses();
-    if (cmpActOpen) document.getElementById("cmBrName").focus();
+document.getElementById("cmpActions").addEventListener("click", ev => {
+  if (ev.target.closest("#compareBtn") && cmp.length === 2) { showCompare(cmp[0], cmp[1]); return; }
+  if (ev.target.closest("#mergeBtn")) { doMerge(); return; }
+  if (ev.target.closest("#rebaseBtn")) { doRebase(); return; }
+  const cab = ev.target.closest(".abtn[data-cact]");
+  if (cab) {
+    (["fetch", "pull", "push"].includes(cab.dataset.cact) ? doRemoteAction : doCmpAction)(cab);
     return;
   }
-  const cab = ev.target.closest(".abtn[data-cact]");
-  if (cab) { (["fetch", "pull", "push"].includes(cab.dataset.cact) ? doRemoteAction : doCmpAction)(cab); return; }
-  if (ev.target.closest("#mergeBtn")) doMerge();
-  if (ev.target.closest("#rebaseBtn")) doRebase();
-  if (ev.target.closest("#clearCmpBtn")) clearCmp();
 });
-
+document.getElementById("compareToolbar").addEventListener("click", ev => {
+  if (ev.target.closest("#cmpActToggle")) {
+    cmpActOpen = !cmpActOpen;
+    updateCmpClasses();
+  } else if (ev.target.closest("#clearCmpBtn")) {
+    clearCmp();
+  }
+});
 function select(g) {
   if (selected) selected.classList.remove("sel");
   selected = g; g.classList.add("sel");
@@ -1086,6 +1162,7 @@ fetch("/api/graph")
     DATA = {nodes: r.nodes, edges: r.edges, writable: r.writable, merge: r.merge};
     document.getElementById("graph").innerHTML = r.svg;
     init();
+    updateCmpClasses();
     document.getElementById("reload").disabled = false;
     restoreScreen(history.state || {screen: "home"});
   })
