@@ -2157,6 +2157,10 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
   document.getElementById("actionTarget").textContent = actionHash ? t("target_label") + ": " + actionHash.slice(0, 7) : "";
   document.getElementById("cmpA").textContent = compareAHash ? "A: " + compareAHash.slice(0, 7) : "";
   document.getElementById("cmpB").textContent = compareBHash ? "B: " + compareBHash.slice(0, 7) : "";
+  if (!actionHash) cmpActOpen = false;
+  if (!compareAHash || !compareBHash) abActOpen = false;
+  document.getElementById("cmpActToggle").disabled = !actionHash;
+  document.getElementById("abActToggle").disabled = !compareAHash || !compareBHash;
   document.getElementById("cmpActToggle").setAttribute("aria-expanded", cmpActOpen ? "true" : "false");
   document.getElementById("cmpActToggle").textContent = cmpActOpen ? t("actions").replace("▾", "▴") : t("actions");
   document.getElementById("abActToggle").setAttribute("aria-expanded", abActOpen ? "true" : "false");
@@ -2806,6 +2810,7 @@ async function doMerge() {
 function selectCmpA(hash) {
   compareAHash = hash;
   if (compareBHash === hash) compareBHash = null;
+  if (compareAHash && compareBHash) { abActOpen = true; cmpActOpen = false; setOtherMenu(false); }
   updateCmpClasses();
   saveUiState();
 }
@@ -2816,6 +2821,7 @@ function selectCompareHash(slot, hash) {
 function selectCmpB(hash) {
   compareBHash = hash;
   if (compareAHash === hash) compareAHash = null;
+  if (compareAHash && compareBHash) { abActOpen = true; cmpActOpen = false; setOtherMenu(false); }
   updateCmpClasses();
   saveUiState();
 }
@@ -2985,7 +2991,7 @@ function onNodeClick(g, n, ev) {
   if (ev && (ev.ctrlKey || ev.metaKey) && actionHash && actionHash !== n.hash && !n.wip) {
     compareAHash = actionHash;
     compareBHash = n.hash;
-    cmpActOpen = true; abActOpen = false; setOtherMenu(false);
+    cmpActOpen = false; abActOpen = true; setOtherMenu(false);
     select(g);
     updateCmpClasses();
     saveUiState();
