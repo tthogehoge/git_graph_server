@@ -199,6 +199,7 @@ TRANSLATIONS = {
         "set_compare": "比較 {slot} に設定",
         "swap_ab": "A ⇄ B 入れ替え",
         "compare_heading": "比較 {from} → {to}",
+        "compare_logs_heading": "ログ比較 {from} → {to}",
         "file_log_heading": "ファイルログ: {path}",
         "file_history_title": "{path} の変更履歴",
         "elapsed_hint": "{sec} 秒経過（リポジトリが大きいと時間がかかります）",
@@ -598,6 +599,7 @@ TRANSLATIONS = {
         "set_compare": "Set as comparison {slot}",
         "swap_ab": "Swap A ⇄ B",
         "compare_heading": "Compare {from} → {to}",
+        "compare_logs_heading": "Compare logs {from} → {to}",
         "file_log_heading": "File log: {path}",
         "file_history_title": "{path} change history",
         "elapsed_hint": "{sec}s elapsed (large repositories may take longer)",
@@ -1224,6 +1226,7 @@ __FAVICON__
   #splitter:hover, body.resizing #splitter { background: #c8d8f0; }
   body.resizing { cursor: col-resize; user-select: none; }
   #panel { flex: 0 0 var(--panel-width, 480px); min-width: 240px; display: flex; flex-direction: column; border-left: 1px solid #ccc; background: #fafafa; box-sizing: border-box; }
+  body.compare-logs-mode #panel { flex-basis: min(760px, 68vw); }
   #listView, #detailView { flex: 1; min-height: 0; overflow: auto; padding: 14px; box-sizing: border-box; }
   #detailView { display: none; background: #fff; }
   h2 { font-size: 14px; margin: 0 0 8px; }
@@ -1300,6 +1303,16 @@ __FAVICON__
   g.node.actionTarget polygon { stroke: #6f42c1; stroke-width: 3; }
   @media (hover: none) { table.log .cmp-pick { opacity: 1; } }
   table.log .meta { font-size: 12px; color: #888; margin: 0; }
+  table.log tr.log-gap td { padding-top: 4px; padding-bottom: 4px; }
+  .compare-log-col table.log tr.log-common td { background: #f3f3f3; color: #666; }
+  .compare-log-col table.log tr.log-common-start td { border-top: 2px solid #999; }
+  .compare-logs { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+  .compare-log-col { min-width: 0; overflow: hidden; }
+  .compare-log-col h3 { margin: 8px 0 4px; font-size: 14px; }
+  .compare-log-col table.log { margin-top: 0; max-width: 100%; table-layout: fixed; }
+  .compare-log-col table.log td.h { width: 7.5em; max-width: 7.5em; overflow: hidden; }
+  .compare-log-col table.log td:not(.h) { overflow-wrap: anywhere; word-break: break-word; }
+  @media (max-width: 760px) { .compare-logs { grid-template-columns: 1fr; } }
   table.files { border-collapse: collapse; margin: 6px 0; font-family: monospace; font-size: 12px; width: 100%; }
   table.files td { padding: 2px 6px; vertical-align: top; }
   tr.frow { cursor: pointer; } tr.frow:hover td { background: #eef; }
@@ -1565,8 +1578,8 @@ function saveUiState() {
     compareA: compareAHash, compareB: compareBHash, actionHash: actionHash, cmpActOpen: cmpActOpen
   }), "");
 }
-function rowHtml(c) {  // c = [hash, short, author, date, subject]
-  return '<tr class="clickable" data-h="' + c[0] + '"><td class="h">' + esc(c[1]) + copyLink(c[0]) +
+function rowHtml(c, extraClass) {  // c = [hash, short, author, date, subject]
+  return '<tr class="clickable' + (extraClass ? ' ' + extraClass : '') + '" data-h="' + c[0] + '"><td class="h">' + esc(c[1]) + copyLink(c[0]) +
     '<div class="cmp-pick"><button type="button" class="sbtn" data-cmp="A" title="' + esc(t("set_compare", {slot: "A"})) + '">A</button>' +
     '<button type="button" class="sbtn" data-cmp="B" title="' + esc(t("set_compare", {slot: "B"})) + '">B</button></div></td><td>' +
     '<span class="rc">' + chips(c[0]) + "</span>" + esc(c[4]) + '<div class="meta">' + esc(c[2]) + " / " + esc(c[3]) + "</div></td></tr>";
@@ -1575,6 +1588,7 @@ function rowHtml(c) {  // c = [hash, short, author, date, subject]
 // git log を CHUNK 件ずつ取得して、末尾が見えたら続きを読み込む (全件読むまで続く)
 // src を渡すと /api/log の代わりに src.path (src.params を付けて) から同じ形式の一覧を取る (stash 一覧 / reflog)
 function showLog(titleHtml, rev, topHtml, fromHistory, restoreScroll, src) {
+  document.body.classList.remove("compare-logs-mode");
   if (!fromHistory) pushScreen({screen: "log", titleHtml: titleHtml, rev: rev, topHtml: topHtml, src: src || null});
   setDocumentTitleFromHtml(titleHtml);
   const my = ++token;
@@ -1623,6 +1637,133 @@ function showLog(titleHtml, rev, topHtml, fromHistory, restoreScroll, src) {
     observer.observe(sentinel);
   } else {
     (async () => { while (!done && my === token) await more(); })();
+  }
+}
+
+function showCompareLogs(a, b, fromHistory, restoreScroll) {
+  document.body.classList.add("compare-logs-mode");
+  if (!fromHistory) pushScreen({screen: "compare-logs", a: a, b: b});
+  setDocumentTitle(t("compare_logs_heading", {from: a.slice(0, 7), to: b.slice(0, 7)}));
+  const my = ++token;
+  if (observer) { observer.disconnect(); observer = null; }
+  curRow = null;
+  listView.innerHTML = '<h2>' + esc(t("compare_logs_heading", {from: a.slice(0, 7), to: b.slice(0, 7)})) + '</h2>' +
+    '<div class="compare-logs"><section class="compare-log-col"><h3>A: ' + esc(a.slice(0, 7)) + '</h3>' +
+    '<table class="log"><tbody id="compareRowsA"></tbody></table></section>' +
+    '<section class="compare-log-col"><h3>B: ' + esc(b.slice(0, 7)) + '</h3>' +
+    '<table class="log"><tbody id="compareRowsB"></tbody></table></section></div>' +
+    '<div id="compareLogSentinel" class="hint">' + esc(t("loading")) + '</div>';
+  showView("list");
+  listView.dataset.src = "";
+  const rowsA = listView.querySelector("#compareRowsA"), rowsB = listView.querySelector("#compareRowsB"),
+        sentinel = listView.querySelector("#compareLogSentinel");
+  const gapRow = '<tr class="log-gap"><td colspan="2"></td></tr>';
+  let skipA = 0, skipB = 0, doneA = false, doneB = false;
+  let initial = true, loading = false, base = "";
+
+  function hasCommit(commits, hash) {
+    return commits.some(c => c[0] === hash);
+  }
+
+  function alignedRows(commitsA, commitsB) {
+    const ia = base ? commitsA.findIndex(c => c[0] === base) : -1;
+    const ib = base ? commitsB.findIndex(c => c[0] === base) : -1;
+    if (ia < 0 || ib < 0) {
+      return [commitsA.map(rowHtml).join(""), commitsB.map(rowHtml).join("")];
+    }
+    const target = Math.max(ia, ib);
+    const side = (commits, index) => {
+      const html = [];
+      for (let i = index; i < target; i++) html.push(gapRow);
+      html.push(...commits.slice(0, index).map(rowHtml));
+      html.push(...commits.slice(index).map((c, i) => rowHtml(c, i === 0 ? "log-common log-common-start" : "log-common")));
+      return html.join("");
+    };
+    return [side(commitsA, ia), side(commitsB, ib)];
+  }
+
+  function syncCompareRows() {
+    const listA = Array.from(rowsA.querySelectorAll("tr"));
+    const listB = Array.from(rowsB.querySelectorAll("tr"));
+    const commonA = listA.findIndex(row => row.classList.contains("log-common"));
+    const commonB = listB.findIndex(row => row.classList.contains("log-common"));
+    if (commonA < 0 || commonA !== commonB) return;
+    for (let i = 0; i <= commonA; i++) {
+      listA[i].style.height = "";
+      listB[i].style.height = "";
+      const height = Math.max(listA[i].getBoundingClientRect().height, listB[i].getBoundingClientRect().height);
+      listA[i].style.height = height + "px";
+      listB[i].style.height = height + "px";
+    }
+  }
+
+  async function more() {
+    if (loading || (doneA && doneB) || my !== token) return;
+    loading = true;
+    try {
+      if (initial) {
+        const [mb, firstA, firstB] = await Promise.all([
+          api("/api/merge-base", {from: a, to: b}),
+          api("/api/log", {rev: a, skip: skipA, limit: CHUNK}),
+          api("/api/log", {rev: b, skip: skipB, limit: CHUNK})
+        ]);
+        if (my !== token) return;
+        base = mb.hash || "";
+        const commitsA = firstA.commits.slice(), commitsB = firstB.commits.slice();
+        skipA += firstA.commits.length; skipB += firstB.commits.length;
+        doneA = !firstA.has_more; doneB = !firstB.has_more;
+        if (base) {
+          while ((!hasCommit(commitsA, base) && !doneA) || (!hasCommit(commitsB, base) && !doneB)) {
+            const needA = !hasCommit(commitsA, base) && !doneA;
+            const needB = !hasCommit(commitsB, base) && !doneB;
+            const [ra, rb] = await Promise.all([
+              needA ? api("/api/log", {rev: a, skip: skipA, limit: CHUNK}) : Promise.resolve({commits: [], has_more: false}),
+              needB ? api("/api/log", {rev: b, skip: skipB, limit: CHUNK}) : Promise.resolve({commits: [], has_more: false})
+            ]);
+            if (my !== token) return;
+            commitsA.push(...ra.commits); commitsB.push(...rb.commits);
+            skipA += ra.commits.length; skipB += rb.commits.length;
+            if (needA) doneA = !ra.has_more;
+            if (needB) doneB = !rb.has_more;
+          }
+        }
+        const aligned = alignedRows(commitsA, commitsB);
+        rowsA.innerHTML = aligned[0]; rowsB.innerHTML = aligned[1];
+        initial = false;
+        requestAnimationFrame(syncCompareRows);
+      } else {
+        const [ra, rb] = await Promise.all([
+          doneA ? Promise.resolve({commits: [], has_more: false}) : api("/api/log", {rev: a, skip: skipA, limit: CHUNK}),
+          doneB ? Promise.resolve({commits: [], has_more: false}) : api("/api/log", {rev: b, skip: skipB, limit: CHUNK})
+        ]);
+        if (my !== token) return;
+        rowsA.insertAdjacentHTML("beforeend", ra.commits.map(rowHtml).join(""));
+        rowsB.insertAdjacentHTML("beforeend", rb.commits.map(rowHtml).join(""));
+        skipA += ra.commits.length; skipB += rb.commits.length;
+        doneA = doneA || !ra.has_more; doneB = doneB || !rb.has_more;
+      }
+      updateCmpClasses();
+      const done = doneA && doneB;
+      sentinel.textContent = done ? "" : t("loading");
+      if (fromHistory && restoreScroll) {
+        listView.scrollTop = Math.max(0, Math.min(restoreScroll, listView.scrollHeight - listView.clientHeight));
+      }
+    } catch (e) {
+      sentinel.textContent = t("error") + e.message;
+      doneA = true; doneB = true;
+    } finally {
+      loading = false;
+    }
+  }
+  if ("IntersectionObserver" in window) {
+    const recheck = () => {
+      if (!(doneA && doneB) && observer && my === token) { observer.unobserve(sentinel); observer.observe(sentinel); }
+    };
+    observer = new IntersectionObserver(es => { if (es[0].isIntersecting) more().then(recheck); },
+                                        {root: listView, rootMargin: "600px"});
+    observer.observe(sentinel);
+  } else {
+    (async () => { while (!(doneA && doneB) && my === token) await more(); })();
   }
 }
 
@@ -1722,6 +1863,7 @@ listView.addEventListener("change", ev => {
   if (sel) showReflog(sel.value);
 });
 function showDetail(h, fromHistory) {
+  document.body.classList.remove("compare-logs-mode");
   if (!fromHistory) pushScreen({screen: "detail", hash: h});
   setDocumentTitle(t("commit_label") + " " + h.slice(0, 7));
   const back = '<button class="back-btn">' + t("back_history") + '</button>';
@@ -1857,6 +1999,7 @@ function commitLine(label, c) {
     '<div class="hint">' + esc(c.author) + " / " + esc(c.date) + "</div></div>";
 }
 function showCompare(a, b, fromHistory) {  // a, b はコミットのハッシュ
+  document.body.classList.remove("compare-logs-mode");
   if (!fromHistory) pushScreen({screen: "compare", a: a, b: b});
   setDocumentTitle(t("compare_heading", {from: a.slice(0, 7), to: b.slice(0, 7)}));
   const btns = '<button class="back-btn">' + t("back_history") + '</button><button class="sbtn">' + esc(t("swap_ab")) + '</button>';
@@ -1873,13 +2016,19 @@ function showCompare(a, b, fromHistory) {  // a, b はコミットのハッシ�
 }
 function updateCmpClasses() {  // 選択中のコミットを、グラフのノードとログの行の両方でハイライトする
   document.querySelectorAll(".cmpA, .cmpB, .actionTarget").forEach(el => el.classList.remove("cmpA", "cmpB", "actionTarget"));
+  const compareRowsA = listView.querySelector("#compareRowsA");
+  const compareRowsB = listView.querySelector("#compareRowsB");
+  const rowsFor = (hash, side) => {
+    const root = compareRowsA && compareRowsB ? (side === "A" ? compareRowsA : compareRowsB) : listView;
+    return root.querySelectorAll('tr[data-h="' + hash + '"]');
+  };
   if (compareAHash) {
     if (nodeEl[compareAHash]) nodeEl[compareAHash].classList.add("cmpA");
-    listView.querySelectorAll('tr[data-h="' + compareAHash + '"]').forEach(tr => tr.classList.add("cmpA"));
+    rowsFor(compareAHash, "A").forEach(tr => tr.classList.add("cmpA"));
   }
   if (compareBHash) {
     if (nodeEl[compareBHash]) nodeEl[compareBHash].classList.add("cmpB");
-    listView.querySelectorAll('tr[data-h="' + compareBHash + '"]').forEach(tr => tr.classList.add("cmpB"));
+    rowsFor(compareBHash, "B").forEach(tr => tr.classList.add("cmpB"));
   }
   if (actionHash) {
     if (nodeEl[actionHash]) nodeEl[actionHash].classList.add("actionTarget");
@@ -2497,6 +2646,10 @@ function restoreScreen(state) {
     compareAHash = state.a; compareBHash = state.b;
     showCompare(state.a, state.b, true);
   }
+  else if (state.screen === "compare-logs") {
+    compareAHash = state.a; compareBHash = state.b;
+    showCompareLogs(state.a, state.b, true, state.scroll || 0);
+  }
   else if (state.screen === "wip") showWip(true);
   else {
     if (observer) { observer.disconnect(); observer = null; }
@@ -2626,7 +2779,17 @@ function select(g) {
   selectedKey = t ? t.textContent : null;  // グラフを作り直したあとで選択を復元するため
 }
 
-function onNodeClick(g, n) {
+function onNodeClick(g, n, ev) {
+  if (ev && (ev.ctrlKey || ev.metaKey) && actionHash && actionHash !== n.hash && !n.wip) {
+    compareAHash = actionHash;
+    compareBHash = n.hash;
+    cmpActOpen = true;
+    select(g);
+    updateCmpClasses();
+    saveUiState();
+    showCompareLogs(compareAHash, compareBHash);
+    return;
+  }
   cmpActOpen = true;
   if (n.wip) {  // 作業ツリーの変更 (WIP) ノード: ログではなく変更ファイルの一覧を出す
     clearCmp(); select(g); showWip();
@@ -2649,7 +2812,7 @@ function init() {
       hit.setAttribute("width", box.width); hit.setAttribute("height", box.height);
       hit.setAttribute("fill", "transparent"); hit.setAttribute("pointer-events", "all");
       g.insertBefore(hit, g.children[1] || null);
-      g.addEventListener("click", ev => { if (ev.detail <= 1) onNodeClick(g, n); });
+      g.addEventListener("click", ev => { if (ev.detail <= 1) onNodeClick(g, n, ev); });
     }
   });
   document.querySelectorAll("svg g.edge").forEach(g => {
@@ -2748,6 +2911,7 @@ detailView.addEventListener("change", ev => {
 detailView.addEventListener("input", ev => { if (ev.target.id === "wipMsg") wipMsg = ev.target.value; });
 
 function showWip(fromHistory, okMsg) {
+  document.body.classList.remove("compare-logs-mode");
   if (!fromHistory) pushScreen({screen: "wip"});
   setDocumentTitle(t("wip_title"));
   const btns = '<button class="back-btn">' + t("back_history") + '</button><button class="sbtn" id="wipReload">' + t("reload") + '</button>';
@@ -3338,6 +3502,17 @@ def api_compare(q):
     b = commit_info(q.get("to", [""])[0])
     raw = git("diff", "--numstat", "-z", "-M", a["hash"], b["hash"], "--")
     return {"from": a, "to": b, "files": parse_numstat(raw)}
+
+
+def api_merge_base(q):
+    """2つのコミットの共通祖先 (最も新しいもの)。"""
+    a = resolve_commit(q.get("from", [""])[0])
+    b = resolve_commit(q.get("to", [""])[0])
+    try:
+        base = git("merge-base", a, b).strip()
+    except subprocess.CalledProcessError:
+        base = ""
+    return {"hash": base}
 
 
 def parse_numstat(raw):
@@ -4839,6 +5014,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, "application/json", json.dumps(api_head(q), ensure_ascii=False))
             elif u.path == "/api/compare":
                 self._send(200, "application/json", json.dumps(api_compare(q), ensure_ascii=False))
+            elif u.path == "/api/merge-base":
+                self._send(200, "application/json", json.dumps(api_merge_base(q), ensure_ascii=False))
             elif u.path == "/api/commit":
                 self._send(200, "application/json", json.dumps(api_commit(q), ensure_ascii=False))
             elif u.path == "/api/tree":
