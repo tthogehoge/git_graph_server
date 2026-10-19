@@ -121,6 +121,8 @@ TRANSLATIONS = {
         "authenticate": "認証して再試行",
         "other": "その他 ▾",
         "menu_select_commit": "グラフのコミットをクリックして選ぶと、そのコミットに対する操作がここに出ます",
+        "tip_push_head": "現在のブランチ (HEAD) を push (ダイアログで他のブランチも選べます)",
+        "tip_push_selected": "選択しているコミットのブランチを push",
         "stash_list": "stash一覧",
         "reflog": "reflog",
         "stash_apply": "stash 適用 (apply)",
@@ -561,6 +563,8 @@ TRANSLATIONS = {
         "authenticate": "Authenticate and retry",
         "other": "Other ▾",
         "menu_select_commit": "Click a commit in the graph to see the actions for it here",
+        "tip_push_head": "Push the current branch (HEAD); other branches can be chosen in the dialog",
+        "tip_push_selected": "Push the branch at the selected commit",
         "stash_list": "Stash list",
         "reflog": "Reflog",
         "stash_apply": "Apply stash",
@@ -1447,6 +1451,7 @@ __FAVICON__
       <div class="dropdown" id="cmpActions" hidden>
         <div class="hint" id="actionsEmpty">{{menu_select_commit}}</div>
         <div class="menu-section" id="aActions" hidden>
+          <button class="abtn" id="pushSelBtn" data-cact="push" data-push-sel="1" title="{{tip_push_selected}}">{{push}}</button>
           <button class="abtn" id="mergeBtn" title="{{tip_merge}}">{{merge}}</button>
           <button class="abtn" id="rebaseBtn" title="{{tip_rebase}}">{{rebase}}</button>
           <button class="abtn" id="irebaseBtn" title="{{tip_irebase}}">{{interactive_rebase}}</button>
@@ -1472,7 +1477,7 @@ __FAVICON__
       </div>
     </span>
     <div class="menubar-group" id="remoteActions">
-      <button class="abtn mbtn" id="pushBtn" data-cact="push">{{push}}</button>
+      <button class="abtn mbtn" id="pushBtn" data-cact="push" title="{{tip_push_head}}">{{push}}</button>
       <button class="abtn mbtn" data-cact="pull">pull</button>
       <button class="abtn mbtn" data-cact="fetch">fetch</button>
     </div>
@@ -2170,6 +2175,7 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
     !localBranches(actionHash).some(name => name !== currentBranch);
   document.getElementById("deleteRemoteBranchBtn").disabled = !canWrite || !actionHash || isStash || !remoteBranches(actionHash).length;
   document.getElementById("deleteTagBtn").disabled = !canWrite || !actionHash || isStash || !localTags(actionHash).length;
+  document.getElementById("pushSelBtn").disabled = !canWrite || !actionHash || isStash || !localBranches(actionHash).length;
   document.getElementById("renameBranchBtn").disabled = !canWrite || !actionHash || isStash || !localBranches(actionHash).length;
 }
 let cmpActOpen = false;
@@ -2425,18 +2431,21 @@ async function doRemoteAction(btn) {  // fetch / pull / push
     const branches = [...new Set([currentBranch, ...localBranches(actionHash)])]
       .filter(Boolean).sort((a, b) => a.localeCompare(b));
     if (!branches.length) return;
+    // 操作メニューの push は選択中のコミットのブランチ、メニューバーの push は HEAD (現在のブランチ) を既定にする
+    const selected = btn.dataset.pushSel ? localBranches(actionHash).sort((a, b) => a.localeCompare(b)) : [];
+    const defaultBranch = selected.length ? (selected.includes(currentBranch) ? currentBranch : selected[0]) : (currentBranch || branches[0]);
     const remoteInfo = await api("/api/remotes", {});
     const remotes = remoteInfo.remotes || [];
     if (!remotes.length) { setRemoteMsg(t("no_remotes"), false); return; }
     const defaultRemote = remotes.some(r => r.name === "origin") ? "origin" : remotes[0].name;
     const values = await openActionDialog("push",
       '<label>' + esc(t("push_branch_select")) + '<select name="branch">' + branches.map(branch =>
-        '<option value="' + esc(branch) + '"' + (branch === currentBranch ? " selected" : "") + '>' + esc(branch) + (branch === currentBranch ? " (HEAD)" : "") + "</option>").join("") +
+        '<option value="' + esc(branch) + '"' + (branch === defaultBranch ? " selected" : "") + '>' + esc(branch) + (branch === currentBranch ? " (HEAD)" : "") + "</option>").join("") +
       '</select></label>' +
       '<label>' + esc(t("push_remote_select")) + '<select name="remote">' + remotes.map(r =>
         '<option value="' + esc(r.name) + '"' + (r.name === defaultRemote ? " selected" : "") + '>' + esc(r.name) + "</option>").join("") +
       '</select></label>' +
-      '<label>' + esc(t("push_remote_branch")) + '<input name="remoteBranch" value="' + esc(currentBranch || branches[0]) + '" required></label>' +
+      '<label>' + esc(t("push_remote_branch")) + '<input name="remoteBranch" value="' + esc(defaultBranch) + '" required></label>' +
       '<label class="check"><input type="checkbox" name="force"> ' + esc(t("force_label")) + '</label>', "push", {
         onOpen: form => {
           const branch = form.elements.branch, remoteBranch = form.elements.remoteBranch;
