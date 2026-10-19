@@ -29,6 +29,7 @@
   POST /api/reset {hash, mode} (JSON)                       現在の HEAD を選んだコミットへ reset (mode: soft | mixed | hard)
   POST /api/rebase {hash} (JSON)                             現在のブランチを選んだコミットの上にリベース (競合したら中止して元に戻す)
   POST /api/rebase-range {from, to} (JSON)                   A以降の現在のブランチをBの上にリベース (A→B。競合したら中止して元に戻す)
+  POST /api/rebase-descendants {from, to} (JSON)              Aの子孫にある全ローカルブランチをBへリベース (分岐構造を維持)
   POST /api/cherry-pick {hash} (JSON)                        選んだコミットを現在の HEAD にチェリーピック (競合したら中止して元に戻す)
   POST /api/revert {hash} (JSON)                             選んだコミットを打ち消すコミットを作る (git revert。マージコミットは第1親基準。競合したら中止して元に戻す)
   POST /api/abort (JSON)                                     進行中のマージ / リベース / チェリーピック / リバートを --abort で中断
@@ -108,6 +109,7 @@ TRANSLATIONS = {
         "merge": "マージ",
         "rebase": "リベース",
         "rebase_range": "A..HEADをBへリベース",
+        "rebase_descendants": "A..末端をBへリベース",
         "cherry_pick": "チェリーピック",
         "reset": "対象へリセット",
         "interactive_rebase": "対話的リベース",
@@ -223,6 +225,7 @@ TRANSLATIONS = {
         "tip_merge": "Aを現在のHEADにマージ",
         "tip_rebase": "現在のブランチをAの上にリベース",
         "tip_rebase_range": "現在のブランチの A..HEAD を B の上にリベース",
+        "tip_rebase_descendants": "Aから末端までの全ローカルブランチをBの上に順次リベース",
         "tip_irebase": "現在のブランチをAの上に、コミットの並べ替え・squash・メッセージ変更・削除をしながらリベース (git rebase -i)",
         "tip_cherry": "Aを現在のHEADにチェリーピック",
         "tip_reset": "現在のHEADを対象コミットへリセット",
@@ -310,6 +313,7 @@ TRANSLATIONS = {
         "merge_in_progress_resolve": "マージの途中です。先に競合を解決してコミットしてください",
         "confirm_rebase": "ブランチ {branch} を コミット {hash} の上にリベースします。{branch} のコミットは作り直され、履歴が書き換わります (競合したときは自動で元に戻します)。よろしいですか？",
         "confirm_rebase_range": "ブランチ {branch} の A ({from}) より後のコミットを B ({to}) の上にリベースします。履歴が書き換わります (競合したときは自動で元に戻します)。よろしいですか？",
+        "confirm_rebase_descendants": "A ({from}) から末端までの全ローカルブランチを B ({to}) の上に順次リベースします。分岐構造を保ったまま履歴を書き換えます (競合したときは自動で元に戻します)。よろしいですか？",
         "rebase_error": "リベースできませんでした: {error}",
         "target_detached_head": "現在の HEAD (detached)",
         "confirm_cherry_pick": "コミット {hash} を {target} にチェリーピックします。新しいコミットが作られます (競合したときは自動で元に戻します)。よろしいですか？",
@@ -410,6 +414,9 @@ TRANSLATIONS = {
         "rebase_noop": "{branch} は既に {hash} の上にあります (変更なし)",
         "rebase_done": "{branch} を {hash} の上にリベースしました",
         "rebase_range_done": "ブランチ {branch} の A ({from}) より後のコミットを B ({to}) の上にリベースしました",
+        "rebase_descendants_done": "A ({from}) から末端までの {branches} ブランチを B ({to}) の上にリベースしました",
+        "rebase_descendants_dirty": "全ブランチのリベースには、未コミットの変更がない作業ツリーが必要です",
+        "rebase_descendants_merges": "Aから末端までの範囲にマージコミットがあるため、分岐構造を保ったリベースはできません",
         "cherry_no_worktree": "ワークツリーのないリポジトリではチェリーピックできません",
         "cherry_no_commits": "最初のコミットがないためチェリーピックできません",
         "cherry_merge_commit": "マージコミットはチェリーピックできません (どちらの親側の変更を取るか決められないため)",
@@ -552,6 +559,7 @@ TRANSLATIONS = {
         "merge": "Merge",
         "rebase": "Rebase",
         "rebase_range": "Rebase A..HEAD onto B",
+        "rebase_descendants": "Rebase A..tips onto B",
         "cherry_pick": "Cherry-pick",
         "reset": "Reset to target",
         "interactive_rebase": "Interactive rebase",
@@ -667,6 +675,7 @@ TRANSLATIONS = {
         "tip_merge": "Merge A into the current HEAD",
         "tip_rebase": "Rebase the current branch onto A",
         "tip_rebase_range": "Rebase A..HEAD on the current branch onto B",
+        "tip_rebase_descendants": "Sequentially rebase all local branches from A to their tips onto B",
         "tip_irebase": "Rebase the current branch onto A while reordering, squashing, rewording or dropping commits (git rebase -i)",
         "tip_cherry": "Cherry-pick A onto the current HEAD",
         "tip_reset": "Reset the current HEAD to the target commit",
@@ -754,6 +763,7 @@ TRANSLATIONS = {
         "merge_in_progress_resolve": "A merge is in progress. Resolve the conflicts and commit first",
         "confirm_rebase": "Rebase branch {branch} onto commit {hash}. The commits of {branch} are recreated and the history is rewritten (it is rolled back automatically on conflicts). Continue?",
         "confirm_rebase_range": "Rebase commits after A ({from}) on branch {branch} onto B ({to}). History will be rewritten (it is rolled back automatically on conflicts). Continue?",
+        "confirm_rebase_descendants": "Sequentially rebase all local branches from A ({from}) to their tips onto B ({to}), preserving the branch structure. History will be rewritten (it is rolled back automatically on conflicts). Continue?",
         "rebase_error": "Could not rebase: {error}",
         "target_detached_head": "the current HEAD (detached)",
         "confirm_cherry_pick": "Cherry-pick commit {hash} onto {target}. A new commit will be created (it is rolled back automatically on conflicts). Continue?",
@@ -854,6 +864,9 @@ TRANSLATIONS = {
         "rebase_noop": "{branch} is already on top of {hash} (no change)",
         "rebase_done": "Rebased {branch} onto {hash}",
         "rebase_range_done": "Rebased commits after A ({from}) on branch {branch} onto B ({to})",
+        "rebase_descendants_done": "Rebased {branches} branches from A ({from}) to their tips onto B ({to})",
+        "rebase_descendants_dirty": "Rebasing all branches requires a clean working tree",
+        "rebase_descendants_merges": "The A-to-tips range contains merge commits, so it cannot be rebased while preserving the branch structure",
         "cherry_no_worktree": "Cannot cherry-pick in a repository without a working tree",
         "cherry_no_commits": "Cannot cherry-pick because there are no commits yet",
         "cherry_merge_commit": "Cannot cherry-pick a merge commit (it is unclear which parent's changes to take)",
@@ -1500,6 +1513,7 @@ __FAVICON__
         <button class="abtn" id="compareBtn" hidden>{{compare_ab}}</button>
         <button class="abtn" id="compareLogsBtn" hidden>{{compare_logs_ab}}</button>
         <button class="abtn" id="rebaseRangeBtn" hidden title="{{tip_rebase_range}}">{{rebase_range}}</button>
+        <button class="abtn" id="rebaseDescendantsBtn" hidden title="{{tip_rebase_descendants}}">{{rebase_descendants}}</button>
       </div>
     </span>
     <span class="menu-wrap" id="otherActionsWrap">
@@ -2171,6 +2185,7 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
   document.getElementById("compareBtn").hidden = !compareAHash || !compareBHash;
   document.getElementById("compareLogsBtn").hidden = !compareAHash || !compareBHash;
   document.getElementById("rebaseRangeBtn").hidden = !compareAHash || !compareBHash;
+  document.getElementById("rebaseDescendantsBtn").hidden = !compareAHash || !compareBHash;
   const isStash = !!actionHash && !!stashByHash[actionHash];
   document.getElementById("aActions").hidden = !actionHash || isStash;
   document.getElementById("stashActions").hidden = !isStash;
@@ -2180,6 +2195,7 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
   document.getElementById("rebaseBtn").disabled = !canMerge;
   document.getElementById("irebaseBtn").disabled = !canMerge;
   document.getElementById("rebaseRangeBtn").disabled = !compareAHash || !compareBHash || !canMerge;
+  document.getElementById("rebaseDescendantsBtn").disabled = !compareAHash || !compareBHash || !canMerge;
   document.getElementById("cherryBtn").disabled = !canMerge;
   document.getElementById("revertBtn").disabled = !canMerge;
   document.getElementById("resetBtn").disabled = !canMerge;
@@ -2623,6 +2639,27 @@ function doRebaseRange() {
     .catch(e => { setGraphStatus(t("rebase_error", {error: e.message}), "error"); })
     .finally(() => { btn.disabled = false; });
 }
+function doRebaseDescendants() {
+  if (!compareAHash || !compareBHash) return;
+  const from = compareAHash, to = compareBHash, btn = document.getElementById("rebaseDescendantsBtn");
+  btn.disabled = true;
+  fetch("/api/head").then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); }))
+    .then(hd => {
+      if (hd.merging) throw new Error(t("op_in_progress_finish"));
+      if (!hd.branch) throw new Error(t("detached_rebase"));
+      if (!confirm(t("confirm_rebase_descendants", {from: from.slice(0, 7), to: to.slice(0, 7)}))) return null;
+      setGraphStatus(t("rebasing"), "progress");
+      return post("/api/rebase-descendants", {from: from, to: to});
+    })
+    .then(r => {
+      if (r === null) { setGraphStatus(""); return; }
+      clearCmp();
+      setGraphStatus(r.message, "success");
+      return refreshGraph().catch(() => {});
+    })
+    .catch(e => { setGraphStatus(t("rebase_error", {error: e.message}), "error"); })
+    .finally(() => { btn.disabled = false; });
+}
 function doCherryPick() {
   if (!actionHash) return;
   const h = actionHash, btn = document.getElementById("cherryBtn");
@@ -2938,6 +2975,7 @@ document.getElementById("compareToolbar").addEventListener("click", ev => {  // 
     return;
   }
   if (ev.target.closest("#rebaseRangeBtn")) { doRebaseRange(); return; }
+  if (ev.target.closest("#rebaseDescendantsBtn")) { doRebaseDescendants(); return; }
   if (ev.target.closest("#stashListBtn")) { showStashList(); return; }
   if (ev.target.closest("#stashApplyBtn")) { doStash("apply"); return; }
   if (ev.target.closest("#stashPopBtn")) { doStash("pop"); return; }
@@ -4746,6 +4784,139 @@ def api_rebase_range(body):
     return {"ok": True, "message": tr("rebase_range_done", branch=head["branch"], **{"from": a[:7], "to": b[:7]})}
 
 
+def api_rebase_descendants(body):
+    """A の子孫にある全ローカルブランチを、分岐構造を保って B の上へ移す。
+
+    A / 分岐点 / ブランチ先端を境界にして線形区間を近い順に処理する。
+    各区間は一時ブランチ上で rebase --onto し、全区間が成功してから
+    ローカルブランチの参照を一括更新するため、途中失敗で履歴が半端に
+    書き換わらないようにする。
+    """
+    if not HAS_WORKTREE:
+        raise UserError("rebase_no_worktree")
+    a = resolve_commit(body.get("from", ""))
+    b = resolve_commit(body.get("to", ""))
+    if is_merging() or is_rebasing():
+        raise UserError("merge_or_rebase_in_progress")
+    head = api_head()
+    if not head["branch"]:
+        raise UserError("detached_rebase")
+    if git("status", "--porcelain", "--untracked-files=all").strip():
+        raise UserError("rebase_descendants_dirty")
+    if a == b:
+        return {"ok": True, "message": tr("rebase_noop", branch=head["branch"], hash=b[:7])}
+
+    def parents(commit):
+        fields = git("rev-list", "--parents", "-n", "1", commit).split()
+        return fields[1:]
+
+    def is_ancestor(ancestor, descendant):
+        return subprocess.run(["git", "-C", REPO, "merge-base", "--is-ancestor", ancestor, descendant]).returncode == 0
+
+    # A を祖先に持つローカルブランチだけを対象にする。B が A の
+    # 子孫側にある場合は、B を含む系統（通常は main など）を土台として
+    # 残し、そこから分岐したブランチだけを載せ替える。
+    b_descends_from_a = is_ancestor(a, b)
+    branch_tips = []
+    for name in git("for-each-ref", "--format=%(refname:short)", "refs/heads").splitlines():
+        tip = git("rev-parse", f"refs/heads/{name}" + "^{commit}").strip()
+        if is_ancestor(a, tip) and not (b_descends_from_a and is_ancestor(b, tip)):
+            branch_tips.append((name, tip))
+    if not branch_tips:
+        raise ValueError(tr("rebase_failed"))
+
+    commits = {a}
+    for _, tip in branch_tips:
+        if tip != a:
+            commits.update(git("rev-list", f"{a}..{tip}").splitlines())
+    if b in commits:
+        raise ValueError(tr("rebase_failed"))
+
+    children = defaultdict(list)
+    for commit in commits:
+        ps = parents(commit)
+        if commit != a and len(ps) != 1:
+            raise UserError("rebase_descendants_merges")
+        for parent in ps:
+            if parent in commits:
+                children[parent].append(commit)
+            elif commit != a:
+                # A より後の通常コミットが対象外の親を持つのはマージ構造。
+                raise UserError("rebase_descendants_merges")
+    for value in children.values():
+        value.sort()
+
+    # ここで止めるノードを、分岐点・末端・ブランチ参照の付いたコミットにする。
+    boundaries = {a}
+    boundaries.update(tip for _, tip in branch_tips)
+    boundaries.update(commit for commit in commits if len(children[commit]) != 1)
+
+    original_branch = head["branch"]
+    temp = f"git-graph-rebase-{os.getpid()}-{threading.get_ident()}"
+    while subprocess.run(["git", "-C", REPO, "show-ref", "--verify", "--quiet", f"refs/heads/{temp}"]).returncode == 0:
+        temp += "-x"
+    mapping = {a: b}
+    queue = [a]
+    temp_exists = False
+    try:
+        run_git_write("checkout", "-b", temp, a)
+        temp_exists = True
+        while queue:
+            old_base = queue.pop(0)
+            new_base = mapping[old_base]
+            for first in children[old_base]:
+                old_tip = first
+                while old_tip not in boundaries:
+                    next_nodes = children[old_tip]
+                    if len(next_nodes) != 1:
+                        raise UserError("rebase_descendants_merges")
+                    old_tip = next_nodes[0]
+
+                old_segment = git("rev-list", "--reverse", f"{old_base}..{old_tip}").splitlines()
+                run_git_write("checkout", "-B", temp, old_tip)
+                r = subprocess.run(["git", "-C", REPO, "rebase", "--onto", new_base, old_base],
+                                   capture_output=True, text=True, encoding="utf-8", errors="replace")
+                if r.returncode != 0:
+                    conflicted = is_rebasing()
+                    if conflicted:
+                        subprocess.run(["git", "-C", REPO, "rebase", "--abort"], capture_output=True)
+                        raise UserError("rebase_conflict", target=new_base[:7], cmd="git rebase --onto")
+                    out = (r.stdout + r.stderr).strip()
+                    if out:
+                        raise ValueError(out)
+                    raise ValueError(tr("rebase_failed"))
+                new_tip = git("rev-parse", "HEAD").strip()
+                new_segment = git("rev-list", "--reverse", f"{new_base}..{new_tip}").splitlines()
+                if len(old_segment) != len(new_segment):
+                    raise UserError("rebase_descendants_merges")
+                mapping.update(zip(old_segment, new_segment))
+                mapping[old_tip] = new_tip
+                queue.append(old_tip)
+
+        updates = [(name, tip, mapping.get(tip)) for name, tip in branch_tips]
+        if any(new_tip is None for _, _, new_tip in updates):
+            raise ValueError(tr("rebase_failed"))
+        # 参照の更新は、全区間のリベースが成功した後にだけ行う。
+        lines = [f"update refs/heads/{name} {new_tip} {old_tip}" for name, old_tip, new_tip in updates if new_tip != old_tip]
+        if lines:
+            r = subprocess.run(["git", "-C", REPO, "update-ref", "--stdin"], input="\n".join(lines) + "\n",
+                               capture_output=True, text=True, encoding="utf-8", errors="replace")
+            if r.returncode != 0:
+                raise ValueError((r.stderr or r.stdout).strip() or tr("rebase_failed"))
+        run_git_write("checkout", original_branch)
+        run_git_write("branch", "-D", temp)
+        temp_exists = False
+    except Exception:
+        if is_rebasing():
+            subprocess.run(["git", "-C", REPO, "rebase", "--abort"], capture_output=True)
+        if temp_exists:
+            subprocess.run(["git", "-C", REPO, "checkout", original_branch], capture_output=True)
+            subprocess.run(["git", "-C", REPO, "branch", "-D", temp], capture_output=True)
+        raise
+    changed = len([1 for _, old_tip, new_tip in updates if old_tip != new_tip])
+    return {"ok": True, "message": tr("rebase_descendants_done", branches=changed, **{"from": a[:7], "to": b[:7]})}
+
+
 def is_cherry_picking():
     return subprocess.run(["git", "-C", REPO, "rev-parse", "-q", "--verify", "CHERRY_PICK_HEAD"],
                           capture_output=True).returncode == 0
@@ -5381,7 +5552,7 @@ def api_push_tag(body):
     return {"ok": True, "message": tr("pushed_tag_nothing" if up_to_date else "pushed_tag", tag=tag, where=where)}
 
 
-POST_ROUTES = {"/api/stash": api_stash, "/api/rebase": api_rebase, "/api/rebase-range": api_rebase_range, "/api/rebase-i": api_rebase_i, "/api/cherry-pick": api_cherry_pick, "/api/revert": api_revert, "/api/abort": api_abort, "/api/resolve": api_resolve, "/api/discard": api_discard, "/api/branch-rename": api_branch_rename, "/api/merge": api_merge, "/api/branch": api_branch, "/api/tag": api_tag, "/api/ref-delete": api_delete_ref,
+POST_ROUTES = {"/api/stash": api_stash, "/api/rebase": api_rebase, "/api/rebase-range": api_rebase_range, "/api/rebase-descendants": api_rebase_descendants, "/api/rebase-i": api_rebase_i, "/api/cherry-pick": api_cherry_pick, "/api/revert": api_revert, "/api/abort": api_abort, "/api/resolve": api_resolve, "/api/discard": api_discard, "/api/branch-rename": api_branch_rename, "/api/merge": api_merge, "/api/branch": api_branch, "/api/tag": api_tag, "/api/ref-delete": api_delete_ref,
                "/api/checkout": api_checkout, "/api/reset": api_reset, "/api/wip-commit": api_wip_commit,
                "/api/fetch": api_fetch, "/api/pull": api_pull, "/api/push": api_push, "/api/push-tag": api_push_tag, "/api/file-copy": api_file_copy,
                "/api/remote-add": api_remote_add, "/api/remote-remove": api_remote_remove}
