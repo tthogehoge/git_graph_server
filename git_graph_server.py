@@ -1301,8 +1301,13 @@ __FAVICON__
   #compareToolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
   #compareToolbar .sbtn { margin: 0; }
   #compareToolbar button { white-space: nowrap; }
+  .menubar-left { display: flex; align-items: center; gap: 6px; order: 0; }
   .menubar-group { display: flex; align-items: center; gap: 2px; }
-  .menubar-spacer { flex: 1 1 auto; }
+  .menubar-spacer { flex: 1 1 auto; order: 1; }
+  #remoteActions { order: 2; }
+  #cmpActionsWrap { order: 3; }
+  #otherActionsWrap { order: 4; }
+  #compareToolbar > .cmp-hash, #clearCmpBtn { order: 5; }
   .abtn.mbtn { background: transparent; border-color: transparent; padding: 4px 10px; }
   .abtn.mbtn:hover { background: #dde6fa; border-color: #b8c7ee; }
   .abtn.mbtn[aria-expanded="true"] { background: #cfdcf8; border-color: #9fb4e8; }
@@ -1444,9 +1449,12 @@ __FAVICON__
 <div id="graphStatus" role="region" aria-label="{{notifications}}"></div>
 <div id="compareControls">
   <div id="compareToolbar" role="menubar">
-    <button id="reload" class="sbtn" disabled title="{{reload_title}}">{{reload}}</button>
-    <button id="graphZoomReset" class="sbtn" title="{{graph_zoom_reset}}">100%</button>
-    <span class="menu-wrap">
+    <div class="menubar-left">
+      <button id="reload" class="sbtn" disabled title="{{reload_title}}">{{reload}}</button>
+      <button id="graphZoomReset" class="sbtn" title="{{graph_zoom_reset}}">100%</button>
+    </div>
+    <span class="menubar-spacer"></span>
+    <span class="menu-wrap" id="cmpActionsWrap">
       <button class="abtn mbtn" id="cmpActToggle" aria-haspopup="true" aria-expanded="false" aria-controls="cmpActions">{{actions}}</button>
       <div class="dropdown" id="cmpActions" hidden>
         <div class="hint" id="actionsEmpty">{{menu_select_commit}}</div>
@@ -1481,7 +1489,7 @@ __FAVICON__
       <button class="abtn mbtn" data-cact="pull">pull</button>
       <button class="abtn mbtn" data-cact="fetch">fetch</button>
     </div>
-    <span class="menu-wrap">
+    <span class="menu-wrap" id="otherActionsWrap">
       <button class="abtn mbtn" id="otherMenuBtn" aria-haspopup="true" aria-expanded="false" aria-controls="otherActions">{{other}}</button>
       <div class="dropdown" id="otherActions" hidden>
         <button class="abtn" id="stashListBtn" title="{{tip_stash_list}}">{{stash_list}}</button>
@@ -1490,7 +1498,6 @@ __FAVICON__
         <button class="abtn danger" data-cact="remote-remove" title="{{tip_remote_remove}}">{{remote_remove}}</button>
       </div>
     </span>
-    <span class="menubar-spacer"></span>
     <span class="cmp-hash" id="actionTarget"></span>
     <span class="cmp-hash" id="cmpA"></span><span class="cmp-hash" id="cmpB"></span>
     <button class="sbtn" id="clearCmpBtn">{{clear}}</button>
