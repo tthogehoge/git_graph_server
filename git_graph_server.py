@@ -169,6 +169,10 @@ TRANSLATIONS = {
         "create": "作成",
         "add": "追加",
         "delete": "削除",
+        "delete_branch": "ブランチ削除",
+        "branch_to_delete": "削除するブランチ",
+        "delete_tag": "タグ削除",
+        "tag_to_delete": "削除するタグ",
         "name": "名前",
         "none": "(なし)",
         "n_items": "{n} 件",
@@ -180,7 +184,6 @@ TRANSLATIONS = {
         "no_commits_yet": "(コミットなし)",
         "copy_hash_title": "ハッシュ (40桁) をコピー",
         "set_compare": "比較 {slot} に設定",
-        "delete_ref": "{kind} {name} を削除",
         "push_branch": "{branch} を push",
         "swap_ab": "A ⇄ B 入れ替え",
         "compare_heading": "比較 {from} → {to}",
@@ -548,6 +551,10 @@ TRANSLATIONS = {
         "create": "Create",
         "add": "Add",
         "delete": "Delete",
+        "delete_branch": "Delete branch",
+        "branch_to_delete": "Branch to delete",
+        "delete_tag": "Delete tag",
+        "tag_to_delete": "Tag to delete",
         "name": "Name",
         "none": "(none)",
         "n_items": "{n} items",
@@ -559,7 +566,6 @@ TRANSLATIONS = {
         "no_commits_yet": "(no commits)",
         "copy_hash_title": "Copy the hash (40 characters)",
         "set_compare": "Set as comparison {slot}",
-        "delete_ref": "Delete {kind} {name}",
         "push_branch": "Push {branch}",
         "swap_ab": "Swap A ⇄ B",
         "compare_heading": "Compare {from} → {to}",
@@ -1315,7 +1321,9 @@ __FAVICON__
       <button class="abtn" id="cherryBtn" title="{{tip_cherry}}">{{cherry_pick}}</button>
       <button class="abtn danger" id="resetBtn" title="{{tip_reset}}">{{reset}}</button>
       <button class="abtn" data-cact="branch">{{create_branch}}</button>
+      <button class="abtn danger" id="deleteBranchBtn" data-cact="delete-branch">{{delete_branch}}</button>
       <button class="abtn" data-cact="tag">{{create_tag}}</button>
+      <button class="abtn danger" id="deleteTagBtn" data-cact="delete-tag">{{delete_tag}}</button>
       <button class="abtn" data-cact="checkout">{{checkout}}</button>
     </div>
     <hr class="menu-separator" id="compareMenuSeparator" hidden>
@@ -1441,13 +1449,8 @@ function detailChips(h) {
   if (!n) return "";
   return n.refs.map(r => {
     const current = r.kind === "current" || (r.kind === "branch" && r.name === currentBranch);
-    const deletable = DATA.writable && (r.kind === "branch" || r.kind === "current" || r.kind === "tag");
-    const refKind = r.kind === "current" ? "branch" : r.kind;
-    const delText = esc(t("delete_ref", {kind: refKind, name: r.name}));
     return '<span class="chip" style="background:' + COLORS[r.kind] + '"' +
-      (current ? ' title="' + esc(t("current_branch")) + '"' : "") + '>' + (current ? "★ " : "") + esc(r.name) +
-      (deletable ? '<button class="abtn ref-delete" data-act="delete-ref" data-kind="' + refKind +
-        '" data-name="' + esc(r.name) + '" title="' + delText + '" aria-label="' + delText + '">×</button>' : "") + "</span>";
+      (current ? ' title="' + esc(t("current_branch")) + '"' : "") + '>' + (current ? "★ " : "") + esc(r.name) + "</span>";
   }).join("");
 }
 /*__COPY_JS__*/
@@ -1812,8 +1815,11 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
   document.getElementById("stashApplyBtn").disabled = !DATA.merge;  // apply / pop はワークツリーが必要
   document.getElementById("stashPopBtn").disabled = !DATA.merge;
   document.getElementById("stashDropBtn").disabled = !canWrite;
+  document.getElementById("deleteBranchBtn").disabled = !canWrite || !actionHash || isStash ||
+    !localBranches(actionHash).some(name => name !== currentBranch);
+  document.getElementById("deleteTagBtn").disabled = !canWrite || !actionHash || isStash || !localTags(actionHash).length;
 }
-let cmpActOpen = false;
+let cmpActOpen = true;
 let stashByHash = {};  // stash のコミットのハッシュ -> stash@{n}
 function loadStashes() {
   return fetch("/api/stash-list").then(r => r.ok ? r.json() : null).then(r => {
@@ -1952,6 +1958,47 @@ async function doCmpAction(btn) {  // 選択対象に対するブランチ作成
       return refreshGraph().then(() => setCmpMsg(r.message, true));
     })
     .catch(e => setCmpMsg(e.message, false))
+    .finally(() => { btn.disabled = false; });
+}
+async function doDeleteBranch(btn) {
+  const branches = localBranches(actionHash).filter(name => name !== currentBranch).sort();
+  if (!branches.length) return;
+  const values = await openActionDialog(t("delete_branch"),
+    '<label>' + esc(t("branch_to_delete")) + '<select name="name">' + branches.map(branch =>
+      '<option value="' + esc(branch) + '">' + esc(branch) + "</option>").join("") +
+    "</select></label>", t("delete"));
+  if (!values) return;
+  const name = values.name;
+  if (!confirm(t("confirm_delete_branch", {name: name}))) return;
+  const body = {kind: "branch", name: name};
+  btn.disabled = true; setCmpMsg(t("deleting"), "progress");
+  post("/api/ref-delete", body)
+    .then(r => {
+      if (!r.needs_force) return r;
+      if (!confirm(t("confirm_force_delete", {name: name}))) return null;
+      return post("/api/ref-delete", Object.assign({}, body, {force: true}));
+    })
+    .then(r => {
+      if (r === null) { setCmpMsg(t("force_delete_cancelled"), false); return; }
+      return refreshGraph().then(() => setCmpMsg(r.message, true));
+    })
+    .catch(e => setCmpMsg(t("delete_failed", {error: e.message}), false))
+    .finally(() => { btn.disabled = false; });
+}
+async function doDeleteTag(btn) {
+  const tags = localTags(actionHash).sort();
+  if (!tags.length) return;
+  const values = await openActionDialog(t("delete_tag"),
+    '<label>' + esc(t("tag_to_delete")) + '<select name="name">' + tags.map(tag =>
+      '<option value="' + esc(tag) + '">' + esc(tag) + "</option>").join("") +
+    "</select></label>", t("delete"));
+  if (!values) return;
+  const name = values.name;
+  if (!confirm(t("confirm_delete_tag", {name: name}))) return;
+  btn.disabled = true; setCmpMsg(t("deleting"), "progress");
+  post("/api/ref-delete", {kind: "tag", name: name})
+    .then(r => refreshGraph().then(() => setCmpMsg(r.message, true)))
+    .catch(e => setCmpMsg(t("delete_failed", {error: e.message}), false))
     .finally(() => { btn.disabled = false; });
 }
 async function doRemoteAction(btn) {  // fetch / pull / push (別ブランチの push はブランチごとのボタン)
@@ -2319,6 +2366,8 @@ document.getElementById("cmpActions").addEventListener("click", ev => {
   if (ev.target.closest("#stashPopBtn")) { doStash("pop"); return; }
   if (ev.target.closest("#stashDropBtn")) { doStash("drop"); return; }
   if (ev.target.closest("#reflogBtn")) { showReflog(""); return; }
+  if (ev.target.closest("#deleteBranchBtn")) { doDeleteBranch(ev.target.closest("#deleteBranchBtn")); return; }
+  if (ev.target.closest("#deleteTagBtn")) { doDeleteTag(ev.target.closest("#deleteTagBtn")); return; }
   if (ev.target.closest("#mergeBtn")) { doMerge(); return; }
   if (ev.target.closest("#rebaseBtn")) { doRebase(); return; }
   if (ev.target.closest("#irebaseBtn")) { doRebaseI(); return; }
@@ -2327,7 +2376,9 @@ document.getElementById("cmpActions").addEventListener("click", ev => {
   const cab = ev.target.closest(".abtn[data-cact]");
   if (cab) {
     const act = cab.dataset.cact;
-    (["fetch", "pull", "push", "push-tag"].includes(act) ? doRemoteAction : act.startsWith("remote-") ? doRemoteConfig : doCmpAction)(cab);
+    if (act === "delete-branch") doDeleteBranch(cab);
+    else if (act === "delete-tag") doDeleteTag(cab);
+    else (["fetch", "pull", "push", "push-tag"].includes(act) ? doRemoteAction : act.startsWith("remote-") ? doRemoteConfig : doCmpAction)(cab);
     return;
   }
 });
