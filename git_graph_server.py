@@ -120,6 +120,7 @@ TRANSLATIONS = {
         "discard_checkout": "削除してチェックアウト",
         "graph_help_1": "ノードをクリックすると、そのコミットから最初（ルート）までのログを表示します。エッジをクリックすると省略された区間のログを表示します。",
         "graph_help_2": "コミットをクリックすると操作対象になります。ログ行の上にマウスを置くと、比較 A / B に設定するボタンが表示されます。",
+        "graph_zoom_reset": "ズームを100%に戻す (Ctrl/⌘+0)",
         "current_branch": "カレントブランチ",
         "reload_busy": "更新中…",
         "target_label": "対象",
@@ -501,6 +502,7 @@ TRANSLATIONS = {
         "discard_checkout": "Discard and checkout",
         "graph_help_1": "Click a node to show the log from that commit to the root. Click an edge to show the log for the collapsed section.",
         "graph_help_2": "Click a commit to select it for an operation. Hover over a log row to show buttons for comparison A / B.",
+        "graph_zoom_reset": "Reset zoom to 100% (Ctrl/⌘+0)",
         "current_branch": "Current branch",
         "reload_busy": "Reloading…",
         "target_label": "Target",
@@ -1297,6 +1299,7 @@ __FAVICON__
 <div id="compareControls">
   <div id="compareToolbar">
     <button id="reload" class="sbtn" disabled title="{{reload_title}}">{{reload}}</button>
+    <button id="graphZoomReset" class="sbtn" title="{{graph_zoom_reset}}">100%</button>
     <span class="cmp-hash" id="actionTarget"></span>
     <span class="cmp-hash" id="cmpA"></span><span class="cmp-hash" id="cmpB"></span>
     <button class="sbtn" id="cmpActToggle" aria-expanded="false" aria-controls="cmpActions">{{actions}}</button>
@@ -1394,8 +1397,50 @@ let actionHash = null;  // マージ / リベースなどの操作対象
 let currentBranch = null;
 let currentBranchLoaded = false;
 const nodeEl = {};  // ハッシュ -> グラフ上のノード要素
+let graphZoom = 1;
 const homeHtml = listView.innerHTML;
 if (!history.state || !history.state.screen) history.replaceState({screen: "home"}, "");
+
+function applyGraphZoom() {
+  const svg = document.querySelector("#graph > svg");
+  if (!svg) return;
+  svg.style.transformOrigin = "0 0";
+  svg.style.transform = "scale(" + graphZoom + ")";
+  const reset = document.getElementById("graphZoomReset");
+  if (reset) reset.textContent = Math.round(graphZoom * 100) + "%";
+}
+function resetGraphZoom() {
+  const graph = document.getElementById("graph");
+  const oldZoom = graphZoom;
+  if (oldZoom === 1) return;
+  const x = graph.scrollLeft + graph.clientWidth / 2;
+  const y = graph.scrollTop + graph.clientHeight / 2;
+  graphZoom = 1;
+  applyGraphZoom();
+  graph.scrollLeft = x / oldZoom - graph.clientWidth / 2;
+  graph.scrollTop = y / oldZoom - graph.clientHeight / 2;
+}
+document.getElementById("graph").addEventListener("wheel", ev => {
+  if (!ev.ctrlKey && !ev.metaKey) return;
+  ev.preventDefault();  // Ctrl+ホイールによるブラウザ全体のズームをグラフのズームに置き換える
+  const graph = ev.currentTarget;
+  const rect = graph.getBoundingClientRect();
+  const x = graph.scrollLeft + ev.clientX - rect.left;
+  const y = graph.scrollTop + ev.clientY - rect.top;
+  const oldZoom = graphZoom;
+  graphZoom = Math.max(0.25, Math.min(4, graphZoom * Math.pow(1.1, -ev.deltaY / 100)));
+  if (graphZoom === oldZoom) return;
+  applyGraphZoom();
+  graph.scrollLeft = x * graphZoom / oldZoom - (ev.clientX - rect.left);
+  graph.scrollTop = y * graphZoom / oldZoom - (ev.clientY - rect.top);
+}, {passive: false});
+document.getElementById("graphZoomReset").addEventListener("click", resetGraphZoom);
+document.addEventListener("keydown", ev => {
+  if ((ev.ctrlKey || ev.metaKey) && ev.key === "0") {
+    ev.preventDefault();
+    resetGraphZoom();
+  }
+});
 
 const splitter = document.getElementById("splitter");
 let resizing = false;
@@ -1733,6 +1778,7 @@ function refreshGraph() {
       const gc = document.getElementById("graph"), top0 = gc.scrollTop, left0 = gc.scrollLeft;
       DATA = {nodes: r.nodes, edges: r.edges, writable: r.writable, merge: r.merge};
       gc.innerHTML = r.svg;
+      applyGraphZoom();
       gc.scrollTop = top0; gc.scrollLeft = left0;
       selected = null;
       for (const k in nodeEl) delete nodeEl[k];
@@ -2621,6 +2667,7 @@ fetch("/api/graph")
     clearInterval(timer);
     DATA = {nodes: r.nodes, edges: r.edges, writable: r.writable, merge: r.merge};
     document.getElementById("graph").innerHTML = r.svg;
+    applyGraphZoom();
     init();
     updateCmpClasses();
     document.getElementById("reload").disabled = false;
