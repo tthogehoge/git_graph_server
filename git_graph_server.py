@@ -119,7 +119,8 @@ TRANSLATIONS = {
         "auth_username": "ユーザー名",
         "auth_password": "パスワード / トークン",
         "authenticate": "認証して再試行",
-        "other": "その他",
+        "other": "その他 ▾",
+        "menu_select_commit": "グラフのコミットをクリックして選ぶと、そのコミットに対する操作がここに出ます",
         "stash_list": "stash一覧",
         "reflog": "reflog",
         "stash_apply": "stash 適用 (apply)",
@@ -558,7 +559,8 @@ TRANSLATIONS = {
         "auth_username": "Username",
         "auth_password": "Password / token",
         "authenticate": "Authenticate and retry",
-        "other": "Other",
+        "other": "Other ▾",
+        "menu_select_commit": "Click a commit in the graph to see the actions for it here",
         "stash_list": "Stash list",
         "reflog": "Reflog",
         "stash_apply": "Apply stash",
@@ -1277,8 +1279,8 @@ __FAVICON__
 <style>
   html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-size: 13px; color: #222; }
   body { display: flex; }
-  #graphWrap { flex: 1; min-width: 0; position: relative; background: #fff; }
-  #graph { position: absolute; inset: 0; overflow: auto; padding: 12px; box-sizing: border-box; }
+  #graphWrap { flex: 1; min-width: 0; position: relative; background: #fff; display: flex; flex-direction: column; }
+  #graph { flex: 1 1 auto; min-height: 0; position: relative; overflow: auto; padding: 12px; box-sizing: border-box; }
   #graphStatus { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); z-index: 5;
     display: flex; flex-direction: column-reverse; gap: 6px; width: max-content; max-width: calc(100% - 32px);
     max-height: 45%; overflow-y: auto; pointer-events: auto; }
@@ -1290,13 +1292,22 @@ __FAVICON__
   .graph-toast.error { color: #cf222e; border-color: #e7a0a4; }
   .graph-toast-message { flex: 1; min-width: 0; }
   .graph-toast-close { flex: none; border: 0; background: transparent; color: inherit; cursor: pointer; font: inherit; padding: 0 2px; }
-  #compareControls { position: absolute; top: 8px; right: 14px; z-index: 5; }
+  #compareControls { flex: 0 0 auto; position: relative; z-index: 6; padding: 4px 8px; border-bottom: 1px solid #ccc; background: #f4f5f7; }
   #compareControls [hidden] { display: none; }
-  #compareToolbar, #cmpActions { padding: 6px; border: 1px solid #ccc; border-radius: 4px; background: #fff; box-shadow: 0 1px 4px #0002; }
-  #compareToolbar { display: flex; align-items: center; gap: 6px; }
+  #compareToolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
   #compareToolbar .sbtn { margin: 0; }
-  #cmpActions { position: absolute; top: 100%; right: 0; display: flex; flex-direction: column; gap: 6px; box-sizing: border-box; min-width: 250px; max-width: min(440px, calc(100vw - 24px)); max-height: calc(100vh - 70px); overflow: auto; margin-top: 4px; }
-  #cmpActions[hidden] { display: none; }
+  #compareToolbar button { white-space: nowrap; }
+  .menubar-group { display: flex; align-items: center; gap: 2px; }
+  .menubar-spacer { flex: 1 1 auto; }
+  .abtn.mbtn { background: transparent; border-color: transparent; padding: 4px 10px; }
+  .abtn.mbtn:hover { background: #dde6fa; border-color: #b8c7ee; }
+  .abtn.mbtn[aria-expanded="true"] { background: #cfdcf8; border-color: #9fb4e8; }
+  .abtn.mbtn:disabled { background: transparent; border-color: transparent; }
+  .menu-wrap { position: relative; display: inline-block; }
+  .dropdown { position: absolute; top: calc(100% + 2px); left: 0; z-index: 20; display: flex; flex-direction: column; gap: 4px; box-sizing: border-box; min-width: 220px; max-width: min(440px, calc(100vw - 24px)); max-height: calc(100vh - 90px); overflow: auto; padding: 6px; border: 1px solid #ccc; border-radius: 4px; background: #fff; box-shadow: 0 2px 8px #0003; }
+  .dropdown[hidden] { display: none; }
+  .dropdown .abtn { text-align: left; }
+  .dropdown .hint { margin: 2px 4px; }
   #cmpActions label { white-space: nowrap; }
   #cmpActions select { max-width: 100%; }
   .menu-row { display: flex; flex-direction: column; gap: 4px; }
@@ -1327,9 +1338,6 @@ __FAVICON__
   td.h .copy { opacity: .45; } tr:hover td.h .copy { opacity: 1; }
   .actions { border: 1px solid #ddd; background: #fafafa; border-radius: 4px; padding: 8px; margin: 8px 0; }
   .actions .arow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0; }
-  .submenu { display: flex; flex-direction: column; gap: 6px; align-items: stretch; margin-top: 6px; padding-left: 12px; width: max-content; min-width: 180px; }
-  .submenu .abtn { width: 100%; text-align: left; }
-  .submenu[hidden] { display: none; }
   .actions input[type=text] { padding: 3px 6px; border: 1px solid #bbb; border-radius: 3px; min-width: 0; flex: 1; }
   .abtn { display: inline-block; background: #e8eefc; border: 1px solid #b8c7ee; padding: 3px 8px; border-radius: 3px; cursor: pointer; text-decoration: none; color: inherit; }
   .abtn[aria-disabled="true"] { opacity: .5; cursor: default; pointer-events: none; }
@@ -1431,54 +1439,56 @@ __FAVICON__
 <div id="graphWrap">
 <div id="graphStatus" role="region" aria-label="{{notifications}}"></div>
 <div id="compareControls">
-  <div id="compareToolbar">
+  <div id="compareToolbar" role="menubar">
     <button id="reload" class="sbtn" disabled title="{{reload_title}}">{{reload}}</button>
     <button id="graphZoomReset" class="sbtn" title="{{graph_zoom_reset}}">100%</button>
-    <span class="cmp-hash" id="actionTarget"></span>
-    <span class="cmp-hash" id="cmpA"></span><span class="cmp-hash" id="cmpB"></span>
-    <button class="sbtn" id="cmpActToggle" aria-expanded="false" aria-controls="cmpActions">{{actions}}</button>
-    <button class="sbtn" id="clearCmpBtn">{{clear}}</button>
-  </div>
-  <div class="actions" id="cmpActions" hidden>
-    <div class="menu-section" id="remoteActions">
-      <button class="abtn" id="pushBtn" data-cact="push">{{push}}</button>
-      <button class="abtn" data-cact="pull">pull</button>
-      <button class="abtn" data-cact="fetch">fetch</button>
+    <span class="menu-wrap">
+      <button class="abtn mbtn" id="cmpActToggle" aria-haspopup="true" aria-expanded="false" aria-controls="cmpActions">{{actions}}</button>
+      <div class="dropdown" id="cmpActions" hidden>
+        <div class="hint" id="actionsEmpty">{{menu_select_commit}}</div>
+        <div class="menu-section" id="aActions" hidden>
+          <button class="abtn" id="mergeBtn" title="{{tip_merge}}">{{merge}}</button>
+          <button class="abtn" id="rebaseBtn" title="{{tip_rebase}}">{{rebase}}</button>
+          <button class="abtn" id="irebaseBtn" title="{{tip_irebase}}">{{interactive_rebase}}</button>
+          <button class="abtn" id="cherryBtn" title="{{tip_cherry}}">{{cherry_pick}}</button>
+          <button class="abtn" id="revertBtn" title="{{tip_revert}}">{{revert}}</button>
+          <button class="abtn danger" id="resetBtn" title="{{tip_reset}}">{{reset}}</button>
+          <button class="abtn" data-cact="branch">{{create_branch}}</button>
+          <button class="abtn" id="renameBranchBtn">{{rename_branch}}</button>
+          <button class="abtn danger" id="deleteBranchBtn" data-cact="delete-branch">{{delete_branch}}</button>
+          <button class="abtn danger" id="deleteRemoteBranchBtn">{{delete_remote_branch}}</button>
+          <button class="abtn" data-cact="tag">{{create_tag}}</button>
+          <button class="abtn danger" id="deleteTagBtn" data-cact="delete-tag">{{delete_tag}}</button>
+          <button class="abtn" data-cact="checkout">{{checkout}}</button>
+        </div>
+        <hr class="menu-separator" id="compareMenuSeparator" hidden>
+        <button class="abtn" id="compareBtn" hidden>{{compare_ab}}</button>
+        <button class="abtn" id="rebaseRangeBtn" hidden title="{{tip_rebase_range}}">{{rebase_range}}</button>
+        <div class="menu-section" id="stashActions" hidden>
+          <button class="abtn" id="stashApplyBtn" title="{{tip_stash_apply}}">{{stash_apply}}</button>
+          <button class="abtn" id="stashPopBtn" title="{{tip_stash_pop}}">{{stash_pop}}</button>
+          <button class="abtn danger" id="stashDropBtn" title="{{tip_stash_drop}}">{{stash_drop}}</button>
+        </div>
+      </div>
+    </span>
+    <div class="menubar-group" id="remoteActions">
+      <button class="abtn mbtn" id="pushBtn" data-cact="push">{{push}}</button>
+      <button class="abtn mbtn" data-cact="pull">pull</button>
+      <button class="abtn mbtn" data-cact="fetch">fetch</button>
     </div>
-    <hr class="menu-separator" id="selectionMenuSeparator" hidden>
-    <div class="menu-section" id="aActions" hidden>
-      <button class="abtn" id="mergeBtn" title="{{tip_merge}}">{{merge}}</button>
-      <button class="abtn" id="rebaseBtn" title="{{tip_rebase}}">{{rebase}}</button>
-      <button class="abtn" id="irebaseBtn" title="{{tip_irebase}}">{{interactive_rebase}}</button>
-      <button class="abtn" id="cherryBtn" title="{{tip_cherry}}">{{cherry_pick}}</button>
-      <button class="abtn" id="revertBtn" title="{{tip_revert}}">{{revert}}</button>
-      <button class="abtn danger" id="resetBtn" title="{{tip_reset}}">{{reset}}</button>
-      <button class="abtn" data-cact="branch">{{create_branch}}</button>
-      <button class="abtn" id="renameBranchBtn">{{rename_branch}}</button>
-      <button class="abtn danger" id="deleteBranchBtn" data-cact="delete-branch">{{delete_branch}}</button>
-      <button class="abtn danger" id="deleteRemoteBranchBtn">{{delete_remote_branch}}</button>
-      <button class="abtn" data-cact="tag">{{create_tag}}</button>
-      <button class="abtn danger" id="deleteTagBtn" data-cact="delete-tag">{{delete_tag}}</button>
-      <button class="abtn" data-cact="checkout">{{checkout}}</button>
-    </div>
-    <hr class="menu-separator" id="compareMenuSeparator" hidden>
-    <button class="abtn" id="compareBtn" hidden>{{compare_ab}}</button>
-    <button class="abtn" id="rebaseRangeBtn" hidden title="{{tip_rebase_range}}">{{rebase_range}}</button>
-    <hr class="menu-separator">
-    <div class="menu-section" id="viewActions">
-      <button class="abtn" id="otherMenuBtn" aria-expanded="false" aria-controls="otherActions">{{other}}</button>
-      <div class="submenu" id="otherActions" hidden>
+    <span class="menu-wrap">
+      <button class="abtn mbtn" id="otherMenuBtn" aria-haspopup="true" aria-expanded="false" aria-controls="otherActions">{{other}}</button>
+      <div class="dropdown" id="otherActions" hidden>
         <button class="abtn" id="stashListBtn" title="{{tip_stash_list}}">{{stash_list}}</button>
         <button class="abtn" id="reflogBtn" title="{{tip_reflog}}">{{reflog}}</button>
         <button class="abtn" data-cact="remote-add" title="{{tip_remote_add}}">{{remote_add}}</button>
         <button class="abtn danger" data-cact="remote-remove" title="{{tip_remote_remove}}">{{remote_remove}}</button>
       </div>
-    </div>
-    <div class="menu-section" id="stashActions" hidden>
-      <button class="abtn" id="stashApplyBtn" title="{{tip_stash_apply}}">{{stash_apply}}</button>
-      <button class="abtn" id="stashPopBtn" title="{{tip_stash_pop}}">{{stash_pop}}</button>
-      <button class="abtn danger" id="stashDropBtn" title="{{tip_stash_drop}}">{{stash_drop}}</button>
-    </div>
+    </span>
+    <span class="menubar-spacer"></span>
+    <span class="cmp-hash" id="actionTarget"></span>
+    <span class="cmp-hash" id="cmpA"></span><span class="cmp-hash" id="cmpB"></span>
+    <button class="sbtn" id="clearCmpBtn">{{clear}}</button>
   </div>
 </div>
 <div id="actionModal" hidden>
@@ -2135,7 +2145,7 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
   const isStash = !!actionHash && !!stashByHash[actionHash];
   document.getElementById("aActions").hidden = !actionHash || isStash;
   document.getElementById("stashActions").hidden = !isStash;
-  document.getElementById("selectionMenuSeparator").hidden = !actionHash && !compareAHash && !compareBHash;
+  document.getElementById("actionsEmpty").hidden = !!actionHash || (!!compareAHash && !!compareBHash);
   const canMerge = !!actionHash && !isStash && !!DATA.writable && !!DATA.merge;
   document.getElementById("mergeBtn").disabled = !canMerge;
   document.getElementById("rebaseBtn").disabled = !canMerge;
@@ -2163,6 +2173,18 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
   document.getElementById("renameBranchBtn").disabled = !canWrite || !actionHash || isStash || !localBranches(actionHash).length;
 }
 let cmpActOpen = false;
+function setOtherMenu(open) {  // 「その他」のメニュー
+  const btn = document.getElementById("otherMenuBtn");
+  document.getElementById("otherActions").hidden = !open;
+  btn.setAttribute("aria-expanded", open ? "true" : "false");
+  btn.textContent = open ? t("other").replace("▾", "▴") : t("other");
+}
+function closeMenus() {  // 開いているメニュー (操作 / その他) をすべて閉じる
+  const changed = cmpActOpen || !document.getElementById("otherActions").hidden;
+  cmpActOpen = false;
+  setOtherMenu(false);
+  if (changed) updateCmpClasses();
+}
 let stashByHash = {};  // stash のコミットのハッシュ -> stash@{n}
 function loadStashes() {
   return fetch("/api/stash-list").then(r => r.ok ? r.json() : null).then(r => {
@@ -2770,7 +2792,7 @@ function restoreScreen(state) {
   if (Object.prototype.hasOwnProperty.call(state, "compareA")) compareAHash = state.compareA;
   if (Object.prototype.hasOwnProperty.call(state, "compareB")) compareBHash = state.compareB;
   if (Object.prototype.hasOwnProperty.call(state, "actionHash")) actionHash = state.actionHash;
-  if (Object.prototype.hasOwnProperty.call(state, "cmpActOpen")) cmpActOpen = state.cmpActOpen;
+  cmpActOpen = false;  // メニューは画面の復元では開かない (グラフを隠さない)
   if (state.screen === "log") showLog(state.titleHtml, state.rev, state.topHtml, true, state.scroll || 0, state.src);
   else if (state.screen === "detail") showDetail(state.hash, true);
   else if (state.screen === "compare") {
@@ -2856,12 +2878,11 @@ function openFilesInNewTab(ev) {
 }
 document.addEventListener("auxclick", openFilesInNewTab);
 document.addEventListener("click", openFilesInNewTab);
-document.getElementById("cmpActions").addEventListener("click", ev => {
+document.getElementById("compareToolbar").addEventListener("click", ev => {  // メニューバー (操作 / push / pull / fetch / その他)
   if (ev.target.closest("#otherMenuBtn")) {
-    const btn = document.getElementById("otherMenuBtn");
-    const menu = document.getElementById("otherActions");
-    menu.hidden = !menu.hidden;
-    btn.setAttribute("aria-expanded", menu.hidden ? "false" : "true");
+    const open = document.getElementById("otherActions").hidden;
+    if (open && cmpActOpen) { cmpActOpen = false; updateCmpClasses(); }  // 同時に開くのは1つだけ
+    setOtherMenu(open);
     return;
   }
   if (ev.target.closest("#compareBtn") && compareAHash && compareBHash) {
@@ -2896,19 +2917,21 @@ document.getElementById("cmpActions").addEventListener("click", ev => {
 document.getElementById("compareToolbar").addEventListener("click", ev => {
   if (ev.target.closest("#cmpActToggle")) {
     cmpActOpen = !cmpActOpen;
+    if (cmpActOpen) setOtherMenu(false);  // 同時に開くのは1つだけ
     updateCmpClasses();
     saveUiState();
   } else if (ev.target.closest("#clearCmpBtn")) {
     clearCmp();
   }
 });
-document.addEventListener("click", ev => {
-  if (!ev.target.closest("#graph") || ev.target.closest("svg g.node")) return;
-  if (!cmpActOpen) return;
-  cmpActOpen = false;
-  updateCmpClasses();
-  saveUiState();
+document.getElementById("compareToolbar").addEventListener("click", ev => {  // メニューの項目を選んだら閉じる
+  if (ev.target.closest(".dropdown .abtn")) closeMenus();  // 無効なボタンはクリック自体が発火しない
 });
+document.addEventListener("click", ev => {  // メニューの外をクリックしたら閉じる
+  if (ev.target.closest(".menu-wrap") || ev.target.closest("svg g.node")) return;  // ノードのクリックは onNodeClick が扱う
+  closeMenus();
+});
+document.addEventListener("keydown", ev => { if (ev.key === "Escape") closeMenus(); });
 function select(g) {
   if (selected) selected.classList.remove("sel");
   selected = g; g.classList.add("sel");
@@ -2920,14 +2943,14 @@ function onNodeClick(g, n, ev) {
   if (ev && (ev.ctrlKey || ev.metaKey) && actionHash && actionHash !== n.hash && !n.wip) {
     compareAHash = actionHash;
     compareBHash = n.hash;
-    cmpActOpen = true;
+    cmpActOpen = true; setOtherMenu(false);
     select(g);
     updateCmpClasses();
     saveUiState();
     showCompareLogs(compareAHash, compareBHash);
     return;
   }
-  cmpActOpen = true;
+  if (!n.wip) { cmpActOpen = true; setOtherMenu(false); }  // コミットを選んだら、操作メニューを自動で開く
   if (n.wip) {  // 作業ツリーの変更 (WIP) ノード: ログではなく変更ファイルの一覧を出す
     clearCmp(); select(g); showWip();
     return;
