@@ -1208,8 +1208,11 @@ __FAVICON__
   .submenu .abtn { width: 100%; text-align: left; }
   .submenu[hidden] { display: none; }
   .actions input[type=text] { padding: 3px 6px; border: 1px solid #bbb; border-radius: 3px; min-width: 0; flex: 1; }
-  .abtn { background: #e8eefc; border: 1px solid #b8c7ee; padding: 3px 8px; border-radius: 3px; cursor: pointer; }
+  .abtn { display: inline-block; background: #e8eefc; border: 1px solid #b8c7ee; padding: 3px 8px; border-radius: 3px; cursor: pointer; text-decoration: none; color: inherit; }
+  .abtn[aria-disabled="true"] { opacity: .5; cursor: default; pointer-events: none; }
   .abtn:hover { background: #d6e2fb; } .abtn:disabled { opacity: .5; cursor: default; }
+  .detail-files { margin-left: 8px; color: #06c; font-size: 13px; font-weight: normal; text-decoration: none; }
+  .detail-files:hover { text-decoration: underline; }
   #coModal, #actionModal { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: flex; align-items: center; justify-content: center; z-index: 1000; }
   #coModal[hidden] { display: none; }
   #actionModal[hidden] { display: none; }
@@ -1307,7 +1310,6 @@ __FAVICON__
     </div>
     <hr class="menu-separator" id="selectionMenuSeparator" hidden>
     <div class="menu-section" id="aActions" hidden>
-      <button class="abtn" id="filesBtn" title="{{tip_files}}">{{files}}</button>
       <button class="abtn" id="mergeBtn" title="{{tip_merge}}">{{merge}}</button>
       <button class="abtn" id="rebaseBtn" title="{{tip_rebase}}">{{rebase}}</button>
       <button class="abtn" id="irebaseBtn" title="{{tip_irebase}}">{{interactive_rebase}}</button>
@@ -1625,7 +1627,8 @@ function showDetail(h, fromHistory) {
   api("/api/commit", {hash: h}).then(c => {
     curCtx = {hash: c.hash}; curFiles = c.files; curDetailHash = c.hash;
     const parents = c.parents.map(p => esc(p.slice(0, 7))).join(", ") || t("none");
-    detailView.innerHTML = back + "<h2>" + t("commit_label") + " " + esc(c.hash.slice(0, 7)) + "</h2>" +
+    detailView.innerHTML = back + "<h2>" + t("commit_label") + " " + esc(c.hash.slice(0, 7)) +
+      ' <a class="detail-files" href="/files?hash=' + encodeURIComponent(c.hash) + '" title="' + esc(t("tip_files")) + '">' + esc(t("files")) + "</a></h2>" +
       '<span id="dChips">' + detailChips(c.hash) + "</span>" +
       '<div class="meta">' + esc(c.hash) + copyLink(c.hash) + "</div>" +
       '<div class="meta">Author: ' + esc(c.author) + "</div>" +
@@ -1796,9 +1799,8 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
   document.getElementById("cherryBtn").disabled = !canMerge;
   document.getElementById("resetBtn").disabled = !canMerge;
   const canWrite = !!DATA.writable;
-  document.getElementById("filesBtn").disabled = !actionHash || isStash;
   document.querySelectorAll("#aActions button")
-    .forEach(el => { if (el.id !== "filesBtn") el.disabled = !canWrite || (["mergeBtn", "rebaseBtn", "irebaseBtn", "cherryBtn", "resetBtn"].includes(el.id) && !DATA.merge); });
+    .forEach(el => { el.disabled = !canWrite || (["mergeBtn", "rebaseBtn", "irebaseBtn", "cherryBtn", "resetBtn"].includes(el.id) && !DATA.merge); });
   document.querySelectorAll("#remoteActions button")
     .forEach(el => { el.disabled = !canWrite || (el.dataset.cact === "pull" && !DATA.merge); });
   document.querySelectorAll("#remoteConfigActions button").forEach(el => { el.disabled = !canWrite; });
@@ -2308,13 +2310,16 @@ function restoreScreen(state) {
   updateCmpClasses();
 }
 window.addEventListener("popstate", ev => restoreScreen(ev.state || {screen: "home"}));
+function showFileLogInGraph(hash, path) {
+  showLog(t("file_log_heading", {path: esc(path)}), hash,
+          '<div class="meta"><code>git log ' + esc(hash.slice(0, 7)) + " -- " + esc(path) + "</code></div>",
+          false, 0, {path: "/api/log", params: {rev: hash, path: path}});
+}
 window.addEventListener("message", ev => {
   if (ev.origin !== location.origin || !ev.data || ev.data.type !== "git-graph-file-log") return;
   const hash = ev.data.hash, path = ev.data.path;
   if (typeof hash !== "string" || typeof path !== "string" || !hash || !path) return;
-  showLog(t("file_log_heading", {path: esc(path)}), hash,
-          '<div class="meta"><code>git log ' + esc(hash.slice(0, 7)) + " -- " + esc(path) + "</code></div>",
-          false, 0, {path: "/api/log", params: {rev: hash, path: path}});
+  showFileLogInGraph(hash, path);
 });
 
 listView.addEventListener("click", ev => {
@@ -2351,6 +2356,20 @@ detailView.addEventListener("click", ev => {
   if (tr && !ev.target.closest("a, input, td.fk") && curCtx)  // 行のどこをクリックしても差分を開く
     location.href = diffUrl(curCtx, curFiles[+tr.dataset.k]);
 });
+// 中クリック/Ctrl・Cmdクリックは、ブラウザの opener 設定に関係なく
+// ファイル画面を別タブで開くことを明示する。
+function openFilesInNewTab(ev) {
+  const link = ev.target.closest("a.detail-files");
+  if (!link) return;
+  const newTabClick = ev.type === "auxclick" ? ev.button === 1 : (ev.ctrlKey || ev.metaKey);
+  if (!newTabClick) return;
+  ev.preventDefault();
+  const url = new URL(link.href, location.href);
+  url.searchParams.set("file_view", "1");
+  window.open(url.href, "_blank", "noopener,noreferrer");
+}
+document.addEventListener("auxclick", openFilesInNewTab);
+document.addEventListener("click", openFilesInNewTab);
 document.getElementById("cmpActions").addEventListener("click", ev => {
   if (ev.target.closest("#otherMenuBtn")) {
     const btn = document.getElementById("otherMenuBtn");
@@ -2361,10 +2380,6 @@ document.getElementById("cmpActions").addEventListener("click", ev => {
   }
   if (ev.target.closest("#compareBtn") && compareAHash && compareBHash) {
     showCompare(compareAHash, compareBHash);
-    return;
-  }
-  if (ev.target.closest("#filesBtn") && actionHash && !stashByHash[actionHash]) {
-    location.href = "/files?hash=" + encodeURIComponent(actionHash);
     return;
   }
   if (ev.target.closest("#stashListBtn")) { showStashList(); return; }
@@ -2597,6 +2612,13 @@ fetch("/api/graph")
     loadStashes();
     updateCurrentBranch().catch(e => setGraphStatus(t("current_branch_failed", {error: e.message}), "error"));
     restoreScreen(history.state || {screen: "home"});
+    const fileLogHash = new URLSearchParams(location.search).get("file_log_hash");
+    const fileLogPath = new URLSearchParams(location.search).get("file_log_path");
+    if (fileLogHash && fileLogPath) {
+      // 一度だけ消費し、以後の履歴には一時的なクエリを残さない。
+      history.replaceState({screen: "home"}, "", "/");
+      showFileLogInGraph(fileLogHash, fileLogPath);
+    }
   })
   .catch(e => {
     clearInterval(timer);
@@ -3391,7 +3413,7 @@ function t(key, values = {}) {
   return text;
 }
 
-const qs = new URLSearchParams(location.search), hash = qs.get("hash");
+const qs = new URLSearchParams(location.search), hash = qs.get("hash"), fileViewTab = qs.get("file_view") === "1";
 const list = document.getElementById("list"), content = document.getElementById("content"), title = document.getElementById("title");
 const fileActions = document.getElementById("fileActions"), fileLogBtn = document.getElementById("fileLogBtn"), fileContentBtn = document.getElementById("fileContentBtn");
 const fileCopyBtn = document.getElementById("fileCopyBtn"), fileMsg = document.getElementById("fileMsg");
@@ -3449,24 +3471,24 @@ function loadFile(path) {
   }).catch(e => { title.textContent = path; content.className = "hint"; content.textContent = t("error") + e.message; });
 }
 function loadFileLog(path) {
-  if (window.opener && !window.opener.closed) {
-    window.opener.postMessage({type: "git-graph-file-log", hash: hash, path: path}, location.origin);
-    try { window.opener.focus(); } catch (e) {}
-    window.close();
+  if (fileViewTab || (window.opener && !window.opener.closed)) {
+    // 別タブでは親のグラフへ通知せず、このファイル画面にログを表示する。
+    fileLogBtn.hidden = true;
+    fileContentBtn.hidden = false;
+    title.textContent = t("file_history_title", {path: path});
+    content.className = "hint";
+    content.textContent = t("loading");
+    api("/api/log", {rev: hash, path: path}).then(r => {
+      const rows = r.commits.map(c => '<tr><td class="hash">' + esc(c[1]) +
+        '</td><td class="date">' + esc(c[3]) + '</td><td>' + esc(c[4]) + '</td></tr>').join("");
+      content.className = "";
+      content.innerHTML = '<div class="meta">' + esc(t("n_commits", {n: r.total})) + '</div>' +
+        (rows ? '<table class="file-log"><tbody>' + rows + '</tbody></table>' : '<p class="hint">' + t("no_history") + '</p>');
+    }).catch(e => { content.className = "hint"; content.textContent = t("error") + e.message; });
     return;
   }
-  fileLogBtn.hidden = true;
-  fileContentBtn.hidden = false;
-  title.textContent = t("file_history_title", {path: path});
-  content.className = "hint";
-  content.textContent = t("loading");
-  api("/api/log", {rev: hash, path: path}).then(r => {
-    const rows = r.commits.map(c => '<tr><td class="hash">' + esc(c[1]) +
-      '</td><td class="date">' + esc(c[3]) + '</td><td>' + esc(c[4]) + '</td></tr>').join("");
-    content.className = "";
-    content.innerHTML = '<div class="meta">' + esc(t("n_commits", {n: r.total})) + '</div>' +
-      (rows ? '<table class="file-log"><tbody>' + rows + '</tbody></table>' : '<p class="hint">' + t("no_history") + '</p>');
-  }).catch(e => { content.className = "hint"; content.textContent = t("error") + e.message; });
+  // 同一タブではファイル画面にログを描画せず、グラフ画面へ戻して表示する。
+  location.href = "/?file_log_hash=" + encodeURIComponent(hash) + "&file_log_path=" + encodeURIComponent(path);
 }
 fileLogBtn.onclick = () => { if (currentFile) loadFileLog(currentFile); };
 fileContentBtn.onclick = () => { if (currentFile) loadFile(currentFile); };
