@@ -921,6 +921,12 @@ def git(*args, literal=False):
                                    encoding="utf-8", errors="replace", env=env)
 
 
+def git_bytes(*args, literal=False):
+    """git の出力を変換せずバイト列で取得する (ファイル内容を含む出力用)。"""
+    env = dict(os.environ, GIT_LITERAL_PATHSPECS="1") if literal else None
+    return subprocess.check_output(["git", "-C", REPO, *args], env=env)
+
+
 # --------------------------------------------------------------------------
 # グラフの構築
 # --------------------------------------------------------------------------
@@ -2739,9 +2745,9 @@ def wip_diff(kind, path, specs):
     if not HAS_WORKTREE:
         raise UserError("no_worktree")
     if kind == "staged":
-        return git("diff", "--cached", "--no-color", "-M", "--", *specs, literal=True)
+        return git_bytes("diff", "--cached", "--no-color", "-M", "--", *specs, literal=True)
     if kind in ("unstaged", "conflict"):
-        return git("diff", "--no-color", "--", path, literal=True)
+        return git_bytes("diff", "--no-color", "--", path, literal=True)
     if kind == "untracked":
         # 任意のファイルを読ませないよう、いま未追跡と報告されているパスだけを対象にする
         known = {f["path"] for f in parse_status(read_status_raw())["untracked"]}
@@ -2749,16 +2755,16 @@ def wip_diff(kind, path, specs):
             raise UserError("not_untracked")
         full = os.path.join(REPO, path)
         if os.path.islink(full):
-            return f"symlink -> {os.readlink(full)}\n"
+            return f"symlink -> {os.readlink(full)}\n".encode()
         r = subprocess.run(["git", "-C", REPO, "diff", "--no-index", "--no-color", "--", "/dev/null", path],
-                           capture_output=True, text=True, encoding="utf-8", errors="replace")
+                           capture_output=True)
         if r.returncode not in (0, 1):  # 1 は「差分あり」
-            raise ValueError(r.stderr.strip() or tr("git_diff_failed"))
+            raise ValueError(r.stderr.decode("utf-8", errors="replace").strip() or tr("git_diff_failed"))
         return r.stdout
     if kind == "amend":  # 直前のコミットの親 と 作業ツリー の差分 (未追跡ファイルは新規ファイルとして)
         if path in {f["path"] for f in parse_status(read_status_raw())["untracked"]}:
             return wip_diff("untracked", path, specs)
-        return git("diff", "--no-color", "-M", amend_base(), "--", *specs, literal=True)
+        return git_bytes("diff", "--no-color", "-M", amend_base(), "--", *specs, literal=True)
     raise ValueError("bad wip")
 
 
@@ -3141,13 +3147,18 @@ def api_diff(q):
         a, b = q.get("from", [""])[0], q.get("to", [""])[0]
         if not (HASH_RE.fullmatch(a) and HASH_RE.fullmatch(b)):
             raise ValueError("bad hash")
-        out = git("diff", "--no-color", "-M", a, b, "--", *specs, literal=True)
+        out = git_bytes("diff", "--no-color", "-M", a, b, "--", *specs, literal=True)
     else:
         h = q.get("hash", [""])[0]
         if not HASH_RE.fullmatch(h):
             raise ValueError("bad hash")
-        out = git("show", "--format=", "--first-parent", "-M", "--no-color", h, "--", *specs, literal=True)
-    return {"diff": out[:DIFF_LIMIT], "truncated": len(out) > DIFF_LIMIT}
+        out = git_bytes("show", "--format=", "--first-parent", "-M", "--no-color", h, "--", *specs, literal=True)
+    truncated = len(out) > DIFF_LIMIT
+    diff, encoding = decode_text(out[:DIFF_LIMIT], truncated=truncated)
+    if diff is None:
+        # バイナリ差分でも git の "Binary files ... differ" 等は表示できるようにする。
+        diff, encoding = out[:DIFF_LIMIT].decode("utf-8", errors="replace"), "UTF-8 (binary diff)"
+    return {"diff": diff, "encoding": encoding, "truncated": truncated}
 
 
 DIFF_CSS = """
@@ -3310,6 +3321,7 @@ def render_diff_page(q):
   <h1>{html.escape(name)}</h1>
   {info}
   <div class="meta"><code>{html.escape(cmd)}</code></div>
+  <div class="meta">{html.escape(d["encoding"] or "binary")}</div>
   {'<p class="hint">' + tr("large_file_diff") + '</p>' if d["truncated"] else ""}
   <div class="diff">{diff_lines_html(d["diff"]) or '<p class="hint">' + tr("no_diff") + '</p>'}</div>
 </div>
