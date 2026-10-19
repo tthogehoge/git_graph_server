@@ -104,6 +104,9 @@ TRANSLATIONS = {
         "reset": "対象へリセット",
         "interactive_rebase": "対話的リベース",
         "compare_ab": "AB比較",
+        "push": "push",
+        "push_branch_select": "pushするブランチ",
+        "other": "その他",
         "stash_list": "stash一覧",
         "reflog": "reflog",
         "stash_apply": "stash 適用 (apply)",
@@ -117,7 +120,6 @@ TRANSLATIONS = {
         "discard_checkout": "削除してチェックアウト",
         "graph_help_1": "ノードをクリックすると、そのコミットから最初（ルート）までのログを表示します。エッジをクリックすると省略された区間のログを表示します。",
         "graph_help_2": "コミットをクリックすると操作対象になります。ログ行の上にマウスを置くと、比較 A / B に設定するボタンが表示されます。",
-        "push_current": "カレントブランチを push",
         "current_branch": "カレントブランチ",
         "reload_busy": "更新中…",
         "target_label": "対象",
@@ -184,7 +186,6 @@ TRANSLATIONS = {
         "no_commits_yet": "(コミットなし)",
         "copy_hash_title": "ハッシュ (40桁) をコピー",
         "set_compare": "比較 {slot} に設定",
-        "push_branch": "{branch} を push",
         "swap_ab": "A ⇄ B 入れ替え",
         "compare_heading": "比較 {from} → {to}",
         "file_log_heading": "ファイルログ: {path}",
@@ -270,7 +271,6 @@ TRANSLATIONS = {
         "confirm_pull": "リモートの変更を pull します ({mode})。作業ツリーが変わります。よろしいですか？",
         "force_label": "--force-with-lease (リモート履歴を書き換える)",
         "what_branch": "ブランチ {name}",
-        "what_current_branch": "現在のブランチ",
         "confirm_push": "{what} を push します。よろしいですか？",
         "confirm_push_force": "{what} を --force-with-lease で push します。リモートの履歴が書き換わります。よろしいですか？",
         "push_cancelled": "push をキャンセルしました",
@@ -429,7 +429,6 @@ TRANSLATIONS = {
         "push_remote_unregistered": "push 先のリモート {remote} (pushRemote / remote.pushDefault) は登録されていません",
         "pushed": "{branch} を push しました{where}",
         "pushed_nothing": "{branch} を push しました{where} (更新するものはありませんでした)",
-        "push_tag": "タグ {tag} を push",
         "confirm_push_tag": "タグ {tag} を push します。よろしいですか？",
         "prompt_push_tag_remote": "タグ {tag} の push 先のリモートを入力してください ({remotes})。",
         "pushed_tag": "タグ {tag} を push しました{where}",
@@ -486,6 +485,9 @@ TRANSLATIONS = {
         "reset": "Reset to target",
         "interactive_rebase": "Interactive rebase",
         "compare_ab": "Compare A/B",
+        "push": "Push",
+        "push_branch_select": "Branch to push",
+        "other": "Other",
         "stash_list": "Stash list",
         "reflog": "Reflog",
         "stash_apply": "Apply stash",
@@ -499,7 +501,6 @@ TRANSLATIONS = {
         "discard_checkout": "Discard and checkout",
         "graph_help_1": "Click a node to show the log from that commit to the root. Click an edge to show the log for the collapsed section.",
         "graph_help_2": "Click a commit to select it for an operation. Hover over a log row to show buttons for comparison A / B.",
-        "push_current": "Push current branch",
         "current_branch": "Current branch",
         "reload_busy": "Reloading…",
         "target_label": "Target",
@@ -566,7 +567,6 @@ TRANSLATIONS = {
         "no_commits_yet": "(no commits)",
         "copy_hash_title": "Copy the hash (40 characters)",
         "set_compare": "Set as comparison {slot}",
-        "push_branch": "Push {branch}",
         "swap_ab": "Swap A ⇄ B",
         "compare_heading": "Compare {from} → {to}",
         "file_log_heading": "File log: {path}",
@@ -652,7 +652,6 @@ TRANSLATIONS = {
         "confirm_pull": "Pull changes from the remote ({mode}). The working tree will change. Continue?",
         "force_label": "--force-with-lease (rewrites the remote history)",
         "what_branch": "branch {name}",
-        "what_current_branch": "the current branch",
         "confirm_push": "Push {what}. Continue?",
         "confirm_push_force": "Push {what} with --force-with-lease. The remote history will be rewritten. Continue?",
         "push_cancelled": "Push cancelled",
@@ -811,7 +810,6 @@ TRANSLATIONS = {
         "push_remote_unregistered": "The push remote {remote} (pushRemote / remote.pushDefault) is not registered",
         "pushed": "Pushed {branch}{where}",
         "pushed_nothing": "Pushed {branch}{where} (nothing to update)",
-        "push_tag": "Push tag {tag}",
         "confirm_push_tag": "Push tag {tag}. Continue?",
         "prompt_push_tag_remote": "Enter the remote to push tag {tag} to ({remotes}).",
         "pushed_tag": "Pushed tag {tag}{where}",
@@ -1115,18 +1113,7 @@ function fallbackCopy(text) {
   return ok;
 }
 function updatePushActions() {
-  const current = document.getElementById("pushCurrentBtn");
-  current.textContent = t("push_current") + (currentBranch ? " (" + currentBranch + ")" : "");
-  current.title = currentBranch ? currentBranch + " push" : t("push_current");
-  current.disabled = !currentBranchLoaded || !currentBranch || !DATA.writable;
-  const branches = currentBranchLoaded && actionHash
-    ? localBranches(actionHash).filter(branch => branch !== currentBranch) : [];
-  const tags = currentBranchLoaded && actionHash ? localTags(actionHash) : [];
-  document.getElementById("selectedPushActions").innerHTML = branches.map(branch =>
-    '<button class="abtn" data-cact="push" data-branch="' + esc(branch) + '">' + esc(t("push_branch", {branch: branch})) + "</button>"
-  ).concat(tags.map(tag =>
-    '<button class="abtn" data-cact="push-tag" data-tag="' + esc(tag) + '">' + esc(t("push_tag", {tag: tag})) + "</button>"
-  )).join("");
+  document.getElementById("pushBtn").disabled = !currentBranchLoaded || !DATA.writable;
 }
 function updateCurrentBranch() {
   return fetch("/api/head").then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); }))
@@ -1217,6 +1204,9 @@ __FAVICON__
   td.h .copy { opacity: .45; } tr:hover td.h .copy { opacity: 1; }
   .actions { border: 1px solid #ddd; background: #fafafa; border-radius: 4px; padding: 8px; margin: 8px 0; }
   .actions .arow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0; }
+  .submenu { display: flex; flex-direction: column; gap: 6px; align-items: stretch; margin-top: 6px; padding-left: 12px; width: max-content; min-width: 180px; }
+  .submenu .abtn { width: 100%; text-align: left; }
+  .submenu[hidden] { display: none; }
   .actions input[type=text] { padding: 3px 6px; border: 1px solid #bbb; border-radius: 3px; min-width: 0; flex: 1; }
   .abtn { background: #e8eefc; border: 1px solid #b8c7ee; padding: 3px 8px; border-radius: 3px; cursor: pointer; }
   .abtn:hover { background: #d6e2fb; } .abtn:disabled { opacity: .5; cursor: default; }
@@ -1311,10 +1301,7 @@ __FAVICON__
   </div>
   <div class="actions" id="cmpActions" hidden>
     <div class="menu-section" id="remoteActions">
-      <div class="menu-section" id="pushActions">
-        <button class="abtn" id="pushCurrentBtn" data-cact="push">push</button>
-        <div class="menu-section" id="selectedPushActions"></div>
-      </div>
+      <button class="abtn" id="pushBtn" data-cact="push">{{push}}</button>
       <button class="abtn" data-cact="pull">pull</button>
       <button class="abtn" data-cact="fetch">fetch</button>
     </div>
@@ -1336,18 +1323,18 @@ __FAVICON__
     <button class="abtn" id="compareBtn" hidden>{{compare_ab}}</button>
     <hr class="menu-separator">
     <div class="menu-section" id="viewActions">
-      <button class="abtn" id="stashListBtn" title="{{tip_stash_list}}">{{stash_list}}</button>
-      <button class="abtn" id="reflogBtn" title="{{tip_reflog}}">{{reflog}}</button>
+      <button class="abtn" id="otherMenuBtn" aria-expanded="false" aria-controls="otherActions">{{other}}</button>
+      <div class="submenu" id="otherActions" hidden>
+        <button class="abtn" id="stashListBtn" title="{{tip_stash_list}}">{{stash_list}}</button>
+        <button class="abtn" id="reflogBtn" title="{{tip_reflog}}">{{reflog}}</button>
+        <button class="abtn" data-cact="remote-add" title="{{tip_remote_add}}">{{remote_add}}</button>
+        <button class="abtn danger" data-cact="remote-remove" title="{{tip_remote_remove}}">{{remote_remove}}</button>
+      </div>
     </div>
     <div class="menu-section" id="stashActions" hidden>
       <button class="abtn" id="stashApplyBtn" title="{{tip_stash_apply}}">{{stash_apply}}</button>
       <button class="abtn" id="stashPopBtn" title="{{tip_stash_pop}}">{{stash_pop}}</button>
       <button class="abtn danger" id="stashDropBtn" title="{{tip_stash_drop}}">{{stash_drop}}</button>
-    </div>
-    <hr class="menu-separator">
-    <div class="menu-section" id="remoteConfigActions">
-      <button class="abtn" data-cact="remote-add" title="{{tip_remote_add}}">{{remote_add}}</button>
-      <button class="abtn danger" data-cact="remote-remove" title="{{tip_remote_remove}}">{{remote_remove}}</button>
     </div>
   </div>
 </div>
@@ -2007,7 +1994,7 @@ async function doDeleteTag(btn) {
     .catch(e => setCmpMsg(t("delete_failed", {error: e.message}), false))
     .finally(() => { btn.disabled = false; });
 }
-async function doRemoteAction(btn) {  // fetch / pull / push (別ブランチの push はブランチごとのボタン)
+async function doRemoteAction(btn) {  // fetch / pull / push
   const act = btn.dataset.cact;
   const url = "/api/" + act;
   let body = {}, ask = null;
@@ -2025,13 +2012,19 @@ async function doRemoteAction(btn) {  // fetch / pull / push (別ブランチの
     body = {mode: mode};
     ask = t("confirm_pull", {mode: {"ff-only": t("pull_mode_ff"), "merge": t("pull_mode_merge"), "rebase": t("pull_mode_rebase")}[mode]});
   } else if (act === "push") {
-    const target = btn.dataset.branch || null;
+    const branches = [...new Set(Object.values(DATA.nodes).flatMap(n =>
+      n.refs.filter(r => r.kind === "branch" || r.kind === "current").map(r => r.name)))]
+      .sort((a, b) => a.localeCompare(b));
+    if (currentBranch && !branches.includes(currentBranch)) branches.unshift(currentBranch);
+    if (!branches.length) return;
     const values = await openActionDialog("push",
+      '<label>' + esc(t("push_branch_select")) + '<select name="branch">' + branches.map(branch =>
+        '<option value="' + esc(branch) + '"' + (branch === currentBranch ? " selected" : "") + '>' + esc(branch) + "</option>").join("") +
+      '</select></label>' +
       '<label class="check"><input type="checkbox" name="force"> ' + esc(t("force_label")) + '</label>', "push");
     if (!values) return;
-    body = {force: values.force};
-    if (target) body.branch = target;
-    const what = target ? t("what_branch", {name: target}) : t("what_current_branch");
+    body = {branch: values.branch, force: values.force};
+    const what = t("what_branch", {name: values.branch});
     ask = body.force
       ? t("confirm_push_force", {what: what})
       : t("confirm_push", {what: what});
@@ -2359,6 +2352,13 @@ detailView.addEventListener("click", ev => {
     location.href = diffUrl(curCtx, curFiles[+tr.dataset.k]);
 });
 document.getElementById("cmpActions").addEventListener("click", ev => {
+  if (ev.target.closest("#otherMenuBtn")) {
+    const btn = document.getElementById("otherMenuBtn");
+    const menu = document.getElementById("otherActions");
+    menu.hidden = !menu.hidden;
+    btn.setAttribute("aria-expanded", menu.hidden ? "false" : "true");
+    return;
+  }
   if (ev.target.closest("#compareBtn") && compareAHash && compareBHash) {
     showCompare(compareAHash, compareBHash);
     return;
