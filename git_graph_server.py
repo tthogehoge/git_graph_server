@@ -2311,7 +2311,7 @@ document.getElementById("cmpActions").addEventListener("click", ev => {
     return;
   }
   if (ev.target.closest("#filesBtn") && actionHash && !stashByHash[actionHash]) {
-    window.open("/files?hash=" + encodeURIComponent(actionHash), "_blank");
+    location.href = "/files?hash=" + encodeURIComponent(actionHash);
     return;
   }
   if (ev.target.closest("#stashListBtn")) { showStashList(); return; }
@@ -3389,6 +3389,7 @@ function loadFileLog(path) {
   if (window.opener && !window.opener.closed) {
     window.opener.postMessage({type: "git-graph-file-log", hash: hash, path: path}, location.origin);
     try { window.opener.focus(); } catch (e) {}
+    window.close();
     return;
   }
   fileLogBtn.hidden = true;
