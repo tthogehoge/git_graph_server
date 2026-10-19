@@ -1923,7 +1923,7 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
   document.getElementById("deleteRemoteBranchBtn").disabled = !canWrite || !actionHash || isStash || !remoteBranches(actionHash).length;
   document.getElementById("deleteTagBtn").disabled = !canWrite || !actionHash || isStash || !localTags(actionHash).length;
 }
-let cmpActOpen = true;
+let cmpActOpen = false;
 let stashByHash = {};  // stash のコミットのハッシュ -> stash@{n}
 function loadStashes() {
   return fetch("/api/stash-list").then(r => r.ok ? r.json() : null).then(r => {
@@ -2612,6 +2612,13 @@ document.getElementById("compareToolbar").addEventListener("click", ev => {
     clearCmp();
   }
 });
+document.addEventListener("click", ev => {
+  if (!ev.target.closest("#graph") || ev.target.closest("svg g.node")) return;
+  if (!cmpActOpen) return;
+  cmpActOpen = false;
+  updateCmpClasses();
+  saveUiState();
+});
 function select(g) {
   if (selected) selected.classList.remove("sel");
   selected = g; g.classList.add("sel");
@@ -2620,6 +2627,7 @@ function select(g) {
 }
 
 function onNodeClick(g, n) {
+  cmpActOpen = true;
   if (n.wip) {  // 作業ツリーの変更 (WIP) ノード: ログではなく変更ファイルの一覧を出す
     clearCmp(); select(g); showWip();
     return;
