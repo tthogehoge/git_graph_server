@@ -38,6 +38,8 @@
   POST /api/stash {hash, op} (JSON)                          stash の apply / pop / drop (hash は stash のコミット。op は apply | pop | drop)。画面では、stash を比較のAに選んだときの操作
   /api/reflog?[branch=<名前>]&skip=0&limit=500               reflog (省略時は HEAD、branch 指定でそのローカルブランチ)。画面では「操作」メニューの「reflog」
   POST /api/fetch {prune} | /api/pull {mode} | /api/push {branch, force, set_upstream} (JSON)
+  POST /api/push-tag {tag, remote} (JSON)                       タグを push (リモートが複数で決まらないときは needs_remote を返す)
+  POST /api/file-copy {hash, path, dest} (JSON)                 コミットのファイルを作業ツリーの別名にコピー (既存ファイルは上書きしない)
      fetch (--all) / pull (mode: ff-only | merge | rebase) / push (branch 指定でそのローカルブランチ、省略で現在のブランチ。force は --force-with-lease)
      push 先は git と同じ優先順位で決める: branch.<名前>.pushRemote > remote.pushDefault > upstream (branch.<名前>.remote)。
      どれも無いとき (リモートが複数なら) {needs_upstream, remote, remotes} を返し、remote を付けて set_upstream:true で再送する
@@ -62,12 +64,19 @@ import sys
 import tempfile
 import threading
 import time
+import unicodedata
 import webbrowser
 from collections import Counter, defaultdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.parse import parse_qs, quote, urlencode, urlparse
 
 REPO = "."
+PROJECT_NAME = ""  # タブのタイトルに出すプロジェクト名 (リポジトリのフォルダ名)
+_FAVICON_SVG = ("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'>"
+                "<path d='M16 7V25M16 16C16 11 24 13 24 7' stroke='#889' stroke-width='3' fill='none'/>"
+                "<circle cx='16' cy='25' r='4' fill='#2c7be5'/><circle cx='16' cy='16' r='4' fill='#2c7be5'/>"
+                "<circle cx='16' cy='7' r='4' fill='#2c7be5'/><circle cx='24' cy='7' r='4' fill='#27ae60'/></svg>")
+FAVICON_LINK = '<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,' + quote(_FAVICON_SVG) + '">'
 OPTS = None
 UI_LANG = "ja"  # サーバー起動時に決定する UI の言語
 WRITABLE = False  # ブランチ/タグ作成・チェックアウト等の書き込み操作を許可するか
@@ -120,6 +129,12 @@ TRANSLATIONS = {
         "select_file_hint": "左の一覧からファイルをクリックしてください。",
         "file_log": "このファイルのログ",
         "file_content": "ファイル内容",
+        "copy_to_work": "作業ツリーにコピー",
+        "prompt_copy_dest": "コピー先のパスを入力してください (リポジトリのルートからの相対パス)",
+        "file_copied": "{path} にコピーしました",
+        "copy_dest_exists": "{path} は既に存在します。別の名前を指定してください",
+        "copy_dest_invalid": "コピー先のパスが不正です",
+        "copy_no_worktree": "作業ツリーがないためコピーできません",
         "binary_file": "バイナリファイルのため内容を表示できません。",
         "loading": "読み込み中…",
         "error": "エラー: ",
@@ -411,6 +426,13 @@ TRANSLATIONS = {
         "push_remote_unregistered": "push 先のリモート {remote} (pushRemote / remote.pushDefault) は登録されていません",
         "pushed": "{branch} を push しました{where}",
         "pushed_nothing": "{branch} を push しました{where} (更新するものはありませんでした)",
+        "push_tag": "タグ {tag} を push",
+        "confirm_push_tag": "タグ {tag} を push します。よろしいですか？",
+        "prompt_push_tag_remote": "タグ {tag} の push 先のリモートを入力してください ({remotes})。",
+        "pushed_tag": "タグ {tag} を push しました{where}",
+        "pushed_tag_nothing": "タグ {tag} は push 済みです{where}",
+        "push_tag_failed": "タグの push に失敗しました",
+        "tag_missing": "タグ {tag} が見つかりません",
         "dot_missing": "dot (Graphviz) が見つかりません。インストールしてください。",
         "write_disabled": "書き込み操作は無効です (--read-only 指定、またはローカル以外で待ち受け中)",
         "content_type_json": "Content-Type は application/json にしてください",
@@ -428,6 +450,7 @@ TRANSLATIONS = {
         "cli_help_full_layout": "ノードが多くても dot のレイアウト最適化を省略しない (遅いが交差が少し減る)",
         "cli_help_no_count": "省略数 (+N) の計算をしない",
         "cli_help_rankdir": "BT(下から上) / TB / LR (既定: BT)",
+        "cli_help_font": "グラフのフォント名 (既定: Helvetica)。日本語の幅が広く出るときは Meiryo や Yu Gothic などを指定する",
         "cli_help_dot": "dot を標準出力に出して終了",
         "cli_help_no_wip": "未コミットの変更 (WIP ノード) を表示しない",
         "cli_help_read_only": "書き込み操作 (ブランチ/タグ作成・チェックアウト) を無効にする",
@@ -485,6 +508,12 @@ TRANSLATIONS = {
         "select_file_hint": "Click a file in the list on the left.",
         "file_log": "File log",
         "file_content": "File content",
+        "copy_to_work": "Copy to working tree",
+        "prompt_copy_dest": "Enter the destination path (relative to the repository root)",
+        "file_copied": "Copied to {path}",
+        "copy_dest_exists": "{path} already exists. Choose a different name",
+        "copy_dest_invalid": "The destination path is invalid",
+        "copy_no_worktree": "There is no working tree to copy into",
         "binary_file": "Cannot display the contents of a binary file.",
         "loading": "Loading…",
         "error": "Error: ",
@@ -776,6 +805,13 @@ TRANSLATIONS = {
         "push_remote_unregistered": "The push remote {remote} (pushRemote / remote.pushDefault) is not registered",
         "pushed": "Pushed {branch}{where}",
         "pushed_nothing": "Pushed {branch}{where} (nothing to update)",
+        "push_tag": "Push tag {tag}",
+        "confirm_push_tag": "Push tag {tag}. Continue?",
+        "prompt_push_tag_remote": "Enter the remote to push tag {tag} to ({remotes}).",
+        "pushed_tag": "Pushed tag {tag}{where}",
+        "pushed_tag_nothing": "Tag {tag}{where} is already up to date",
+        "push_tag_failed": "Failed to push the tag",
+        "tag_missing": "Tag {tag} not found",
         "dot_missing": "dot (Graphviz) was not found. Please install it.",
         "write_disabled": "Write operations are disabled (--read-only was given, or the server is listening on a non-local address)",
         "content_type_json": "Content-Type must be application/json",
@@ -793,6 +829,7 @@ TRANSLATIONS = {
         "cli_help_full_layout": "do not skip dot layout optimization even with many nodes (slower, slightly fewer crossings)",
         "cli_help_no_count": "do not compute the omitted-commit counts (+N)",
         "cli_help_rankdir": "BT (bottom to top) / TB / LR (default: BT)",
+        "cli_help_font": "Font name for the graph (default: Helvetica). If CJK text comes out too wide, try e.g. Meiryo or Yu Gothic",
         "cli_help_dot": "print the dot source to stdout and exit",
         "cli_help_no_wip": "do not show uncommitted changes (the WIP node)",
         "cli_help_read_only": "disable write operations (creating branches/tags, checkout, etc.)",
@@ -861,8 +898,13 @@ def client_translations():
     return json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
 
 
+def with_project(page):
+    """テンプレート中のプロジェクト名とアイコンの置換。"""
+    return page.replace("__PROJECT__", html.escape(PROJECT_NAME)).replace("__FAVICON__", FAVICON_LINK)
+
+
 def render_main_page():
-    return (fill_template(HTML_TEMPLATE)
+    return with_project(fill_template(HTML_TEMPLATE)
             .replace('<html lang="ja">', f'<html lang="{UI_LANG}">')
             .replace("/*__I18N__*/", "const I18N = " + client_translations() + ";"))
 
@@ -876,6 +918,20 @@ def git(*args, literal=False):
 # --------------------------------------------------------------------------
 # グラフの構築
 # --------------------------------------------------------------------------
+SUBJECT_WIDTH = 30  # グラフのノードに出すコミットメッセージの表示幅 (半角=1、全角=2)
+
+
+def truncate_width(text, limit):
+    """表示幅 (全角・東アジアの広い文字は 2) が limit 以内になるよう切り詰める。"""
+    width = 0
+    for i, ch in enumerate(text):
+        w = 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
+        if width + w > limit:
+            return text[:i]
+        width += w
+    return text
+
+
 def build_graph(opts):
     """残すコミットとエッジを決め、dot / ノード情報 / エッジ情報を返す。"""
     sys.setrecursionlimit(100000)
@@ -986,20 +1042,21 @@ def build_graph(opts):
                 edges.append((d, c))
     keep_order.reverse()  # 出力の順序を毎回同じにする (レイアウトが安定する)
 
+    font = (getattr(opts, "font", None) or "Helvetica").replace("\\", "").replace('"', "")  # dot の文字列に埋めるため引用符は除く
     out = [
         "digraph G {",
         f"  rankdir={opts.rankdir};",
         *(["  nslimit=1; nslimit1=1; mclimit=0.3;"]  # ノードが多いときは dot のレイアウト最適化を軽くして高速化
           if len(keep) > FAST_LAYOUT_NODES and not getattr(opts, "full_layout", False) else []),
-        '  node [shape=plaintext, fontname="Helvetica", fontsize=10];',
-        '  edge [fontname="Helvetica", fontsize=9];',
+        f'  node [shape=plaintext, fontname="{font}", fontsize=10];',
+        f'  edge [fontname="{font}", fontsize=9];',
     ]
     for h in keep_order:
         rows = []
         for name, kind in labels.get(h, []):
             marker = "★ " if kind == "current" else ""
             rows.append(f'<TR><TD BGCOLOR="{COLORS[kind]}"><B>{marker}{html.escape(name)}</B></TD></TR>')
-        rows.append(f'<TR><TD>{h[:7]}<BR/>{html.escape(subjects[h][:30])}</TD></TR>')
+        rows.append(f'<TR><TD>{h[:7]}<BR/>{html.escape(truncate_width(subjects[h], SUBJECT_WIDTH))}</TD></TR>')
         label = ('<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="3">'
                  + "".join(rows) + "</TABLE>>")
         out.append(f'  "{h}" [label={label}];')
@@ -1052,9 +1109,12 @@ function updatePushActions() {
   current.disabled = !currentBranchLoaded || !currentBranch || !DATA.writable;
   const branches = currentBranchLoaded && actionHash
     ? localBranches(actionHash).filter(branch => branch !== currentBranch) : [];
+  const tags = currentBranchLoaded && actionHash ? localTags(actionHash) : [];
   document.getElementById("selectedPushActions").innerHTML = branches.map(branch =>
     '<button class="abtn" data-cact="push" data-branch="' + esc(branch) + '">' + esc(t("push_branch", {branch: branch})) + "</button>"
-  ).join("");
+  ).concat(tags.map(tag =>
+    '<button class="abtn" data-cact="push-tag" data-tag="' + esc(tag) + '">' + esc(t("push_tag", {tag: tag})) + "</button>"
+  )).join("");
 }
 function updateCurrentBranch() {
   return fetch("/api/head").then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); }))
@@ -1091,7 +1151,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 <html lang="ja">
 <head>
 <meta charset="utf-8">
-<title>git graph</title>
+<title>__PROJECT__ - git graph</title>
+__FAVICON__
 <style>
   html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-size: 13px; color: #222; }
   body { display: flex; }
@@ -1335,6 +1396,14 @@ if (!history.state || !history.state.screen) history.replaceState({screen: "home
 
 const splitter = document.getElementById("splitter");
 let resizing = false;
+const PANEL_WIDTH_KEY = "git-graph-panel-width";
+function applyPanelWidth(width) {
+  document.documentElement.style.setProperty("--panel-width", Math.max(240, Math.min(window.innerWidth - 166, width)) + "px");
+}
+try {  // 別ページ (差分など) から戻ったときも、右ペインの幅を保つ
+  const saved = parseInt(localStorage.getItem(PANEL_WIDTH_KEY), 10);
+  if (saved > 0) applyPanelWidth(saved);
+} catch (e) {}
 splitter.addEventListener("pointerdown", ev => {
   resizing = true;
   splitter.setPointerCapture(ev.pointerId);
@@ -1343,10 +1412,12 @@ splitter.addEventListener("pointerdown", ev => {
 });
 splitter.addEventListener("pointermove", ev => {
   if (!resizing) return;
-  const width = Math.max(240, Math.min(window.innerWidth - 166, window.innerWidth - ev.clientX));
-  document.documentElement.style.setProperty("--panel-width", width + "px");
+  applyPanelWidth(window.innerWidth - ev.clientX);
 });
 function stopResizing() {
+  if (resizing) {
+    try { localStorage.setItem(PANEL_WIDTH_KEY, String(parseInt(getComputedStyle(document.getElementById("panel")).width, 10))); } catch (e) {}
+  }
   resizing = false;
   document.body.classList.remove("resizing");
 }
@@ -1501,6 +1572,10 @@ let curDetailHash = null;
 function localBranches(h) {
   const n = DATA.nodes[h];
   return n ? n.refs.filter(r => r.kind === "branch" || r.kind === "current").map(r => r.name) : [];
+}
+function localTags(h) {
+  const n = DATA.nodes[h];
+  return n ? n.refs.filter(r => r.kind === "tag").map(r => r.name) : [];
 }
 function showStashList(fromHistory) {
   loadStashes();
@@ -1907,10 +1982,24 @@ async function doRemoteAction(btn) {  // fetch / pull / push (別ブランチの
     ask = body.force
       ? t("confirm_push_force", {what: what})
       : t("confirm_push", {what: what});
+  } else if (act === "push-tag") {
+    body = {tag: btn.dataset.tag};
+    ask = t("confirm_push_tag", {tag: body.tag});
   } else return;
   if (ask && !confirm(ask)) return;
   btn.disabled = true; setRemoteMsg(t("running_remote"), "progress");
   let p = post(url, body);
+  if (act === "push-tag") {
+    p = p.then(r => {
+      if (!r.needs_remote) return r;
+      const input = prompt(t("prompt_push_tag_remote", {tag: r.tag, remotes: r.remotes.join(" / ")}), r.remote);
+      if (input === null) return {cancelled: true, message: t("push_cancelled")};
+      const remote = input.trim();
+      if (r.remotes.indexOf(remote) < 0) throw new Error(t("remote_unregistered", {remote: remote}));
+      setRemoteMsg(t("running_remote"), "progress");
+      return post(url, Object.assign({}, body, {remote: remote}));
+    });
+  }
   if (act === "push") {
     p = p.then(r => {
       if (!r.needs_upstream) return r;
@@ -2180,9 +2269,6 @@ window.addEventListener("message", ev => {
   showLog(t("file_log_heading", {path: esc(path)}), hash,
           '<div class="meta"><code>git log ' + esc(hash.slice(0, 7)) + " -- " + esc(path) + "</code></div>",
           false, 0, {path: "/api/log", params: {rev: hash, path: path}});
-  if (ev.source && ev.source !== window) {
-    try { ev.source.close(); } catch (e) {}
-  }
 });
 
 listView.addEventListener("click", ev => {
@@ -2241,7 +2327,7 @@ document.getElementById("cmpActions").addEventListener("click", ev => {
   const cab = ev.target.closest(".abtn[data-cact]");
   if (cab) {
     const act = cab.dataset.cact;
-    (["fetch", "pull", "push"].includes(act) ? doRemoteAction : act.startsWith("remote-") ? doRemoteConfig : doCmpAction)(cab);
+    (["fetch", "pull", "push", "push-tag"].includes(act) ? doRemoteAction : act.startsWith("remote-") ? doRemoteConfig : doCmpAction)(cab);
     return;
   }
 });
@@ -2785,8 +2871,8 @@ def api_stash(body):
     r = subprocess.run(["git", "-C", REPO, "stash", op, sel], capture_output=True, text=True,
                        encoding="utf-8", errors="replace")
     if r.returncode != 0:
-        unmerged = subprocess.run(["git", "-C", REPO, "diff", "--name-only", "--diff-filter=U"],
-                                  capture_output=True, text=True).stdout.strip()
+        unmerged = subprocess.run(["git", "-C", REPO, "-c", "core.quotepath=false", "diff", "--name-only", "--diff-filter=U"],
+                                  capture_output=True, text=True, encoding="utf-8", errors="replace").stdout.strip()
         if unmerged:
             raise ValueError(tr("stash_conflict_pop" if op == "pop" else "stash_conflict", sel=sel) + "\n" + unmerged)
         raise ValueError((r.stderr or r.stdout).strip() or tr("stash_apply_failed"))
@@ -2911,6 +2997,50 @@ def api_file(q):
     text, encoding = decode_text(data, truncated)
     return {"hash": h, "path": path, "content": text or "", "encoding": encoding,
             "binary": text is None, "truncated": truncated, "size": len(raw)}
+
+
+def api_file_copy(body):
+    """コミット内のファイルを、作業ツリーの別のパスにコピーする。既存のファイルは上書きしない。"""
+    if not HAS_WORKTREE:
+        raise UserError("copy_no_worktree")
+    h = resolve_commit(body.get("hash", ""))
+    path = validate_file_path(body.get("path", ""), allow_empty=False)
+    dest = body.get("dest", "")
+    if not isinstance(dest, str):
+        raise UserError("copy_dest_invalid")
+    dest = dest.strip()
+    try:
+        validate_file_path(dest, allow_empty=False)
+    except ValueError:
+        raise UserError("copy_dest_invalid")
+    if "\\" in dest or dest.split("/")[0].lower() == ".git":
+        raise UserError("copy_dest_invalid")
+    root = os.path.realpath(REPO)
+    target = os.path.realpath(os.path.join(root, *dest.split("/")))
+    try:
+        inside = os.path.commonpath([root, target]) == root
+    except ValueError:  # 別ドライブなど
+        inside = False
+    if not inside or target == root:
+        raise UserError("copy_dest_invalid")
+    spec = h + ":" + path
+    if git("cat-file", "-t", spec).strip() != "blob":
+        raise UserError("not_a_file")
+    if os.path.lexists(target):
+        raise UserError("copy_dest_exists", path=dest)
+    # --filters で改行コードなどを作業ツリーでの形 (autocrlf など) にそろえる。使えない git では素のまま
+    r = subprocess.run(["git", "-C", REPO, "cat-file", "--filters", spec], capture_output=True)
+    if r.returncode != 0:
+        r = subprocess.run(["git", "-C", REPO, "cat-file", "blob", spec], capture_output=True)
+        if r.returncode != 0:
+            raise ValueError(r.stderr.decode("utf-8", errors="replace").strip() or tr("git_command_failed"))
+    try:
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        with open(target, "xb") as f:
+            f.write(r.stdout)
+    except OSError as e:
+        raise ValueError(str(e))
+    return {"ok": True, "message": tr("file_copied", path=dest)}
 
 
 def api_compare(q):
@@ -3118,7 +3248,8 @@ def render_diff_page(q):
 
     return f"""<!DOCTYPE html>
 <html lang="{UI_LANG}"><head><meta charset="utf-8">
-<title>{html.escape(path)} @ {ref}</title>
+<title>{html.escape(path)} @ {ref} - {html.escape(PROJECT_NAME)}</title>
+{FAVICON_LINK}
 <style>{DIFF_CSS}</style></head><body>
 <div id="side">
   <div class="meta">{len(files)} {tr("files_changed")}</div>
@@ -3169,6 +3300,8 @@ FILES_CSS = """
   .file-actions { display: flex; gap: 6px; margin: 8px 0; }
   .file-actions button { background: #e8eefc; border: 1px solid #b8c7ee; padding: 4px 8px; border-radius: 3px; cursor: pointer; }
   .file-actions button:hover { background: #d6e2fb; }
+  .file-actions .msg { margin-left: 8px; color: #0a7b35; white-space: pre-wrap; }
+  .file-actions .msg.err { color: #c00; }
   table.file-log { border-collapse: collapse; width: 100%; margin-top: 8px; }
   table.file-log td { border-bottom: 1px solid #e3e3e3; padding: 5px 6px; vertical-align: top; }
   table.file-log td.hash { width: 1%; font-family: monospace; white-space: nowrap; }
@@ -3179,12 +3312,13 @@ FILES_CSS = """
 
 
 FILES_PAGE = r"""<!DOCTYPE html>
-<html lang="ja"><head><meta charset="utf-8"><title>{{file_view}}</title>
+<html lang="ja"><head><meta charset="utf-8"><title>{{file_view}} - __PROJECT__</title>
+__FAVICON__
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
 <style>__CSS__</style><script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script></head>
 <body><aside id="tree"><h1>{{file_view}}</h1><div class="meta" id="commit"></div><div id="list"></div></aside>
 <main id="main"><h2 id="title">{{select_file}}</h2>
-<div id="fileActions" class="file-actions" hidden><button id="fileLogBtn">{{file_log}}</button><button id="fileContentBtn" hidden>{{file_content}}</button></div>
+<div id="fileActions" class="file-actions" hidden><button id="fileLogBtn">{{file_log}}</button><button id="fileContentBtn" hidden>{{file_content}}</button><button id="fileCopyBtn" hidden>{{copy_to_work}}</button><span id="fileMsg" class="msg"></span></div>
 <div id="content" class="hint">{{select_file_hint}}</div></main>
 <script>
 /*__FILE_I18N__*/
@@ -3197,6 +3331,8 @@ function t(key, values = {}) {
 const qs = new URLSearchParams(location.search), hash = qs.get("hash");
 const list = document.getElementById("list"), content = document.getElementById("content"), title = document.getElementById("title");
 const fileActions = document.getElementById("fileActions"), fileLogBtn = document.getElementById("fileLogBtn"), fileContentBtn = document.getElementById("fileContentBtn");
+const fileCopyBtn = document.getElementById("fileCopyBtn"), fileMsg = document.getElementById("fileMsg");
+fileCopyBtn.hidden = !CAN_COPY;
 let current = "", currentFile = "";
 function esc(s) { return String(s).replace(/[&<>\"]/g, c => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", "\"":"&quot;"}[c])); }
 function api(path, params) { return fetch(path + "?" + new URLSearchParams(params)).then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); })); }
@@ -3221,8 +3357,24 @@ function loadTree(path, push) {
     list.querySelectorAll(".entry").forEach(a => a.onclick = () => a.dataset.type === "tree" ? loadTree(a.dataset.path, true) : loadFile(a.dataset.path));
   }).catch(showError);
 }
+function setFileMsg(text, ok) { fileMsg.textContent = text; fileMsg.className = "msg" + (ok ? "" : " err"); }
+function defaultCopyName(path) {  // 例: src/a.py → src/a_1234567.py
+  const i = path.lastIndexOf("/"), dir = path.slice(0, i + 1), name = path.slice(i + 1), dot = name.lastIndexOf(".");
+  const suffix = "_" + hash.slice(0, 7);
+  return dir + (dot > 0 ? name.slice(0, dot) + suffix + name.slice(dot) : name + suffix);
+}
+fileCopyBtn.onclick = () => {
+  if (!currentFile) return;
+  const dest = prompt(t("prompt_copy_dest"), defaultCopyName(currentFile));
+  if (dest === null || !dest.trim()) return;
+  fetch("/api/file-copy", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({hash: hash, path: currentFile, dest: dest.trim()})})
+    .then(r => r.ok ? r.json() : r.text().then(m => { throw new Error(m || r.status); }))
+    .then(r => setFileMsg(r.message, true))
+    .catch(e => setFileMsg(e.message, false));
+};
 function loadFile(path) {
   currentFile = path;
+  setFileMsg("", true);
   fileActions.hidden = false;
   fileLogBtn.hidden = false;
   fileContentBtn.hidden = true;
@@ -3236,7 +3388,7 @@ function loadFile(path) {
 function loadFileLog(path) {
   if (window.opener && !window.opener.closed) {
     window.opener.postMessage({type: "git-graph-file-log", hash: hash, path: path}, location.origin);
-    window.close();
+    try { window.opener.focus(); } catch (e) {}
     return;
   }
   fileLogBtn.hidden = true;
@@ -3341,9 +3493,10 @@ if (!hash) showError(new Error(t("commit_required"))); else loadTree(qs.get("pat
 
 
 def render_files_page():
-    return (fill_template(FILES_PAGE)
+    return with_project(fill_template(FILES_PAGE)
             .replace('<html lang="ja">', f'<html lang="{UI_LANG}">')
-            .replace("/*__FILE_I18N__*/", "const I18N = " + client_translations() + ";"))
+            .replace("/*__FILE_I18N__*/", "const I18N = " + client_translations() + ";\n"
+                     + "const CAN_COPY = " + ("true" if WRITABLE and HAS_WORKTREE else "false") + ";"))
 
 
 _CJK = re.compile(r"[\u3040-\u30ff\u3400-\u9fff\uff00-\uffef]")
@@ -3504,7 +3657,7 @@ def stash_all_changes():
     """未コミットの変更 (未追跡ファイルも) を stash に退避する。作った stash の名前を返す (変更がなければ None)。"""
     def top():
         r = subprocess.run(["git", "-C", REPO, "rev-parse", "-q", "--verify", "refs/stash"],
-                           capture_output=True, text=True)
+                           capture_output=True, text=True, encoding="utf-8", errors="replace")
         return r.stdout.strip()
     before = top()
     run_git_write("stash", "push", "--include-untracked", "-m",
@@ -3737,7 +3890,7 @@ def api_wip_commit(body):
 def is_rebasing():
     for d in ("rebase-merge", "rebase-apply"):
         r = subprocess.run(["git", "-C", REPO, "rev-parse", "--git-path", d],
-                           capture_output=True, text=True)
+                           capture_output=True, text=True, encoding="utf-8", errors="replace")
         path = r.stdout.strip()
         if path and os.path.isdir(os.path.join(REPO, path)):
             return True
@@ -3824,8 +3977,8 @@ def api_cherry_pick(body):
     out = (r.stdout + r.stderr).strip()
     if r.returncode != 0:
         if is_cherry_picking():
-            unmerged = subprocess.run(["git", "-C", REPO, "diff", "--name-only", "--diff-filter=U"],
-                                      capture_output=True, text=True).stdout.strip()
+            unmerged = subprocess.run(["git", "-C", REPO, "-c", "core.quotepath=false", "diff", "--name-only", "--diff-filter=U"],
+                                      capture_output=True, text=True, encoding="utf-8", errors="replace").stdout.strip()
             subprocess.run(["git", "-C", REPO, "cherry-pick", "--abort"], capture_output=True)
             if not unmerged:  # 競合ではなく、変更が空になった
                 raise UserError("cherry_empty", hash=h[:7])
@@ -3850,7 +4003,7 @@ def rebase_todo_hashes(base):
 def check_rebase_i_range(base):
     """対話的リベースできる範囲か調べて、対象コミットのハッシュ (古い順) を返す。"""
     r = subprocess.run(["git", "-C", REPO, "rev-list", "--count", "--merges", base + "..HEAD"],
-                       capture_output=True, text=True)
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
     if r.returncode == 0 and r.stdout.strip() not in ("", "0"):
         raise UserError("ri_merges")
     hashes = rebase_todo_hashes(base)
@@ -4176,9 +4329,40 @@ def api_push(body):
     return {"ok": True, "message": tr("pushed" if changed else "pushed_nothing", branch=branch, where=where)}
 
 
+def api_push_tag(body):
+    """タグを push する。push 先のリモートが決まらない (複数あって pushDefault も無い) ときは、選択肢を返す。"""
+    tag = body.get("tag")
+    if not isinstance(tag, str) or not tag or tag.startswith("-"):
+        raise UserError("tag_name_invalid")
+    if subprocess.run(["git", "-C", REPO, "rev-parse", "-q", "--verify", f"refs/tags/{tag}"],
+                      capture_output=True).returncode != 0:
+        raise UserError("tag_missing", tag=tag)
+    remotes = git("remote").split()
+    if not remotes:
+        raise UserError("no_remotes")
+    chosen = body.get("remote")
+    if chosen is None:
+        default = git_config("remote.pushDefault")
+        if len(remotes) == 1:
+            chosen = remotes[0]
+        elif default in remotes:
+            chosen = default
+        else:
+            return {"needs_remote": True, "tag": tag, "remotes": remotes,
+                    "remote": "origin" if "origin" in remotes else remotes[0]}
+    if not isinstance(chosen, str) or chosen not in remotes:  # 登録済みの名前だけ許可 (オプション注入も防ぐ)
+        raise UserError("remote_unregistered", remote=repr(chosen))
+    r = run_git_net("push", chosen, f"refs/tags/{tag}:refs/tags/{tag}")
+    if r.returncode != 0:
+        raise ValueError(net_error(r, tr("push_tag_failed")))
+    where = f" ({chosen})" if len(remotes) > 1 else ""
+    up_to_date = "up-to-date" in (r.stderr + r.stdout).lower() or "up to date" in (r.stderr + r.stdout).lower()
+    return {"ok": True, "message": tr("pushed_tag_nothing" if up_to_date else "pushed_tag", tag=tag, where=where)}
+
+
 POST_ROUTES = {"/api/stash": api_stash, "/api/rebase": api_rebase, "/api/rebase-i": api_rebase_i, "/api/cherry-pick": api_cherry_pick, "/api/merge": api_merge, "/api/branch": api_branch, "/api/tag": api_tag, "/api/ref-delete": api_delete_ref,
                "/api/checkout": api_checkout, "/api/reset": api_reset, "/api/wip-commit": api_wip_commit,
-               "/api/fetch": api_fetch, "/api/pull": api_pull, "/api/push": api_push,
+               "/api/fetch": api_fetch, "/api/pull": api_pull, "/api/push": api_push, "/api/push-tag": api_push_tag, "/api/file-copy": api_file_copy,
                "/api/remote-add": api_remote_add, "/api/remote-remove": api_remote_remove}
 
 
@@ -4278,8 +4462,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    global REPO, OPTS, UI_LANG, WRITABLE, WIP_ENABLED, HAS_WORKTREE
-    pre = argparse.ArgumentParser(add_help=False)  # --help の文言も言語に合わせるため、先に --lang だけ読む
+    global REPO, OPTS, UI_LANG, WRITABLE, WIP_ENABLED, HAS_WORKTREE, PROJECT_NAME
+    pre = argparse.ArgumentParser(add_help=False, allow_abbrev=False)  # --lan を --lang の省略形と誤認しない  # --help の文言も言語に合わせるため、先に --lang だけ読む
     pre.add_argument("--lang", choices=sorted(TRANSLATIONS))
     UI_LANG = detect_language(pre.parse_known_args()[0].lang)
     ap = argparse.ArgumentParser(description="git commit graph server")
@@ -4293,6 +4477,7 @@ def main():
     ap.add_argument("--full-layout", action="store_true", help=tr("cli_help_full_layout"))
     ap.add_argument("--no-count", action="store_true", help=tr("cli_help_no_count"))
     ap.add_argument("--rankdir", default="BT", help=tr("cli_help_rankdir"))
+    ap.add_argument("--font", default="Helvetica", help=tr("cli_help_font"))
     ap.add_argument("--dot", action="store_true", help=tr("cli_help_dot"))
     ap.add_argument("--no-wip", action="store_true", help=tr("cli_help_no_wip"))
     ap.add_argument("--read-only", action="store_true", help=tr("cli_help_read_only"))
@@ -4315,11 +4500,12 @@ def main():
     except (subprocess.CalledProcessError, FileNotFoundError):
         sys.exit(tr("cli_not_a_repo", repo=repr(REPO)))
     # サブディレクトリが指定されても、パスの扱い (status / diff はルート基準) がずれないようルートに揃える
-    r = subprocess.run(["git", "-C", REPO, "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+    r = subprocess.run(["git", "-C", REPO, "rev-parse", "--show-toplevel"], capture_output=True, text=True, encoding="utf-8", errors="replace")
     HAS_WORKTREE = r.returncode == 0
     if HAS_WORKTREE:
         REPO = r.stdout.strip()
     WIP_ENABLED = HAS_WORKTREE and not OPTS.no_wip
+    PROJECT_NAME = os.path.basename(os.path.abspath(REPO)) or REPO
 
     if OPTS.dot:
         print(build_graph(OPTS)[0])
