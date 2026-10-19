@@ -1430,6 +1430,16 @@ splitter.addEventListener("pointercancel", stopResizing);
 function esc(s) {
   return String(s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
 }
+const DEFAULT_DOCUMENT_TITLE = document.title;
+const PROJECT_DOCUMENT_TITLE = DEFAULT_DOCUMENT_TITLE.replace(/ - git graph$/, "");
+function setDocumentTitle(label) {
+  document.title = label ? label + " - " + PROJECT_DOCUMENT_TITLE : DEFAULT_DOCUMENT_TITLE;
+}
+function setDocumentTitleFromHtml(titleHtml) {
+  const el = document.createElement("span");
+  el.innerHTML = titleHtml;
+  setDocumentTitle(el.textContent || el.innerText || "");
+}
 function chips(h) {
   const n = DATA.nodes[h];
   if (!n) return "";
@@ -1484,6 +1494,7 @@ function rowHtml(c) {  // c = [hash, short, author, date, subject]
 // src を渡すと /api/log の代わりに src.path (src.params を付けて) から同じ形式の一覧を取る (stash 一覧 / reflog)
 function showLog(titleHtml, rev, topHtml, fromHistory, restoreScroll, src) {
   if (!fromHistory) pushScreen({screen: "log", titleHtml: titleHtml, rev: rev, topHtml: topHtml, src: src || null});
+  setDocumentTitleFromHtml(titleHtml);
   const my = ++token;
   if (observer) { observer.disconnect(); observer = null; }
   curRow = null;
@@ -1621,6 +1632,7 @@ listView.addEventListener("change", ev => {
 });
 function showDetail(h, fromHistory) {
   if (!fromHistory) pushScreen({screen: "detail", hash: h});
+  setDocumentTitle(t("commit_label") + " " + h.slice(0, 7));
   const back = '<button class="back-btn">' + t("back_history") + '</button>';
   detailView.innerHTML = back + '<p class="hint">' + esc(t("loading")) + '</p>';
   showView("detail");
@@ -1753,6 +1765,7 @@ function commitLine(label, c) {
 }
 function showCompare(a, b, fromHistory) {  // a, b はコミットのハッシュ
   if (!fromHistory) pushScreen({screen: "compare", a: a, b: b});
+  setDocumentTitle(t("compare_heading", {from: a.slice(0, 7), to: b.slice(0, 7)}));
   const btns = '<button class="back-btn">' + t("back_history") + '</button><button class="sbtn">' + esc(t("swap_ab")) + '</button>';
   detailView.innerHTML = btns + '<p class="hint">' + esc(t("loading")) + '</p>';
   showView("detail");
@@ -2306,6 +2319,7 @@ function restoreScreen(state) {
     ++token;
     listView.innerHTML = homeHtml;
     showView("list");
+    setDocumentTitle("");
   }
   updateCmpClasses();
 }
@@ -2541,6 +2555,7 @@ detailView.addEventListener("input", ev => { if (ev.target.id === "wipMsg") wipM
 
 function showWip(fromHistory, okMsg) {
   if (!fromHistory) pushScreen({screen: "wip"});
+  setDocumentTitle(t("wip_title"));
   const btns = '<button class="back-btn">' + t("back_history") + '</button><button class="sbtn" id="wipReload">' + t("reload") + '</button>';
   detailView.innerHTML = btns + '<p class="hint">' + t("wip_loading") + '</p>';
   showView("detail"); curDetailHash = null;
@@ -3413,6 +3428,11 @@ function t(key, values = {}) {
   return text;
 }
 
+const PROJECT_DOCUMENT_TITLE = document.title.substring(document.title.indexOf(" - ") + 3);
+function setDocumentTitle(label) {
+  document.title = label ? label + " - " + PROJECT_DOCUMENT_TITLE : t("file_view") + " - " + PROJECT_DOCUMENT_TITLE;
+}
+
 const qs = new URLSearchParams(location.search), hash = qs.get("hash"), fileViewTab = qs.get("file_view") === "1";
 const list = document.getElementById("list"), content = document.getElementById("content"), title = document.getElementById("title");
 const fileActions = document.getElementById("fileActions"), fileLogBtn = document.getElementById("fileLogBtn"), fileContentBtn = document.getElementById("fileContentBtn");
@@ -3459,6 +3479,7 @@ fileCopyBtn.onclick = () => {
 };
 function loadFile(path) {
   currentFile = path;
+  setDocumentTitle(path);
   setFileMsg("", true);
   fileActions.hidden = false;
   fileLogBtn.hidden = false;
@@ -3475,6 +3496,7 @@ function loadFileLog(path) {
     // 別タブでは親のグラフへ通知せず、このファイル画面にログを表示する。
     fileLogBtn.hidden = true;
     fileContentBtn.hidden = false;
+    setDocumentTitle(t("file_history_title", {path: path}));
     title.textContent = t("file_history_title", {path: path});
     content.className = "hint";
     content.textContent = t("loading");
