@@ -1653,8 +1653,8 @@ function doStash(op) {
     if (curView === "list" && listView.dataset.src === "/api/stash-list") showStashList(true);
   });
   post("/api/stash", {hash: h, op: op})
-    .then(r => { clearCmp(); return reload().then(() => setGraphStatus(r.message)); })
-    .catch(e => reload().then(() => setGraphStatus(t("stash_op_failed", {op: label, error: e.message}), "error")))
+    .then(r => { clearCmp(); setGraphStatus(r.message, "success"); return reload(); })
+    .catch(e => { setGraphStatus(t("stash_op_failed", {op: label, error: e.message}), "error"); return reload(); })
     .finally(() => updateCmpClasses());
 }
 function showReflog(branch) {  // branch が空なら HEAD の reflog
@@ -1716,7 +1716,8 @@ function doAction(btn) {  // ブランチ/タグのチップの × (削除)
     })
     .then(r => {
       if (r === null) { setGraphStatus(t("force_delete_cancelled")); return; }
-      return refreshGraph().catch(() => {}).then(() => setGraphStatus(r.message));
+      setGraphStatus(r.message, "success");
+      return refreshGraph().catch(() => {});
     })
     .catch(e => setGraphStatus(t("delete_failed", {error: e.message}), "error", true))
     .finally(() => { btn.disabled = false; });
@@ -2009,7 +2010,8 @@ async function doCmpAction(btn) {  // 選択対象に対するブランチ作成
     })
     .then(r => {
       if (r.cancelled) { setCmpMsg(r.message, false); return; }
-      return refreshGraph().then(() => setCmpMsg(r.message, true));
+      setCmpMsg(r.message, true);
+      return refreshGraph().catch(() => {});
     })
     .catch(e => setCmpMsg(e.message, false))
     .finally(() => { btn.disabled = false; });
@@ -2034,7 +2036,8 @@ async function doDeleteBranch(btn) {
     })
     .then(r => {
       if (r === null) { setCmpMsg(t("force_delete_cancelled"), false); return; }
-      return refreshGraph().then(() => setCmpMsg(r.message, true));
+      setCmpMsg(r.message, true);
+      return refreshGraph().catch(() => {});
     })
     .catch(e => setCmpMsg(t("delete_failed", {error: e.message}), false))
     .finally(() => { btn.disabled = false; });
@@ -2051,7 +2054,7 @@ async function doDeleteTag(btn) {
   if (!confirm(t("confirm_delete_tag", {name: name}))) return;
   btn.disabled = true; setCmpMsg(t("deleting"), "progress");
   post("/api/ref-delete", {kind: "tag", name: name})
-    .then(r => refreshGraph().then(() => setCmpMsg(r.message, true)))
+    .then(r => { setCmpMsg(r.message, true); return refreshGraph().catch(() => {}); })
     .catch(e => setCmpMsg(t("delete_failed", {error: e.message}), false))
     .finally(() => { btn.disabled = false; });
 }
@@ -2124,9 +2127,14 @@ async function doRemoteAction(btn) {  // fetch / pull / push
   }
   p.then(r => {
     if (r.cancelled) { setRemoteMsg(r.message, false); return; }
-    return refreshGraph().then(() => {
-      if (r.conflict) { setGraphStatus(r.message, "error"); clearCmp(); showWip(); }
-      else setRemoteMsg(r.message, true);
+    if (act === "push") {
+      // git push 自体の完了を先に通知し、グラフ更新は別の進捗表示で行う。
+      setRemoteMsg(r.message, true);
+      return refreshGraph().catch(() => {});
+    }
+    setRemoteMsg(r.message, r.ok !== false && !r.fetch_failed);
+    return refreshGraph().catch(() => {}).then(() => {
+      if (r.conflict) { clearCmp(); showWip(); }
     });
   })
     .catch(e => setRemoteMsg(e.message, false))
@@ -2160,7 +2168,7 @@ async function doRemoteConfig(btn) {  // remote 追加 / 削除
   btn.disabled = true;
   setRemoteMsg(body.fetch ? t("running_fetch") : t("running"), "progress");
   post(url, body)
-    .then(r => refreshGraph().then(() => setRemoteMsg(r.message, r.ok !== false && !r.fetch_failed)))
+    .then(r => { setRemoteMsg(r.message, r.ok !== false && !r.fetch_failed); return refreshGraph().catch(() => {}); })
     .catch(e => setRemoteMsg(e.message, false))
     .finally(() => { btn.disabled = false; });
 }
@@ -2185,7 +2193,8 @@ function doRebase() {
     .then(r => {
       if (r === null) { setGraphStatus(""); return; }
       clearCmp();
-      return refreshGraph().catch(() => {}).then(() => setGraphStatus(r.message));
+      setGraphStatus(r.message, "success");
+      return refreshGraph().catch(() => {});
     })
     .catch(e => { setGraphStatus(t("rebase_error", {error: e.message}), "error"); })
     .finally(() => { btn.disabled = false; });
@@ -2204,7 +2213,8 @@ function doCherryPick() {
     .then(r => {
       if (r === null) { setGraphStatus(""); return; }
       clearCmp();
-      return refreshGraph().catch(() => {}).then(() => setGraphStatus(r.message));
+      setGraphStatus(r.message, "success");
+      return refreshGraph().catch(() => {});
     })
     .catch(e => { setGraphStatus(t("cherry_pick_error", {error: e.message}), "error"); })
     .finally(() => { btn.disabled = false; });
@@ -2226,8 +2236,8 @@ async function doReset() {
   try {
     const r = await post("/api/reset", {hash: h, mode: mode});
     clearCmp();
-    await refreshGraph().catch(() => {});
     setGraphStatus(r.message, "success");
+    await refreshGraph().catch(() => {});
   } catch (e) {
     setGraphStatus(t("reset_error", {error: e.message}), "error");
   } finally {
@@ -2297,8 +2307,8 @@ async function doRebaseI() {  // 対話的リベース (git rebase -i 相当)
     setGraphStatus(t("rebasing"), "progress");
     const r = await post("/api/rebase-i", {hash: h, todo: todo});
     clearCmp();
+    setGraphStatus(r.message, "success");
     await refreshGraph().catch(() => {});
-    setGraphStatus(r.message);
   } catch (e) {
     setGraphStatus(t("rebase_i_error", {error: e.message}), "error");
   } finally {
@@ -2324,8 +2334,8 @@ async function doMerge() {
     .then(r => {
       if (r === null) { setGraphStatus(""); return; }
       clearCmp();
+      setGraphStatus(r.message, r.conflict ? "error" : "success");
       return refreshGraph().catch(() => {}).then(() => {
-        setGraphStatus(r.message);
         if (r.conflict) showWip();
       });
     })
