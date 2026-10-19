@@ -30,6 +30,11 @@
   POST /api/rebase {hash} (JSON)                             現在のブランチを選んだコミットの上にリベース (競合したら中止して元に戻す)
   POST /api/rebase-range {from, to} (JSON)                   A以降の現在のブランチをBの上にリベース (A→B。競合したら中止して元に戻す)
   POST /api/cherry-pick {hash} (JSON)                        選んだコミットを現在の HEAD にチェリーピック (競合したら中止して元に戻す)
+  POST /api/revert {hash} (JSON)                             選んだコミットを打ち消すコミットを作る (git revert。マージコミットは第1親基準。競合したら中止して元に戻す)
+  POST /api/abort (JSON)                                     進行中のマージ / リベース / チェリーピック / リバートを --abort で中断
+  POST /api/resolve {paths, side} (JSON)                     競合ファイルを side (ours | theirs) の内容で丸ごと置き換えて解決済みにする (片側で削除されていたら削除)
+  POST /api/discard {paths} (JSON)                           WIP のファイルの変更を破棄 (追跡中は HEAD に戻す / 新規ファイル・未追跡は削除。取り消せない。マージなどの途中と競合ファイルは不可)
+  POST /api/branch-rename {old, new} (JSON)                  ローカルブランチ名の変更 (git branch -m。リモートのブランチは変わらない)
   /api/rebase-todo?hash=<hash>                               対話的リベースの対象コミット一覧 (古い順。git rebase -i が作る todo と同じ)
   POST /api/rebase-i {hash, todo:[{hash, action, message}]}  対話的リベース (git rebase -i 相当)
      action は pick / reword (message が新しいコミットメッセージ) / squash / fixup / drop。todo の並び順がそのまま適用順になる。
@@ -338,7 +343,7 @@ TRANSLATIONS = {
         "dir_not_found": "ディレクトリが見つかりません",
         "not_a_file": "ファイルではありません",
         "amend_unavailable": "amend できる状態ではありません (コミットがない、またはマージ・リベース中です)",
-        "op_in_progress": "マージ・リベース・チェリーピックの途中です。先に完了するか中止してください",
+        "op_in_progress": "マージ・リベース・チェリーピック・リバートの途中です。先に完了するか中止してください",
         "merge_or_rebase_in_progress": "マージまたはリベースの途中です。先に完了するか中止してください",
         "detached_rebase": "ブランチをチェックアウトしていません (detached HEAD ではリベースできません)",
         "branch_name_invalid": "ブランチ名が不正です",
@@ -391,7 +396,7 @@ TRANSLATIONS = {
         "merge_in_progress": "マージの途中です。先に競合を解決してコミットするか、git merge --abort してください",
         "merge_no_commits": "最初のコミットがないためマージできません",
         "merge_failed": "マージに失敗しました",
-        "merge_conflict": "{target} のマージで競合しました。WIP の競合ファイルを解決してコミットしてください",
+        "merge_conflict": "{target} のマージで競合しました。WIP の競合ファイルを解決してコミットしてください(WIP 画面で ours / theirs による解決や、マージの中断もできます)",
         "merge_uptodate": "{hash} は既にマージ済みです (変更なし)",
         "merge_done": "{hash} をマージしました",
         "rebase_no_worktree": "ワークツリーのないリポジトリではリベースできません",
@@ -487,6 +492,45 @@ TRANSLATIONS = {
         "cli_listening": "  待ち受け: 0.0.0.0:{port} (他の端末からは http://<このPCのIP>:{port}/ )",
         "cli_lan_warning": "  注意: 認証はありません。同じネットワークの誰でもブランチ作成・コミット・push などができます",
         "rebase_no_commits": "最初のコミットがないためリベースできません",
+        "tip_revert": "Aの変更を打ち消すコミットを作る (git revert)",
+        "revert": "リバート",
+        "revert_no_worktree": "ワークツリーがないため、リバートできません",
+        "revert_no_commits": "まだコミットがないため、リバートできません",
+        "revert_conflict": "コミット {hash} を打ち消すと競合するため、リバートを中止して元に戻しました",
+        "revert_empty": "コミット {hash} の変更は既に打ち消されているため、リバートできません",
+        "revert_failed": "リバートに失敗しました",
+        "revert_done": "コミット {hash} を打ち消すコミットを作りました",
+        "revert_done_merge": "マージコミット {hash} を、第1親を基準に打ち消すコミットを作りました",
+        "confirm_revert": "コミット {hash} の変更を打ち消す新しいコミットを {target} に作ります (競合したときは自動で元に戻します)。よろしいですか？",
+        "reverting": "リバート中…",
+        "revert_error": "リバートできませんでした: {error}",
+        "abort_no_worktree": "ワークツリーがないため、中断できません",
+        "nothing_to_abort": "中断できる操作 (マージ・リベース・チェリーピック・リバート) はありません",
+        "aborted": "git {cmd} --abort を実行し、元の状態に戻しました",
+        "abort_button": "中断 (git {cmd} --abort)",
+        "confirm_abort": "git {cmd} --abort を実行して、途中の操作を取り消し、開始前の状態に戻します。競合の解決途中の内容は失われます。よろしいですか？",
+        "op_banner": "git {cmd} の途中です",
+        "resolve_ours": "選択したファイルを ours で解決",
+        "resolve_theirs": "選択したファイルを theirs で解決",
+        "resolve_hint": "ours = 現在のHEAD側、theirs = 取り込む側 (リベース中は逆)。ファイル全体をどちらかに置き換えてステージします",
+        "resolve_side_invalid": "ours か theirs を指定してください",
+        "resolve_not_conflict": "競合していないファイルが含まれています: {files}",
+        "resolved": "{n} 個のファイルを {side} の内容で解決しました",
+        "confirm_resolve": "選択した {n} 個のファイルを {side} の内容で丸ごと置き換え、解決済みにします。手で編集した内容は失われます。よろしいですか？",
+        "wip_discard": "変更を破棄",
+        "discard_blocked": "マージ・リベース・チェリーピック・リバートの途中では、変更を破棄できません。先に完了するか中断してください",
+        "discard_conflict": "競合中のファイルは破棄できません ({files})。ours / theirs で解決するか、操作を中断してください",
+        "discarded": "{n} 個のファイルの変更を破棄しました",
+        "confirm_discard": "選択した {n} 個のファイルの変更を破棄します。ステージ済み・未ステージの変更は HEAD の状態に戻り、未追跡ファイルは削除されます。この操作は取り消せません。よろしいですか？",
+        "rename_branch": "ブランチ名を変更",
+        "rename": "変更",
+        "renaming": "ブランチ名を変更中…",
+        "branch_to_rename": "名前を変更するブランチ",
+        "branch_rename_same": "新しい名前が元の名前と同じです",
+        "branch_exists": "ブランチ {name} は既に存在します",
+        "branch_renamed": "ブランチ {old} を {new} に変更しました",
+        "branch_renamed_remote": "ブランチ {old} を {new} に変更しました。リモートのブランチ名は変わりません (必要なら新しい名前で push し、古いリモートブランチを削除してください)",
+        "rename_failed": "名前を変更できませんでした: {error}",
     },
     "en": {
         "reload": "↻ Reload",
@@ -738,7 +782,7 @@ TRANSLATIONS = {
         "dir_not_found": "Directory not found",
         "not_a_file": "Not a file",
         "amend_unavailable": "Cannot amend (there are no commits, or a merge/rebase is in progress)",
-        "op_in_progress": "A merge, rebase or cherry-pick is in progress. Finish or abort it first",
+        "op_in_progress": "A merge, rebase, cherry-pick or revert is in progress. Finish or abort it first",
         "merge_or_rebase_in_progress": "A merge or rebase is in progress. Finish or abort it first",
         "detached_rebase": "No branch is checked out (cannot rebase on a detached HEAD)",
         "branch_name_invalid": "Invalid branch name",
@@ -791,7 +835,7 @@ TRANSLATIONS = {
         "merge_in_progress": "A merge is in progress. Resolve the conflicts and commit, or run git merge --abort",
         "merge_no_commits": "Cannot merge because there are no commits yet",
         "merge_failed": "Merge failed",
-        "merge_conflict": "Merging {target} caused conflicts. Resolve the conflicted files in WIP and commit",
+        "merge_conflict": "Merging {target} caused conflicts. Resolve the conflicted files in WIP and commit (In the WIP screen you can also resolve with ours / theirs, or abort the merge)",
         "merge_uptodate": "{hash} is already merged (no change)",
         "merge_done": "Merged {hash}",
         "rebase_no_worktree": "Cannot rebase in a repository without a working tree",
@@ -887,6 +931,45 @@ TRANSLATIONS = {
         "cli_listening": "  Listening on 0.0.0.0:{port} (from other devices: http://<this PC's IP>:{port}/ )",
         "cli_lan_warning": "  Warning: there is no authentication. Anyone on the same network can create branches, commit, push, etc.",
         "rebase_no_commits": "Cannot rebase because there are no commits yet",
+        "tip_revert": "Create a commit that undoes A (git revert)",
+        "revert": "Revert",
+        "revert_no_worktree": "Cannot revert because there is no working tree",
+        "revert_no_commits": "Cannot revert because there are no commits yet",
+        "revert_conflict": "Reverting commit {hash} conflicts, so the revert was aborted and rolled back",
+        "revert_empty": "The changes of commit {hash} are already undone, so there is nothing to revert",
+        "revert_failed": "Revert failed",
+        "revert_done": "Created a commit that undoes {hash}",
+        "revert_done_merge": "Created a commit that undoes merge commit {hash} (relative to its first parent)",
+        "confirm_revert": "Create a new commit on {target} that undoes the changes of commit {hash} (it is rolled back automatically on conflicts). Continue?",
+        "reverting": "Reverting…",
+        "revert_error": "Could not revert: {error}",
+        "abort_no_worktree": "Cannot abort because there is no working tree",
+        "nothing_to_abort": "There is no merge, rebase, cherry-pick or revert to abort",
+        "aborted": "Ran git {cmd} --abort and restored the previous state",
+        "abort_button": "Abort (git {cmd} --abort)",
+        "confirm_abort": "Run git {cmd} --abort to cancel the operation in progress and return to the state before it started. Anything done while resolving conflicts is lost. Continue?",
+        "op_banner": "git {cmd} is in progress",
+        "resolve_ours": "Resolve selected with ours",
+        "resolve_theirs": "Resolve selected with theirs",
+        "resolve_hint": "ours = the current HEAD side, theirs = the side being merged in (reversed during a rebase). The whole file is replaced by one side and staged",
+        "resolve_side_invalid": "Specify ours or theirs",
+        "resolve_not_conflict": "Some files are not in conflict: {files}",
+        "resolved": "Resolved {n} file(s) with {side}",
+        "confirm_resolve": "Replace the {n} selected file(s) entirely with the {side} version and mark them resolved. Manual edits are lost. Continue?",
+        "wip_discard": "Discard changes",
+        "discard_blocked": "Changes cannot be discarded during a merge, rebase, cherry-pick or revert. Finish or abort it first",
+        "discard_conflict": "Conflicted files cannot be discarded ({files}). Resolve them with ours / theirs, or abort the operation",
+        "discarded": "Discarded changes in {n} file(s)",
+        "confirm_discard": "Discard changes in the {n} selected file(s). Staged and unstaged changes go back to HEAD, and untracked files are deleted. This cannot be undone. Continue?",
+        "rename_branch": "Rename branch",
+        "rename": "Rename",
+        "renaming": "Renaming branch…",
+        "branch_to_rename": "Branch to rename",
+        "branch_rename_same": "The new name is the same as the old one",
+        "branch_exists": "Branch {name} already exists",
+        "branch_renamed": "Renamed branch {old} to {new}",
+        "branch_renamed_remote": "Renamed branch {old} to {new}. The remote branch name is unchanged (push under the new name and delete the old remote branch if needed)",
+        "rename_failed": "Could not rename: {error}",
     },
 }
 DEFAULT_LANG = "ja"  # 環境変数から言語を決められないときの言語
@@ -1326,6 +1409,9 @@ __FAVICON__
   .wipbox .amendrow input { margin: 0 6px 0 0; vertical-align: middle; }
   .wbtn { background: #1a7f37; color: #fff; border: 1px solid #176b30; padding: 3px 10px; border-radius: 3px; cursor: pointer; }
   .wbtn:hover { background: #176b30; } .wbtn:disabled { opacity: .5; cursor: default; }
+  .wbtn.danger { background: #b42318; border-color: #912018; } .wbtn.danger:hover { background: #912018; }
+  .wipres, .wipop { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0 8px; }
+  .wipop { padding: 6px 8px; background: #fff4e5; border: 1px solid #f0c987; border-radius: 4px; }
   .plus { color: #1a7f37; } .minus { color: #cf222e; }
   g.node, g.edge { cursor: pointer; }
   g.node:hover polygon { stroke: #e88; } g.edge:hover path { stroke: #e88; }
@@ -1365,8 +1451,10 @@ __FAVICON__
       <button class="abtn" id="rebaseBtn" title="{{tip_rebase}}">{{rebase}}</button>
       <button class="abtn" id="irebaseBtn" title="{{tip_irebase}}">{{interactive_rebase}}</button>
       <button class="abtn" id="cherryBtn" title="{{tip_cherry}}">{{cherry_pick}}</button>
+      <button class="abtn" id="revertBtn" title="{{tip_revert}}">{{revert}}</button>
       <button class="abtn danger" id="resetBtn" title="{{tip_reset}}">{{reset}}</button>
       <button class="abtn" data-cact="branch">{{create_branch}}</button>
+      <button class="abtn" id="renameBranchBtn">{{rename_branch}}</button>
       <button class="abtn danger" id="deleteBranchBtn" data-cact="delete-branch">{{delete_branch}}</button>
       <button class="abtn danger" id="deleteRemoteBranchBtn">{{delete_remote_branch}}</button>
       <button class="abtn" data-cact="tag">{{create_tag}}</button>
@@ -2054,10 +2142,11 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
   document.getElementById("irebaseBtn").disabled = !canMerge;
   document.getElementById("rebaseRangeBtn").disabled = !compareAHash || !compareBHash || !canMerge;
   document.getElementById("cherryBtn").disabled = !canMerge;
+  document.getElementById("revertBtn").disabled = !canMerge;
   document.getElementById("resetBtn").disabled = !canMerge;
   const canWrite = !!DATA.writable;
   document.querySelectorAll("#aActions button")
-    .forEach(el => { el.disabled = !canWrite || (["mergeBtn", "rebaseBtn", "irebaseBtn", "cherryBtn", "resetBtn"].includes(el.id) && !DATA.merge); });
+    .forEach(el => { el.disabled = !canWrite || (["mergeBtn", "rebaseBtn", "irebaseBtn", "cherryBtn", "revertBtn", "resetBtn"].includes(el.id) && !DATA.merge); });
   document.querySelectorAll("#remoteActions button")
     .forEach(el => { el.disabled = !canWrite || (el.dataset.cact === "pull" && !DATA.merge); });
   document.querySelectorAll("#remoteConfigActions button").forEach(el => { el.disabled = !canWrite; });
@@ -2071,6 +2160,7 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
     !localBranches(actionHash).some(name => name !== currentBranch);
   document.getElementById("deleteRemoteBranchBtn").disabled = !canWrite || !actionHash || isStash || !remoteBranches(actionHash).length;
   document.getElementById("deleteTagBtn").disabled = !canWrite || !actionHash || isStash || !localTags(actionHash).length;
+  document.getElementById("renameBranchBtn").disabled = !canWrite || !actionHash || isStash || !localBranches(actionHash).length;
 }
 let cmpActOpen = false;
 let stashByHash = {};  // stash のコミットのハッシュ -> stash@{n}
@@ -2496,6 +2586,47 @@ function doCherryPick() {
     .catch(e => { setGraphStatus(t("cherry_pick_error", {error: e.message}), "error"); })
     .finally(() => { btn.disabled = false; });
 }
+function doRevert() {
+  if (!actionHash) return;
+  const h = actionHash, btn = document.getElementById("revertBtn");
+  btn.disabled = true;
+  fetch("/api/head").then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); }))
+    .then(hd => {
+      if (hd.merging) throw new Error(t("op_in_progress_finish"));
+      if (!confirm(t("confirm_revert", {hash: h.slice(0, 7), target: hd.branch ? t("what_branch", {name: hd.branch}) : t("target_detached_head")}))) return null;
+      setGraphStatus(t("reverting"), "progress");
+      return post("/api/revert", {hash: h});
+    })
+    .then(r => {
+      if (r === null) { setGraphStatus(""); return; }
+      clearCmp();
+      setGraphStatus(r.message, "success");
+      return refreshGraph().catch(() => {});
+    })
+    .catch(e => { setGraphStatus(t("revert_error", {error: e.message}), "error"); })
+    .finally(() => { btn.disabled = false; });
+}
+async function doRenameBranch(btn) {
+  const branches = localBranches(actionHash).sort();
+  if (!branches.length) return;
+  const values = await openActionDialog(t("rename_branch"),
+    '<label>' + esc(t("branch_to_rename")) + '<select name="old">' + branches.map(branch =>
+      '<option value="' + esc(branch) + '">' + esc(branch) + "</option>").join("") + "</select></label>" +
+    '<label>' + esc(t("new_branch_name")) + '<input type="text" name="new_name" value="' + esc(branches[0]) + '" required autofocus></label>',
+    t("rename"),
+    {onOpen: form => {  // 選んだブランチ名を、新しい名前の初期値にする
+      const sel = form.elements["old"], inp = form.elements["new_name"];
+      sel.addEventListener("change", () => { inp.value = sel.value; });
+    }});
+  if (!values) return;
+  const oldName = values.old, newName = values.new_name.trim();
+  if (!newName || newName === oldName) { setCmpMsg(t("branch_rename_same"), false); return; }
+  btn.disabled = true; setCmpMsg(t("renaming"), "progress");
+  post("/api/branch-rename", {old: oldName, new: newName})
+    .then(r => { setCmpMsg(r.message, true); return refreshGraph().catch(() => {}); })
+    .catch(e => setCmpMsg(t("rename_failed", {error: e.message}), false))
+    .finally(() => { btn.disabled = false; });
+}
 async function doReset() {
   if (!actionHash) return;
   const h = actionHash, btn = document.getElementById("resetBtn");
@@ -2693,6 +2824,10 @@ listView.addEventListener("click", ev => {
 detailView.addEventListener("click", ev => {
   if (ev.target.closest("#wipReload")) { showWip(true); refreshGraph().catch(() => {}); return; }
   if (ev.target.closest("#wipCommit")) { doWipCommit(); return; }
+  if (ev.target.closest("#wipDiscard")) { doWipDiscard(); return; }
+  if (ev.target.closest("#wipAbort")) { doWipAbort(); return; }
+  const rb = ev.target.closest("[data-resolve]");
+  if (rb) { doWipResolve(rb.dataset.resolve); return; }
   const ab = ev.target.closest(".abtn");
   if (ab) { doAction(ab); return; }
   if (ev.target.closest(".sbtn")) {
@@ -2746,6 +2881,8 @@ document.getElementById("cmpActions").addEventListener("click", ev => {
   if (ev.target.closest("#rebaseBtn")) { doRebase(); return; }
   if (ev.target.closest("#irebaseBtn")) { doRebaseI(); return; }
   if (ev.target.closest("#cherryBtn")) { doCherryPick(); return; }
+  if (ev.target.closest("#revertBtn")) { doRevert(); return; }
+  if (ev.target.closest("#renameBranchBtn")) { doRenameBranch(ev.target.closest("#renameBranchBtn")); return; }
   if (ev.target.closest("#resetBtn")) { doReset(); return; }
   const cab = ev.target.closest(".abtn[data-cact]");
   if (cab) {
@@ -2857,6 +2994,8 @@ function setWipPath(p, v) {  // 同じパスのチェックボックスをまと
 }
 function wipSync() {  // コミットボタンの件数と、グループの全選択チェックを更新
   const n = wipPaths().length, b = detailView.querySelector("#wipCommit");
+  const dis = detailView.querySelector("#wipDiscard");
+  if (dis) { dis.disabled = n === 0; dis.textContent = t("wip_discard") + " (" + n + ")"; }
   if (b) {
     b.disabled = n === 0;
     b.textContent = t("wip_commit") + " (" + n + ")" + (wipAmendOn ? " amend" : "");
@@ -2871,6 +3010,7 @@ function wipSync() {  // コミットボタンの件数と、グループの全�
 function wipSay(text, ok) {
   const el = detailView.querySelector("#wipMsgOut");
   if (el) { el.textContent = text; el.className = "amsg " + (ok ? "ok" : "ng"); }
+  else setGraphStatus(text, ok ? "success" : "error");
 }
 function setWipAmend(on) {  // amend のチェックを切り替える: 差分の一覧とメッセージを入れ替えて再表示
   if (on === wipAmendOn) return;
@@ -2910,6 +3050,48 @@ detailView.addEventListener("change", ev => {
 });
 detailView.addEventListener("input", ev => { if (ev.target.id === "wipMsg") wipMsg = ev.target.value; });
 
+function resolveBarHtml() {  // 競合ファイルを ours / theirs で解決するボタン (チェックしたファイルが対象)
+  return '<div class="wipres"><button class="abtn" data-resolve="ours">' + esc(t("resolve_ours")) + '</button>' +
+    '<button class="abtn" data-resolve="theirs">' + esc(t("resolve_theirs")) + '</button>' +
+    '<span class="hint">' + esc(t("resolve_hint")) + '</span></div>';
+}
+function opBannerHtml(cmd, canWrite) {  // マージなどの途中であることと、中断ボタン
+  if (!cmd) return "";
+  return '<div class="wipop"><span>' + esc(t("op_banner", {cmd: cmd})) + '</span>' +
+    (canWrite ? '<button class="abtn danger" id="wipAbort" data-cmd="' + esc(cmd) + '">' + esc(t("abort_button", {cmd: cmd})) + '</button>' : "") + '</div>';
+}
+function doWipResolve(side) {
+  const paths = wipCks("conflict").filter(x => x.checked).map(x => x.dataset.path);
+  if (!paths.length) { wipSay(t("select_files"), false); return; }
+  if (!confirm(t("confirm_resolve", {n: paths.length, side: side}))) return;
+  wipSay(t("wip_execute"), true);
+  post("/api/resolve", {paths: paths, side: side})
+    .then(r => { wipSel = {}; showWip(true, r.message); refreshGraph().catch(() => {}); })
+    .catch(e => wipSay(e.message, false));
+}
+function doWipDiscard() {
+  const paths = wipPaths();
+  if (!paths.length) return;
+  const confl = new Set(curFiles.filter(f => f.wip === "conflict").map(f => f.path)), hit = paths.filter(p => confl.has(p));
+  if (hit.length) { wipSay(t("discard_conflict", {files: hit.slice(0, 3).join(", ")}), false); return; }
+  if (!confirm(t("confirm_discard", {n: paths.length}))) return;
+  const btn = detailView.querySelector("#wipDiscard");
+  if (btn) btn.disabled = true;
+  wipSay(t("wip_execute"), true);
+  post("/api/discard", {paths: paths})
+    .then(r => { wipSel = {}; showWip(true, r.message); refreshGraph().catch(() => {}); })
+    .catch(e => { wipSay(e.message, false); wipSync(); });
+}
+function doWipAbort() {
+  const b = detailView.querySelector("#wipAbort");
+  if (!b) return;
+  if (!confirm(t("confirm_abort", {cmd: b.dataset.cmd}))) return;
+  b.disabled = true;
+  post("/api/abort", {})
+    .then(r => { wipSel = {}; wipMsg = ""; wipMsgNormal = ""; wipAmendOn = false; showWip(true, r.message); return refreshGraph().catch(() => {}); })
+    .catch(e => { b.disabled = false; wipSay(e.message, false); });
+}
+
 function showWip(fromHistory, okMsg) {
   document.body.classList.remove("compare-logs-mode");
   if (!fromHistory) pushScreen({screen: "wip"});
@@ -2924,6 +3106,7 @@ function showWip(fromHistory, okMsg) {
       wipMsg = wipMsgNormal; wipMsgNormal = ""; wipAmendOn = false;
     }
     const canCommit = !!DATA.writable;  // 書き込みが無効 (--read-only など) のときはチェック欄を出さない
+    const opCmd = s.merging ? "merge" : s.rebasing ? "rebase" : s.cherry_picking ? "cherry-pick" : s.reverting ? "revert" : null;
     const sections = wipAmendOn
       ? [["amend", t("amend_content"), s.amend_files]]
       : [["conflict", t("conflict"), s.conflicts], ["staged", t("staged"), s.staged],
@@ -2933,7 +3116,7 @@ function showWip(fromHistory, okMsg) {
       if (!items.length) return;
       const list = items.map(f => Object.assign({wip: kind}, f));
       body += "<h3>" + (canCommit ? '<input type="checkbox" class="wipall" data-kind="' + kind + '" title="' + t("select_all") + '">' : "") +
-        title + " (" + list.length + ")</h3>" + filesHtml({}, list, files.length, canCommit);
+        title + " (" + list.length + ")</h3>" + (kind === "conflict" && canCommit ? resolveBarHtml() : "") + filesHtml({}, list, files.length, canCommit);
       files = files.concat(list);
     });
     curCtx = {}; curFiles = files;
@@ -2946,9 +3129,10 @@ function showWip(fromHistory, okMsg) {
         (canAmend ? '<label class="amendrow"><input type="checkbox" id="wipAmendCk"' + (wipAmendOn ? " checked" : "") +
           '>' + t("amend_checkbox") + '</label>' : "") +
         '<div class="arow"><button class="wbtn" id="wipCommit">' + t("wip_commit") + '</button>' +
+        (!wipAmendOn && !opCmd ? '<button class="wbtn danger" id="wipDiscard">' + t("wip_discard") + '</button>' : "") +
         '<span class="hint">' + hint + '</span></div>' +
         '<div class="amsg" id="wipMsgOut"></div></div>' : "";
-    detailView.innerHTML = btns + "<h2>" + t("wip_title") + "</h2>" +
+    detailView.innerHTML = btns + "<h2>" + t("wip_title") + "</h2>" + opBannerHtml(opCmd, canCommit) +
       '<div class="meta">HEAD: ' + (s.head ? chips(s.head) + esc(s.head.slice(0, 7)) : t("no_commits_yet")) + "</div>" +
       (body || '<p class="hint">' + t("no_changes") + '</p>') + box +
       (s.truncated ? '<p class="hint">' + t("truncated_files") + '</p>' : "");
@@ -3130,6 +3314,8 @@ def api_status(q):
         s["head"] = ""
     s["merging"] = is_merging()
     s["rebasing"] = is_rebasing()
+    s["cherry_picking"] = is_cherry_picking()
+    s["reverting"] = is_reverting()
     if s["head"]:
         s["head_message"] = commit_info(s["head"])["message"]  # amend のときにメッセージの初期値にする
         if q.get("amend", [""])[0] == "1" and not s["merging"] and not s["rebasing"]:
@@ -3319,7 +3505,7 @@ def api_stash(body):
         return {"ok": True, "message": tr("stash_dropped", sel=sel, hash=h[:7])}
     if not HAS_WORKTREE:
         raise UserError("stash_no_worktree")
-    if is_merging() or is_rebasing() or is_cherry_picking():
+    if is_merging() or is_rebasing() or is_cherry_picking() or is_reverting():
         raise UserError("op_in_progress")
     r = subprocess.run(["git", "-C", REPO, "stash", op, sel], capture_output=True, text=True,
                        encoding="utf-8", errors="replace")
@@ -4297,7 +4483,7 @@ def api_reset(body):
     mode = body.get("mode", "mixed")
     if mode not in ("soft", "mixed", "hard"):
         raise UserError("reset_mode_invalid")
-    if is_merging() or is_rebasing() or is_cherry_picking():
+    if is_merging() or is_rebasing() or is_cherry_picking() or is_reverting():
         raise UserError("reset_blocked")
     h = resolve_commit(body.get("hash", ""))
     before = git("rev-parse", "HEAD").strip() if has_head() else None
@@ -4378,7 +4564,9 @@ def api_wip_commit(body):
                 run_git_write("reset", "-q", base, "--", *part, literal=True)
             else:  # 最初のコミットには親がないので、インデックスから外す
                 run_git_write("rm", "--cached", "-r", "-q", "-f", "--", *part, literal=True)
-    todo = sorted(checked)
+    # すでにステージ済みの削除は add -A できない (パスが見つからず失敗する) が、インデックスにあるのでそのままコミットに入る
+    gone = {f["path"] for f in s["staged"] if f["st"] == "D"} - {f["path"] for k in ("unstaged", "untracked") for f in s[k]}
+    todo = sorted(checked - gone)
     for i in range(0, len(todo), step):
         run_git_write("add", "-A", "--", *todo[i:i + step], literal=True)
     run_git_write("commit", *(["--amend"] if amend else []), "-m", msg)
@@ -4493,13 +4681,18 @@ def is_cherry_picking():
                           capture_output=True).returncode == 0
 
 
+def is_reverting():
+    return subprocess.run(["git", "-C", REPO, "rev-parse", "-q", "--verify", "REVERT_HEAD"],
+                          capture_output=True).returncode == 0
+
+
 def api_cherry_pick(body):
     """選んだコミットを、いまチェックアウトしている HEAD にチェリーピックする。
     競合したときと、変更が空になるとき (既に取り込み済み) は、中止して元に戻す。"""
     if not HAS_WORKTREE:
         raise UserError("cherry_no_worktree")
     h = resolve_commit(body.get("hash", ""))
-    if is_merging() or is_rebasing() or is_cherry_picking():
+    if is_merging() or is_rebasing() or is_cherry_picking() or is_reverting():
         raise UserError("op_in_progress")
     if not has_head():
         raise UserError("cherry_no_commits")
@@ -4521,6 +4714,150 @@ def api_cherry_pick(body):
     if git("rev-parse", "HEAD").strip() == before:
         return {"ok": True, "message": tr("cherry_noop", hash=h[:7])}
     return {"ok": True, "message": tr("cherry_done", hash=h[:7])}
+
+
+def api_revert(body):
+    """選んだコミットの変更を打ち消すコミットを、いまの HEAD の上に作る (git revert)。
+    競合したときと、変更が空になるとき (既に打ち消し済み) は、中止して元に戻す。マージコミットは第1親を基準にする。"""
+    if not HAS_WORKTREE:
+        raise UserError("revert_no_worktree")
+    h = resolve_commit(body.get("hash", ""))
+    if is_merging() or is_rebasing() or is_cherry_picking() or is_reverting():
+        raise UserError("op_in_progress")
+    if not has_head():
+        raise UserError("revert_no_commits")
+    is_merge = len(git("rev-list", "--parents", "-n", "1", h).split()) > 2
+    args = ["revert", "--no-edit"] + (["-m", "1"] if is_merge else [])
+    r = subprocess.run(["git", "-C", REPO, *args, h], capture_output=True, text=True,
+                       encoding="utf-8", errors="replace")
+    out = (r.stdout + r.stderr).strip()
+    if r.returncode != 0:
+        if is_reverting():
+            unmerged = subprocess.run(["git", "-C", REPO, "-c", "core.quotepath=false", "diff", "--name-only", "--diff-filter=U"],
+                                      capture_output=True, text=True, encoding="utf-8", errors="replace").stdout.strip()
+            subprocess.run(["git", "-C", REPO, "revert", "--abort"], capture_output=True)
+            if not unmerged:  # 競合ではなく、変更が空になった
+                raise UserError("revert_empty", hash=h[:7])
+            raise UserError("revert_conflict", hash=h[:7])
+        raise ValueError(out or tr("revert_failed"))
+    return {"ok": True, "message": tr("revert_done_merge" if is_merge else "revert_done", hash=h[:7])}
+
+
+def api_abort(body):
+    """進行中のマージ / リベース / チェリーピック / リバートを中断して、開始前の状態に戻す。"""
+    if not HAS_WORKTREE:
+        raise UserError("abort_no_worktree")
+    for cmd, active in (("merge", is_merging), ("rebase", is_rebasing),
+                        ("cherry-pick", is_cherry_picking), ("revert", is_reverting)):
+        if active():
+            run_git_write(cmd, "--abort")
+            return {"ok": True, "message": tr("aborted", cmd=cmd)}
+    raise UserError("nothing_to_abort")
+
+
+def unmerged_stages(path):
+    """競合しているファイルが持つインデックスのステージ番号 (2 = ours, 3 = theirs)。片側で削除されていると、その番号がない。"""
+    out = git("ls-files", "-u", "-z", "--", path, literal=True)
+    return {rec.split("\t", 1)[0].split()[-1] for rec in out.split("\0") if "\t" in rec}
+
+
+def api_resolve(body):
+    """競合しているファイルを、ours か theirs の内容で丸ごと置き換えて解決済みにする (片側で削除されていたら削除する)。"""
+    if not WIP_ENABLED:
+        raise UserError("wip_disabled")
+    side = body.get("side")
+    if side not in ("ours", "theirs"):
+        raise UserError("resolve_side_invalid")
+    paths = body.get("paths")
+    if not isinstance(paths, list) or not paths or not all(isinstance(p, str) for p in paths):
+        raise UserError("select_files")
+    s = parse_status(read_status_raw(), limit=10 ** 9)
+    bad = set(paths) - {f["path"] for f in s["conflicts"]}  # 任意のパスを触らせない。いま競合と報告されているものだけ
+    if bad:
+        raise UserError("resolve_not_conflict", files=", ".join(sorted(bad)[:3]))
+    stage = "2" if side == "ours" else "3"
+    keep, remove = [], []
+    for p in sorted(set(paths)):
+        (keep if stage in unmerged_stages(p) else remove).append(p)
+    step = 200
+    for i in range(0, len(keep), step):
+        part = keep[i:i + step]
+        run_git_write("checkout", "--" + side, "--", *part, literal=True)
+        run_git_write("add", "--", *part, literal=True)
+    for i in range(0, len(remove), step):
+        run_git_write("rm", "-q", "-f", "--", *remove[i:i + step], literal=True)
+    return {"ok": True, "message": tr("resolved", n=len(keep) + len(remove), side=side)}
+
+
+def paths_in_head(paths):
+    """paths のうち HEAD に存在するもの。"""
+    found = set()
+    if not has_head():
+        return found
+    for i in range(0, len(paths), 200):
+        out = git_bytes("ls-tree", "-r", "-z", "--name-only", "HEAD", "--", *paths[i:i + 200], literal=True)
+        found.update(x for x in out.decode("utf-8", errors="replace").split("\0") if x)
+    return found
+
+
+def api_discard(body):
+    """選んだファイルの変更を破棄する (取り消せない)。追跡中のファイルはステージ済み・未ステージとも HEAD の状態に戻し、
+    HEAD にない新規ファイル (ステージ済み) は削除し、未追跡ファイルは削除する。競合中のファイルと、マージなどの途中は対象外。"""
+    if not WIP_ENABLED:
+        raise UserError("wip_disabled")
+    if is_merging() or is_rebasing() or is_cherry_picking() or is_reverting():
+        raise UserError("discard_blocked")
+    paths = body.get("paths")
+    if not isinstance(paths, list) or not paths or not all(isinstance(p, str) for p in paths):
+        raise UserError("select_files")
+    checked = set(paths)
+    s = parse_status(read_status_raw(), limit=10 ** 9)
+    conflict = checked & {f["path"] for f in s["conflicts"]}
+    if conflict:
+        raise UserError("discard_conflict", files=", ".join(sorted(conflict)[:3]))
+    untracked = {f["path"] for f in s["untracked"]}
+    old_of = {f["path"]: f.get("old_path") for f in s["staged"]}
+    known = untracked | {f["path"] for k in ("staged", "unstaged") for f in s[k]}
+    bad = checked - known  # 任意のパスを消させない。いま変更ありと報告されているものだけ
+    if bad:
+        raise UserError("files_unchanged", files=", ".join(sorted(bad)[:3]))
+    tracked = sorted(checked - untracked)
+    in_head = paths_in_head(tracked)
+    clean = sorted(checked & untracked)
+    remove, restore = [], set()
+    for p in tracked:
+        if old_of.get(p):  # リネームは元のパスも戻す
+            restore.add(old_of[p])
+        (restore.add(p) if p in in_head else remove.append(p))
+    step = 200
+    for i in range(0, len(remove), step):  # HEAD にないファイル (git add 済みの新規ファイル): インデックスと作業ツリーから消す
+        run_git_write("rm", "-q", "-f", "--", *remove[i:i + step], literal=True)
+    restore = sorted(restore)
+    for i in range(0, len(restore), step):
+        run_git_write("checkout", "HEAD", "--", *restore[i:i + step], literal=True)
+    for i in range(0, len(clean), step):
+        run_git_write("clean", "-f", "-q", "--", *clean[i:i + step], literal=True)
+    return {"ok": True, "message": tr("discarded", n=len(checked))}
+
+
+def api_branch_rename(body):
+    """ローカルブランチの名前を変える (git branch -m)。リモートのブランチは変わらない。"""
+    old = str(body.get("old", "")).strip()
+    new = str(body.get("new", "")).strip()
+    if not old or "\0" in old:
+        raise UserError("branch_name_invalid")
+    check_ref_name("branch", new)
+    exists = lambda name: subprocess.run(["git", "-C", REPO, "show-ref", "--verify", "--quiet", "refs/heads/" + name],
+                                         capture_output=True).returncode == 0
+    if not exists(old):
+        raise UserError("ref_not_exist", name=repr(old))
+    if old == new:
+        raise UserError("branch_rename_same")
+    if exists(new):
+        raise UserError("branch_exists", name=repr(new))
+    has_remote = bool(branch_config(old, "remote"))
+    run_git_write("branch", "-m", "--", old, new)
+    return {"ok": True, "message": tr("branch_renamed_remote" if has_remote else "branch_renamed", old=old, new=new)}
 
 
 REBASE_I_MAX = 200  # 対話的リベースで一度に扱うコミット数の上限
@@ -4974,7 +5311,7 @@ def api_push_tag(body):
     return {"ok": True, "message": tr("pushed_tag_nothing" if up_to_date else "pushed_tag", tag=tag, where=where)}
 
 
-POST_ROUTES = {"/api/stash": api_stash, "/api/rebase": api_rebase, "/api/rebase-range": api_rebase_range, "/api/rebase-i": api_rebase_i, "/api/cherry-pick": api_cherry_pick, "/api/merge": api_merge, "/api/branch": api_branch, "/api/tag": api_tag, "/api/ref-delete": api_delete_ref,
+POST_ROUTES = {"/api/stash": api_stash, "/api/rebase": api_rebase, "/api/rebase-range": api_rebase_range, "/api/rebase-i": api_rebase_i, "/api/cherry-pick": api_cherry_pick, "/api/revert": api_revert, "/api/abort": api_abort, "/api/resolve": api_resolve, "/api/discard": api_discard, "/api/branch-rename": api_branch_rename, "/api/merge": api_merge, "/api/branch": api_branch, "/api/tag": api_tag, "/api/ref-delete": api_delete_ref,
                "/api/checkout": api_checkout, "/api/reset": api_reset, "/api/wip-commit": api_wip_commit,
                "/api/fetch": api_fetch, "/api/pull": api_pull, "/api/push": api_push, "/api/push-tag": api_push_tag, "/api/file-copy": api_file_copy,
                "/api/remote-add": api_remote_add, "/api/remote-remove": api_remote_remove}
