@@ -28,6 +28,7 @@
   POST /api/merge {hash, no_ff} (JSON)                       選んだコミットを現在の HEAD にマージ
   POST /api/reset {hash, mode} (JSON)                       現在の HEAD を選んだコミットへ reset (mode: soft | mixed | hard)
   POST /api/rebase {hash} (JSON)                             現在のブランチを選んだコミットの上にリベース (競合したら中止して元に戻す)
+  POST /api/rebase-range {from, to} (JSON)                   A以降の現在のブランチをBの上にリベース (A→B。競合したら中止して元に戻す)
   POST /api/cherry-pick {hash} (JSON)                        選んだコミットを現在の HEAD にチェリーピック (競合したら中止して元に戻す)
   /api/rebase-todo?hash=<hash>                               対話的リベースの対象コミット一覧 (古い順。git rebase -i が作る todo と同じ)
   POST /api/rebase-i {hash, todo:[{hash, action, message}]}  対話的リベース (git rebase -i 相当)
@@ -100,12 +101,19 @@ TRANSLATIONS = {
         "files": "ファイル表示",
         "merge": "マージ",
         "rebase": "リベース",
+        "rebase_range": "A..HEADをBへリベース",
         "cherry_pick": "チェリーピック",
         "reset": "対象へリセット",
         "interactive_rebase": "対話的リベース",
         "compare_ab": "AB比較",
         "push": "push",
         "push_branch_select": "pushするブランチ",
+        "push_remote_select": "push先のremote",
+        "push_remote_branch": "push先のremoteブランチ名",
+        "http_auth": "HTTP認証",
+        "auth_username": "ユーザー名",
+        "auth_password": "パスワード / トークン",
+        "authenticate": "認証して再試行",
         "other": "その他",
         "stash_list": "stash一覧",
         "reflog": "reflog",
@@ -173,7 +181,9 @@ TRANSLATIONS = {
         "add": "追加",
         "delete": "削除",
         "delete_branch": "ブランチ削除",
+        "delete_remote_branch": "リモートブランチ削除",
         "branch_to_delete": "削除するブランチ",
+        "remote_branch_to_delete": "削除するリモートブランチ",
         "delete_tag": "タグ削除",
         "tag_to_delete": "削除するタグ",
         "name": "名前",
@@ -201,6 +211,7 @@ TRANSLATIONS = {
         "tip_files": "対象コミットのファイル一覧を別タブで開く",
         "tip_merge": "Aを現在のHEADにマージ",
         "tip_rebase": "現在のブランチをAの上にリベース",
+        "tip_rebase_range": "現在のブランチの A..HEAD を B の上にリベース",
         "tip_irebase": "現在のブランチをAの上に、コミットの並べ替え・squash・メッセージ変更・削除をしながらリベース (git rebase -i)",
         "tip_cherry": "Aを現在のHEADにチェリーピック",
         "tip_reset": "現在のHEADを対象コミットへリセット",
@@ -241,6 +252,7 @@ TRANSLATIONS = {
         "stash_confirm_pop": "{sel} の変更を作業ツリーに適用し、成功したら stash を削除します。競合したときは作業ツリーに競合が残り、stash も残ります。よろしいですか？",
         "stash_confirm_drop": "{sel} を削除します。よろしいですか？ (削除直後なら git stash store {hash} で戻せます)",
         "confirm_delete_branch": "ブランチ {name} を削除します。よろしいですか？",
+        "confirm_delete_remote_branch": "リモートブランチ {name} を削除します。よろしいですか？",
         "confirm_delete_tag": "タグ {name} を削除します。よろしいですか？",
         "confirm_force_delete": "ブランチ {name} は未マージです。強制削除すると未マージのコミットがブランチから到達できなくなる可能性があります。削除しますか？",
         "force_delete_cancelled": "強制削除をキャンセルしました",
@@ -256,6 +268,7 @@ TRANSLATIONS = {
         "checkout_new_branch_option": "新しいブランチを作成してチェックアウト",
         "new_branch_name": "新しいブランチ名",
         "new_branch_placeholder": "新規作成時のみ入力",
+        "track_upstream": "upstreamを設定する",
         "new_branch_name_required": "新しいブランチ名を入力してください",
         "confirm_create_checkout": "ブランチ {name} を作成してチェックアウトします (作業ツリーが切り替わります)。よろしいですか？",
         "confirm_checkout_branch": "ブランチ {branch} をチェックアウトします (作業ツリーが切り替わります)。よろしいですか？",
@@ -275,6 +288,7 @@ TRANSLATIONS = {
         "confirm_push": "{what} を push します。よろしいですか？",
         "confirm_push_force": "{what} を --force-with-lease で push します。リモートの履歴が書き換わります。よろしいですか？",
         "push_cancelled": "push をキャンセルしました",
+        "auth_invalid": "HTTP認証情報が不正です",
         "prompt_push_remote": "ブランチ {branch} には upstream が設定されていません。\npush 先のリモートを入力してください ({remotes})。\n{branch} として push し、upstream に設定します。",
         "confirm_set_upstream": "ブランチ {branch} には upstream が設定されていません。{remote}/{branch} として push し、upstream に設定しますか？",
         "fetch_after_add": "追加後に fetch する",
@@ -284,6 +298,7 @@ TRANSLATIONS = {
         "op_in_progress_finish": "マージまたはリベースの途中です。先に完了してください",
         "merge_in_progress_resolve": "マージの途中です。先に競合を解決してコミットしてください",
         "confirm_rebase": "ブランチ {branch} を コミット {hash} の上にリベースします。{branch} のコミットは作り直され、履歴が書き換わります (競合したときは自動で元に戻します)。よろしいですか？",
+        "confirm_rebase_range": "ブランチ {branch} の A ({from}) より後のコミットを B ({to}) の上にリベースします。履歴が書き換わります (競合したときは自動で元に戻します)。よろしいですか？",
         "rebase_error": "リベースできませんでした: {error}",
         "target_detached_head": "現在の HEAD (detached)",
         "confirm_cherry_pick": "コミット {hash} を {target} にチェリーピックします。新しいコミットが作られます (競合したときは自動で元に戻します)。よろしいですか？",
@@ -317,6 +332,7 @@ TRANSLATIONS = {
         "git_diff_failed": "git diff に失敗しました",
         "git_command_failed": "git コマンドが失敗しました",
         "branch_not_found": "ブランチが見つかりません",
+        "remote_branch_not_found": "remoteブランチが見つかりません",
         "commit_not_found": "コミットが見つかりません",
         "dir_not_found": "ディレクトリが見つかりません",
         "not_a_file": "ファイルではありません",
@@ -353,6 +369,7 @@ TRANSLATIONS = {
         "ref_not_exist": "{name} は存在しません",
         "branch_delete_failed": "ブランチを削除できません",
         "branch_deleted": "ブランチ {name} を削除しました",
+        "remote_branch_deleted": "リモートブランチ {name} を削除しました",
         "tag_deleted": "タグ {name} を削除しました",
         "checkout_branch_done": "ブランチ {branch} をチェックアウトしました",
         "checkout_detached_done": "{hash} をチェックアウトしました (detached HEAD)",
@@ -381,6 +398,7 @@ TRANSLATIONS = {
         "rebase_failed": "リベースに失敗しました",
         "rebase_noop": "{branch} は既に {hash} の上にあります (変更なし)",
         "rebase_done": "{branch} を {hash} の上にリベースしました",
+        "rebase_range_done": "ブランチ {branch} の A ({from}) より後のコミットを B ({to}) の上にリベースしました",
         "cherry_no_worktree": "ワークツリーのないリポジトリではチェリーピックできません",
         "cherry_no_commits": "最初のコミットがないためチェリーピックできません",
         "cherry_merge_commit": "マージコミットはチェリーピックできません (どちらの親側の変更を取るか決められないため)",
@@ -482,12 +500,19 @@ TRANSLATIONS = {
         "files": "Show files",
         "merge": "Merge",
         "rebase": "Rebase",
+        "rebase_range": "Rebase A..HEAD onto B",
         "cherry_pick": "Cherry-pick",
         "reset": "Reset to target",
         "interactive_rebase": "Interactive rebase",
         "compare_ab": "Compare A/B",
         "push": "Push",
         "push_branch_select": "Branch to push",
+        "push_remote_select": "Remote to push to",
+        "push_remote_branch": "Remote branch name",
+        "http_auth": "HTTP authentication",
+        "auth_username": "Username",
+        "auth_password": "Password / token",
+        "authenticate": "Authenticate and retry",
         "other": "Other",
         "stash_list": "Stash list",
         "reflog": "Reflog",
@@ -555,7 +580,9 @@ TRANSLATIONS = {
         "add": "Add",
         "delete": "Delete",
         "delete_branch": "Delete branch",
+        "delete_remote_branch": "Delete remote branch",
         "branch_to_delete": "Branch to delete",
+        "remote_branch_to_delete": "Remote branch to delete",
         "delete_tag": "Delete tag",
         "tag_to_delete": "Tag to delete",
         "name": "Name",
@@ -583,6 +610,7 @@ TRANSLATIONS = {
         "tip_files": "Open the file list of the target commit in a new tab",
         "tip_merge": "Merge A into the current HEAD",
         "tip_rebase": "Rebase the current branch onto A",
+        "tip_rebase_range": "Rebase A..HEAD on the current branch onto B",
         "tip_irebase": "Rebase the current branch onto A while reordering, squashing, rewording or dropping commits (git rebase -i)",
         "tip_cherry": "Cherry-pick A onto the current HEAD",
         "tip_reset": "Reset the current HEAD to the target commit",
@@ -623,6 +651,7 @@ TRANSLATIONS = {
         "stash_confirm_pop": "Apply the changes of {sel} to the working tree and delete the stash if that succeeds. On conflicts, the conflicts and the stash both remain. Continue?",
         "stash_confirm_drop": "Delete {sel}. Continue? (Right after deleting, you can restore it with git stash store {hash})",
         "confirm_delete_branch": "Delete branch {name}. Continue?",
+        "confirm_delete_remote_branch": "Delete remote branch {name}. Continue?",
         "confirm_delete_tag": "Delete tag {name}. Continue?",
         "confirm_force_delete": "Branch {name} is not merged. Force-deleting it may make unmerged commits unreachable from any branch. Delete it?",
         "force_delete_cancelled": "Force delete cancelled",
@@ -638,6 +667,7 @@ TRANSLATIONS = {
         "checkout_new_branch_option": "Create a new branch and check it out",
         "new_branch_name": "New branch name",
         "new_branch_placeholder": "Only when creating a new branch",
+        "track_upstream": "Set the upstream branch",
         "new_branch_name_required": "Enter a new branch name",
         "confirm_create_checkout": "Create branch {name} and check it out (the working tree will change). Continue?",
         "confirm_checkout_branch": "Check out branch {branch} (the working tree will change). Continue?",
@@ -657,6 +687,7 @@ TRANSLATIONS = {
         "confirm_push": "Push {what}. Continue?",
         "confirm_push_force": "Push {what} with --force-with-lease. The remote history will be rewritten. Continue?",
         "push_cancelled": "Push cancelled",
+        "auth_invalid": "Invalid HTTP authentication fields",
         "prompt_push_remote": "Branch {branch} has no upstream configured.\nEnter the remote to push to ({remotes}).\nIt will be pushed as {branch} and set as the upstream.",
         "confirm_set_upstream": "Branch {branch} has no upstream configured. Push it as {remote}/{branch} and set it as the upstream?",
         "fetch_after_add": "Fetch after adding",
@@ -666,6 +697,7 @@ TRANSLATIONS = {
         "op_in_progress_finish": "A merge or rebase is in progress. Finish it first",
         "merge_in_progress_resolve": "A merge is in progress. Resolve the conflicts and commit first",
         "confirm_rebase": "Rebase branch {branch} onto commit {hash}. The commits of {branch} are recreated and the history is rewritten (it is rolled back automatically on conflicts). Continue?",
+        "confirm_rebase_range": "Rebase commits after A ({from}) on branch {branch} onto B ({to}). History will be rewritten (it is rolled back automatically on conflicts). Continue?",
         "rebase_error": "Could not rebase: {error}",
         "target_detached_head": "the current HEAD (detached)",
         "confirm_cherry_pick": "Cherry-pick commit {hash} onto {target}. A new commit will be created (it is rolled back automatically on conflicts). Continue?",
@@ -699,6 +731,7 @@ TRANSLATIONS = {
         "git_diff_failed": "git diff failed",
         "git_command_failed": "The git command failed",
         "branch_not_found": "Branch not found",
+        "remote_branch_not_found": "Remote branch not found",
         "commit_not_found": "Commit not found",
         "dir_not_found": "Directory not found",
         "not_a_file": "Not a file",
@@ -735,6 +768,7 @@ TRANSLATIONS = {
         "ref_not_exist": "{name} does not exist",
         "branch_delete_failed": "Cannot delete the branch",
         "branch_deleted": "Deleted branch {name}",
+        "remote_branch_deleted": "Deleted remote branch {name}",
         "tag_deleted": "Deleted tag {name}",
         "checkout_branch_done": "Checked out branch {branch}",
         "checkout_detached_done": "Checked out {hash} (detached HEAD)",
@@ -763,6 +797,7 @@ TRANSLATIONS = {
         "rebase_failed": "Rebase failed",
         "rebase_noop": "{branch} is already on top of {hash} (no change)",
         "rebase_done": "Rebased {branch} onto {hash}",
+        "rebase_range_done": "Rebased commits after A ({from}) on branch {branch} onto B ({to})",
         "cherry_no_worktree": "Cannot cherry-pick in a repository without a working tree",
         "cherry_no_commits": "Cannot cherry-pick because there are no commits yet",
         "cherry_merge_commit": "Cannot cherry-pick a merge commit (it is unclear which parent's changes to take)",
@@ -1320,12 +1355,14 @@ __FAVICON__
       <button class="abtn danger" id="resetBtn" title="{{tip_reset}}">{{reset}}</button>
       <button class="abtn" data-cact="branch">{{create_branch}}</button>
       <button class="abtn danger" id="deleteBranchBtn" data-cact="delete-branch">{{delete_branch}}</button>
+      <button class="abtn danger" id="deleteRemoteBranchBtn">{{delete_remote_branch}}</button>
       <button class="abtn" data-cact="tag">{{create_tag}}</button>
       <button class="abtn danger" id="deleteTagBtn" data-cact="delete-tag">{{delete_tag}}</button>
       <button class="abtn" data-cact="checkout">{{checkout}}</button>
     </div>
     <hr class="menu-separator" id="compareMenuSeparator" hidden>
     <button class="abtn" id="compareBtn" hidden>{{compare_ab}}</button>
+    <button class="abtn" id="rebaseRangeBtn" hidden title="{{tip_rebase_range}}">{{rebase_range}}</button>
     <hr class="menu-separator">
     <div class="menu-section" id="viewActions">
       <button class="abtn" id="otherMenuBtn" aria-expanded="false" aria-controls="otherActions">{{other}}</button>
@@ -1627,6 +1664,15 @@ function localBranches(h) {
   const n = DATA.nodes[h];
   return n ? n.refs.filter(r => r.kind === "branch" || r.kind === "current").map(r => r.name) : [];
 }
+function remoteBranches(h) {
+  const n = DATA.nodes[h];
+  return n ? n.refs.filter(r => r.kind === "remote").map(r => r.name) : [];
+}
+function defaultNewBranchName(h) {
+  const remote = remoteBranches(h).sort()[0] || "";
+  const slash = remote.indexOf("/");
+  return slash >= 0 ? remote.slice(slash + 1) : remote;
+}
 function localTags(h) {
   const n = DATA.nodes[h];
   return n ? n.refs.filter(r => r.kind === "tag").map(r => r.name) : [];
@@ -1848,6 +1894,7 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
   document.getElementById("cmpActions").hidden = !cmpActOpen;
   document.getElementById("compareBtn").hidden = !compareAHash || !compareBHash;
   document.getElementById("compareMenuSeparator").hidden = !compareAHash || !compareBHash;
+  document.getElementById("rebaseRangeBtn").hidden = !compareAHash || !compareBHash;
   const isStash = !!actionHash && !!stashByHash[actionHash];
   document.getElementById("aActions").hidden = !actionHash || isStash;
   document.getElementById("stashActions").hidden = !isStash;
@@ -1856,6 +1903,7 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
   document.getElementById("mergeBtn").disabled = !canMerge;
   document.getElementById("rebaseBtn").disabled = !canMerge;
   document.getElementById("irebaseBtn").disabled = !canMerge;
+  document.getElementById("rebaseRangeBtn").disabled = !compareAHash || !compareBHash || !canMerge;
   document.getElementById("cherryBtn").disabled = !canMerge;
   document.getElementById("resetBtn").disabled = !canMerge;
   const canWrite = !!DATA.writable;
@@ -1872,6 +1920,7 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
   document.getElementById("stashDropBtn").disabled = !canWrite;
   document.getElementById("deleteBranchBtn").disabled = !canWrite || !actionHash || isStash ||
     !localBranches(actionHash).some(name => name !== currentBranch);
+  document.getElementById("deleteRemoteBranchBtn").disabled = !canWrite || !actionHash || isStash || !remoteBranches(actionHash).length;
   document.getElementById("deleteTagBtn").disabled = !canWrite || !actionHash || isStash || !localTags(actionHash).length;
 }
 let cmpActOpen = true;
@@ -1966,15 +2015,19 @@ async function doCmpAction(btn) {  // 選択対象に対するブランチ作成
     if (!body.name) { setCmpMsg(t("tag_name_required"), false); return; }
   } else if (act === "checkout") {
     const branches = localBranches(h);
+    const remoteRefs = remoteBranches(h).sort();
+    const defaultRemoteRef = remoteRefs[0] || "";
+    const defaultNewBranch = defaultNewBranchName(h);
     values = await openActionDialog(t("checkout"), '<label>' + esc(t("switch_to")) + '<select name="branch">' +
       branches.map(branch => '<option value="' + esc(branch) + '">' + esc(branch) + '</option>').join("") +
       '<option value="">' + esc(t("checkout_detached_option")) + '</option>' +
       '<option value="__new_branch__">' + esc(t("checkout_new_branch_option")) + '</option>' +
       '</select></label>' +
-      '<label id="newBranchField" hidden>' + esc(t("new_branch_name")) + '<input type="text" name="newBranch" placeholder="' + esc(t("new_branch_placeholder")) + '"></label>', t("checkout"), {
+      '<label id="newBranchField" hidden>' + esc(t("new_branch_name")) + '<input type="text" name="newBranch" value="' + esc(defaultNewBranch) + '" placeholder="' + esc(t("new_branch_placeholder")) + '"></label>' +
+      '<label id="trackUpstreamField" class="check" hidden><input type="checkbox" name="trackUpstream"' + (defaultRemoteRef ? ' checked' : '') + '> ' + esc(t("track_upstream")) + (defaultRemoteRef ? ' (' + esc(defaultRemoteRef) + ')' : '') + '</label>', t("checkout"), {
         onOpen: form => {
-          const select = form.elements.branch, field = form.querySelector("#newBranchField");
-          const update = () => { field.hidden = select.value !== "__new_branch__"; };
+          const select = form.elements.branch, field = form.querySelector("#newBranchField"), track = form.querySelector("#trackUpstreamField");
+          const update = () => { field.hidden = select.value !== "__new_branch__"; track.hidden = select.value !== "__new_branch__" || !defaultRemoteRef; };
           select.addEventListener("change", update);
           update();
           return () => select.removeEventListener("change", update);
@@ -1986,6 +2039,7 @@ async function doCmpAction(btn) {  // 選択対象に対するブランチ作成
     if (values.branch === "__new_branch__") {
       const name = values.newBranch.trim();
       url = "/api/branch"; body = {hash: h, name: name, checkout: true};
+      if (values.trackUpstream && defaultRemoteRef) body.upstream = defaultRemoteRef;
       ask = t("confirm_create_checkout", {name: name});
     } else if (values.branch) {
       url = "/api/checkout"; body = {branch: values.branch};
@@ -2058,6 +2112,37 @@ async function doDeleteTag(btn) {
     .catch(e => setCmpMsg(t("delete_failed", {error: e.message}), false))
     .finally(() => { btn.disabled = false; });
 }
+async function doDeleteRemoteBranch(btn) {
+  const branches = remoteBranches(actionHash).sort();
+  if (!branches.length) return;
+  const values = await openActionDialog(t("delete_remote_branch"),
+    '<label>' + esc(t("remote_branch_to_delete")) + '<select name="name">' + branches.map(branch =>
+      '<option value="' + esc(branch) + '">' + esc(branch) + "</option>").join("") +
+    "</select></label>", t("delete"));
+  if (!values) return;
+  const name = values.name;
+  if (!confirm(t("confirm_delete_remote_branch", {name: name}))) return;
+  const body = {kind: "remote-branch", name: name};
+  btn.disabled = true; setCmpMsg(t("deleting"), "progress");
+  const run = extra => post("/api/ref-delete", Object.assign({}, body, extra || {}));
+  try {
+    let r = await run();
+    if (r.auth_required) {
+      const auth = await openActionDialog(t("http_auth"),
+        '<label>' + esc(t("auth_username")) + '<input name="username" autocomplete="username" autofocus></label>' +
+        '<label>' + esc(t("auth_password")) + '<input type="password" name="password" autocomplete="current-password"></label>',
+        t("authenticate"));
+      if (!auth) { setCmpMsg(t("push_cancelled"), false); return; }
+      r = await run({auth: auth, auth_remote: r.auth_remote, auth_retry: true});
+    }
+    setCmpMsg(r.message, true);
+    await refreshGraph().catch(() => {});
+  } catch (e) {
+    setCmpMsg(e.message, false);
+  } finally {
+    btn.disabled = false;
+  }
+}
 async function doRemoteAction(btn) {  // fetch / pull / push
   const act = btn.dataset.cact;
   const url = "/api/" + act;
@@ -2076,19 +2161,32 @@ async function doRemoteAction(btn) {  // fetch / pull / push
     body = {mode: mode};
     ask = t("confirm_pull", {mode: {"ff-only": t("pull_mode_ff"), "merge": t("pull_mode_merge"), "rebase": t("pull_mode_rebase")}[mode]});
   } else if (act === "push") {
-    const branches = [...new Set(Object.values(DATA.nodes).flatMap(n =>
-      n.refs.filter(r => r.kind === "branch" || r.kind === "current").map(r => r.name)))]
-      .sort((a, b) => a.localeCompare(b));
-    if (currentBranch && !branches.includes(currentBranch)) branches.unshift(currentBranch);
+    const branches = [...new Set([currentBranch, ...localBranches(actionHash)])]
+      .filter(Boolean).sort((a, b) => a.localeCompare(b));
     if (!branches.length) return;
+    const remoteInfo = await api("/api/remotes", {});
+    const remotes = remoteInfo.remotes || [];
+    if (!remotes.length) { setRemoteMsg(t("no_remotes"), false); return; }
+    const defaultRemote = remotes.some(r => r.name === "origin") ? "origin" : remotes[0].name;
     const values = await openActionDialog("push",
       '<label>' + esc(t("push_branch_select")) + '<select name="branch">' + branches.map(branch =>
-        '<option value="' + esc(branch) + '"' + (branch === currentBranch ? " selected" : "") + '>' + esc(branch) + "</option>").join("") +
+        '<option value="' + esc(branch) + '"' + (branch === currentBranch ? " selected" : "") + '>' + esc(branch) + (branch === currentBranch ? " (HEAD)" : "") + "</option>").join("") +
       '</select></label>' +
-      '<label class="check"><input type="checkbox" name="force"> ' + esc(t("force_label")) + '</label>', "push");
+      '<label>' + esc(t("push_remote_select")) + '<select name="remote">' + remotes.map(r =>
+        '<option value="' + esc(r.name) + '"' + (r.name === defaultRemote ? " selected" : "") + '>' + esc(r.name) + "</option>").join("") +
+      '</select></label>' +
+      '<label>' + esc(t("push_remote_branch")) + '<input name="remoteBranch" value="' + esc(currentBranch || branches[0]) + '" required></label>' +
+      '<label class="check"><input type="checkbox" name="force"> ' + esc(t("force_label")) + '</label>', "push", {
+        onOpen: form => {
+          const branch = form.elements.branch, remoteBranch = form.elements.remoteBranch;
+          const update = () => { remoteBranch.value = branch.value; };
+          branch.addEventListener("change", update);
+          return () => branch.removeEventListener("change", update);
+        }
+      });
     if (!values) return;
-    body = {branch: values.branch, force: values.force};
-    const what = t("what_branch", {name: values.branch});
+    body = {branch: values.branch, remote: values.remote, remote_branch: values.remoteBranch.trim(), force: values.force};
+    const what = t("what_branch", {name: values.branch}) + " → " + values.remote;
     ask = body.force
       ? t("confirm_push_force", {what: what})
       : t("confirm_push", {what: what});
@@ -2098,7 +2196,16 @@ async function doRemoteAction(btn) {  // fetch / pull / push
   } else return;
   if (ask && !confirm(ask)) return;
   btn.disabled = true; setRemoteMsg(t("running_remote"), "progress");
-  let p = post(url, body);
+  let p = post(url, body).then(async r => {
+    if (!r.auth_required) return r;
+    const auth = await openActionDialog(t("http_auth"),
+      '<label>' + esc(t("auth_username")) + '<input name="username" autocomplete="username" autofocus></label>' +
+      '<label>' + esc(t("auth_password")) + '<input type="password" name="password" autocomplete="current-password"></label>',
+      t("authenticate"));
+    if (!auth) return {cancelled: true, message: t("push_cancelled")};
+    setRemoteMsg(t("running_remote"), "progress");
+    return post(url, Object.assign({}, body, {auth: auth, auth_remote: r.auth_remote, auth_retry: true}));
+  });
   if (act === "push-tag") {
     p = p.then(r => {
       if (!r.needs_remote) return r;
@@ -2189,6 +2296,27 @@ function doRebase() {
       if (!confirm(t("confirm_rebase", {branch: hd.branch, hash: h.slice(0, 7)}))) return null;
       setGraphStatus(t("rebasing"), "progress");
       return post("/api/rebase", {hash: h});
+    })
+    .then(r => {
+      if (r === null) { setGraphStatus(""); return; }
+      clearCmp();
+      setGraphStatus(r.message, "success");
+      return refreshGraph().catch(() => {});
+    })
+    .catch(e => { setGraphStatus(t("rebase_error", {error: e.message}), "error"); })
+    .finally(() => { btn.disabled = false; });
+}
+function doRebaseRange() {
+  if (!compareAHash || !compareBHash) return;
+  const from = compareAHash, to = compareBHash, btn = document.getElementById("rebaseRangeBtn");
+  btn.disabled = true;
+  fetch("/api/head").then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); }))
+    .then(hd => {
+      if (hd.merging) throw new Error(t("op_in_progress_finish"));
+      if (!hd.branch) throw new Error(t("detached_rebase"));
+      if (!confirm(t("confirm_rebase_range", {branch: hd.branch, from: from.slice(0, 7), to: to.slice(0, 7)}))) return null;
+      setGraphStatus(t("rebasing"), "progress");
+      return post("/api/rebase-range", {from: from, to: to});
     })
     .then(r => {
       if (r === null) { setGraphStatus(""); return; }
@@ -2452,12 +2580,14 @@ document.getElementById("cmpActions").addEventListener("click", ev => {
     showCompare(compareAHash, compareBHash);
     return;
   }
+  if (ev.target.closest("#rebaseRangeBtn")) { doRebaseRange(); return; }
   if (ev.target.closest("#stashListBtn")) { showStashList(); return; }
   if (ev.target.closest("#stashApplyBtn")) { doStash("apply"); return; }
   if (ev.target.closest("#stashPopBtn")) { doStash("pop"); return; }
   if (ev.target.closest("#stashDropBtn")) { doStash("drop"); return; }
   if (ev.target.closest("#reflogBtn")) { showReflog(""); return; }
   if (ev.target.closest("#deleteBranchBtn")) { doDeleteBranch(ev.target.closest("#deleteBranchBtn")); return; }
+  if (ev.target.closest("#deleteRemoteBranchBtn")) { doDeleteRemoteBranch(ev.target.closest("#deleteRemoteBranchBtn")); return; }
   if (ev.target.closest("#deleteTagBtn")) { doDeleteTag(ev.target.closest("#deleteTagBtn")); return; }
   if (ev.target.closest("#mergeBtn")) { doMerge(); return; }
   if (ev.target.closest("#rebaseBtn")) { doRebase(); return; }
@@ -3887,7 +4017,19 @@ def api_branch(body):
     name = str(body.get("name", "")).strip()
     check_ref_name("branch", name)
     if body.get("checkout"):
-        res = checkout_resolving(["-b", name, h], body.get("on_conflict"))
+        upstream = body.get("upstream")
+        if upstream:
+            if not isinstance(upstream, str) or upstream.startswith("-") or "\0" in upstream:
+                raise UserError("remote_branch_not_found")
+            ref = "refs/remotes/" + upstream
+            r = subprocess.run(["git", "-C", REPO, "rev-parse", "--verify", "--quiet", ref + "^{commit}"],
+                               capture_output=True, text=True, encoding="utf-8", errors="replace")
+            if r.returncode != 0 or r.stdout.strip() != h:
+                raise UserError("remote_branch_not_found")
+            checkout_args = ["-b", name, "--track", upstream]
+        else:
+            checkout_args = ["-b", name, h]
+        res = checkout_resolving(checkout_args, body.get("on_conflict"))
         if res and res.get("blocked"):
             return res
         return {"ok": True, "message": with_stash_note(res, tr("branch_created_checkout", name=name))}
@@ -3909,6 +4051,24 @@ def api_tag(body):
 
 def api_delete_ref(body):
     kind = body.get("kind")
+    if kind == "remote-branch":
+        name = str(body.get("name", "")).strip()
+        remotes = git("remote").split()
+        remote = next((r for r in sorted(remotes, key=len, reverse=True) if name.startswith(r + "/")), None)
+        branch = name[len(remote) + 1:] if remote else ""
+        if not remote or not branch:
+            raise UserError("remote_branch_not_found")
+        check_ref_name("branch", branch)
+        auth = auth_for_remote(remote, body)
+        r = run_git_net("push", remote, "--delete", branch, auth=auth)
+        if r.returncode != 0:
+            if is_http_auth_error(r) and not body.get("auth_retry"):
+                return {"auth_required": True, "auth_remote": remote}
+            if body.get("auth_retry"):
+                HTTP_AUTH_CACHE.pop(remote, None)
+            raise ValueError(net_error(r, tr("git_command_failed")))
+        remember_auth(remote, auth)
+        return {"ok": True, "message": tr("remote_branch_deleted", name=name)}
     if kind not in ("branch", "tag"):
         raise UserError("ref_delete_only")
     name = str(body.get("name", "")).strip()
@@ -4119,6 +4279,32 @@ def api_rebase(body):
     return {"ok": True, "message": tr("rebase_done", branch=head["branch"], hash=h[:7])}
 
 
+def api_rebase_range(body):
+    """A より後の現在のブランチのコミットを B の上にリベースする。
+    競合したら自動で中止して元に戻す。"""
+    if not HAS_WORKTREE:
+        raise UserError("rebase_no_worktree")
+    a = resolve_commit(body.get("from", ""))
+    b = resolve_commit(body.get("to", ""))
+    if is_merging() or is_rebasing():
+        raise UserError("merge_or_rebase_in_progress")
+    head = api_head()
+    if not head["branch"]:
+        raise UserError("detached_rebase")
+    before = git("rev-parse", "HEAD").strip()
+    r = subprocess.run(["git", "-C", REPO, "rebase", "--onto", b, a], capture_output=True, text=True,
+                       encoding="utf-8", errors="replace")
+    out = (r.stdout + r.stderr).strip()
+    if r.returncode != 0:
+        if is_rebasing():
+            subprocess.run(["git", "-C", REPO, "rebase", "--abort"], capture_output=True)
+            raise UserError("rebase_conflict", target=b[:7], cmd="git rebase --onto")
+        raise ValueError(out or tr("rebase_failed"))
+    if git("rev-parse", "HEAD").strip() == before:
+        return {"ok": True, "message": tr("rebase_noop", branch=head["branch"], hash=b[:7])}
+    return {"ok": True, "message": tr("rebase_range_done", branch=head["branch"], **{"from": a[:7], "to": b[:7]})}
+
+
 def is_cherry_picking():
     return subprocess.run(["git", "-C", REPO, "rev-parse", "-q", "--verify", "CHERRY_PICK_HEAD"],
                           capture_output=True).returncode == 0
@@ -4288,24 +4474,60 @@ def api_rebase_i(body):
 # リモートとの通信 (fetch / pull / push)
 # --------------------------------------------------------------------------
 NET_TIMEOUT = 300  # 秒。認証待ちなどで固まったままロックを握り続けないようにする
+HTTP_AUTH_CACHE = {}  # アプリ実行中だけ保持する remote 名 -> {username, password}
 
 
-def run_git_net(*args, timeout=None):
-    """リモートと通信する git を実行する。端末への入力待ち (パスワードなど) で固まらないようにする。"""
+def run_git_net(*args, timeout=None, auth=None):
+    """リモートと通信する git を実行する。必要なら一時的な HTTP 認証用 askpass を使う。"""
     env = dict(os.environ, GIT_TERMINAL_PROMPT="0")
     timeout = timeout or NET_TIMEOUT
+    askpass_dir = None
+    if auth:
+        if not isinstance(auth, dict) or not isinstance(auth.get("username", ""), str) or not isinstance(auth.get("password", ""), str):
+            raise UserError("auth_invalid")
+        askpass_dir = tempfile.mkdtemp(prefix="git_graph_askpass_")
+        askpass = os.path.join(askpass_dir, "askpass.py")
+        with open(askpass, "w", encoding="utf-8") as f:
+            f.write("#!/usr/bin/env python3\nimport os, sys\np = (sys.argv[1] if len(sys.argv) > 1 else '').lower()\nprint(os.environ.get('GIT_GRAPH_HTTP_USERNAME' if 'username' in p or 'user' in p else 'GIT_GRAPH_HTTP_PASSWORD', ''))\n")
+        os.chmod(askpass, 0o700)
+        env.update(GIT_ASKPASS=askpass,
+                   GIT_GRAPH_HTTP_USERNAME=auth.get("username", ""),
+                   GIT_GRAPH_HTTP_PASSWORD=auth.get("password", ""))
     try:
         return subprocess.run(["git", "-C", REPO, *args], capture_output=True, text=True,
                               encoding="utf-8", errors="replace", env=env, timeout=timeout,
                               stdin=subprocess.DEVNULL, start_new_session=True)  # 制御端末を切り離し ssh が /dev/tty に尋ねないように
     except subprocess.TimeoutExpired:
         raise UserError("net_timeout", cmd=args[0], sec=timeout)
+    finally:
+        if askpass_dir:
+            shutil.rmtree(askpass_dir, ignore_errors=True)
 
 
 def net_error(r, fallback):
     text = (r.stderr or r.stdout).strip()
     text = "\n".join(l for l in text.splitlines() if not l.startswith("hint:")).strip()  # 長い hint は省く
     return text or fallback
+
+
+def is_http_auth_error(r):
+    text = ((r.stderr or "") + "\n" + (r.stdout or "")).lower()
+    return any(s in text for s in (
+        "authentication failed", "invalid username or token", "could not read username",
+        "terminal prompts disabled", "http 401", "http 403",
+    ))
+
+
+def auth_for_remote(remote, body):
+    """明示された認証情報を優先し、なければアプリ実行中のキャッシュを使う。"""
+    if body.get("auth") and (body.get("auth_remote") is None or body.get("auth_remote") == remote):
+        return body["auth"]
+    return HTTP_AUTH_CACHE.get(remote)
+
+
+def remember_auth(remote, auth):
+    if auth:
+        HTTP_AUTH_CACHE[remote] = {"username": auth.get("username", ""), "password": auth.get("password", "")}
 
 
 def refs_snapshot():
@@ -4325,15 +4547,26 @@ def upstream_of_head():
 
 
 def api_fetch(body):
-    args = ["fetch", "--all"]
-    if body.get("prune") is True:
-        args.append("--prune")
+    remotes = git("remote").split()
     before = refs_snapshot()
-    # リモートは順に取得されるので、複数あるぶんだけタイムアウトを延ばす (最大 4 倍)
-    r = run_git_net(*args, timeout=NET_TIMEOUT * min(max(len(git("remote").split()), 1), 4))
+    errors = []
+    for remote in remotes:
+        args = ["fetch", remote]
+        if body.get("prune") is True:
+            args.append("--prune")
+        auth = auth_for_remote(remote, body)
+        r = run_git_net(*args, auth=auth)
+        if r.returncode != 0:
+            if is_http_auth_error(r) and (not body.get("auth_retry") or body.get("auth_remote") != remote):
+                return {"auth_required": True, "auth_remote": remote}
+            if body.get("auth_retry") and body.get("auth_remote") == remote:
+                HTTP_AUTH_CACHE.pop(remote, None)
+            errors.append(r)
+        else:
+            remember_auth(remote, auth)
     n = count_changed_refs(before, refs_snapshot())
-    if r.returncode != 0:  # 一部のリモートだけ失敗しても、git は残りのリモートを取得している
-        raise ValueError(net_error(r, tr("fetch_failed")) + (tr("fetch_partial", n=n) if n else ""))
+    if errors:  # 一部のリモートだけ失敗しても、残りのリモートは取得する
+        raise ValueError(net_error(errors[0], tr("fetch_failed")) + (tr("fetch_partial", n=n) if n else ""))
     return {"ok": True, "message": tr("fetch_done", n=n) if n else tr("fetch_done_none")}
 
 
@@ -4411,9 +4644,15 @@ def api_pull(body):
     up = upstream_of_head()
     if not up:
         raise UserError("no_upstream", branch=branch)
+    remote = branch_config(branch, "remote")
     before = git("rev-parse", "HEAD").strip()
-    r = run_git_net("pull", *flags)
+    auth = auth_for_remote(remote, body) if remote and remote != "." else None
+    r = run_git_net("pull", *flags, auth=auth)
     if r.returncode != 0:
+        if is_http_auth_error(r) and (not body.get("auth_retry") or body.get("auth_remote") != remote):
+            return {"auth_required": True, "auth_remote": remote}
+        if body.get("auth_retry") and body.get("auth_remote") == remote:
+            HTTP_AUTH_CACHE.pop(remote, None)
         if is_merging():  # 競合 (自動マージできなかった)
             return {"ok": True, "conflict": True,
                     "message": tr("merge_conflict", target=up)}
@@ -4421,6 +4660,8 @@ def api_pull(body):
             subprocess.run(["git", "-C", REPO, "rebase", "--abort"], capture_output=True)
             raise UserError("rebase_conflict", target=up, cmd="git pull --rebase")
         raise ValueError(net_error(r, tr("pull_failed")) + (tr("pull_diverged_hint") if mode == "ff-only" else ""))
+    if remote and remote != ".":
+        remember_auth(remote, auth)
     if git("rev-parse", "HEAD").strip() == before:
         return {"ok": True, "message": tr("pull_uptodate", branch=branch)}
     return {"ok": True, "message": tr("pull_done", branch=branch, up=up)}
@@ -4440,7 +4681,7 @@ def git_config(key):
 
 def api_push(body):
     """ブランチを push する。body.branch があればそのローカルブランチ (チェックアウト中でなくてもよい)、
-    なければ現在のブランチ。upstream があればその先へ、なければ set_upstream 確認のうえ -u で push する。"""
+    なければ現在のブランチ。body.remote が指定された場合は、その remote の同名ブランチへ push する。"""
     if not has_head():
         raise UserError("push_no_commits")
     branch = body.get("branch")
@@ -4464,7 +4705,20 @@ def api_push(body):
     has_upstream = bool(upstream_remote and upstream_remote != "." and merge)
     # push 先: branch.<名前>.pushRemote > remote.pushDefault (git の優先順位と同じ)
     push_remote = branch_config(branch, "pushRemote") or git_config("remote.pushDefault")
-    if push_remote:
+    selected_remote = body.get("remote")
+    if selected_remote is not None:
+        if not isinstance(selected_remote, str) or selected_remote not in remotes:
+            raise UserError("remote_unregistered", remote=repr(selected_remote))
+        remote = selected_remote
+        remote_branch = body.get("remote_branch")
+        if remote_branch is None:
+            remote_branch = merge[len("refs/heads/"):] if has_upstream and remote == upstream_remote and merge.startswith("refs/heads/") else branch
+        if not isinstance(remote_branch, str) or not remote_branch:
+            raise UserError("branch_name_invalid")
+        check_ref_name("branch", remote_branch)
+        dest = f"refs/heads/{remote_branch}"
+        args += (["-u"] if not has_upstream else []) + [remote, f"refs/heads/{branch}:{dest}"]
+    elif push_remote:
         if push_remote not in remotes:
             raise UserError("push_remote_unregistered", remote=repr(push_remote))
         remote = push_remote
@@ -4486,9 +4740,15 @@ def api_push(body):
         remote = chosen
         args += ["-u", remote, f"refs/heads/{branch}:refs/heads/{branch}"]
     before = refs_snapshot()
-    r = run_git_net(*args)
+    auth = auth_for_remote(remote, body)
+    r = run_git_net(*args, auth=auth)
     if r.returncode != 0:
+        if not body.get("auth_retry") and is_http_auth_error(r):
+            return {"auth_required": True, "auth_remote": remote}
+        if body.get("auth_retry"):
+            HTTP_AUTH_CACHE.pop(remote, None)
         raise ValueError(net_error(r, tr("push_failed")))
+    remember_auth(remote, auth)
     changed = count_changed_refs(before, refs_snapshot()) > 0
     where = f" ({remote})" if len(remotes) > 1 else ""
     return {"ok": True, "message": tr("pushed" if changed else "pushed_nothing", branch=branch, where=where)}
@@ -4517,15 +4777,21 @@ def api_push_tag(body):
                     "remote": "origin" if "origin" in remotes else remotes[0]}
     if not isinstance(chosen, str) or chosen not in remotes:  # 登録済みの名前だけ許可 (オプション注入も防ぐ)
         raise UserError("remote_unregistered", remote=repr(chosen))
-    r = run_git_net("push", chosen, f"refs/tags/{tag}:refs/tags/{tag}")
+    auth = auth_for_remote(chosen, body)
+    r = run_git_net("push", chosen, f"refs/tags/{tag}:refs/tags/{tag}", auth=auth)
     if r.returncode != 0:
+        if not body.get("auth_retry") and is_http_auth_error(r):
+            return {"auth_required": True, "auth_remote": chosen}
+        if body.get("auth_retry"):
+            HTTP_AUTH_CACHE.pop(chosen, None)
         raise ValueError(net_error(r, tr("push_tag_failed")))
+    remember_auth(chosen, auth)
     where = f" ({chosen})" if len(remotes) > 1 else ""
     up_to_date = "up-to-date" in (r.stderr + r.stdout).lower() or "up to date" in (r.stderr + r.stdout).lower()
     return {"ok": True, "message": tr("pushed_tag_nothing" if up_to_date else "pushed_tag", tag=tag, where=where)}
 
 
-POST_ROUTES = {"/api/stash": api_stash, "/api/rebase": api_rebase, "/api/rebase-i": api_rebase_i, "/api/cherry-pick": api_cherry_pick, "/api/merge": api_merge, "/api/branch": api_branch, "/api/tag": api_tag, "/api/ref-delete": api_delete_ref,
+POST_ROUTES = {"/api/stash": api_stash, "/api/rebase": api_rebase, "/api/rebase-range": api_rebase_range, "/api/rebase-i": api_rebase_i, "/api/cherry-pick": api_cherry_pick, "/api/merge": api_merge, "/api/branch": api_branch, "/api/tag": api_tag, "/api/ref-delete": api_delete_ref,
                "/api/checkout": api_checkout, "/api/reset": api_reset, "/api/wip-commit": api_wip_commit,
                "/api/fetch": api_fetch, "/api/pull": api_pull, "/api/push": api_push, "/api/push-tag": api_push_tag, "/api/file-copy": api_file_copy,
                "/api/remote-add": api_remote_add, "/api/remote-remove": api_remote_remove}
