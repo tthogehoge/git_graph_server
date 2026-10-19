@@ -7,6 +7,8 @@
   python git_graph_server.py -C /path/to/repo --open
   python git_graph_server.py --no-remotes --no-tags main dev
   python git_graph_server.py --dot              # dot を標準出力に出して終了
+  python git_graph_server.py --lang en          # UI の言語 (ja / en)。省略時は環境変数 LANGUAGE / LC_ALL / LC_MESSAGES / LANG から決める (未対応の言語は en)
+  python git_graph_server.py --check-i18n       # 翻訳の漏れ (キー不一致・未翻訳のリテラル) を検査して終了
 
   http://127.0.0.1:8000/                 グラフ (リロードで最新の状態に更新)
   /api/log?rev=<40桁hash>[..<40桁hash>]&path=<ファイル>&skip=0&limit=500   git log (ページング、path指定でファイル限定)
@@ -47,9 +49,11 @@
      --lan は --host 0.0.0.0 --allow-write の省略形 (LAN の他の端末から操作できる。認証はないので信頼できるネットワークで使うこと)
 """
 import argparse
+import ast
 import html
 import itertools
 import json
+import codecs
 import os
 import re
 import shutil
@@ -106,21 +110,17 @@ TRANSLATIONS = {
         "graph_help_2": "コミットをクリックすると操作対象になります。ログ行の上にマウスを置くと、比較 A / B に設定するボタンが表示されます。",
         "push_current": "カレントブランチを push",
         "current_branch": "カレントブランチ",
-        "target": "対象",
         "reload_busy": "更新中…",
         "target_label": "対象",
         "commit_label": "コミット",
-        "changes_count": "件の変更",
         "back_history": "← 履歴一覧に戻る",
         "all_log_to_root": "最初のコミットまでの全ログ",
-        "loaded_count": "件を読み込み済み",
         "file_view": "ファイル表示",
         "select_file": "ファイルを選択してください",
         "select_file_hint": "左の一覧からファイルをクリックしてください。",
         "file_log": "このファイルのログ",
         "file_content": "ファイル内容",
         "binary_file": "バイナリファイルのため内容を表示できません。",
-        "change_history": "の変更履歴",
         "loading": "読み込み中…",
         "error": "エラー: ",
         "root": "ルート",
@@ -151,6 +151,297 @@ TRANSLATIONS = {
         "files_changed": "ファイル変更",
         "large_file_diff": "大きいため先頭のみ表示しています",
         "no_diff": "差分はありません",
+        "create": "作成",
+        "add": "追加",
+        "delete": "削除",
+        "name": "名前",
+        "none": "(なし)",
+        "n_items": "{n} 件",
+        "n_changes": "{n} 件の変更",
+        "n_loaded": "{skip} / {total} 件を読み込み済み",
+        "n_commits": "{n} 件",
+        "label_conflict": "競合",
+        "no_changed_files": "変更されたファイルはありません",
+        "no_commits_yet": "(コミットなし)",
+        "copy_hash_title": "ハッシュ (40桁) をコピー",
+        "set_compare": "比較 {slot} に設定",
+        "delete_ref": "{kind} {name} を削除",
+        "push_branch": "{branch} を push",
+        "swap_ab": "A ⇄ B 入れ替え",
+        "compare_heading": "比較 {from} → {to}",
+        "file_log_heading": "ファイルログ: {path}",
+        "file_history_title": "{path} の変更履歴",
+        "elapsed_hint": "{sec} 秒経過（リポジトリが大きいと時間がかかります）",
+        "graph_build_failed": "グラフの作成に失敗しました",
+        "reload_page": "再読み込み",
+        "notifications": "通知",
+        "close_notification": "通知を閉じる",
+        "resize_panel": "右ペインの幅を調整",
+        "reload_title": "グラフを最新の状態に更新",
+        "tip_files": "対象コミットのファイル一覧を別タブで開く",
+        "tip_merge": "Aを現在のHEADにマージ",
+        "tip_rebase": "現在のブランチをAの上にリベース",
+        "tip_irebase": "現在のブランチをAの上に、コミットの並べ替え・squash・メッセージ変更・削除をしながらリベース (git rebase -i)",
+        "tip_cherry": "Aを現在のHEADにチェリーピック",
+        "tip_reset": "現在のHEADを対象コミットへリセット",
+        "tip_stash_list": "stash の一覧 (git stash list)",
+        "tip_reflog": "reflog (HEAD。ブランチは画面で切り替え)",
+        "tip_stash_apply": "この stash の変更を作業ツリーに適用 (stash は残す)",
+        "tip_stash_pop": "この stash の変更を作業ツリーに適用して、stash を削除",
+        "tip_stash_drop": "この stash を削除",
+        "tip_remote_add": "リモートを追加 (git remote add)",
+        "tip_remote_remove": "リモートを削除 (git remote remove)。リモート追跡ブランチも消えます",
+        "tip_no_ff": "fast-forwardできる場合でもマージコミットを作る",
+        "pull_needs_worktree": "pull には書き込み可能なワークツリーが必要です",
+        "co_hint_stash": "stash: 編集中の変更と管理外ファイルをすべて stash に退避します (あとで git stash pop で戻せます)。",
+        "co_hint_discard": "削除: 上のファイルだけを破棄します。編集内容は HEAD の状態に戻り、管理外ファイルは削除されます (元に戻せません)。",
+        "co_modified": "編集中のファイル",
+        "co_untracked": "チェックアウト先に同名がある管理外ファイル",
+        "running": "実行中…",
+        "running_remote": "実行中… (リモートとの通信に時間がかかることがあります)",
+        "running_fetch": "実行中… (fetch に時間がかかることがあります)",
+        "graph_updating": "グラフ更新中…",
+        "graph_update_failed": "グラフ更新に失敗しました: {error}",
+        "current_branch_failed": "カレントブランチを取得できませんでした: {error}",
+        "deleting": "削除中…",
+        "stash_busy": "stash を処理中…",
+        "rebasing": "リベース中…",
+        "cherry_picking": "チェリーピック中…",
+        "resetting": "リセット中…",
+        "merging": "マージ中…",
+        "loading_rebase_commits": "対象のコミットを読み込み中…",
+        "stash_list_title": "stash 一覧",
+        "stash_list_help": "git stash list (新しい順)。クリックで内容 (HEAD との差分) を表示します。操作対象に選ぶと、「操作」メニューで apply / pop / drop できます",
+        "reflog_help": "git reflog (新しい順)。クリックでそのコミットの内容を表示します",
+        "op_apply": "適用",
+        "op_pop": "適用して削除",
+        "op_drop": "削除",
+        "stash_op_failed": "stash の{op}ができませんでした: {error}",
+        "stash_confirm_apply": "{sel} の変更を作業ツリーに適用します (stash は残ります)。競合したときは作業ツリーに競合が残ります。よろしいですか？",
+        "stash_confirm_pop": "{sel} の変更を作業ツリーに適用し、成功したら stash を削除します。競合したときは作業ツリーに競合が残り、stash も残ります。よろしいですか？",
+        "stash_confirm_drop": "{sel} を削除します。よろしいですか？ (削除直後なら git stash store {hash} で戻せます)",
+        "confirm_delete_branch": "ブランチ {name} を削除します。よろしいですか？",
+        "confirm_delete_tag": "タグ {name} を削除します。よろしいですか？",
+        "confirm_force_delete": "ブランチ {name} は未マージです。強制削除すると未マージのコミットがブランチから到達できなくなる可能性があります。削除しますか？",
+        "force_delete_cancelled": "強制削除をキャンセルしました",
+        "delete_failed": "削除できませんでした: {error}",
+        "branch_name": "ブランチ名",
+        "checkout_after_create": "作成後にチェックアウト",
+        "branch_name_required": "ブランチ名を入力してください",
+        "tag_name": "タグ名",
+        "message_optional": "メッセージ (任意)",
+        "tag_name_required": "タグ名を入力してください",
+        "switch_to": "切り替え先",
+        "checkout_detached_option": "コミットを detached HEAD でチェックアウト",
+        "checkout_new_branch_option": "新しいブランチを作成してチェックアウト",
+        "new_branch_name": "新しいブランチ名",
+        "new_branch_placeholder": "新規作成時のみ入力",
+        "new_branch_name_required": "新しいブランチ名を入力してください",
+        "confirm_create_checkout": "ブランチ {name} を作成してチェックアウトします (作業ツリーが切り替わります)。よろしいですか？",
+        "confirm_checkout_branch": "ブランチ {branch} をチェックアウトします (作業ツリーが切り替わります)。よろしいですか？",
+        "confirm_checkout_detached": "コミット {hash} を detached HEAD でチェックアウトします (作業ツリーが切り替わります)。よろしいですか？",
+        "checkout_cancelled": "チェックアウトをキャンセルしました",
+        "prune_label": "--prune (リモートで削除された追跡ブランチも削除)",
+        "pull_mode": "取り込み方法",
+        "pull_opt_ff": "fast-forwardのみ (--ff-only)",
+        "pull_opt_merge": "マージ (--no-rebase)",
+        "pull_opt_rebase": "リベース (--rebase)",
+        "pull_mode_ff": "fast-forwardのみ",
+        "pull_mode_merge": "マージ",
+        "pull_mode_rebase": "リベース",
+        "confirm_pull": "リモートの変更を pull します ({mode})。作業ツリーが変わります。よろしいですか？",
+        "force_label": "--force-with-lease (リモート履歴を書き換える)",
+        "what_branch": "ブランチ {name}",
+        "what_current_branch": "現在のブランチ",
+        "confirm_push": "{what} を push します。よろしいですか？",
+        "confirm_push_force": "{what} を --force-with-lease で push します。リモートの履歴が書き換わります。よろしいですか？",
+        "push_cancelled": "push をキャンセルしました",
+        "prompt_push_remote": "ブランチ {branch} には upstream が設定されていません。\npush 先のリモートを入力してください ({remotes})。\n{branch} として push し、upstream に設定します。",
+        "confirm_set_upstream": "ブランチ {branch} には upstream が設定されていません。{remote}/{branch} として push し、upstream に設定しますか？",
+        "fetch_after_add": "追加後に fetch する",
+        "name_url_required": "名前と URL を入力してください",
+        "remote_to_remove": "削除するリモート",
+        "confirm_remove_remote": "リモート {name} を削除します。\nこのリモートのリモート追跡ブランチ ({name}/…) と設定も消えます (リモート側は変わりません)。よろしいですか？",
+        "op_in_progress_finish": "マージまたはリベースの途中です。先に完了してください",
+        "merge_in_progress_resolve": "マージの途中です。先に競合を解決してコミットしてください",
+        "confirm_rebase": "ブランチ {branch} を コミット {hash} の上にリベースします。{branch} のコミットは作り直され、履歴が書き換わります (競合したときは自動で元に戻します)。よろしいですか？",
+        "rebase_error": "リベースできませんでした: {error}",
+        "target_detached_head": "現在の HEAD (detached)",
+        "confirm_cherry_pick": "コミット {hash} を {target} にチェリーピックします。新しいコミットが作られます (競合したときは自動で元に戻します)。よろしいですか？",
+        "cherry_pick_error": "チェリーピックできませんでした: {error}",
+        "reset_mode": "リセット方式",
+        "reset_opt_mixed": "mixed（インデックスを対象に合わせる）",
+        "reset_opt_soft": "soft（HEADだけを対象へ移動）",
+        "reset_opt_hard": "hard（作業ツリーも対象に合わせる）",
+        "reset_submit": "リセット",
+        "confirm_reset_mixed": "HEADをコミット {hash} へ mixed リセットします。\nインデックスを対象に合わせます。よろしいですか？",
+        "confirm_reset_soft": "HEADをコミット {hash} へ soft リセットします。\nインデックスと作業ツリーの変更を残します。よろしいですか？",
+        "confirm_reset_hard": "HEADをコミット {hash} へ hard リセットします。\nインデックスと作業ツリーの変更も破棄します。よろしいですか？",
+        "reset_error": "リセットできませんでした: {error}",
+        "ri_up": "上へ (先に適用)",
+        "ri_down": "下へ (後で適用)",
+        "ri_note": "ブランチ <b>{branch}</b> を <code>{hash}</code> の上にリベースします。上から順に適用されます (上が古いコミット)。<br>squash / fixup は直前のコミットにまとめます。reword を選ぶとメッセージを編集できます (reword したコミットにまとめた場合は、ここで書いたメッセージが使われます)。",
+        "ri_first_squash": "先頭のコミットは squash / fixup にできません (まとめ先のコミットが必要です)",
+        "ri_reword_required": "reword するコミットのメッセージを入力してください",
+        "run_rebase": "リベース実行",
+        "ri_part_reword": "メッセージ変更 {n}",
+        "ri_part_squash": "squash {n}",
+        "ri_part_fixup": "fixup {n}",
+        "ri_part_drop": "削除 {n}",
+        "confirm_rebase_i": "ブランチ {branch} の {count} 件のコミットを、コミット {hash} の上に対話的リベースします{note}。\nコミットは作り直され、履歴が書き換わります (競合などで止まったときは自動で元に戻します)。よろしいですか？",
+        "rebase_i_error": "対話的リベースできませんでした: {error}",
+        "confirm_merge": "コミット {hash} を {into} にマージします{noff} (作業ツリーが変わります)。よろしいですか？",
+        "merge_error": "マージできませんでした: {error}",
+        "wip_disabled": "作業ツリーの変更の表示は無効です",
+        "no_worktree": "ワークツリーがありません",
+        "not_untracked": "未追跡ファイルではありません",
+        "git_diff_failed": "git diff に失敗しました",
+        "git_command_failed": "git コマンドが失敗しました",
+        "branch_not_found": "ブランチが見つかりません",
+        "commit_not_found": "コミットが見つかりません",
+        "dir_not_found": "ディレクトリが見つかりません",
+        "not_a_file": "ファイルではありません",
+        "amend_unavailable": "amend できる状態ではありません (コミットがない、またはマージ・リベース中です)",
+        "op_in_progress": "マージ・リベース・チェリーピックの途中です。先に完了するか中止してください",
+        "merge_or_rebase_in_progress": "マージまたはリベースの途中です。先に完了するか中止してください",
+        "detached_rebase": "ブランチをチェックアウトしていません (detached HEAD ではリベースできません)",
+        "branch_name_invalid": "ブランチ名が不正です",
+        "tag_name_invalid": "タグ名が不正です",
+        "branch_name_unusable": "{name} はブランチ名として使えません",
+        "tag_name_unusable": "{name} はタグ名として使えません",
+        "no_remotes": "リモートが登録されていません",
+        "remote_unregistered": "リモート {remote} は登録されていません",
+        "stash_not_found": "stash が見つかりません (一覧を開き直してください)",
+        "stash_no_worktree": "ワークツリーのないリポジトリでは stash を適用できません",
+        "stash_dropped": "{sel} を削除しました (戻すときは git stash store {hash})",
+        "stash_conflict": "{sel} の適用で競合しました。作業ツリーに競合が残っています (WIP で確認できます)",
+        "stash_conflict_pop": "{sel} の適用で競合しました。作業ツリーに競合が残っています (WIP で確認できます)。stash は残してあります",
+        "stash_apply_failed": "stash の適用に失敗しました",
+        "stash_applied": "{sel} を適用しました",
+        "stash_popped": "{sel} を適用して削除しました",
+        "stash_commit_msg": "git_graph: チェックアウト前の退避 {time}",
+        "stash_note": " (それまでの変更は {stash} に退避しました。戻すときは git stash pop)",
+        "path_outside_repo": "リポジトリ外のパスは削除できません: {path}",
+        "dir_no_autodelete": "ディレクトリは自動削除できません: {path}",
+        "on_conflict_invalid": "on_conflict が不正です",
+        "checkout_failed": "チェックアウトに失敗しました",
+        "checkout_still_blocked": "変更を stash に退避しましたが、まだチェックアウトできません:",
+        "branch_created_checkout": "ブランチ {name} を作成してチェックアウトしました",
+        "branch_created": "ブランチ {name} を作成しました",
+        "tag_created_annotated": "注釈付きタグ {name} を作成しました",
+        "tag_created": "タグ {name} を作成しました",
+        "ref_delete_only": "削除できるのはローカルブランチまたはタグだけです",
+        "ref_not_exist": "{name} は存在しません",
+        "branch_delete_failed": "ブランチを削除できません",
+        "branch_deleted": "ブランチ {name} を削除しました",
+        "tag_deleted": "タグ {name} を削除しました",
+        "checkout_branch_done": "ブランチ {branch} をチェックアウトしました",
+        "checkout_detached_done": "{hash} をチェックアウトしました (detached HEAD)",
+        "reset_mode_invalid": "リセット方式が不正です",
+        "reset_blocked": "マージ、リベース、またはチェリーピックの途中はリセットできません",
+        "reset_noop": "HEAD は既に {hash} です (変更なし)",
+        "reset_done": "HEAD を {hash} へ {mode} リセットしました",
+        "amend_no_commit": "amend するコミットがありません",
+        "amend_blocked": "マージまたはリベース中は amend できません",
+        "amend_would_empty": "直前のコミットのファイルをすべて外すと、コミットが空になります (コミットごと取り消すなら git reset HEAD^)",
+        "files_unchanged": "変更のないファイルが含まれています (更新してやり直してください): {files}",
+        "merging_need_all": "マージ中は、ステージ済み・競合のファイルをすべて含めてコミットする必要があります",
+        "wip_committed": "{hash} をコミットしました ({n} 件)",
+        "wip_amended": "{hash} を amend しました ({n} 件)",
+        "wip_amended_dropped": "{hash} を amend しました ({n} 件)、{dropped} 件をコミットから外しました",
+        "wip_amended_msg_only": "{hash} を amend しました (メッセージのみ)",
+        "merge_no_worktree": "ワークツリーのないリポジトリではマージできません",
+        "merge_in_progress": "マージの途中です。先に競合を解決してコミットするか、git merge --abort してください",
+        "merge_no_commits": "最初のコミットがないためマージできません",
+        "merge_failed": "マージに失敗しました",
+        "merge_conflict": "{target} のマージで競合しました。WIP の競合ファイルを解決してコミットしてください",
+        "merge_uptodate": "{hash} は既にマージ済みです (変更なし)",
+        "merge_done": "{hash} をマージしました",
+        "rebase_no_worktree": "ワークツリーのないリポジトリではリベースできません",
+        "rebase_conflict": "{target} の上へのリベースで競合したため中止し、元に戻しました。競合を解決したい場合はコマンドラインで {cmd} を実行してください",
+        "rebase_failed": "リベースに失敗しました",
+        "rebase_noop": "{branch} は既に {hash} の上にあります (変更なし)",
+        "rebase_done": "{branch} を {hash} の上にリベースしました",
+        "cherry_no_worktree": "ワークツリーのないリポジトリではチェリーピックできません",
+        "cherry_no_commits": "最初のコミットがないためチェリーピックできません",
+        "cherry_merge_commit": "マージコミットはチェリーピックできません (どちらの親側の変更を取るか決められないため)",
+        "cherry_empty": "{hash} の変更は既に HEAD に含まれているため、チェリーピックするものがありません",
+        "cherry_conflict": "{hash} のチェリーピックで競合したため中止し、元に戻しました。競合を解決したい場合はコマンドラインで git cherry-pick を実行してください",
+        "cherry_failed": "チェリーピックに失敗しました",
+        "cherry_noop": "{hash} は変更なしでした",
+        "cherry_done": "{hash} をチェリーピックしました",
+        "ri_merges": "マージコミットを含む範囲は対話的リベースできません (マージが失われてしまうため)",
+        "ri_nothing": "{base} の上に載せ直すコミットがありません",
+        "ri_too_many": "対象のコミットが {n} 件あり多すぎます (上限 {max} 件)。もっと HEAD に近いコミットを選んでください",
+        "todo_invalid": "todo が不正です",
+        "ri_reword_msg_required": "{hash} の新しいコミットメッセージを入力してください",
+        "ri_changed": "対象のコミットが変わっています。画面を更新して、もう一度やり直してください",
+        "ri_aborted": "対話的リベースの途中で競合またはエラーが起きたため、中止して元に戻しました。\n{tail}\n競合を解決したい場合はコマンドラインで git rebase -i を実行してください",
+        "ri_noop": "{branch} は変更なしでした",
+        "ri_done": "{branch} を {base} の上に対話的リベースしました",
+        "ri_done_parts": "{branch} を {base} の上に対話的リベースしました ({parts})",
+        "net_timeout": "git {cmd} が {sec} 秒でタイムアウトしました。認証の入力待ちなどで止まった可能性があります (認証情報を credential helper や ssh-agent に登録してください)",
+        "fetch_failed": "fetch に失敗しました",
+        "pull_failed": "pull に失敗しました",
+        "push_failed": "push に失敗しました",
+        "fetch_partial": "\n(失敗しなかったリモートの分は取得済みです: {n} 件のリモート追跡ブランチ/タグが更新されました)",
+        "fetch_done": "fetch しました ({n} 件のリモート追跡ブランチ/タグが更新されました)",
+        "fetch_done_none": "fetch しました (更新はありません)",
+        "remote_name_invalid": "リモート名が不正です",
+        "remote_name_unusable": "{name} はリモート名として使えません",
+        "url_invalid": "URL が不正です",
+        "url_unusable": "この URL は使えません",
+        "remote_exists": "リモート {name} は既に登録されています",
+        "remote_added": "リモート {name} を追加しました",
+        "remote_added_fetched": "リモート {name} を追加しました (fetch しました)",
+        "remote_added_fetch_failed": "リモート {name} を追加しましたが、fetch に失敗しました: {error}",
+        "remote_not_found": "リモートが見つかりません",
+        "remote_removed": "リモート {name} を削除しました (リモート追跡ブランチも削除しました)",
+        "pull_no_worktree": "ワークツリーのないリポジトリでは pull できません",
+        "pull_mode_invalid": "pull の方法が不正です",
+        "pull_no_commits": "最初のコミットがないため pull できません",
+        "detached_pull": "ブランチをチェックアウトしていません (detached HEAD では pull できません)",
+        "no_upstream": "ブランチ {branch} には upstream が設定されていません (git branch -u <リモート>/<ブランチ> で設定するか、push で設定してください)",
+        "pull_diverged_hint": "\n(履歴が分岐しています。方法を「マージ」か「リベース」にして再度 pull してください)",
+        "pull_uptodate": "{branch} は既に最新です (変更なし)",
+        "pull_done": "{branch} に {up} の変更を取り込みました",
+        "push_no_commits": "最初のコミットがないため push できません",
+        "local_branch_missing": "ローカルブランチ {branch} が見つかりません",
+        "detached_push": "ブランチをチェックアウトしていません (detached HEAD では push できません)",
+        "push_remote_unregistered": "push 先のリモート {remote} (pushRemote / remote.pushDefault) は登録されていません",
+        "pushed": "{branch} を push しました{where}",
+        "pushed_nothing": "{branch} を push しました{where} (更新するものはありませんでした)",
+        "dot_missing": "dot (Graphviz) が見つかりません。インストールしてください。",
+        "write_disabled": "書き込み操作は無効です (--read-only 指定、またはローカル以外で待ち受け中)",
+        "content_type_json": "Content-Type は application/json にしてください",
+        "origin_mismatch": "Origin が一致しません",
+        "host_invalid": "Host が不正です",
+        "large_file_head": "大きいため先頭のみ表示しています。",
+        "no_history": "履歴がありません",
+        "commit_required": "コミットが指定されていません",
+        "cli_help_revs": "対象の rev (省略時は --all)",
+        "cli_help_repo": "リポジトリのパス (既定: カレント)",
+        "cli_help_host": "待ち受けアドレス (既定: 127.0.0.1)",
+        "cli_help_open": "起動後にブラウザで開く",
+        "cli_help_no_remotes": "リモートブランチを除外",
+        "cli_help_no_tags": "タグを除外",
+        "cli_help_full_layout": "ノードが多くても dot のレイアウト最適化を省略しない (遅いが交差が少し減る)",
+        "cli_help_no_count": "省略数 (+N) の計算をしない",
+        "cli_help_rankdir": "BT(下から上) / TB / LR (既定: BT)",
+        "cli_help_dot": "dot を標準出力に出して終了",
+        "cli_help_no_wip": "未コミットの変更 (WIP ノード) を表示しない",
+        "cli_help_read_only": "書き込み操作 (ブランチ/タグ作成・チェックアウト) を無効にする",
+        "cli_help_allow_write": "127.0.0.1 以外で待ち受けるときも書き込み操作を許可する (既定では無効)",
+        "cli_help_lan": "--host 0.0.0.0 --allow-write の省略形 (他の端末からも操作可。認証はないので信頼できるネットワークで)",
+        "cli_help_lang": "UI の言語 (既定: 環境変数 LANGUAGE / LC_ALL / LC_MESSAGES / LANG から決定)",
+        "cli_help_check_i18n": "翻訳の漏れを検査して終了",
+        "cli_not_a_repo": "{repo} は git リポジトリではありません",
+        "cli_state_on": "有効",
+        "cli_state_off": "無効",
+        "cli_serving": "serving {url}  (Ctrl+C で終了)  書き込み操作: {state}",
+        "cli_listening": "  待ち受け: 0.0.0.0:{port} (他の端末からは http://<このPCのIP>:{port}/ )",
+        "cli_lan_warning": "  注意: 認証はありません。同じネットワークの誰でもブランチ作成・コミット・push などができます",
+        "rebase_no_commits": "最初のコミットがないためリベースできません",
     },
     "en": {
         "reload": "↻ Reload",
@@ -184,21 +475,17 @@ TRANSLATIONS = {
         "graph_help_2": "Click a commit to select it for an operation. Hover over a log row to show buttons for comparison A / B.",
         "push_current": "Push current branch",
         "current_branch": "Current branch",
-        "target": "Target",
         "reload_busy": "Reloading…",
         "target_label": "Target",
         "commit_label": "Commit",
-        "changes_count": "changes",
         "back_history": "← Back to history",
         "all_log_to_root": "Full log to the first commit",
-        "loaded_count": "loaded",
         "file_view": "File view",
         "select_file": "Select a file",
         "select_file_hint": "Click a file in the list on the left.",
         "file_log": "File log",
         "file_content": "File content",
         "binary_file": "Cannot display the contents of a binary file.",
-        "change_history": " change history",
         "loading": "Loading…",
         "error": "Error: ",
         "root": "Root",
@@ -229,31 +516,355 @@ TRANSLATIONS = {
         "files_changed": "files changed",
         "large_file_diff": "Only the beginning is shown because the diff is large",
         "no_diff": "No differences",
+        "create": "Create",
+        "add": "Add",
+        "delete": "Delete",
+        "name": "Name",
+        "none": "(none)",
+        "n_items": "{n} items",
+        "n_changes": "{n} changes",
+        "n_loaded": "{skip} / {total} loaded",
+        "n_commits": "{n} commits",
+        "label_conflict": "Conflict",
+        "no_changed_files": "No changed files",
+        "no_commits_yet": "(no commits)",
+        "copy_hash_title": "Copy the hash (40 characters)",
+        "set_compare": "Set as comparison {slot}",
+        "delete_ref": "Delete {kind} {name}",
+        "push_branch": "Push {branch}",
+        "swap_ab": "Swap A ⇄ B",
+        "compare_heading": "Compare {from} → {to}",
+        "file_log_heading": "File log: {path}",
+        "file_history_title": "{path} change history",
+        "elapsed_hint": "{sec}s elapsed (large repositories may take longer)",
+        "graph_build_failed": "Failed to build the graph",
+        "reload_page": "Reload",
+        "notifications": "Notifications",
+        "close_notification": "Close notification",
+        "resize_panel": "Resize the right pane",
+        "reload_title": "Refresh the graph to the latest state",
+        "tip_files": "Open the file list of the target commit in a new tab",
+        "tip_merge": "Merge A into the current HEAD",
+        "tip_rebase": "Rebase the current branch onto A",
+        "tip_irebase": "Rebase the current branch onto A while reordering, squashing, rewording or dropping commits (git rebase -i)",
+        "tip_cherry": "Cherry-pick A onto the current HEAD",
+        "tip_reset": "Reset the current HEAD to the target commit",
+        "tip_stash_list": "List of stashes (git stash list)",
+        "tip_reflog": "reflog (HEAD; switch branches on screen)",
+        "tip_stash_apply": "Apply this stash to the working tree (keep the stash)",
+        "tip_stash_pop": "Apply this stash to the working tree and delete it",
+        "tip_stash_drop": "Delete this stash",
+        "tip_remote_add": "Add a remote (git remote add)",
+        "tip_remote_remove": "Remove a remote (git remote remove). Its remote-tracking branches are removed too",
+        "tip_no_ff": "Create a merge commit even when a fast-forward is possible",
+        "pull_needs_worktree": "pull requires a writable working tree",
+        "co_hint_stash": "stash: stashes all edited changes and untracked files (restore them later with git stash pop).",
+        "co_hint_discard": "Discard: discards only the files listed above. Edits revert to the HEAD state and untracked files are deleted (this cannot be undone).",
+        "co_modified": "Files being edited",
+        "co_untracked": "Untracked files with the same name in the checkout target",
+        "running": "Running…",
+        "running_remote": "Running… (communicating with the remote may take a while)",
+        "running_fetch": "Running… (fetch may take a while)",
+        "graph_updating": "Updating the graph…",
+        "graph_update_failed": "Failed to update the graph: {error}",
+        "current_branch_failed": "Could not get the current branch: {error}",
+        "deleting": "Deleting…",
+        "stash_busy": "Processing the stash…",
+        "rebasing": "Rebasing…",
+        "cherry_picking": "Cherry-picking…",
+        "resetting": "Resetting…",
+        "merging": "Merging…",
+        "loading_rebase_commits": "Loading the target commits…",
+        "stash_list_title": "Stash list",
+        "stash_list_help": "git stash list (newest first). Click an entry to view its contents (diff from HEAD). Select it as the target to apply / pop / drop it from the Actions menu",
+        "reflog_help": "git reflog (newest first). Click an entry to view that commit",
+        "op_apply": "apply",
+        "op_pop": "apply and drop",
+        "op_drop": "drop",
+        "stash_op_failed": "Could not {op} the stash: {error}",
+        "stash_confirm_apply": "Apply the changes of {sel} to the working tree (the stash is kept). On conflicts, the conflicts remain in the working tree. Continue?",
+        "stash_confirm_pop": "Apply the changes of {sel} to the working tree and delete the stash if that succeeds. On conflicts, the conflicts and the stash both remain. Continue?",
+        "stash_confirm_drop": "Delete {sel}. Continue? (Right after deleting, you can restore it with git stash store {hash})",
+        "confirm_delete_branch": "Delete branch {name}. Continue?",
+        "confirm_delete_tag": "Delete tag {name}. Continue?",
+        "confirm_force_delete": "Branch {name} is not merged. Force-deleting it may make unmerged commits unreachable from any branch. Delete it?",
+        "force_delete_cancelled": "Force delete cancelled",
+        "delete_failed": "Could not delete: {error}",
+        "branch_name": "Branch name",
+        "checkout_after_create": "Check out after creating",
+        "branch_name_required": "Enter a branch name",
+        "tag_name": "Tag name",
+        "message_optional": "Message (optional)",
+        "tag_name_required": "Enter a tag name",
+        "switch_to": "Switch to",
+        "checkout_detached_option": "Check out the commit as a detached HEAD",
+        "checkout_new_branch_option": "Create a new branch and check it out",
+        "new_branch_name": "New branch name",
+        "new_branch_placeholder": "Only when creating a new branch",
+        "new_branch_name_required": "Enter a new branch name",
+        "confirm_create_checkout": "Create branch {name} and check it out (the working tree will change). Continue?",
+        "confirm_checkout_branch": "Check out branch {branch} (the working tree will change). Continue?",
+        "confirm_checkout_detached": "Check out commit {hash} as a detached HEAD (the working tree will change). Continue?",
+        "checkout_cancelled": "Checkout cancelled",
+        "prune_label": "--prune (also delete tracking branches that were deleted on the remote)",
+        "pull_mode": "How to integrate",
+        "pull_opt_ff": "Fast-forward only (--ff-only)",
+        "pull_opt_merge": "Merge (--no-rebase)",
+        "pull_opt_rebase": "Rebase (--rebase)",
+        "pull_mode_ff": "fast-forward only",
+        "pull_mode_merge": "merge",
+        "pull_mode_rebase": "rebase",
+        "confirm_pull": "Pull changes from the remote ({mode}). The working tree will change. Continue?",
+        "force_label": "--force-with-lease (rewrites the remote history)",
+        "what_branch": "branch {name}",
+        "what_current_branch": "the current branch",
+        "confirm_push": "Push {what}. Continue?",
+        "confirm_push_force": "Push {what} with --force-with-lease. The remote history will be rewritten. Continue?",
+        "push_cancelled": "Push cancelled",
+        "prompt_push_remote": "Branch {branch} has no upstream configured.\nEnter the remote to push to ({remotes}).\nIt will be pushed as {branch} and set as the upstream.",
+        "confirm_set_upstream": "Branch {branch} has no upstream configured. Push it as {remote}/{branch} and set it as the upstream?",
+        "fetch_after_add": "Fetch after adding",
+        "name_url_required": "Enter a name and a URL",
+        "remote_to_remove": "Remote to remove",
+        "confirm_remove_remote": "Remove remote {name}.\nIts remote-tracking branches ({name}/…) and configuration are removed too (the remote itself is unchanged). Continue?",
+        "op_in_progress_finish": "A merge or rebase is in progress. Finish it first",
+        "merge_in_progress_resolve": "A merge is in progress. Resolve the conflicts and commit first",
+        "confirm_rebase": "Rebase branch {branch} onto commit {hash}. The commits of {branch} are recreated and the history is rewritten (it is rolled back automatically on conflicts). Continue?",
+        "rebase_error": "Could not rebase: {error}",
+        "target_detached_head": "the current HEAD (detached)",
+        "confirm_cherry_pick": "Cherry-pick commit {hash} onto {target}. A new commit will be created (it is rolled back automatically on conflicts). Continue?",
+        "cherry_pick_error": "Could not cherry-pick: {error}",
+        "reset_mode": "Reset mode",
+        "reset_opt_mixed": "mixed (reset the index to the target)",
+        "reset_opt_soft": "soft (move only HEAD to the target)",
+        "reset_opt_hard": "hard (also reset the working tree to the target)",
+        "reset_submit": "Reset",
+        "confirm_reset_mixed": "Reset HEAD to commit {hash} (mixed).\nThe index will be reset to the target. Continue?",
+        "confirm_reset_soft": "Reset HEAD to commit {hash} (soft).\nChanges in the index and the working tree are kept. Continue?",
+        "confirm_reset_hard": "Reset HEAD to commit {hash} (hard).\nChanges in the index and the working tree are discarded as well. Continue?",
+        "reset_error": "Could not reset: {error}",
+        "ri_up": "Move up (applied earlier)",
+        "ri_down": "Move down (applied later)",
+        "ri_note": "Rebase branch <b>{branch}</b> onto <code>{hash}</code>. Commits are applied from top to bottom (the top is the oldest commit).<br>squash / fixup fold a commit into the previous one. Choose reword to edit the message (if commits are folded into a reworded commit, the message written here is used).",
+        "ri_first_squash": "The first commit cannot be squash / fixup (there must be a commit to fold into)",
+        "ri_reword_required": "Enter a message for the commit to reword",
+        "run_rebase": "Run rebase",
+        "ri_part_reword": "reword {n}",
+        "ri_part_squash": "squash {n}",
+        "ri_part_fixup": "fixup {n}",
+        "ri_part_drop": "drop {n}",
+        "confirm_rebase_i": "Interactively rebase {count} commits of branch {branch} onto commit {hash}{note}.\nThe commits are recreated and the history is rewritten (it is rolled back automatically if it stops on a conflict or error). Continue?",
+        "rebase_i_error": "Could not rebase interactively: {error}",
+        "confirm_merge": "Merge commit {hash} into {into}{noff} (the working tree will change). Continue?",
+        "merge_error": "Could not merge: {error}",
+        "wip_disabled": "Working tree change display is disabled",
+        "no_worktree": "There is no working tree",
+        "not_untracked": "Not an untracked file",
+        "git_diff_failed": "git diff failed",
+        "git_command_failed": "The git command failed",
+        "branch_not_found": "Branch not found",
+        "commit_not_found": "Commit not found",
+        "dir_not_found": "Directory not found",
+        "not_a_file": "Not a file",
+        "amend_unavailable": "Cannot amend (there are no commits, or a merge/rebase is in progress)",
+        "op_in_progress": "A merge, rebase or cherry-pick is in progress. Finish or abort it first",
+        "merge_or_rebase_in_progress": "A merge or rebase is in progress. Finish or abort it first",
+        "detached_rebase": "No branch is checked out (cannot rebase on a detached HEAD)",
+        "branch_name_invalid": "Invalid branch name",
+        "tag_name_invalid": "Invalid tag name",
+        "branch_name_unusable": "{name} cannot be used as a branch name",
+        "tag_name_unusable": "{name} cannot be used as a tag name",
+        "no_remotes": "No remotes are registered",
+        "remote_unregistered": "Remote {remote} is not registered",
+        "stash_not_found": "Stash not found (reopen the list)",
+        "stash_no_worktree": "Cannot apply a stash in a repository without a working tree",
+        "stash_dropped": "Dropped {sel} (to restore it: git stash store {hash})",
+        "stash_conflict": "Applying {sel} caused conflicts. The conflicts remain in the working tree (see WIP)",
+        "stash_conflict_pop": "Applying {sel} caused conflicts. The conflicts remain in the working tree (see WIP). The stash was kept",
+        "stash_apply_failed": "Failed to apply the stash",
+        "stash_applied": "Applied {sel}",
+        "stash_popped": "Applied and dropped {sel}",
+        "stash_commit_msg": "git_graph: stash before checkout {time}",
+        "stash_note": " (Your earlier changes were stashed as {stash}. Restore them with git stash pop)",
+        "path_outside_repo": "Cannot delete a path outside the repository: {path}",
+        "dir_no_autodelete": "Cannot automatically delete a directory: {path}",
+        "on_conflict_invalid": "Invalid on_conflict value",
+        "checkout_failed": "Checkout failed",
+        "checkout_still_blocked": "The changes were stashed, but checkout is still not possible:",
+        "branch_created_checkout": "Created and checked out branch {name}",
+        "branch_created": "Created branch {name}",
+        "tag_created_annotated": "Created annotated tag {name}",
+        "tag_created": "Created tag {name}",
+        "ref_delete_only": "Only local branches and tags can be deleted",
+        "ref_not_exist": "{name} does not exist",
+        "branch_delete_failed": "Cannot delete the branch",
+        "branch_deleted": "Deleted branch {name}",
+        "tag_deleted": "Deleted tag {name}",
+        "checkout_branch_done": "Checked out branch {branch}",
+        "checkout_detached_done": "Checked out {hash} (detached HEAD)",
+        "reset_mode_invalid": "Invalid reset mode",
+        "reset_blocked": "Cannot reset while a merge, rebase or cherry-pick is in progress",
+        "reset_noop": "HEAD is already at {hash} (no change)",
+        "reset_done": "Reset HEAD to {hash} ({mode})",
+        "amend_no_commit": "There is no commit to amend",
+        "amend_blocked": "Cannot amend during a merge or rebase",
+        "amend_would_empty": "Removing every file of the previous commit would leave it empty (to undo the commit itself, use git reset HEAD^)",
+        "files_unchanged": "Some files have no changes (reload and try again): {files}",
+        "merging_need_all": "During a merge, all staged and conflicted files must be included in the commit",
+        "wip_committed": "Committed {hash} ({n} files)",
+        "wip_amended": "Amended {hash} ({n} files)",
+        "wip_amended_dropped": "Amended {hash} ({n} files), removed {dropped} files from the commit",
+        "wip_amended_msg_only": "Amended {hash} (message only)",
+        "merge_no_worktree": "Cannot merge in a repository without a working tree",
+        "merge_in_progress": "A merge is in progress. Resolve the conflicts and commit, or run git merge --abort",
+        "merge_no_commits": "Cannot merge because there are no commits yet",
+        "merge_failed": "Merge failed",
+        "merge_conflict": "Merging {target} caused conflicts. Resolve the conflicted files in WIP and commit",
+        "merge_uptodate": "{hash} is already merged (no change)",
+        "merge_done": "Merged {hash}",
+        "rebase_no_worktree": "Cannot rebase in a repository without a working tree",
+        "rebase_conflict": "Rebasing onto {target} hit conflicts, so it was aborted and restored. To resolve the conflicts, run {cmd} on the command line",
+        "rebase_failed": "Rebase failed",
+        "rebase_noop": "{branch} is already on top of {hash} (no change)",
+        "rebase_done": "Rebased {branch} onto {hash}",
+        "cherry_no_worktree": "Cannot cherry-pick in a repository without a working tree",
+        "cherry_no_commits": "Cannot cherry-pick because there are no commits yet",
+        "cherry_merge_commit": "Cannot cherry-pick a merge commit (it is unclear which parent's changes to take)",
+        "cherry_empty": "The changes of {hash} are already in HEAD, so there is nothing to cherry-pick",
+        "cherry_conflict": "Cherry-picking {hash} hit conflicts, so it was aborted and restored. To resolve the conflicts, run git cherry-pick on the command line",
+        "cherry_failed": "Cherry-pick failed",
+        "cherry_noop": "{hash} made no changes",
+        "cherry_done": "Cherry-picked {hash}",
+        "ri_merges": "A range containing merge commits cannot be rebased interactively (the merges would be lost)",
+        "ri_nothing": "There are no commits to replay onto {base}",
+        "ri_too_many": "There are {n} target commits, which is too many (limit {max}). Choose a commit closer to HEAD",
+        "todo_invalid": "Invalid todo",
+        "ri_reword_msg_required": "Enter a new commit message for {hash}",
+        "ri_changed": "The target commits have changed. Reload and try again",
+        "ri_aborted": "The interactive rebase hit a conflict or error, so it was aborted and restored.\n{tail}\nTo resolve the conflicts, run git rebase -i on the command line",
+        "ri_noop": "{branch} was left unchanged",
+        "ri_done": "Interactively rebased {branch} onto {base}",
+        "ri_done_parts": "Interactively rebased {branch} onto {base} ({parts})",
+        "net_timeout": "git {cmd} timed out after {sec} seconds. It may be waiting for authentication input (register your credentials with a credential helper or ssh-agent)",
+        "fetch_failed": "fetch failed",
+        "pull_failed": "pull failed",
+        "push_failed": "push failed",
+        "fetch_partial": "\n(Remotes that did not fail were fetched: {n} remote-tracking branches/tags were updated)",
+        "fetch_done": "Fetched ({n} remote-tracking branches/tags updated)",
+        "fetch_done_none": "Fetched (nothing was updated)",
+        "remote_name_invalid": "Invalid remote name",
+        "remote_name_unusable": "{name} cannot be used as a remote name",
+        "url_invalid": "Invalid URL",
+        "url_unusable": "This URL cannot be used",
+        "remote_exists": "Remote {name} is already registered",
+        "remote_added": "Added remote {name}",
+        "remote_added_fetched": "Added remote {name} (fetched)",
+        "remote_added_fetch_failed": "Added remote {name}, but fetch failed: {error}",
+        "remote_not_found": "Remote not found",
+        "remote_removed": "Removed remote {name} (its remote-tracking branches were removed too)",
+        "pull_no_worktree": "Cannot pull in a repository without a working tree",
+        "pull_mode_invalid": "Invalid pull mode",
+        "pull_no_commits": "Cannot pull because there are no commits yet",
+        "detached_pull": "No branch is checked out (cannot pull on a detached HEAD)",
+        "no_upstream": "Branch {branch} has no upstream configured (set it with git branch -u <remote>/<branch>, or set it when pushing)",
+        "pull_diverged_hint": "\n(The history has diverged. Choose merge or rebase and pull again)",
+        "pull_uptodate": "{branch} is already up to date (no change)",
+        "pull_done": "Pulled the changes of {up} into {branch}",
+        "push_no_commits": "Cannot push because there are no commits yet",
+        "local_branch_missing": "Local branch {branch} not found",
+        "detached_push": "No branch is checked out (cannot push on a detached HEAD)",
+        "push_remote_unregistered": "The push remote {remote} (pushRemote / remote.pushDefault) is not registered",
+        "pushed": "Pushed {branch}{where}",
+        "pushed_nothing": "Pushed {branch}{where} (nothing to update)",
+        "dot_missing": "dot (Graphviz) was not found. Please install it.",
+        "write_disabled": "Write operations are disabled (--read-only was given, or the server is listening on a non-local address)",
+        "content_type_json": "Content-Type must be application/json",
+        "origin_mismatch": "Origin does not match",
+        "host_invalid": "Invalid Host",
+        "large_file_head": "Only the beginning is shown because the file is large.",
+        "no_history": "No history.",
+        "commit_required": "No commit was specified",
+        "cli_help_revs": "revisions to show (default: --all)",
+        "cli_help_repo": "path to the repository (default: current directory)",
+        "cli_help_host": "address to listen on (default: 127.0.0.1)",
+        "cli_help_open": "open the browser after starting",
+        "cli_help_no_remotes": "exclude remote branches",
+        "cli_help_no_tags": "exclude tags",
+        "cli_help_full_layout": "do not skip dot layout optimization even with many nodes (slower, slightly fewer crossings)",
+        "cli_help_no_count": "do not compute the omitted-commit counts (+N)",
+        "cli_help_rankdir": "BT (bottom to top) / TB / LR (default: BT)",
+        "cli_help_dot": "print the dot source to stdout and exit",
+        "cli_help_no_wip": "do not show uncommitted changes (the WIP node)",
+        "cli_help_read_only": "disable write operations (creating branches/tags, checkout, etc.)",
+        "cli_help_allow_write": "allow write operations when listening on a non-local address (disabled by default)",
+        "cli_help_lan": "shorthand for --host 0.0.0.0 --allow-write (other devices can operate it; there is no authentication, so use a trusted network)",
+        "cli_help_lang": "UI language (default: derived from LANGUAGE / LC_ALL / LC_MESSAGES / LANG)",
+        "cli_help_check_i18n": "check the translations for omissions and exit",
+        "cli_not_a_repo": "{repo} is not a git repository",
+        "cli_state_on": "enabled",
+        "cli_state_off": "disabled",
+        "cli_serving": "serving {url}  (Ctrl+C to quit)  write operations: {state}",
+        "cli_listening": "  Listening on 0.0.0.0:{port} (from other devices: http://<this PC's IP>:{port}/ )",
+        "cli_lan_warning": "  Warning: there is no authentication. Anyone on the same network can create branches, commit, push, etc.",
+        "rebase_no_commits": "Cannot rebase because there are no commits yet",
     },
 }
+DEFAULT_LANG = "ja"  # 環境変数から言語を決められないときの言語
 
 
-def detect_language():
-    """起動時の環境変数から UI 言語を決める。サーバー起動後は変更しない。"""
-    value = (
-        os.environ.get("LANGUAGE")
-        or os.environ.get("LC_ALL")
-        or os.environ.get("LC_MESSAGES")
-        or os.environ.get("LANG")
-        or "ja"
-    )
-    lang = value.lower().split(":", 1)[0].split("_", 1)[0].split("-", 1)[0]
-    if value.upper() in {"C", "POSIX"}:
-        lang = "en"
-    return lang if lang in TRANSLATIONS else "ja"
+def detect_language(explicit=None):
+    """UI の言語を決める。優先順位は --lang > LANGUAGE > LC_ALL > LC_MESSAGES > LANG (gettext と同じ)。
+    C / POSIX (C.UTF-8 を含む) と、翻訳のない言語は en。どれも設定されていなければ DEFAULT_LANG。
+    サーバー起動後は変更しない。"""
+    if explicit:
+        return explicit
+    for key in ("LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"):
+        value = os.environ.get(key, "")
+        if not value:
+            continue
+        for candidate in value.split(":"):  # LANGUAGE は "ja:en" のように優先順で並ぶ
+            name = re.split(r"[._@-]", candidate.strip(), maxsplit=1)[0].lower()
+            if name in ("c", "posix"):
+                return "en"
+            if name in TRANSLATIONS:
+                return name
+        return "en"
+    return DEFAULT_LANG
+
+
+def tr(key, **params):
+    """現在の言語の文言を返す。{name} は params[name] に置き換える。
+    str.format ではないので、文言に stash@{0} のような波括弧があってもよい。
+    現在の言語に無いキーは英語で代用し、英語にも無ければ KeyError。"""
+    table = TRANSLATIONS.get(UI_LANG, {})
+    text = table[key] if key in table else TRANSLATIONS["en"][key]
+    return re.sub(r"\{(\w+)\}", lambda m: str(params[m.group(1)]) if m.group(1) in params else m.group(0), text)
+
+
+class UserError(ValueError):
+    """画面にそのまま出すエラー。キーとパラメータから翻訳済みの文言を作る (HTTP では 400 になる)。"""
+
+    def __init__(self, key, **params):
+        super().__init__(tr(key, **params))
+        self.key, self.params = key, params
+
+
+def fill_template(text):
+    """HTML テンプレート中の二重波括弧で囲んだキーを、現在の言語の文言 (HTML エスケープ済み) に置き換える。"""
+    return re.sub(r"\{\{(\w+)\}\}", lambda m: html.escape(tr(m.group(1)), quote=True), text)
+
+
+def client_translations():
+    """ページの JS に埋め込む辞書。英語を土台に現在の言語で上書きし、コマンドライン用 (cli_) は含めない。"""
+    merged = {**TRANSLATIONS["en"], **TRANSLATIONS.get(UI_LANG, {})}
+    data = {k: v for k, v in merged.items() if not k.startswith("cli_")}
+    return json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
 
 
 def render_main_page():
-    """起動時に決めた言語の翻訳データを HTML に埋め込む。"""
-    translations = json.dumps(TRANSLATIONS[UI_LANG], ensure_ascii=False)
-    return (HTML_TEMPLATE
+    return (fill_template(HTML_TEMPLATE)
             .replace('<html lang="ja">', f'<html lang="{UI_LANG}">')
-            .replace("/*__I18N__*/", f"const I18N = {translations};"))
+            .replace("/*__I18N__*/", "const I18N = " + client_translations() + ";"))
 
 
 def git(*args, literal=False):
@@ -442,7 +1053,7 @@ function updatePushActions() {
   const branches = currentBranchLoaded && actionHash
     ? localBranches(actionHash).filter(branch => branch !== currentBranch) : [];
   document.getElementById("selectedPushActions").innerHTML = branches.map(branch =>
-    '<button class="abtn" data-cact="push" data-branch="' + esc(branch) + '">' + esc(branch) + " を push</button>"
+    '<button class="abtn" data-cact="push" data-branch="' + esc(branch) + '">' + esc(t("push_branch", {branch: branch})) + "</button>"
   ).join("");
 }
 function updateCurrentBranch() {
@@ -616,14 +1227,14 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 </head>
 <body>
 <div id="graphWrap">
-<div id="graphStatus" role="region" aria-label="通知"></div>
+<div id="graphStatus" role="region" aria-label="{{notifications}}"></div>
 <div id="compareControls">
   <div id="compareToolbar">
-    <button id="reload" class="sbtn" disabled title="グラフを最新の状態に更新" data-i18n="reload">↻ 更新</button>
+    <button id="reload" class="sbtn" disabled title="{{reload_title}}">{{reload}}</button>
     <span class="cmp-hash" id="actionTarget"></span>
     <span class="cmp-hash" id="cmpA"></span><span class="cmp-hash" id="cmpB"></span>
-    <button class="sbtn" id="cmpActToggle" aria-expanded="false" aria-controls="cmpActions" data-i18n="actions">操作 ▾</button>
-    <button class="sbtn" id="clearCmpBtn" data-i18n="clear">クリア</button>
+    <button class="sbtn" id="cmpActToggle" aria-expanded="false" aria-controls="cmpActions">{{actions}}</button>
+    <button class="sbtn" id="clearCmpBtn">{{clear}}</button>
   </div>
   <div class="actions" id="cmpActions" hidden>
     <div class="menu-section" id="remoteActions">
@@ -636,32 +1247,32 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     </div>
     <hr class="menu-separator" id="selectionMenuSeparator" hidden>
     <div class="menu-section" id="aActions" hidden>
-      <button class="abtn" id="filesBtn" title="対象コミットのファイル一覧を別タブで開く" data-i18n="files">ファイル表示</button>
-      <button class="abtn" id="mergeBtn" title="Aを現在のHEADにマージ" data-i18n="merge">マージ</button>
-      <button class="abtn" id="rebaseBtn" title="現在のブランチをAの上にリベース" data-i18n="rebase">リベース</button>
-      <button class="abtn" id="irebaseBtn" title="現在のブランチをAの上に、コミットの並べ替え・squash・メッセージ変更・削除をしながらリベース (git rebase -i)" data-i18n="interactive_rebase">対話的リベース</button>
-      <button class="abtn" id="cherryBtn" title="Aを現在のHEADにチェリーピック" data-i18n="cherry_pick">チェリーピック</button>
-      <button class="abtn danger" id="resetBtn" title="現在のHEADを対象コミットへリセット" data-i18n="reset">対象へリセット</button>
-      <button class="abtn" data-cact="branch" data-i18n="create_branch">ブランチ作成</button>
-      <button class="abtn" data-cact="tag" data-i18n="create_tag">タグ作成</button>
-      <button class="abtn" data-cact="checkout" data-i18n="checkout">チェックアウト</button>
+      <button class="abtn" id="filesBtn" title="{{tip_files}}">{{files}}</button>
+      <button class="abtn" id="mergeBtn" title="{{tip_merge}}">{{merge}}</button>
+      <button class="abtn" id="rebaseBtn" title="{{tip_rebase}}">{{rebase}}</button>
+      <button class="abtn" id="irebaseBtn" title="{{tip_irebase}}">{{interactive_rebase}}</button>
+      <button class="abtn" id="cherryBtn" title="{{tip_cherry}}">{{cherry_pick}}</button>
+      <button class="abtn danger" id="resetBtn" title="{{tip_reset}}">{{reset}}</button>
+      <button class="abtn" data-cact="branch">{{create_branch}}</button>
+      <button class="abtn" data-cact="tag">{{create_tag}}</button>
+      <button class="abtn" data-cact="checkout">{{checkout}}</button>
     </div>
     <hr class="menu-separator" id="compareMenuSeparator" hidden>
-    <button class="abtn" id="compareBtn" hidden data-i18n="compare_ab">AB比較</button>
+    <button class="abtn" id="compareBtn" hidden>{{compare_ab}}</button>
     <hr class="menu-separator">
     <div class="menu-section" id="viewActions">
-      <button class="abtn" id="stashListBtn" title="stash の一覧 (git stash list)" data-i18n="stash_list">stash一覧</button>
-      <button class="abtn" id="reflogBtn" title="reflog (HEAD。ブランチは画面で切り替え)" data-i18n="reflog">reflog</button>
+      <button class="abtn" id="stashListBtn" title="{{tip_stash_list}}">{{stash_list}}</button>
+      <button class="abtn" id="reflogBtn" title="{{tip_reflog}}">{{reflog}}</button>
     </div>
     <div class="menu-section" id="stashActions" hidden>
-      <button class="abtn" id="stashApplyBtn" title="この stash の変更を作業ツリーに適用 (stash は残す)" data-i18n="stash_apply">stash 適用 (apply)</button>
-      <button class="abtn" id="stashPopBtn" title="この stash の変更を作業ツリーに適用して、stash を削除" data-i18n="stash_pop">stash 適用して削除 (pop)</button>
-      <button class="abtn danger" id="stashDropBtn" title="この stash を削除" data-i18n="stash_drop">stash 削除 (drop)</button>
+      <button class="abtn" id="stashApplyBtn" title="{{tip_stash_apply}}">{{stash_apply}}</button>
+      <button class="abtn" id="stashPopBtn" title="{{tip_stash_pop}}">{{stash_pop}}</button>
+      <button class="abtn danger" id="stashDropBtn" title="{{tip_stash_drop}}">{{stash_drop}}</button>
     </div>
     <hr class="menu-separator">
     <div class="menu-section" id="remoteConfigActions">
-      <button class="abtn" data-cact="remote-add" title="リモートを追加 (git remote add)" data-i18n="remote_add">remote 追加</button>
-      <button class="abtn danger" data-cact="remote-remove" title="リモートを削除 (git remote remove)。リモート追跡ブランチも消えます" data-i18n="remote_remove">remote 削除</button>
+      <button class="abtn" data-cact="remote-add" title="{{tip_remote_add}}">{{remote_add}}</button>
+      <button class="abtn danger" data-cact="remote-remove" title="{{tip_remote_remove}}">{{remote_remove}}</button>
     </div>
   </div>
 </div>
@@ -671,42 +1282,41 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     <div class="action-fields" id="actionFields"></div>
     <div class="amsg ng" id="actionError" role="alert"></div>
     <div class="dialog-buttons">
-      <button type="button" class="abtn" data-dialog-cancel data-i18n="cancel">キャンセル</button>
+      <button type="button" class="abtn" data-dialog-cancel>{{cancel}}</button>
       <button type="submit" class="abtn" id="actionSubmit"></button>
     </div>
   </form>
 </div>
 <div id="coModal" hidden><div class="comodal" role="dialog" aria-modal="true">
-  <div><b data-i18n="checkout_blocked">チェックアウトできません</b> — <span data-i18n="checkout_blocked_hint">次のファイルが邪魔をしています。</span></div>
+  <div><b>{{checkout_blocked}}</b> — <span>{{checkout_blocked_hint}}</span></div>
   <div id="coFiles"></div>
-  <div class="hint">stash: 編集中の変更と管理外ファイルをすべて stash に退避します (あとで git stash pop で戻せます)。<br>
-  削除: 上のファイルだけを破棄します。編集内容は HEAD の状態に戻り、管理外ファイルは削除されます (元に戻せません)。</div>
-  <div class="arow"><button class="abtn" data-co="stash" data-i18n="stash_checkout">stash してチェックアウト</button>
-    <button class="abtn danger" data-co="discard" data-i18n="discard_checkout">削除してチェックアウト</button>
-    <button class="abtn" data-co="cancel">キャンセル</button></div>
+  <div class="hint">{{co_hint_stash}}<br>
+  {{co_hint_discard}}</div>
+  <div class="arow"><button class="abtn" data-co="stash">{{stash_checkout}}</button>
+    <button class="abtn danger" data-co="discard">{{discard_checkout}}</button>
+    <button class="abtn" data-co="cancel">{{cancel}}</button></div>
 </div></div>
 <div id="graph">
   <div id="loading">
     <div class="spin"></div>
-    <div data-i18n="loading_graph">コミットグラフを作成中…</div>
-    <div class="hint" id="lsub" data-i18n="loading_graph_hint">リポジトリが大きいと時間がかかります</div>
+    <div>{{loading_graph}}</div>
+    <div class="hint" id="lsub">{{loading_graph_hint}}</div>
   </div>
 </div>
 </div>
-<div id="splitter" role="separator" aria-orientation="vertical" aria-label="右ペインの幅を調整" tabindex="0"></div>
+<div id="splitter" role="separator" aria-orientation="vertical" aria-label="{{resize_panel}}" tabindex="0"></div>
 <div id="panel">
-  <div id="listView"><p class="hint" data-i18n="graph_help_1">ノードをクリックすると、そのコミットから最初（ルート）までのログを表示します。エッジをクリックすると省略された区間のログを表示します。</p>
-    <p class="hint" data-i18n="graph_help_2">コミットをクリックすると操作対象になります。ログ行の上にマウスを置くと、比較 A / B に設定するボタンが表示されます。</p></div>
+  <div id="listView"><p class="hint">{{graph_help_1}}</p>
+    <p class="hint">{{graph_help_2}}</p></div>
   <div id="detailView"></div>
 </div>
 <script>
 /*__I18N__*/
-function t(key, values = {}) {
-  let text = I18N[key] || key;
-  Object.entries(values).forEach(([name, value]) => { text = text.replaceAll("{" + name + "}", value); });
+function t(key, values = {}) {  // {name} を values[name] に置き換える (値の中の $ は特別扱いしない)
+  let text = key in I18N ? I18N[key] : key;
+  Object.entries(values).forEach(([name, value]) => { text = text.replaceAll("{" + name + "}", () => String(value)); });
   return text;
 }
-document.querySelectorAll("[data-i18n]").forEach(el => { el.textContent = t(el.dataset.i18n); });
 
 let DATA = {nodes: {}, edges: {}};
 const COLORS = {branch: "#b7e4a7", current: "#b7e4a7", remote: "#a7c8f0", tag: "#ffe9a0", head: "#f4a7a7"};
@@ -752,7 +1362,7 @@ function chips(h) {
   return n.refs.map(r => {
     const current = r.kind === "current" || (r.kind === "branch" && r.name === currentBranch);
     return '<span class="chip" style="background:' + COLORS[r.kind] + '"' +
-      (current ? ' title="カレントブランチ"' : "") + '>' + (current ? "★ " : "") + esc(r.name) + "</span>";
+      (current ? ' title="' + esc(t("current_branch")) + '"' : "") + '>' + (current ? "★ " : "") + esc(r.name) + "</span>";
   }).join("");
 }
 function detailChips(h) {
@@ -762,16 +1372,16 @@ function detailChips(h) {
     const current = r.kind === "current" || (r.kind === "branch" && r.name === currentBranch);
     const deletable = DATA.writable && (r.kind === "branch" || r.kind === "current" || r.kind === "tag");
     const refKind = r.kind === "current" ? "branch" : r.kind;
+    const delText = esc(t("delete_ref", {kind: refKind, name: r.name}));
     return '<span class="chip" style="background:' + COLORS[r.kind] + '"' +
-      (current ? ' title="カレントブランチ"' : "") + '>' + (current ? "★ " : "") + esc(r.name) +
+      (current ? ' title="' + esc(t("current_branch")) + '"' : "") + '>' + (current ? "★ " : "") + esc(r.name) +
       (deletable ? '<button class="abtn ref-delete" data-act="delete-ref" data-kind="' + refKind +
-        '" data-name="' + esc(r.name) + '" title="' + refKind + ' ' + esc(r.name) + ' を削除" aria-label="' +
-        refKind + ' ' + esc(r.name) + ' を削除">×</button>' : "") + "</span>";
+        '" data-name="' + esc(r.name) + '" title="' + delText + '" aria-label="' + delText + '">×</button>' : "") + "</span>";
   }).join("");
 }
 /*__COPY_JS__*/
 function copyLink(h) {  // フルハッシュをコピーするリンク
-  return '<a class="copy" data-copy="' + h + '" title="ハッシュ (40桁) をコピー">📋</a>';
+  return '<a class="copy" data-copy="' + h + '" title="' + esc(t("copy_hash_title")) + '">📋</a>';
 }
 function api(path, params) {
   return fetch(path + "?" + new URLSearchParams(params)).then(r =>
@@ -796,8 +1406,8 @@ function saveUiState() {
 }
 function rowHtml(c) {  // c = [hash, short, author, date, subject]
   return '<tr class="clickable" data-h="' + c[0] + '"><td class="h">' + esc(c[1]) + copyLink(c[0]) +
-    '<div class="cmp-pick"><button type="button" class="sbtn" data-cmp="A" title="比較 A に設定">A</button>' +
-    '<button type="button" class="sbtn" data-cmp="B" title="比較 B に設定">B</button></div></td><td>' +
+    '<div class="cmp-pick"><button type="button" class="sbtn" data-cmp="A" title="' + esc(t("set_compare", {slot: "A"})) + '">A</button>' +
+    '<button type="button" class="sbtn" data-cmp="B" title="' + esc(t("set_compare", {slot: "B"})) + '">B</button></div></td><td>' +
     '<span class="rc">' + chips(c[0]) + "</span>" + esc(c[4]) + '<div class="meta">' + esc(c[2]) + " / " + esc(c[3]) + "</div></td></tr>";
 }
 
@@ -809,7 +1419,7 @@ function showLog(titleHtml, rev, topHtml, fromHistory, restoreScroll, src) {
   if (observer) { observer.disconnect(); observer = null; }
   curRow = null;
   listView.innerHTML = "<h2>" + titleHtml + "</h2>" + topHtml +
-    '<div class="meta" id="count">読み込み中…</div>' +
+    '<div class="meta" id="count">' + esc(t("loading")) + '</div>' +
     '<table class="log"><tbody id="rows"></tbody></table><div id="sentinel" class="hint"></div>';
   showView("list");
   listView.dataset.src = src ? src.path : "";
@@ -832,11 +1442,11 @@ function showLog(titleHtml, rev, topHtml, fromHistory, restoreScroll, src) {
       }
       done = !r.has_more;
       if (r.total !== undefined) total = r.total;
-      count.textContent = total === null ? skip + " 件"
-        : (done ? "" + total + " " + t("changes_count") : skip + " / " + total + " " + t("loaded_count"));
-      sentinel.textContent = done ? (skip === 0 ? "(なし)" : "") : "読み込み中…";
+      count.textContent = total === null ? t("n_items", {n: skip})
+        : (done ? t("n_changes", {n: total}) : t("n_loaded", {skip: skip, total: total}));
+      sentinel.textContent = done ? (skip === 0 ? t("none") : "") : t("loading");
     } catch (e) {
-      sentinel.textContent = "エラー: " + e.message; done = true;
+      sentinel.textContent = t("error") + e.message; done = true;
     } finally {
       loading = false;
     }
@@ -868,7 +1478,7 @@ function badge(f) {  // 変更の種類 (M/A/D/R...) のバッジ。WIP の一�
 }
 function filesHtml(ctx, files, offset, withCheck) {
   offset = offset || 0;
-  if (!files.length) return '<p class="hint">変更されたファイルはありません</p>';
+  if (!files.length) return '<p class="hint">' + esc(t("no_changed_files")) + '</p>';
   let add = 0, del = 0, max = 0;
   files.forEach(f => { add += f.added || 0; del += f.deleted || 0; max = Math.max(max, (f.added || 0) + (f.deleted || 0)); });
   const scale = max > 40 ? 40 / max : 1;
@@ -878,7 +1488,7 @@ function filesHtml(ctx, files, offset, withCheck) {
     const name = f.old_path ? f.old_path + " => " + f.path : f.path;
     return '<tr class="frow" data-k="' + (offset + k) + '">' + (withCheck ? wipCheckCell(f) : "") + '<td class="fp">' + badge(f) + (f.tag ? '<span class="hint">[' + esc(f.tag) + '] </span>' : "") + '<a href="' + esc(diffUrl(ctx, f)) +
       '">' + esc(name) + '</a></td><td class="fc">' +
-      (f.label ? esc(f.label) : f.added === null ? "Bin" : a + d) + '</td><td class="fb"><span class="plus">' + "+".repeat(pa) +
+      (f.label ? esc(t(f.label)) : f.added === null ? "Bin" : a + d) + '</td><td class="fb"><span class="plus">' + "+".repeat(pa) +
       '</span><span class="minus">' + "-".repeat(pd) + "</span></td></tr>";
   }).join("");
   return '<div class="meta">' + files.length + (files.some(f => f.added !== undefined)
@@ -894,29 +1504,28 @@ function localBranches(h) {
 }
 function showStashList(fromHistory) {
   loadStashes();
-  showLog("stash 一覧", "", '<div class="meta">git stash list (新しい順)。クリックで内容 (HEAD との差分) を表示します。' +
-          "操作対象に選ぶと、「操作」メニューで apply / pop / drop できます</div>",
+  showLog(t("stash_list_title"), "", '<div class="meta">' + esc(t("stash_list_help")) + '</div>',
           !!fromHistory, 0, {path: "/api/stash-list", params: {}});
 }
 function doStash(op) {
   if (!actionHash) return;
   const h = actionHash, sel = stashByHash[h];
   if (!sel) return;
-  const label = {apply: "適用", pop: "適用して削除", drop: "削除"}[op];
+  const label = {apply: t("op_apply"), pop: t("op_pop"), drop: t("op_drop")}[op];
   const msg = {
-    apply: sel + " の変更を作業ツリーに適用します (stash は残ります)。競合したときは作業ツリーに競合が残ります。よろしいですか？",
-    pop: sel + " の変更を作業ツリーに適用し、成功したら stash を削除します。競合したときは作業ツリーに競合が残り、stash も残ります。よろしいですか？",
-    drop: sel + " を削除します。よろしいですか？ (削除直後なら git stash store " + h.slice(0, 7) + " で戻せます)",
+    apply: t("stash_confirm_apply", {sel: sel}),
+    pop: t("stash_confirm_pop", {sel: sel}),
+    drop: t("stash_confirm_drop", {sel: sel, hash: h.slice(0, 7)}),
   }[op];
   if (!confirm(msg)) return;
   document.querySelectorAll("#stashActions button").forEach(b => { b.disabled = true; });
-  setGraphStatus("stash を処理中…");
+  setGraphStatus(t("stash_busy"), "progress");
   const reload = () => Promise.all([loadStashes(), refreshGraph().catch(() => {})]).then(() => {
     if (curView === "list" && listView.dataset.src === "/api/stash-list") showStashList(true);
   });
   post("/api/stash", {hash: h, op: op})
     .then(r => { clearCmp(); return reload().then(() => setGraphStatus(r.message)); })
-    .catch(e => reload().then(() => setGraphStatus("stash の" + label + "ができませんでした: " + e.message)))
+    .catch(e => reload().then(() => setGraphStatus(t("stash_op_failed", {op: label, error: e.message}), "error")))
     .finally(() => updateCmpClasses());
 }
 function showReflog(branch) {  // branch が空なら HEAD の reflog
@@ -928,8 +1537,8 @@ function showReflog(branch) {  // branch が空なら HEAD の reflog
   if (branch && !names.includes(branch)) names.push(branch);
   const opts = ['<option value=""' + (branch ? "" : " selected") + ">HEAD</option>"].concat(names.map(n =>
     '<option value="' + esc(n) + '"' + (n === branch ? " selected" : "") + ">" + esc(n) + "</option>")).join("");
-  const top = '<div class="meta"><label>対象: <select class="reflog-ref">' + opts + "</select></label></div>" +
-    '<div class="meta">git reflog (新しい順)。クリックでそのコミットの内容を表示します</div>';
+  const top = '<div class="meta"><label>' + esc(t("target_label")) + ': <select class="reflog-ref">' + opts + "</select></label></div>" +
+    '<div class="meta">' + esc(t("reflog_help")) + '</div>';
   showLog("reflog " + esc(branch || "HEAD"), "", top, false, 0,
           {path: "/api/reflog", params: branch ? {branch: branch} : {}});
 }
@@ -940,11 +1549,11 @@ listView.addEventListener("change", ev => {
 function showDetail(h, fromHistory) {
   if (!fromHistory) pushScreen({screen: "detail", hash: h});
   const back = '<button class="back-btn">' + t("back_history") + '</button>';
-  detailView.innerHTML = back + '<p class="hint">読み込み中…</p>';
+  detailView.innerHTML = back + '<p class="hint">' + esc(t("loading")) + '</p>';
   showView("detail");
   api("/api/commit", {hash: h}).then(c => {
     curCtx = {hash: c.hash}; curFiles = c.files; curDetailHash = c.hash;
-    const parents = c.parents.map(p => esc(p.slice(0, 7))).join(", ") || "(なし)";
+    const parents = c.parents.map(p => esc(p.slice(0, 7))).join(", ") || t("none");
     detailView.innerHTML = back + "<h2>" + t("commit_label") + " " + esc(c.hash.slice(0, 7)) + "</h2>" +
       '<span id="dChips">' + detailChips(c.hash) + "</span>" +
       '<div class="meta">' + esc(c.hash) + copyLink(c.hash) + "</div>" +
@@ -954,7 +1563,7 @@ function showDetail(h, fromHistory) {
       "<pre>" + esc(c.message) + "</pre>" + filesHtml(curCtx, c.files) +
       '<div class="meta"><code>git show ' + esc(c.hash.slice(0, 7)) + "</code></div>";
   }).catch(e => {
-    detailView.innerHTML = back + '<p class="hint">エラー: ' + esc(e.message) + "</p>";
+    detailView.innerHTML = back + '<p class="hint">' + esc(t("error")) + esc(e.message) + "</p>";
   });
 }
 
@@ -966,19 +1575,19 @@ function doAction(btn) {  // ブランチ/タグのチップの × (削除)
   if (btn.dataset.act !== "delete-ref") return;
   const kind = btn.dataset.kind, name = btn.dataset.name;
   const url = "/api/ref-delete", body = {kind: kind, name: name};
-  if (!confirm((kind === "branch" ? "ブランチ" : "タグ") + " " + name + " を削除します。よろしいですか？")) return;
-  btn.disabled = true; setGraphStatus("削除中…");
+  if (!confirm(t(kind === "branch" ? "confirm_delete_branch" : "confirm_delete_tag", {name: name}))) return;
+  btn.disabled = true; setGraphStatus(t("deleting"), "progress");
   post(url, body)
     .then(r => {
       if (!r.needs_force) return r;
-      if (!confirm("ブランチ " + name + " は未マージです。強制削除すると未マージのコミットがブランチから到達できなくなる可能性があります。削除しますか？")) return null;
+      if (!confirm(t("confirm_force_delete", {name: name}))) return null;
       return post(url, Object.assign({}, body, {force: true}));
     })
     .then(r => {
-      if (r === null) { setGraphStatus("強制削除をキャンセルしました"); return; }
+      if (r === null) { setGraphStatus(t("force_delete_cancelled")); return; }
       return refreshGraph().catch(() => {}).then(() => setGraphStatus(r.message));
     })
-    .catch(e => setGraphStatus("削除できませんでした: " + e.message, "error", true))
+    .catch(e => setGraphStatus(t("delete_failed", {error: e.message}), "error", true))
     .finally(() => { btn.disabled = false; });
 }
 
@@ -1000,7 +1609,7 @@ function setGraphStatus(message, type, clearProgress) {
     });
     return;
   }
-  const progress = message.includes("中…") || message.startsWith("実行中…");
+  const progress = type === "progress";  // 進捗かどうかは表示文言ではなく type で明示する (文言は翻訳で変わる)
   const toast = [...container.children].find(el =>
     el.dataset.message === message && el.classList.contains(progress ? "progress" : (type || "info")));
   if (toast) {
@@ -1008,11 +1617,11 @@ function setGraphStatus(message, type, clearProgress) {
     graphStatusTimers.delete(toast);
   }
   const item = toast || document.createElement("div");
-  item.className = "graph-toast " + (type || "info") + (progress ? " progress" : "");
+  item.className = "graph-toast " + (type || "info");
   item.setAttribute("role", "status");
   item.setAttribute("aria-live", "polite");
   item.dataset.message = message;
-  item.innerHTML = '<span class="graph-toast-message"></span><button type="button" class="graph-toast-close" aria-label="通知を閉じる" title="通知を閉じる">×</button>';
+  item.innerHTML = '<span class="graph-toast-message"></span><button type="button" class="graph-toast-close" aria-label="' + esc(t("close_notification")) + '" title="' + esc(t("close_notification")) + '">×</button>';
   item.querySelector(".graph-toast-message").textContent = message;
   item.querySelector(".graph-toast-close").addEventListener("click", () => {
     clearTimeout(graphStatusTimers.get(item));
@@ -1030,7 +1639,7 @@ function setGraphStatus(message, type, clearProgress) {
 
 // 操作のあと、グラフを(表示したまま)作り直して新しいブランチ/タグ/HEAD を反映する
 function refreshGraph() {
-  setGraphStatus("グラフ更新中…");
+  setGraphStatus(t("graph_updating"), "progress");
   return fetch("/api/graph")
     .then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); }))
     .then(r => {
@@ -1050,14 +1659,14 @@ function refreshGraph() {
       }
       updateCmpClasses();
       loadStashes();
-      updateCurrentBranch().catch(e => setGraphStatus("カレントブランチを取得できませんでした: " + e.message, "error"));
+      updateCurrentBranch().catch(e => setGraphStatus(t("current_branch_failed", {error: e.message}), "error"));
       keys.forEach(h => listView.querySelectorAll('tr[data-h="' + h + '"] .rc').forEach(el => { el.innerHTML = chips(h); }));
       const c = detailView.querySelector("#dChips");
       if (c && curDetailHash) c.innerHTML = detailChips(curDetailHash);
       setGraphStatus("");
     })
     .catch(e => {
-      setGraphStatus("グラフ更新に失敗しました: " + e.message, "error");
+      setGraphStatus(t("graph_update_failed", {error: e.message}), "error");
       throw e;
     });
 }
@@ -1070,16 +1679,16 @@ function commitLine(label, c) {
 }
 function showCompare(a, b, fromHistory) {  // a, b はコミットのハッシュ
   if (!fromHistory) pushScreen({screen: "compare", a: a, b: b});
-  const btns = '<button class="back-btn">' + t("back_history") + '</button><button class="sbtn">A ⇄ B 入れ替え</button>';
-  detailView.innerHTML = btns + '<p class="hint">読み込み中…</p>';
+  const btns = '<button class="back-btn">' + t("back_history") + '</button><button class="sbtn">' + esc(t("swap_ab")) + '</button>';
+  detailView.innerHTML = btns + '<p class="hint">' + esc(t("loading")) + '</p>';
   showView("detail");
   api("/api/compare", {from: a, to: b}).then(r => {
     curCtx = {from: r.from.hash, to: r.to.hash}; curFiles = r.files;
-    detailView.innerHTML = btns + "<h2>比較 " + esc(r.from.hash.slice(0, 7)) + " → " + esc(r.to.hash.slice(0, 7)) + "</h2>" +
+    detailView.innerHTML = btns + "<h2>" + esc(t("compare_heading", {from: r.from.hash.slice(0, 7), to: r.to.hash.slice(0, 7)})) + "</h2>" +
       commitLine("A", r.from) + commitLine("B", r.to) + filesHtml(curCtx, r.files) +
       '<div class="meta"><code>git diff ' + esc(r.from.hash.slice(0, 7)) + " " + esc(r.to.hash.slice(0, 7)) + "</code></div>";
   }).catch(e => {
-    detailView.innerHTML = btns + '<p class="hint">エラー: ' + esc(e.message) + "</p>";
+    detailView.innerHTML = btns + '<p class="hint">' + esc(t("error")) + esc(e.message) + "</p>";
   });
 }
 function updateCmpClasses() {  // 選択中のコミットを、グラフのノードとログの行の両方でハイライトする
@@ -1124,7 +1733,7 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
   document.querySelectorAll("#remoteConfigActions button").forEach(el => { el.disabled = !canWrite; });
   updatePushActions();
   document.querySelector('#remoteActions [data-cact="pull"]').title =
-    DATA.merge ? "" : "pull には書き込み可能なワークツリーが必要です";
+    DATA.merge ? "" : t("pull_needs_worktree");
   document.getElementById("stashApplyBtn").disabled = !DATA.merge;  // apply / pop はワークツリーが必要
   document.getElementById("stashPopBtn").disabled = !DATA.merge;
   document.getElementById("stashDropBtn").disabled = !canWrite;
@@ -1144,8 +1753,8 @@ function askCheckoutConflict(r) {  // チェックアウトを止めているフ
     const m = document.getElementById("coModal");
     const list = fs => "<ul>" + fs.map(f => "<li>" + esc(f) + "</li>").join("") + "</ul>";
     let html = "";
-    if (r.modified.length) html += "<h3>編集中のファイル</h3>" + list(r.modified);
-    if (r.untracked.length) html += "<h3>チェックアウト先に同名がある管理外ファイル</h3>" + list(r.untracked);
+    if (r.modified.length) html += "<h3>" + esc(t("co_modified")) + "</h3>" + list(r.modified);
+    if (r.untracked.length) html += "<h3>" + esc(t("co_untracked")) + "</h3>" + list(r.untracked);
     document.getElementById("coFiles").innerHTML = html;
     const done = v => { m.hidden = true; m.onclick = null; resolve(v); };
     m.hidden = false;
@@ -1196,37 +1805,37 @@ function openActionDialog(title, fields, submitLabel, opts) {  // opts: {wide, v
     if (first) first.focus();
   });
 }
-function setCmpMsg(text, ok) {
-  setGraphStatus(text, ok ? "success" : "error", !ok);
+function setCmpMsg(text, state) {  // state: true = 成功 / false = 失敗 / "progress" = 実行中
+  setGraphStatus(text, state === "progress" ? "progress" : state ? "success" : "error", state === false);
 }
-function setRemoteMsg(text, ok) {
-  setGraphStatus(text, ok ? "success" : "error");
+function setRemoteMsg(text, state) {
+  setCmpMsg(text, state);
 }
 async function doCmpAction(btn) {  // 選択対象に対するブランチ作成 / タグ作成 / チェックアウト
   if (!actionHash) return;
   const h = actionHash, act = btn.dataset.cact;
   let values, url, body, ask = null;
   if (act === "branch") {
-    values = await openActionDialog("ブランチ作成", '<label>ブランチ名<input type="text" name="name" required autofocus></label>' +
-      '<label class="check"><input type="checkbox" name="checkout"> 作成後にチェックアウト</label>', "作成");
+    values = await openActionDialog(t("create_branch"), '<label>' + esc(t("branch_name")) + '<input type="text" name="name" required autofocus></label>' +
+      '<label class="check"><input type="checkbox" name="checkout"> ' + esc(t("checkout_after_create")) + '</label>', t("create"));
     if (!values) return;
     url = "/api/branch"; body = {hash: h, name: values.name.trim(), checkout: values.checkout};
-    if (!body.name) { setCmpMsg("ブランチ名を入力してください", false); return; }
-    if (body.checkout) ask = "ブランチ " + body.name + " を作成してチェックアウトします (作業ツリーが切り替わります)。よろしいですか？";
+    if (!body.name) { setCmpMsg(t("branch_name_required"), false); return; }
+    if (body.checkout) ask = t("confirm_create_checkout", {name: body.name});
   } else if (act === "tag") {
-    values = await openActionDialog("タグ作成", '<label>タグ名<input type="text" name="name" required autofocus></label>' +
-      '<label>メッセージ (任意)<input type="text" name="message"></label>', "作成");
+    values = await openActionDialog(t("create_tag"), '<label>' + esc(t("tag_name")) + '<input type="text" name="name" required autofocus></label>' +
+      '<label>' + esc(t("message_optional")) + '<input type="text" name="message"></label>', t("create"));
     if (!values) return;
     url = "/api/tag"; body = {hash: h, name: values.name.trim(), message: values.message.trim()};
-    if (!body.name) { setCmpMsg("タグ名を入力してください", false); return; }
+    if (!body.name) { setCmpMsg(t("tag_name_required"), false); return; }
   } else if (act === "checkout") {
     const branches = localBranches(h);
-    values = await openActionDialog("チェックアウト", '<label>切り替え先<select name="branch">' +
+    values = await openActionDialog(t("checkout"), '<label>' + esc(t("switch_to")) + '<select name="branch">' +
       branches.map(branch => '<option value="' + esc(branch) + '">' + esc(branch) + '</option>').join("") +
-      '<option value="">コミットを detached HEAD でチェックアウト</option>' +
-      '<option value="__new_branch__">新しいブランチを作成してチェックアウト</option>' +
+      '<option value="">' + esc(t("checkout_detached_option")) + '</option>' +
+      '<option value="__new_branch__">' + esc(t("checkout_new_branch_option")) + '</option>' +
       '</select></label>' +
-      '<label id="newBranchField" hidden>新しいブランチ名<input type="text" name="newBranch" placeholder="新規作成時のみ入力"></label>', "チェックアウト", {
+      '<label id="newBranchField" hidden>' + esc(t("new_branch_name")) + '<input type="text" name="newBranch" placeholder="' + esc(t("new_branch_placeholder")) + '"></label>', t("checkout"), {
         onOpen: form => {
           const select = form.elements.branch, field = form.querySelector("#newBranchField");
           const update = () => { field.hidden = select.value !== "__new_branch__"; };
@@ -1235,31 +1844,31 @@ async function doCmpAction(btn) {  // 選択対象に対するブランチ作成
           return () => select.removeEventListener("change", update);
         },
         validate: values => values.branch === "__new_branch__" && !values.newBranch.trim() ?
-          "新しいブランチ名を入力してください" : null
+          t("new_branch_name_required") : null
       });
     if (!values) return;
     if (values.branch === "__new_branch__") {
       const name = values.newBranch.trim();
       url = "/api/branch"; body = {hash: h, name: name, checkout: true};
-      ask = "ブランチ " + name + " を作成してチェックアウトします (作業ツリーが切り替わります)。よろしいですか？";
+      ask = t("confirm_create_checkout", {name: name});
     } else if (values.branch) {
       url = "/api/checkout"; body = {branch: values.branch};
-      ask = "ブランチ " + values.branch + " をチェックアウトします (作業ツリーが切り替わります)。よろしいですか？";
+      ask = t("confirm_checkout_branch", {branch: values.branch});
     } else {
       url = "/api/checkout"; body = {hash: h};
-      ask = "コミット " + h.slice(0, 7) + " を detached HEAD でチェックアウトします (作業ツリーが切り替わります)。よろしいですか？";
+      ask = t("confirm_checkout_detached", {hash: h.slice(0, 7)});
     }
   } else return;
   if (ask && !confirm(ask)) return;
-  btn.disabled = true; setCmpMsg("実行中…", true);
+  btn.disabled = true; setCmpMsg(t("running"), "progress");
   const run = extra => post(url, Object.assign({}, body, extra || {}));
   run()
     .then(r => {
       if (!r.blocked) return r;
       setCmpMsg("", true);
       return askCheckoutConflict(r).then(mode => {
-        if (!mode) return {cancelled: true, message: "チェックアウトをキャンセルしました"};
-        setCmpMsg("実行中…", true);
+        if (!mode) return {cancelled: true, message: t("checkout_cancelled")};
+        setCmpMsg(t("running"), "progress");
         return run({on_conflict: mode});
       });
     })
@@ -1275,48 +1884,45 @@ async function doRemoteAction(btn) {  // fetch / pull / push (別ブランチの
   const url = "/api/" + act;
   let body = {}, ask = null;
   if (act === "fetch") {
-    const values = await openActionDialog("fetch", '<label class="check"><input type="checkbox" name="prune"> --prune (リモートで削除された追跡ブランチも削除)</label>', "fetch");
+    const values = await openActionDialog("fetch", '<label class="check"><input type="checkbox" name="prune"> ' + esc(t("prune_label")) + '</label>', "fetch");
     if (!values) return;
     body = {prune: values.prune};
   } else if (act === "pull") {
-    const values = await openActionDialog("pull", '<label>取り込み方法<select name="mode">' +
-      '<option value="ff-only">fast-forwardのみ (--ff-only)</option>' +
-      '<option value="merge">マージ (--no-rebase)</option>' +
-      '<option value="rebase">リベース (--rebase)</option></select></label>', "pull");
+    const values = await openActionDialog("pull", '<label>' + esc(t("pull_mode")) + '<select name="mode">' +
+      '<option value="ff-only">' + esc(t("pull_opt_ff")) + '</option>' +
+      '<option value="merge">' + esc(t("pull_opt_merge")) + '</option>' +
+      '<option value="rebase">' + esc(t("pull_opt_rebase")) + '</option></select></label>', "pull");
     if (!values) return;
     const mode = values.mode;
     body = {mode: mode};
-    ask = "リモートの変更を pull します (" + {"ff-only": "fast-forwardのみ", "merge": "マージ", "rebase": "リベース"}[mode] +
-          ")。作業ツリーが変わります。よろしいですか？";
+    ask = t("confirm_pull", {mode: {"ff-only": t("pull_mode_ff"), "merge": t("pull_mode_merge"), "rebase": t("pull_mode_rebase")}[mode]});
   } else if (act === "push") {
     const target = btn.dataset.branch || null;
     const values = await openActionDialog("push",
-      '<label class="check"><input type="checkbox" name="force"> --force-with-lease (リモート履歴を書き換える)</label>', "push");
+      '<label class="check"><input type="checkbox" name="force"> ' + esc(t("force_label")) + '</label>', "push");
     if (!values) return;
     body = {force: values.force};
     if (target) body.branch = target;
-    const what = target ? "ブランチ " + target : "現在のブランチ";
+    const what = target ? t("what_branch", {name: target}) : t("what_current_branch");
     ask = body.force
-      ? what + " を --force-with-lease で push します。リモートの履歴が書き換わります。よろしいですか？"
-      : what + " を push します。よろしいですか？";
+      ? t("confirm_push_force", {what: what})
+      : t("confirm_push", {what: what});
   } else return;
   if (ask && !confirm(ask)) return;
-  btn.disabled = true; setRemoteMsg("実行中… (リモートとの通信に時間がかかることがあります)", true);
+  btn.disabled = true; setRemoteMsg(t("running_remote"), "progress");
   let p = post(url, body);
   if (act === "push") {
     p = p.then(r => {
       if (!r.needs_upstream) return r;
-      const cancelled = {cancelled: true, message: "push をキャンセルしました"};
+      const cancelled = {cancelled: true, message: t("push_cancelled")};
       let remote = r.remote;
       if (r.remotes && r.remotes.length > 1) {  // リモートが複数: push 先を選ばせる
-        const input = prompt("ブランチ " + r.branch + " には upstream が設定されていません。\npush 先のリモートを入力してください (" +
-                             r.remotes.join(" / ") + ")。\n" + r.branch + " として push し、upstream に設定します。", r.remote);
+        const input = prompt(t("prompt_push_remote", {branch: r.branch, remotes: r.remotes.join(" / ")}), r.remote);
         if (input === null) return cancelled;
         remote = input.trim();
-        if (r.remotes.indexOf(remote) < 0) throw new Error("リモート " + remote + " は登録されていません");
-      } else if (!confirm("ブランチ " + r.branch + " には upstream が設定されていません。" + r.remote + "/" + r.branch +
-                          " として push し、upstream に設定しますか？")) return cancelled;
-      setRemoteMsg("実行中… (リモートとの通信に時間がかかることがあります)", true);
+        if (r.remotes.indexOf(remote) < 0) throw new Error(t("remote_unregistered", {remote: remote}));
+      } else if (!confirm(t("confirm_set_upstream", {branch: r.branch, remote: r.remote}))) return cancelled;
+      setRemoteMsg(t("running_remote"), "progress");
       return post(url, Object.assign({}, body, {set_upstream: true, remote: remote}));
     });
   }
@@ -1333,30 +1939,30 @@ async function doRemoteAction(btn) {  // fetch / pull / push (別ブランチの
 async function doRemoteConfig(btn) {  // remote 追加 / 削除
   let url, body, ask = null;
   if (btn.dataset.cact === "remote-add") {
-    const values = await openActionDialog("remote 追加",
-      '<label>名前<input type="text" name="name" placeholder="origin" required autofocus></label>' +
+    const values = await openActionDialog(t("remote_add"),
+      '<label>' + esc(t("name")) + '<input type="text" name="name" placeholder="origin" required autofocus></label>' +
       '<label>URL<input type="text" name="url" required></label>' +
-      '<label class="check"><input type="checkbox" name="fetch" checked> 追加後に fetch する</label>', "追加");
+      '<label class="check"><input type="checkbox" name="fetch" checked> ' + esc(t("fetch_after_add")) + '</label>', t("add"));
     if (!values) return;
     body = {name: values.name.trim(), url: values.url.trim(), fetch: !!values.fetch};
-    if (!body.name || !body.url) { setRemoteMsg("名前と URL を入力してください", false); return; }
+    if (!body.name || !body.url) { setRemoteMsg(t("name_url_required"), false); return; }
     url = "/api/remote-add";
   } else {
     let list;
     try { list = (await api("/api/remotes", {})).remotes; } catch (e) { setRemoteMsg(e.message, false); return; }
-    if (!list.length) { setRemoteMsg("リモートが登録されていません", false); return; }
-    const values = await openActionDialog("remote 削除",
-      '<label>削除するリモート<select name="name">' + list.map(r =>
+    if (!list.length) { setRemoteMsg(t("no_remotes"), false); return; }
+    const values = await openActionDialog(t("remote_remove"),
+      '<label>' + esc(t("remote_to_remove")) + '<select name="name">' + list.map(r =>
         '<option value="' + esc(r.name) + '">' + esc(r.name) + (r.url ? " — " + esc(r.url) : "") + "</option>").join("") +
-      "</select></label>", "削除");
+      "</select></label>", t("delete"));
     if (!values) return;
     body = {name: values.name};
     url = "/api/remote-remove";
-    ask = "リモート " + body.name + " を削除します。\nこのリモートのリモート追跡ブランチ (" + body.name + "/…) と設定も消えます (リモート側は変わりません)。よろしいですか？";
+    ask = t("confirm_remove_remote", {name: body.name});
   }
   if (ask && !confirm(ask)) return;
   btn.disabled = true;
-  setRemoteMsg(body.fetch ? "実行中… (fetch に時間がかかることがあります)" : "実行中…", true);
+  setRemoteMsg(body.fetch ? t("running_fetch") : t("running"), "progress");
   post(url, body)
     .then(r => refreshGraph().then(() => setRemoteMsg(r.message, r.ok !== false && !r.fetch_failed)))
     .catch(e => setRemoteMsg(e.message, false))
@@ -1374,11 +1980,10 @@ function doRebase() {
   btn.disabled = true;
   fetch("/api/head").then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); }))
     .then(hd => {
-      if (hd.merging) throw new Error("マージまたはリベースの途中です。先に完了してください");
-      if (!hd.branch) throw new Error("ブランチをチェックアウトしていません (detached HEAD ではリベースできません)");
-      if (!confirm("ブランチ " + hd.branch + " を コミット " + h.slice(0, 7) + " の上にリベースします。" +
-                   hd.branch + " のコミットは作り直され、履歴が書き換わります (競合したときは自動で元に戻します)。よろしいですか？")) return null;
-      setGraphStatus("リベース中…");
+      if (hd.merging) throw new Error(t("op_in_progress_finish"));
+      if (!hd.branch) throw new Error(t("detached_rebase"));
+      if (!confirm(t("confirm_rebase", {branch: hd.branch, hash: h.slice(0, 7)}))) return null;
+      setGraphStatus(t("rebasing"), "progress");
       return post("/api/rebase", {hash: h});
     })
     .then(r => {
@@ -1386,7 +1991,7 @@ function doRebase() {
       clearCmp();
       return refreshGraph().catch(() => {}).then(() => setGraphStatus(r.message));
     })
-    .catch(e => { setGraphStatus("リベースできませんでした: " + e.message, "error"); })
+    .catch(e => { setGraphStatus(t("rebase_error", {error: e.message}), "error"); })
     .finally(() => { btn.disabled = false; });
 }
 function doCherryPick() {
@@ -1395,10 +2000,9 @@ function doCherryPick() {
   btn.disabled = true;
   fetch("/api/head").then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); }))
     .then(hd => {
-      if (hd.merging) throw new Error("マージまたはリベースの途中です。先に完了してください");
-      if (!confirm("コミット " + h.slice(0, 7) + " を " + (hd.branch ? "ブランチ " + hd.branch : "現在の HEAD (detached)") +
-                   " にチェリーピックします。新しいコミットが作られます (競合したときは自動で元に戻します)。よろしいですか？")) return null;
-      setGraphStatus("チェリーピック中…");
+      if (hd.merging) throw new Error(t("op_in_progress_finish"));
+      if (!confirm(t("confirm_cherry_pick", {hash: h.slice(0, 7), target: hd.branch ? t("what_branch", {name: hd.branch}) : t("target_detached_head")}))) return null;
+      setGraphStatus(t("cherry_picking"), "progress");
       return post("/api/cherry-pick", {hash: h});
     })
     .then(r => {
@@ -1406,33 +2010,30 @@ function doCherryPick() {
       clearCmp();
       return refreshGraph().catch(() => {}).then(() => setGraphStatus(r.message));
     })
-    .catch(e => { setGraphStatus("チェリーピックできませんでした: " + e.message); })
+    .catch(e => { setGraphStatus(t("cherry_pick_error", {error: e.message}), "error"); })
     .finally(() => { btn.disabled = false; });
 }
 async function doReset() {
   if (!actionHash) return;
   const h = actionHash, btn = document.getElementById("resetBtn");
-  const options = await openActionDialog("対象へリセット",
-    '<label>リセット方式<select name="mode">' +
-    '<option value="mixed" selected>mixed（インデックスを対象に合わせる）</option>' +
-    '<option value="soft">soft（HEADだけを対象へ移動）</option>' +
-    '<option value="hard">hard（作業ツリーも対象に合わせる）</option>' +
-    '</select></label>', "リセット");
+  const options = await openActionDialog(t("reset"),
+    '<label>' + esc(t("reset_mode")) + '<select name="mode">' +
+    '<option value="mixed" selected>' + esc(t("reset_opt_mixed")) + '</option>' +
+    '<option value="soft">' + esc(t("reset_opt_soft")) + '</option>' +
+    '<option value="hard">' + esc(t("reset_opt_hard")) + '</option>' +
+    '</select></label>', t("reset_submit"));
   if (!options) return;
   const mode = options.mode;
-  const description = mode === "hard" ? "インデックスと作業ツリーの変更も破棄" :
-    mode === "soft" ? "インデックスと作業ツリーの変更を残す" : "インデックスを対象に合わせる";
-  if (!confirm("HEADをコミット " + h.slice(0, 7) + " へ " + mode + " リセットします。\n" +
-               description + "します。よろしいですか？")) return;
+  if (!confirm(t({hard: "confirm_reset_hard", soft: "confirm_reset_soft", mixed: "confirm_reset_mixed"}[mode], {hash: h.slice(0, 7)}))) return;
   btn.disabled = true;
-  setGraphStatus("リセット中…");
+  setGraphStatus(t("resetting"), "progress");
   try {
     const r = await post("/api/reset", {hash: h, mode: mode});
     clearCmp();
     await refreshGraph().catch(() => {});
     setGraphStatus(r.message, "success");
   } catch (e) {
-    setGraphStatus("リセットできませんでした: " + e.message, "error");
+    setGraphStatus(t("reset_error", {error: e.message}), "error");
   } finally {
     btn.disabled = false;
   }
@@ -1443,8 +2044,8 @@ async function doRebaseI() {  // 対話的リベース (git rebase -i 相当)
   btn.disabled = true;
   try {
     const hd = await fetch("/api/head").then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); }));
-    if (hd.merging) throw new Error("マージまたはリベースの途中です。先に完了してください");
-    setGraphStatus("対象のコミットを読み込み中…");
+    if (hd.merging) throw new Error(t("op_in_progress_finish"));
+    setGraphStatus(t("loading_rebase_commits"), "progress");
     const info = await fetch("/api/rebase-todo?hash=" + encodeURIComponent(h))
       .then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); }));
     setGraphStatus("");
@@ -1457,26 +2058,23 @@ async function doRebaseI() {  // 対話的リベース (git rebase -i 相当)
         opt("fixup", "fixup") + opt("drop", "drop") + "</select>" +
         "<code>" + esc(c.short) + '</code><span class="ri-subj" title="' + esc(c.subject) + '">' + esc(c.subject) + "</span>" +
         '<span class="ri-author">' + esc(c.author) + " " + esc(c.date) + "</span>" +
-        '<button type="button" data-ri="up" title="上へ (先に適用)">▲</button>' +
-        '<button type="button" data-ri="down" title="下へ (後で適用)">▼</button></div>' +
+        '<button type="button" data-ri="up" title="' + esc(t("ri_up")) + '">▲</button>' +
+        '<button type="button" data-ri="down" title="' + esc(t("ri_down")) + '">▼</button></div>' +
         '<textarea name="msg_' + c.hash + '" rows="3" hidden>' + esc(c.message) + "</textarea></div>";
     }).join("");
-    const fields = '<div class="ri-note">ブランチ <b>' + esc(info.branch) + "</b> を <code>" + esc(h.slice(0, 7)) +
-      "</code> の上にリベースします。上から順に適用されます (上が古いコミット)。<br>" +
-      "squash / fixup は直前のコミットにまとめます。reword を選ぶとメッセージを編集できます " +
-      "(reword したコミットにまとめた場合は、ここで書いたメッセージが使われます)。</div>" +
+    const fields = '<div class="ri-note">' + t("ri_note", {branch: esc(info.branch), hash: esc(h.slice(0, 7))}) + '</div>' +
       '<div class="ri-list">' + rows + "</div>";
     const fieldsEl = document.getElementById("actionFields");
     const validate = values => {
       const acts = Object.keys(values).filter(k => k.startsWith("act_"));
       const kept = acts.filter(k => values[k] !== "drop");
       if (kept.length && ["squash", "fixup"].includes(values[kept[0]]))
-        return "先頭のコミットは squash / fixup にできません (まとめ先のコミットが必要です)";
+        return t("ri_first_squash");
       const bad = acts.find(k => values[k] === "reword" && !(values["msg_" + k.slice(4)] || "").trim());
-      if (bad) return "reword するコミットのメッセージを入力してください";
+      if (bad) return t("ri_reword_required");
       return null;
     };
-    const p = openActionDialog("対話的リベース", fields, "リベース実行", {wide: true, validate: validate});
+    const p = openActionDialog(t("interactive_rebase"), fields, t("run_rebase"), {wide: true, validate: validate});
     fieldsEl.onclick = ev => {  // 並べ替え
       const b = ev.target.closest("[data-ri]");
       if (!b) return;
@@ -1497,37 +2095,34 @@ async function doRebaseI() {  // 対話的リベース (git rebase -i 相当)
     const todo = Object.keys(values).filter(k => k.startsWith("act_"))
       .map(k => ({hash: k.slice(4), action: values[k], message: values["msg_" + k.slice(4)] || ""}));
     const n = a => todo.filter(t => t.action === a).length;
-    const note = [n("reword") && "メッセージ変更 " + n("reword"), n("squash") && "squash " + n("squash"),
-                  n("fixup") && "fixup " + n("fixup"), n("drop") && "削除 " + n("drop")].filter(Boolean).join(" / ");
-    if (!confirm("ブランチ " + info.branch + " の " + todo.length + " 件のコミットを、コミット " + h.slice(0, 7) +
-                 " の上に対話的リベースします" + (note ? " (" + note + ")" : "") + "。\n" +
-                 "コミットは作り直され、履歴が書き換わります (競合などで止まったときは自動で元に戻します)。よろしいですか？")) return;
-    setGraphStatus("リベース中…");
+    const note = [n("reword") && t("ri_part_reword", {n: n("reword")}), n("squash") && t("ri_part_squash", {n: n("squash")}),
+                  n("fixup") && t("ri_part_fixup", {n: n("fixup")}), n("drop") && t("ri_part_drop", {n: n("drop")})].filter(Boolean).join(" / ");
+    if (!confirm(t("confirm_rebase_i", {branch: info.branch, count: todo.length, hash: h.slice(0, 7), note: note ? " (" + note + ")" : ""}))) return;
+    setGraphStatus(t("rebasing"), "progress");
     const r = await post("/api/rebase-i", {hash: h, todo: todo});
     clearCmp();
     await refreshGraph().catch(() => {});
     setGraphStatus(r.message);
   } catch (e) {
-    setGraphStatus("対話的リベースできませんでした: " + e.message);
+    setGraphStatus(t("rebase_i_error", {error: e.message}), "error");
   } finally {
     btn.disabled = false;
   }
 }
 async function doMerge() {
   if (!actionHash) return;
-  const options = await openActionDialog("マージ", '<label class="check" title="fast-forwardできる場合でもマージコミットを作る">' +
-    '<input type="checkbox" name="noFf"> --no-ff</label>', "マージ");
+  const options = await openActionDialog(t("merge"), '<label class="check" title="' + esc(t("tip_no_ff")) + '">' +
+    '<input type="checkbox" name="noFf"> --no-ff</label>', t("merge"));
   if (!options) return;
   const h = actionHash, noFf = options.noFf;
   const btn = document.getElementById("mergeBtn");
   btn.disabled = true;
   fetch("/api/head").then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); }))
     .then(hd => {
-      if (hd.merging) throw new Error("マージの途中です。先に競合を解決してコミットしてください");
-      const into = hd.branch ? "ブランチ " + hd.branch : "detached HEAD";
-      if (!confirm("コミット " + h.slice(0, 7) + " を " + into + " にマージします" + (noFf ? " (--no-ff)" : "") +
-                   " (作業ツリーが変わります)。よろしいですか？")) return null;
-      setGraphStatus("マージ中…");
+      if (hd.merging) throw new Error(t("merge_in_progress_resolve"));
+      const into = hd.branch ? t("what_branch", {name: hd.branch}) : "detached HEAD";
+      if (!confirm(t("confirm_merge", {hash: h.slice(0, 7), into: into, noff: noFf ? " (--no-ff)" : ""}))) return null;
+      setGraphStatus(t("merging"), "progress");
       return post("/api/merge", {hash: h, no_ff: noFf});
     })
     .then(r => {
@@ -1538,7 +2133,7 @@ async function doMerge() {
         if (r.conflict) showWip();
       });
     })
-    .catch(e => { setGraphStatus("マージできませんでした: " + e.message, "error"); })
+    .catch(e => { setGraphStatus(t("merge_error", {error: e.message}), "error"); })
     .finally(() => { btn.disabled = false; });
 }
 function selectCmpA(hash) {
@@ -1582,7 +2177,7 @@ window.addEventListener("message", ev => {
   if (ev.origin !== location.origin || !ev.data || ev.data.type !== "git-graph-file-log") return;
   const hash = ev.data.hash, path = ev.data.path;
   if (typeof hash !== "string" || typeof path !== "string" || !hash || !path) return;
-  showLog("ファイルログ: " + esc(path), hash,
+  showLog(t("file_log_heading", {path: esc(path)}), hash,
           '<div class="meta"><code>git log ' + esc(hash.slice(0, 7)) + " -- " + esc(path) + "</code></div>",
           false, 0, {path: "/api/log", params: {rev: hash, path: path}});
   if (ev.source && ev.source !== window) {
@@ -1823,7 +2418,7 @@ function showWip(fromHistory, okMsg) {
         '<span class="hint">' + hint + '</span></div>' +
         '<div class="amsg" id="wipMsgOut"></div></div>' : "";
     detailView.innerHTML = btns + "<h2>" + t("wip_title") + "</h2>" +
-      '<div class="meta">HEAD: ' + (s.head ? chips(s.head) + esc(s.head.slice(0, 7)) : "(コミットなし)") + "</div>" +
+      '<div class="meta">HEAD: ' + (s.head ? chips(s.head) + esc(s.head.slice(0, 7)) : t("no_commits_yet")) + "</div>" +
       (body || '<p class="hint">' + t("no_changes") + '</p>') + box +
       (s.truncated ? '<p class="hint">' + t("truncated_files") + '</p>' : "");
     const ta = detailView.querySelector("#wipMsg");
@@ -1831,7 +2426,7 @@ function showWip(fromHistory, okMsg) {
     if (okMsg) wipSay(okMsg, true);
     wipSync();
   }).catch(e => {
-    detailView.innerHTML = btns + '<p class="hint">エラー: ' + esc(e.message) + "</p>";
+    detailView.innerHTML = btns + '<p class="hint">' + esc(t("error")) + esc(e.message) + "</p>";
   });
 }
 
@@ -1845,7 +2440,7 @@ document.getElementById("reload").addEventListener("click", ev => {  // グラ�
 const t0 = Date.now();
 const timer = setInterval(() => {
   const el = document.getElementById("lsub");
-  if (el) el.textContent = Math.round((Date.now() - t0) / 1000) + " 秒経過（リポジトリが大きいと時間がかかります）";
+  if (el) el.textContent = t("elapsed_hint", {sec: Math.round((Date.now() - t0) / 1000)});
 }, 1000);
 fetch("/api/graph")
   .then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); }))
@@ -1857,13 +2452,13 @@ fetch("/api/graph")
     updateCmpClasses();
     document.getElementById("reload").disabled = false;
     loadStashes();
-    updateCurrentBranch().catch(e => setGraphStatus("カレントブランチを取得できませんでした: " + e.message, "error"));
+    updateCurrentBranch().catch(e => setGraphStatus(t("current_branch_failed", {error: e.message}), "error"));
     restoreScreen(history.state || {screen: "home"});
   })
   .catch(e => {
     clearInterval(timer);
-    document.getElementById("graph").innerHTML = '<div id="loading"><div>グラフの作成に失敗しました</div><pre>' +
-      esc(e.message) + '</pre><button class="sbtn" onclick="location.reload()">再読み込み</button></div>';
+    document.getElementById("graph").innerHTML = '<div id="loading"><div>' + esc(t("graph_build_failed")) + '</div><pre>' +
+      esc(e.message) + '</pre><button class="sbtn" onclick="location.reload()">' + esc(t("reload_page")) + '</button></div>';
   });
 </script>
 </body>
@@ -1904,9 +2499,9 @@ def parse_status(raw, limit=5000):
             res["truncated"] = True
             break
         if xy == "??":
-            res["untracked"].append({"path": path, "st": "?", "label": TRANSLATIONS[UI_LANG]["new_file"]})
+            res["untracked"].append({"path": path, "st": "?", "label": "new_file"})  # label は翻訳キー (画面側で翻訳する)
         elif xy in CONFLICT_CODES:
-            res["conflicts"].append({"path": path, "st": "U", "label": "競合"})
+            res["conflicts"].append({"path": path, "st": "U", "label": "label_conflict"})
         else:
             x, y = xy[0], xy[1]
             if x != " ":
@@ -1980,7 +2575,7 @@ def amend_files(s):
 def api_status(q):
     """作業ツリーの変更 (WIP)。ステージ済み/未ステージには追加・削除行数も付ける。"""
     if not WIP_ENABLED:
-        raise ValueError("作業ツリーの変更の表示は無効です")
+        raise UserError("wip_disabled")
     s = parse_status(read_status_raw())
     for key, extra in (("staged", ["--cached"]), ("unstaged", [])):
         if not s[key]:
@@ -2005,7 +2600,7 @@ def api_status(q):
 
 def wip_diff(kind, path, specs):
     if not HAS_WORKTREE:
-        raise ValueError("ワークツリーがありません")
+        raise UserError("no_worktree")
     if kind == "staged":
         return git("diff", "--cached", "--no-color", "-M", "--", *specs, literal=True)
     if kind in ("unstaged", "conflict"):
@@ -2014,14 +2609,14 @@ def wip_diff(kind, path, specs):
         # 任意のファイルを読ませないよう、いま未追跡と報告されているパスだけを対象にする
         known = {f["path"] for f in parse_status(read_status_raw())["untracked"]}
         if path not in known:
-            raise ValueError("未追跡ファイルではありません")
+            raise UserError("not_untracked")
         full = os.path.join(REPO, path)
         if os.path.islink(full):
             return f"symlink -> {os.readlink(full)}\n"
         r = subprocess.run(["git", "-C", REPO, "diff", "--no-index", "--no-color", "--", "/dev/null", path],
                            capture_output=True, text=True, encoding="utf-8", errors="replace")
         if r.returncode not in (0, 1):  # 1 は「差分あり」
-            raise ValueError(r.stderr.strip() or "git diff に失敗しました")
+            raise ValueError(r.stderr.strip() or tr("git_diff_failed"))
         return r.stdout
     if kind == "amend":  # 直前のコミットの親 と 作業ツリー の差分 (未追跡ファイルは新規ファイルとして)
         if path in {f["path"] for f in parse_status(read_status_raw())["untracked"]}:
@@ -2032,9 +2627,8 @@ def wip_diff(kind, path, specs):
 
 def add_wip(dot_text, nodes, head, count):
     """HEAD の子として、破線の WIP ノードを dot とノード情報に追加する。"""
-    changes = TRANSLATIONS[UI_LANG]["changes_count"]
     label = ('<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3" STYLE="dashed" BGCOLOR="#fff8dc">'
-             f'<TR><TD><B>WIP</B></TD></TR><TR><TD>{count} {changes}</TD></TR></TABLE>>')
+             f'<TR><TD><B>WIP</B></TD></TR><TR><TD>{html.escape(tr("n_changes", n=count))}</TD></TR></TABLE>>')
     lines = f'  "WIP" [label={label}];\n  "{head}" -> "WIP" [style=dashed];\n'
     i = dot_text.rindex("}")
     nodes = dict(nodes)
@@ -2075,8 +2669,10 @@ def graph_payload():
             count = wip_count(parse_status(raw))
             if count:
                 dot_text, nodes = add_wip(dot_text, nodes, head, count)
-        svg = subprocess.run(["dot", "-Tsvg"], input=dot_text, capture_output=True,
-                             text=True, check=True).stdout
+        # Windows では text=True がロケール(cp932等)で符号化し、★ などが壊れて
+        # dot が "not well-formed" になるため、UTF-8 のバイト列で入出力する
+        svg = subprocess.run(["dot", "-Tsvg"], input=dot_text.encode("utf-8"),
+                             capture_output=True, check=True).stdout.decode("utf-8", errors="replace")
         svg = svg[svg.index("<svg"):]
         payload = json.dumps({"svg": svg, "nodes": nodes, "edges": edges, "writable": WRITABLE,
                               "merge": WRITABLE and HAS_WORKTREE},
@@ -2143,7 +2739,7 @@ def api_reflog(q):
         check_ref_name("branch", branch)
         ref, label = "refs/heads/" + branch, branch
         if subprocess.run(["git", "-C", REPO, "show-ref", "--verify", "--quiet", ref]).returncode != 0:
-            raise ValueError("ブランチが見つかりません")
+            raise UserError("branch_not_found")
     else:
         ref, label = "HEAD", "HEAD"
     skip, limit = paging(q)
@@ -2178,24 +2774,23 @@ def api_stash(body):
             sel = name
             break
     if sel is None:
-        raise ValueError("stash が見つかりません (一覧を開き直してください)")
+        raise UserError("stash_not_found")
     if op == "drop":
         run_git_write("stash", "drop", sel)
-        return {"ok": True, "message": f"{sel} を削除しました (戻すときは git stash store {h[:7]})"}
+        return {"ok": True, "message": tr("stash_dropped", sel=sel, hash=h[:7])}
     if not HAS_WORKTREE:
-        raise ValueError("ワークツリーのないリポジトリでは stash を適用できません")
+        raise UserError("stash_no_worktree")
     if is_merging() or is_rebasing() or is_cherry_picking():
-        raise ValueError("マージ・リベース・チェリーピックの途中です。先に完了するか中止してください")
+        raise UserError("op_in_progress")
     r = subprocess.run(["git", "-C", REPO, "stash", op, sel], capture_output=True, text=True,
                        encoding="utf-8", errors="replace")
     if r.returncode != 0:
         unmerged = subprocess.run(["git", "-C", REPO, "diff", "--name-only", "--diff-filter=U"],
                                   capture_output=True, text=True).stdout.strip()
         if unmerged:
-            raise ValueError(f"{sel} の適用で競合しました。作業ツリーに競合が残っています (WIP で確認できます)"
-                             + ("。stash は残してあります" if op == "pop" else "") + "\n" + unmerged)
-        raise ValueError((r.stderr or r.stdout).strip() or "stash の適用に失敗しました")
-    return {"ok": True, "message": f"{sel} を" + ("適用しました" if op == "apply" else "適用して削除しました")}
+            raise ValueError(tr("stash_conflict_pop" if op == "pop" else "stash_conflict", sel=sel) + "\n" + unmerged)
+        raise ValueError((r.stderr or r.stdout).strip() or tr("stash_apply_failed"))
+    return {"ok": True, "message": tr("stash_applied" if op == "apply" else "stash_popped", sel=sel)}
 
 
 def commit_info(h):
@@ -2234,7 +2829,7 @@ def api_tree(q):
     try:
         raw = git("ls-tree", "-z", "-l", treeish)
     except subprocess.CalledProcessError:
-        raise ValueError("ディレクトリが見つかりません")
+        raise UserError("dir_not_found")
     entries = []
     for item in raw.split("\0"):
         if not item:
@@ -2245,18 +2840,77 @@ def api_tree(q):
     return {"hash": h, "path": path, "entries": sorted(entries, key=lambda x: (x["type"] != "tree", x["name"]))}
 
 
+_BOMS = ((codecs.BOM_UTF8, "utf-8-sig", "UTF-8 (BOM)"),
+         (codecs.BOM_UTF32_LE, "utf-32", "UTF-32"), (codecs.BOM_UTF32_BE, "utf-32", "UTF-32"),
+         (codecs.BOM_UTF16_LE, "utf-16", "UTF-16"), (codecs.BOM_UTF16_BE, "utf-16", "UTF-16"))
+
+
+def _strict_decode(data, enc, truncated):
+    """厳密にデコードする。先頭のみ読んだ場合は末尾の欠けた文字を最大3バイト捨てて再試行する。"""
+    for cut in ((0, 1, 2, 3) if truncated else (0,)):
+        try:
+            return data[:len(data) - cut].decode(enc)
+        except UnicodeDecodeError:
+            pass
+    return None
+
+
+def _jp_score(text):
+    """日本語として自然なほど高い点を返す (Shift_JIS と EUC-JP の判別用)。"""
+    score = 0
+    for ch in text:
+        c = ord(ch)
+        if 0x3040 <= c <= 0x30FF or 0x4E00 <= c <= 0x9FFF:
+            score += 1
+        elif 0xFF61 <= c <= 0xFF9F:  # 半角カナは誤判定のときに増える
+            score -= 3
+        elif c < 0x20 and ch not in "\t\r\n":
+            score -= 5
+    return score
+
+
+def decode_text(data, truncated=False):
+    """バイト列の文字コードを自動判別してデコードし、(text, 文字コード名) を返す。バイナリなら (None, None)。
+    BOM → UTF-8 → ISO-2022-JP → Shift_JIS(CP932) / EUC-JP (点数の高い方) の順に試し、全て失敗したら UTF-8 で置換する。"""
+    for bom, enc, label in _BOMS:
+        if data.startswith(bom):
+            text = _strict_decode(data, enc, truncated)
+            if text is not None:
+                return text, label
+    if b"\0" in data:
+        return None, None
+    if b"\x1b$B" in data or b"\x1b$@" in data or b"\x1b$(" in data:  # ISO-2022-JP は 7bit なので UTF-8 より先に見る
+        text = _strict_decode(data, "iso2022_jp", truncated)
+        if text is not None:
+            return text, "ISO-2022-JP"
+    text = _strict_decode(data, "utf-8", truncated)
+    if text is not None:
+        return text, "ASCII" if text.isascii() else "UTF-8"
+    best = None
+    for enc, label in (("cp932", "Shift_JIS (CP932)"), ("euc_jp", "EUC-JP")):
+        text = _strict_decode(data, enc, truncated)
+        if text is not None:
+            score = _jp_score(text)
+            if best is None or score > best[0]:
+                best = (score, text, label)
+    if best:
+        return best[1], best[2]
+    return data.decode("utf-8", errors="replace"), "UTF-8 (invalid bytes replaced)"
+
+
 def api_file(q):
     h = resolve_commit(q.get("hash", [""])[0])
     path = validate_file_path(q.get("path", [""])[0], allow_empty=False)
     spec = h + ":" + path
     kind = git("cat-file", "-t", spec).strip()
     if kind != "blob":
-        raise ValueError("ファイルではありません")
+        raise UserError("not_a_file")
     raw = subprocess.check_output(["git", "-C", REPO, "cat-file", "blob", spec])
     truncated = len(raw) > FILE_CONTENT_LIMIT
     data = raw[:FILE_CONTENT_LIMIT]
-    return {"hash": h, "path": path, "content": data.decode("utf-8", errors="replace"),
-            "binary": b"\0" in data, "truncated": truncated, "size": len(raw)}
+    text, encoding = decode_text(data, truncated)
+    return {"hash": h, "path": path, "content": text or "", "encoding": encoding,
+            "binary": text is None, "truncated": truncated, "size": len(raw)}
 
 
 def api_compare(q):
@@ -2369,16 +3023,15 @@ def diff_lines_html(text):
     return "".join(out)
 
 
-WIP_TITLES = {"amend": "amend 後のコミットの内容 (直前のコミットの親との差分)", "conflict": "競合", "staged": "ステージ済み", "unstaged": "未ステージの変更", "untracked": "未追跡のファイル"}
 
 
 def localized_wip_title(kind):
     return {
-        "amend": TRANSLATIONS[UI_LANG]["amend_content"],
-        "conflict": TRANSLATIONS[UI_LANG]["conflict"],
-        "staged": TRANSLATIONS[UI_LANG]["staged"],
-        "unstaged": TRANSLATIONS[UI_LANG]["unstaged"],
-        "untracked": TRANSLATIONS[UI_LANG]["untracked"],
+        "amend": tr("amend_content"),
+        "conflict": tr("conflict"),
+        "staged": tr("staged"),
+        "unstaged": tr("unstaged"),
+        "untracked": tr("untracked"),
     }.get(kind, kind)
 
 
@@ -2394,7 +3047,7 @@ def diff_url(ctx, f):
 def commit_line_html(label, c):
     subject = c["message"].split("\n", 1)[0]
     return (f'<div class="meta"><span class="tag tag{label}">{label}</span>{c["hash"][:7]}'
-            f'<a class="copy" data-copy="{c["hash"]}" title="ハッシュ (40桁) をコピー">📋</a> — '
+            f'<a class="copy" data-copy="{c["hash"]}" title="{html.escape(tr("copy_hash_title"))}">📋</a> — '
             f'{html.escape(subject)} <span class="hint">({html.escape(c["author"])} / '
             f'{html.escape(c["date"])})</span></div>')
 
@@ -2405,7 +3058,7 @@ def wip_files(kind=""):
     if kind == "amend":
         s = api_status({"amend": ["1"]})
         if "amend_files" not in s:
-            raise ValueError("amend できる状態ではありません (コミットがない、またはマージ・リベース中です)")
+            raise UserError("amend_unavailable")
         return s["amend_files"]
     s = api_status({})
     out = []
@@ -2423,7 +3076,7 @@ def render_diff_page(q):
     d = api_diff(q)
     if wip:  # 作業ツリーの変更
         files, ctx, ref = wip_files(wip), {}, "WIP"
-        info = f'<div class="meta">{html.escape(TRANSLATIONS[UI_LANG]["working_tree"])} — {html.escape(localized_wip_title(wip))}</div>'
+        info = f'<div class="meta">{html.escape(tr("working_tree"))} — {html.escape(localized_wip_title(wip))}</div>'
         cmd = {"staged": f"git diff --cached -- {path}", "amend": f"git diff HEAD^ -- {path}",
                "untracked": f"git diff --no-index /dev/null {path}"}.get(wip, f"git diff -- {path}")
     elif "from" in q:  # 2コミット間の比較
@@ -2437,8 +3090,8 @@ def render_diff_page(q):
         c = api_commit(q)
         files, ctx, ref = c["files"], {"hash": c["hash"]}, c["hash"][:7]
         subject = c["message"].split("\n", 1)[0]
-        info = (f'<div class="meta">{html.escape(TRANSLATIONS[UI_LANG]["commit_label"])} {ref}'
-                f'<a class="copy" data-copy="{c["hash"]}" title="ハッシュ (40桁) をコピー">📋</a>'
+        info = (f'<div class="meta">{html.escape(tr("commit_label"))} {ref}'
+                f'<a class="copy" data-copy="{c["hash"]}" title="{html.escape(tr("copy_hash_title"))}">📋</a>'
                 f' — {html.escape(subject)}</div>'
                 f'<div class="meta">{html.escape(c["author"])} / {html.escape(c["date"])}</div>')
         cmd = f"git show {ref} -- {path}"
@@ -2451,7 +3104,7 @@ def render_diff_page(q):
             side.append(f'<div class="grp">{html.escape(localized_wip_title(last))}</div>')
         fname = f"{f['old_path']} => {f['path']}" if f.get("old_path") else f["path"]
         if f.get("label"):
-            counts = html.escape(f["label"])
+            counts = html.escape(tr(f["label"]))
         elif "added" not in f:
             counts = ""
         elif f["added"] is None:
@@ -2468,15 +3121,15 @@ def render_diff_page(q):
 <title>{html.escape(path)} @ {ref}</title>
 <style>{DIFF_CSS}</style></head><body>
 <div id="side">
-  <div class="meta">{len(files)} {TRANSLATIONS[UI_LANG]["files_changed"]}</div>
+  <div class="meta">{len(files)} {tr("files_changed")}</div>
   {"".join(side)}
 </div>
 <div id="main">
   <h1>{html.escape(name)}</h1>
   {info}
   <div class="meta"><code>{html.escape(cmd)}</code></div>
-  {'<p class="hint">' + TRANSLATIONS[UI_LANG]["large_file_diff"] + '</p>' if d["truncated"] else ""}
-  <div class="diff">{diff_lines_html(d["diff"]) or '<p class="hint">' + TRANSLATIONS[UI_LANG]["no_diff"] + '</p>'}</div>
+  {'<p class="hint">' + tr("large_file_diff") + '</p>' if d["truncated"] else ""}
+  <div class="diff">{diff_lines_html(d["diff"]) or '<p class="hint">' + tr("no_diff") + '</p>'}</div>
 </div>
 <script>{COPY_JS}</script>
 </body></html>
@@ -2499,6 +3152,11 @@ FILES_CSS = """
   .entry .size { margin-left: auto; color: #777; white-space: nowrap; }
   pre { white-space: pre-wrap; word-break: break-word; background: #fff; border: 1px solid #ddd; padding: 10px; font: 12px monospace; }
   pre.code { color: #24292f; tab-size: 4; }
+  pre.code { padding-left: 0; }
+  .ln { display: flex; }
+  .ln:hover { background: #f6f8fa; }
+  .ln .no { flex: none; width: var(--nw, 3ch); box-sizing: content-box; padding: 0 10px; margin-right: 10px; text-align: right; color: #8c959f; border-right: 1px solid #e3e3e3; user-select: none; }
+  .ln .tx { flex: 1; min-width: 0; }
   .tok-keyword { color: #8250df; font-weight: 600; }
   .tok-string { color: #0a7b35; }
   .tok-comment { color: #6e7781; font-style: italic; }
@@ -2521,17 +3179,20 @@ FILES_CSS = """
 
 
 FILES_PAGE = r"""<!DOCTYPE html>
-<html lang="ja"><head><meta charset="utf-8"><title data-i18n="file_view">ファイル表示</title>
+<html lang="ja"><head><meta charset="utf-8"><title>{{file_view}}</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
 <style>__CSS__</style><script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script></head>
-<body><aside id="tree"><h1 data-i18n="file_view">ファイル表示</h1><div class="meta" id="commit"></div><div id="list"></div></aside>
-<main id="main"><h2 id="title" data-i18n="select_file">ファイルを選択してください</h2>
-<div id="fileActions" class="file-actions" hidden><button id="fileLogBtn" data-i18n="file_log">このファイルのログ</button><button id="fileContentBtn" hidden data-i18n="file_content">ファイル内容</button></div>
-<div id="content" class="hint" data-i18n="select_file_hint">左の一覧からファイルをクリックしてください。</div></main>
+<body><aside id="tree"><h1>{{file_view}}</h1><div class="meta" id="commit"></div><div id="list"></div></aside>
+<main id="main"><h2 id="title">{{select_file}}</h2>
+<div id="fileActions" class="file-actions" hidden><button id="fileLogBtn">{{file_log}}</button><button id="fileContentBtn" hidden>{{file_content}}</button></div>
+<div id="content" class="hint">{{select_file_hint}}</div></main>
 <script>
 /*__FILE_I18N__*/
-function t(key) { return I18N[key] || key; }
-document.querySelectorAll("[data-i18n]").forEach(el => { el.textContent = t(el.dataset.i18n); });
+function t(key, values = {}) {
+  let text = key in I18N ? I18N[key] : key;
+  Object.entries(values).forEach(([name, value]) => { text = text.replaceAll("{" + name + "}", () => String(value)); });
+  return text;
+}
 
 const qs = new URLSearchParams(location.search), hash = qs.get("hash");
 const list = document.getElementById("list"), content = document.getElementById("content"), title = document.getElementById("title");
@@ -2567,9 +3228,9 @@ function loadFile(path) {
   fileContentBtn.hidden = true;
   api("/api/file", {hash: hash, path: path}).then(r => {
     const lang = languageFor(r.path);
-    title.textContent = r.path + (lang ? " (" + lang + ")" : "");
+    title.textContent = r.path + (lang ? " (" + lang + ")" : "") + (r.encoding ? " [" + r.encoding + "]" : "");
     content.className = r.binary ? "binary" : "";
-    content.innerHTML = r.binary ? t("binary_file") : '<pre class="code"><code>' + highlightCode(r.content, lang) + '</code></pre>' + (r.truncated ? '<p class="hint">' + t("large_file_head") + '</p>' : '');
+    content.innerHTML = r.binary ? t("binary_file") : numberedCode(r.content, lang) + (r.truncated ? '<p class="hint">' + t("large_file_head") + '</p>' : '');
   }).catch(e => { title.textContent = path; content.className = "hint"; content.textContent = t("error") + e.message; });
 }
 function loadFileLog(path) {
@@ -2580,14 +3241,14 @@ function loadFileLog(path) {
   }
   fileLogBtn.hidden = true;
   fileContentBtn.hidden = false;
-  title.textContent = path + t("change_history");
+  title.textContent = t("file_history_title", {path: path});
   content.className = "hint";
   content.textContent = t("loading");
   api("/api/log", {rev: hash, path: path}).then(r => {
     const rows = r.commits.map(c => '<tr><td class="hash">' + esc(c[1]) +
       '</td><td class="date">' + esc(c[3]) + '</td><td>' + esc(c[4]) + '</td></tr>').join("");
     content.className = "";
-    content.innerHTML = '<div class="meta">' + r.total + ' ' + t("commits_count") + '</div>' +
+    content.innerHTML = '<div class="meta">' + esc(t("n_commits", {n: r.total})) + '</div>' +
       (rows ? '<table class="file-log"><tbody>' + rows + '</tbody></table>' : '<p class="hint">' + t("no_history") + '</p>');
   }).catch(e => { content.className = "hint"; content.textContent = t("error") + e.message; });
 }
@@ -2653,23 +3314,118 @@ function highlightCode(source, lang) {
   }
   return highlight(source, lang);
 }
+/* ハイライト済み HTML を行ごとに分割する。複数行にまたがる span は行末で閉じて次の行で開き直す */
+function splitHighlightedLines(html) {
+  const lines = [], open = [];
+  let cur = "";
+  html.split(/(<[^>]+>|\n)/).forEach(p => {
+    if (p === "\n") { cur += "</span>".repeat(open.length); lines.push(cur); cur = open.join(""); }
+    else if (p.startsWith("</")) { open.pop(); cur += p; }
+    else if (p.startsWith("<")) { open.push(p); cur += p; }
+    else cur += p;
+  });
+  lines.push(cur);
+  return lines;
+}
+function numberedCode(source, lang) {
+  const lines = splitHighlightedLines(highlightCode(source.replace(/\r\n?/g, "\n"), lang));
+  if (lines.length > 1 && lines[lines.length - 1].replace(/<[^>]*>/g, "") === "") lines.pop();  // 末尾の改行は空行として数えない
+  const width = String(lines.length).length;
+  return '<pre class="code" style="--nw:' + width + 'ch"><code>' +
+    lines.map((l, i) => '<div class="ln" id="L' + (i + 1) + '"><span class="no">' + (i + 1) + '</span><span class="tx">' + l + '</span></div>').join("") +
+    '</code></pre>';
+}
 window.onpopstate = () => loadTree(new URLSearchParams(location.search).get("path") || "", false);
 if (!hash) showError(new Error(t("commit_required"))); else loadTree(qs.get("path") || "", false);
 </script></body></html>""".replace("__CSS__", FILES_CSS)
 
 
 def render_files_page():
-    translations = dict(TRANSLATIONS[UI_LANG])
-    translations.update({
-        "large_file_head": "大きいため先頭のみ表示しています。" if UI_LANG == "ja" else "Only the beginning is shown because the file is large.",
-        "commits_count": "件" if UI_LANG == "ja" else "commits",
-        "no_history": "履歴がありません" if UI_LANG == "ja" else "No history.",
-        "commit_required": "コミットが指定されていません" if UI_LANG == "ja" else "No commit was specified",
-    })
-    data = json.dumps(translations, ensure_ascii=False)
-    return (FILES_PAGE
+    return (fill_template(FILES_PAGE)
             .replace('<html lang="ja">', f'<html lang="{UI_LANG}">')
-            .replace("/*__FILE_I18N__*/", f"const I18N = {data};"))
+            .replace("/*__FILE_I18N__*/", "const I18N = " + client_translations() + ";"))
+
+
+_CJK = re.compile(r"[\u3040-\u30ff\u3400-\u9fff\uff00-\uffef]")
+
+
+def _strip_comments(text):
+    """JS / HTML / CSS のコメントを除く (コメントは日本語のままでよい)。URL の // は残す。行数は変えない。"""
+    blank = lambda m: "\n" * m.group(0).count("\n")  # 行番号がずれないよう、改行は残す
+    text = re.sub(r"/\*.*?\*/", blank, text, flags=re.S)
+    text = re.sub(r"<!--.*?-->", blank, text, flags=re.S)
+    return re.sub(r"(?<![:\w'\"])//[^\n]*", "", text)
+
+
+def check_i18n():
+    """翻訳の漏れを検査する (--check-i18n)。問題を表示して、あれば 1、なければ 0 を返す。
+    1. 全言語でキー集合と {プレースホルダ} が en と一致しているか
+    2. コードが使うキーが定義済みか / 使われていないキーがないか
+    3. 辞書の外に日本語のリテラルが残っていないか (docstring とコメントは除く)
+    4. 日本語以外の言語でテンプレートを展開しても、日本語や未置換のキーが残らないか"""
+    problems = []
+    base = TRANSLATIONS["en"]
+    params_of = lambda s: sorted(set(re.findall(r"\{(\w+)\}", s)))
+    for lang, table in TRANSLATIONS.items():
+        problems += [f"[{lang}] missing key: {k}" for k in sorted(set(base) - set(table))]
+        problems += [f"[{lang}] key not in en: {k}" for k in sorted(set(table) - set(base))]
+        problems += [f"[{lang}] placeholders differ from en: {k}" for k in sorted(set(base) & set(table))
+                     if params_of(base[k]) != params_of(table[k])]
+        if lang == "en":
+            problems += [f"[en] contains CJK text: {k}" for k, v in table.items() if _CJK.search(v)]
+
+    with open(__file__, encoding="utf-8") as f:
+        src = f.read()
+    tree = ast.parse(src)
+    docstrings, dict_lines = set(), (0, 0)
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.FunctionDef, ast.ClassDef)) and node.body:
+            first = node.body[0]
+            if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) and isinstance(first.value.value, str):
+                docstrings.add(id(first.value))
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "TRANSLATIONS" for t in node.targets):
+            dict_lines = (node.lineno, node.end_lineno)
+    literals = set()
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Constant) and isinstance(node.value, str)) or id(node) in docstrings:
+            continue
+        if dict_lines[0] <= node.lineno <= dict_lines[1]:
+            continue
+        literals.add(node.value)
+        text = _strip_comments(node.value) if "\n" in node.value else node.value
+        for offset, line in enumerate(text.split("\n")):
+            if _CJK.search(line):
+                problems.append(f"line {node.lineno + offset}: untranslated literal: {line.strip()[:80]}")
+
+    code = "\n".join(l for i, l in enumerate(src.split("\n"), 1) if not dict_lines[0] <= i <= dict_lines[1])
+    used = set()
+    for pattern in (r"""\bt\(\s*["'](\w+)["']""", r"""\btr\(\s*["'](\w+)["']""",
+                    r"""UserError\(\s*["'](\w+)["']""", r"\{\{(\w+)\}\}"):
+        used |= set(re.findall(pattern, code))
+    problems += [f"undefined key used: {k}" for k in sorted(used - set(base))]
+    for k in sorted(base):
+        if k not in used and k not in literals and not re.search("[\"']" + re.escape(k) + "[\"']", code):
+            problems.append(f"unused key: {k}")
+
+    global UI_LANG
+    saved = UI_LANG
+    try:
+        for lang in sorted(TRANSLATIONS):
+            if lang == "ja":
+                continue
+            UI_LANG = lang
+            for name, page in (("main page", HTML_TEMPLATE), ("files page", FILES_PAGE)):
+                text = _strip_comments(fill_template(page))
+                problems += [f"[{lang}] {name}: untranslated text: {l.strip()[:80]}" for l in text.split("\n") if _CJK.search(l)]
+                problems += [f"[{lang}] {name}: unresolved key: {k}" for k in re.findall(r"\{\{(\w+)\}\}", text)]
+    finally:
+        UI_LANG = saved
+
+    for p in problems:
+        print(p)
+    print(f"i18n check: {len(problems)} problem(s), {len(base)} keys, languages: {', '.join(sorted(TRANSLATIONS))}")
+    return 1 if problems else 0
 
 
 # --------------------------------------------------------------------------
@@ -2692,17 +3448,18 @@ def resolve_commit(h):
     try:
         return git("rev-parse", "--verify", "--quiet", h + "^{commit}").strip()
     except subprocess.CalledProcessError:
-        raise ValueError("コミットが見つかりません")
+        raise UserError("commit_not_found")
 
 
 def check_ref_name(kind, name):
     prefix = {"branch": "refs/heads/", "tag": "refs/tags/"}[kind]
-    label = {"branch": "ブランチ", "tag": "タグ"}[kind]
+    label = {"branch": ("branch_name_invalid", "branch_name_unusable"),
+             "tag": ("tag_name_invalid", "tag_name_unusable")}[kind]
     if not name or name.startswith("-") or "\0" in name:
-        raise ValueError(f"{label}名が不正です")
+        raise UserError(label[0])
     r = subprocess.run(["git", "-C", REPO, "check-ref-format", prefix + name], capture_output=True)
     if r.returncode != 0:
-        raise ValueError(f"{name!r} は{label}名として使えません")
+        raise UserError(label[1], name=repr(name))
 
 
 def run_git_write(*args, literal=False, cwd=None):
@@ -2711,7 +3468,7 @@ def run_git_write(*args, literal=False, cwd=None):
     r = subprocess.run(["git", "-C", cwd or REPO, *args], capture_output=True, text=True,
                        encoding="utf-8", errors="replace", env=env)
     if r.returncode != 0:
-        raise ValueError((r.stderr or r.stdout).strip() or "git コマンドが失敗しました")
+        raise ValueError((r.stderr or r.stdout).strip() or tr("git_command_failed"))
     return (r.stdout + r.stderr).strip()
 
 
@@ -2751,7 +3508,7 @@ def stash_all_changes():
         return r.stdout.strip()
     before = top()
     run_git_write("stash", "push", "--include-untracked", "-m",
-                  "git_graph: チェックアウト前の退避 " + time.strftime("%Y-%m-%d %H:%M:%S"))
+                  tr("stash_commit_msg", time=time.strftime("%Y-%m-%d %H:%M:%S")))
     return "stash@{0}" if top() != before else None
 
 
@@ -2769,9 +3526,9 @@ def discard_blockers(blockers):
         full = os.path.join(top_real, path)
         parent = os.path.realpath(os.path.dirname(full))
         if os.path.commonpath([parent, top_real]) != top_real:
-            raise ValueError(f"リポジトリ外のパスは削除できません: {path}")
+            raise UserError("path_outside_repo", path=path)
         if os.path.isdir(full) and not os.path.islink(full):
-            raise ValueError(f"ディレクトリは自動削除できません: {path}")
+            raise UserError("dir_no_autodelete", path=path)
         if os.path.lexists(full):
             os.remove(full)
 
@@ -2781,7 +3538,7 @@ def checkout_resolving(args, mode):
     編集中のファイル/同名の管理外ファイルで止まったとき、mode が None なら {blocked, modified, untracked} を返し、
     "stash" なら全変更を退避してから、"discard" なら止めているファイルだけ破棄してから再実行する。"""
     if mode not in (None, "stash", "discard"):
-        raise ValueError("on_conflict が不正です")
+        raise UserError("on_conflict_invalid")
     stashed = None
     if mode == "stash":
         stashed = stash_all_changes()
@@ -2792,18 +3549,18 @@ def checkout_resolving(args, mode):
         text = (r.stderr + r.stdout).strip()
         blockers = parse_checkout_blockers(text)
         if not (blockers["modified"] or blockers["untracked"]):
-            raise ValueError(text or "チェックアウトに失敗しました")
+            raise ValueError(text or tr("checkout_failed"))
         if mode is None:
             return {"blocked": True, **blockers}
         if mode == "stash":
-            raise ValueError("変更を stash に退避しましたが、まだチェックアウトできません:\n" + text)
+            raise ValueError(tr("checkout_still_blocked") + "\n" + text)
         discard_blockers(blockers)
-    raise ValueError("チェックアウトに失敗しました")
+    raise UserError("checkout_failed")
 
 
 def with_stash_note(res, msg):
     if res and res.get("stashed"):
-        msg += f" (それまでの変更は {res['stashed']} に退避しました。戻すときは git stash pop)"
+        msg += tr("stash_note", stash=res["stashed"])
     return msg
 
 
@@ -2815,9 +3572,9 @@ def api_branch(body):
         res = checkout_resolving(["-b", name, h], body.get("on_conflict"))
         if res and res.get("blocked"):
             return res
-        return {"ok": True, "message": with_stash_note(res, f"ブランチ {name} を作成してチェックアウトしました")}
+        return {"ok": True, "message": with_stash_note(res, tr("branch_created_checkout", name=name))}
     run_git_write("branch", name, h)
-    return {"ok": True, "message": f"ブランチ {name} を作成しました"}
+    return {"ok": True, "message": tr("branch_created", name=name)}
 
 
 def api_tag(body):
@@ -2827,21 +3584,21 @@ def api_tag(body):
     check_ref_name("tag", name)
     if msg:
         run_git_write("tag", "-a", name, "-m", msg, h)
-        return {"ok": True, "message": f"注釈付きタグ {name} を作成しました"}
+        return {"ok": True, "message": tr("tag_created_annotated", name=name)}
     run_git_write("tag", name, h)
-    return {"ok": True, "message": f"タグ {name} を作成しました"}
+    return {"ok": True, "message": tr("tag_created", name=name)}
 
 
 def api_delete_ref(body):
     kind = body.get("kind")
     if kind not in ("branch", "tag"):
-        raise ValueError("削除できるのはローカルブランチまたはタグだけです")
+        raise UserError("ref_delete_only")
     name = str(body.get("name", "")).strip()
     check_ref_name(kind, name)
     ref = ("refs/heads/" if kind == "branch" else "refs/tags/") + name
     exists = subprocess.run(["git", "-C", REPO, "show-ref", "--verify", "--quiet", ref])
     if exists.returncode != 0:
-        raise ValueError(f"{name!r} は存在しません")
+        raise UserError("ref_not_exist", name=repr(name))
     if kind == "branch":
         if body.get("force") is True:
             run_git_write("branch", "-D", "--", name)
@@ -2852,10 +3609,10 @@ def api_delete_ref(body):
                 ancestor = subprocess.run(["git", "-C", REPO, "merge-base", "--is-ancestor", name, "HEAD"])
                 if ancestor.returncode == 1:
                     return {"needs_force": True}
-                raise ValueError((r.stderr or r.stdout).strip() or "ブランチを削除できません")
-        return {"ok": True, "message": f"ブランチ {name} を削除しました"}
+                raise ValueError((r.stderr or r.stdout).strip() or tr("branch_delete_failed"))
+        return {"ok": True, "message": tr("branch_deleted", name=name)}
     run_git_write("tag", "-d", "--", name)
-    return {"ok": True, "message": f"タグ {name} を削除しました"}
+    return {"ok": True, "message": tr("tag_deleted", name=name)}
 
 
 def api_checkout(body):
@@ -2866,27 +3623,27 @@ def api_checkout(body):
         res = checkout_resolving([branch, "--"], body.get("on_conflict"))
         if res and res.get("blocked"):
             return res
-        return {"ok": True, "message": with_stash_note(res, f"ブランチ {branch} をチェックアウトしました")}
+        return {"ok": True, "message": with_stash_note(res, tr("checkout_branch_done", branch=branch))}
     h = resolve_commit(body.get("hash", ""))
     res = checkout_resolving(["--detach", h], body.get("on_conflict"))
     if res and res.get("blocked"):
         return res
-    return {"ok": True, "message": with_stash_note(res, f"{h[:7]} をチェックアウトしました (detached HEAD)")}
+    return {"ok": True, "message": with_stash_note(res, tr("checkout_detached_done", hash=h[:7]))}
 
 
 def api_reset(body):
     """現在の HEAD を選択したコミットへ移動する。"""
     mode = body.get("mode", "mixed")
     if mode not in ("soft", "mixed", "hard"):
-        raise ValueError("リセット方式が不正です")
+        raise UserError("reset_mode_invalid")
     if is_merging() or is_rebasing() or is_cherry_picking():
-        raise ValueError("マージ、リベース、またはチェリーピックの途中はリセットできません")
+        raise UserError("reset_blocked")
     h = resolve_commit(body.get("hash", ""))
     before = git("rev-parse", "HEAD").strip() if has_head() else None
     run_git_write("reset", "--" + mode, h)
     if before == h:
-        return {"ok": True, "message": f"HEAD は既に {h[:7]} です (変更なし)"}
-    return {"ok": True, "message": f"HEAD を {h[:7]} へ {mode} リセットしました"}
+        return {"ok": True, "message": tr("reset_noop", hash=h[:7])}
+    return {"ok": True, "message": tr("reset_done", hash=h[:7], mode=mode)}
 
 
 def is_merging():
@@ -2908,28 +3665,28 @@ def api_wip_commit(body):
     """チェックされたファイルを add してコミットする (TortoiseGit のコミットダイアログと同じ考え方)。
     ステージ済みでチェックのないファイルは、ステージから外す (作業ツリーの内容はそのまま)。"""
     if not WIP_ENABLED:
-        raise ValueError("作業ツリーの変更の表示は無効です")
+        raise UserError("wip_disabled")
     amend = body.get("amend") is True
     if amend:
         if not has_head():
-            raise ValueError("amend するコミットがありません")
+            raise UserError("amend_no_commit")
         if is_merging() or is_rebasing():
-            raise ValueError("マージまたはリベース中は amend できません")
+            raise UserError("amend_blocked")
     msg = str(body.get("message", "")).strip()
     if not msg:
-        raise ValueError("コミットメッセージを入力してください")
+        raise UserError("message_required")
     paths = body.get("paths")
     if not isinstance(paths, list) or not all(isinstance(p, str) for p in paths) or (not paths and not amend):
-        raise ValueError("コミットするファイルを選んでください")  # amend はメッセージだけの変更 (paths が空) もできる
+        raise UserError("select_files")  # amend はメッセージだけの変更 (paths が空) もできる
     checked = set(paths)
     s = parse_status(read_status_raw(), limit=10 ** 9)
     known = {f["path"] for k in ("staged", "unstaged", "untracked", "conflicts") for f in s[k]}
     head_changes = amend_head_changes(amend_base()) if amend else {}  # 直前のコミットが変更したファイル (チェックを外すとコミットから外す)
     if amend and head_changes and not checked:  # index を触る前に確認する (空のコミットは git が拒否する)
-        raise ValueError("直前のコミットのファイルをすべて外すと、コミットが空になります (コミットごと取り消すなら git reset HEAD^)")
+        raise UserError("amend_would_empty")
     bad = checked - known - set(head_changes)  # 任意のパスを add させないよう、いま変更ありと報告されているものだけを対象にする
     if bad:
-        raise ValueError("変更のないファイルが含まれています (更新してやり直してください): " + ", ".join(sorted(bad)[:3]))
+        raise UserError("files_unchanged", files=", ".join(sorted(bad)[:3]))
     unstage = []
     for f in s["staged"]:
         if f["path"] not in checked:
@@ -2937,7 +3694,7 @@ def api_wip_commit(body):
             if f.get("old_path"):  # リネームは元のパスも一緒に戻す
                 unstage.append(f["old_path"])
     if is_merging() and (unstage or any(f["path"] not in checked for f in s["conflicts"])):
-        raise ValueError("マージ中は、ステージ済み・競合のファイルをすべて含めてコミットする必要があります")
+        raise UserError("merging_need_all")
     step = 200  # コマンドラインが長くなりすぎないように分割する
     if unstage:
         for i in range(0, len(unstage), step):
@@ -2965,11 +3722,16 @@ def api_wip_commit(body):
         run_git_write("add", "-A", "--", *todo[i:i + step], literal=True)
     run_git_write("commit", *(["--amend"] if amend else []), "-m", msg)
     h = git("rev-parse", "HEAD").strip()
-    verb = "amend" if amend else "コミット"
-    tail = f" ({len(checked)} 件)" if checked else " (メッセージのみ)"
-    if drop:
-        tail += f"、{len([d for d in head_changes if d not in checked])} 件をコミットから外しました"
-    return {"ok": True, "message": f"{h[:7]} を {verb} しました{tail}"}
+    if not amend:
+        message = tr("wip_committed", hash=h[:7], n=len(checked))
+    elif not checked:
+        message = tr("wip_amended_msg_only", hash=h[:7])
+    elif drop:
+        message = tr("wip_amended_dropped", hash=h[:7], n=len(checked),
+                     dropped=len([d for d in head_changes if d not in checked]))
+    else:
+        message = tr("wip_amended", hash=h[:7], n=len(checked))
+    return {"ok": True, "message": message}
 
 
 def is_rebasing():
@@ -2992,12 +3754,13 @@ def api_merge(body):
     """選んだコミットを、いまチェックアウトしている HEAD にマージする。
     競合したときはマージ途中の状態で止める (WIP の一覧に競合ファイルが出るので、解決してコミットする)。"""
     if not HAS_WORKTREE:
-        raise ValueError("ワークツリーのないリポジトリではマージできません")
+        raise UserError("merge_no_worktree")
     h = resolve_commit(body.get("hash", ""))
     if is_merging():
-        raise ValueError("マージの途中です。先に競合を解決してコミットするか、git merge --abort してください")
+        raise UserError("merge_in_progress")
     if not has_head():
-        raise ValueError("最初のコミットがないためマージできません")
+        raise UserError("merge_no_commits")
+    before = git("rev-parse", "HEAD").strip()
     args = ["merge", "--no-edit"]
     if body.get("no_ff"):
         args.append("--no-ff")
@@ -3007,23 +3770,23 @@ def api_merge(body):
     if r.returncode != 0:
         if is_merging():  # 競合 (自動マージできなかった)
             return {"ok": True, "conflict": True,
-                    "message": f"{h[:7]} のマージで競合しました。WIP の競合ファイルを解決してコミットしてください"}
-        raise ValueError(out or "マージに失敗しました")
-    if "Already up to date" in out:
-        return {"ok": True, "message": f"{h[:7]} は既にマージ済みです (変更なし)"}
-    return {"ok": True, "message": f"{h[:7]} をマージしました"}
+                    "message": tr("merge_conflict", target=h[:7])}
+        raise ValueError(out or tr("merge_failed"))
+    if git("rev-parse", "HEAD").strip() == before:  # git の出力文言 (ロケールで変わる) ではなく、HEAD が動いたかで判定する
+        return {"ok": True, "message": tr("merge_uptodate", hash=h[:7])}
+    return {"ok": True, "message": tr("merge_done", hash=h[:7])}
 
 
 def api_rebase(body):
     """現在のブランチを、選んだコミットの上にリベースする。競合したら自動で中止して元に戻す。"""
     if not HAS_WORKTREE:
-        raise ValueError("ワークツリーのないリポジトリではリベースできません")
+        raise UserError("rebase_no_worktree")
     h = resolve_commit(body.get("hash", ""))
     if is_merging() or is_rebasing():
-        raise ValueError("マージまたはリベースの途中です。先に完了するか中止してください")
+        raise UserError("merge_or_rebase_in_progress")
     head = api_head()
     if not head["branch"]:
-        raise ValueError("ブランチをチェックアウトしていません (detached HEAD ではリベースできません)")
+        raise UserError("detached_rebase")
     before = git("rev-parse", "HEAD").strip()
     r = subprocess.run(["git", "-C", REPO, "rebase", h], capture_output=True, text=True,
                        encoding="utf-8", errors="replace")
@@ -3031,12 +3794,11 @@ def api_rebase(body):
     if r.returncode != 0:
         if is_rebasing():  # 競合 → 元に戻す
             subprocess.run(["git", "-C", REPO, "rebase", "--abort"], capture_output=True)
-            raise ValueError(f"{h[:7]} の上へのリベースで競合したため中止し、元に戻しました。"
-                             "競合を解決したい場合はコマンドラインで git rebase を実行してください")
-        raise ValueError(out or "リベースに失敗しました")
+            raise UserError("rebase_conflict", target=h[:7], cmd="git rebase")
+        raise ValueError(out or tr("rebase_failed"))
     if git("rev-parse", "HEAD").strip() == before:
-        return {"ok": True, "message": f"{head['branch']} は既に {h[:7]} の上にあります (変更なし)"}
-    return {"ok": True, "message": f"{head['branch']} を {h[:7]} の上にリベースしました"}
+        return {"ok": True, "message": tr("rebase_noop", branch=head["branch"], hash=h[:7])}
+    return {"ok": True, "message": tr("rebase_done", branch=head["branch"], hash=h[:7])}
 
 
 def is_cherry_picking():
@@ -3048,14 +3810,14 @@ def api_cherry_pick(body):
     """選んだコミットを、いまチェックアウトしている HEAD にチェリーピックする。
     競合したときと、変更が空になるとき (既に取り込み済み) は、中止して元に戻す。"""
     if not HAS_WORKTREE:
-        raise ValueError("ワークツリーのないリポジトリではチェリーピックできません")
+        raise UserError("cherry_no_worktree")
     h = resolve_commit(body.get("hash", ""))
     if is_merging() or is_rebasing() or is_cherry_picking():
-        raise ValueError("マージ・リベース・チェリーピックの途中です。先に完了するか中止してください")
+        raise UserError("op_in_progress")
     if not has_head():
-        raise ValueError("最初のコミットがないためチェリーピックできません")
+        raise UserError("cherry_no_commits")
     if len(git("rev-list", "--parents", "-n", "1", h).split()) > 2:
-        raise ValueError("マージコミットはチェリーピックできません (どちらの親側の変更を取るか決められないため)")
+        raise UserError("cherry_merge_commit")
     before = git("rev-parse", "HEAD").strip()
     r = subprocess.run(["git", "-C", REPO, "cherry-pick", h], capture_output=True, text=True,
                        encoding="utf-8", errors="replace")
@@ -3066,13 +3828,12 @@ def api_cherry_pick(body):
                                       capture_output=True, text=True).stdout.strip()
             subprocess.run(["git", "-C", REPO, "cherry-pick", "--abort"], capture_output=True)
             if not unmerged:  # 競合ではなく、変更が空になった
-                raise ValueError(f"{h[:7]} の変更は既に HEAD に含まれているため、チェリーピックするものがありません")
-            raise ValueError(f"{h[:7]} のチェリーピックで競合したため中止し、元に戻しました。"
-                             "競合を解決したい場合はコマンドラインで git cherry-pick を実行してください")
-        raise ValueError(out or "チェリーピックに失敗しました")
+                raise UserError("cherry_empty", hash=h[:7])
+            raise UserError("cherry_conflict", hash=h[:7])
+        raise ValueError(out or tr("cherry_failed"))
     if git("rev-parse", "HEAD").strip() == before:
-        return {"ok": True, "message": f"{h[:7]} は変更なしでした"}
-    return {"ok": True, "message": f"{h[:7]} をチェリーピックしました"}
+        return {"ok": True, "message": tr("cherry_noop", hash=h[:7])}
+    return {"ok": True, "message": tr("cherry_done", hash=h[:7])}
 
 
 REBASE_I_MAX = 200  # 対話的リベースで一度に扱うコミット数の上限
@@ -3091,24 +3852,23 @@ def check_rebase_i_range(base):
     r = subprocess.run(["git", "-C", REPO, "rev-list", "--count", "--merges", base + "..HEAD"],
                        capture_output=True, text=True)
     if r.returncode == 0 and r.stdout.strip() not in ("", "0"):
-        raise ValueError("マージコミットを含む範囲は対話的リベースできません (マージが失われてしまうため)")
+        raise UserError("ri_merges")
     hashes = rebase_todo_hashes(base)
     if not hashes:
-        raise ValueError(f"{base[:7]} の上に載せ直すコミットがありません")
+        raise UserError("ri_nothing", base=base[:7])
     if len(hashes) > REBASE_I_MAX:
-        raise ValueError(f"対象のコミットが {len(hashes)} 件あり多すぎます (上限 {REBASE_I_MAX} 件)。"
-                         "もっと HEAD に近いコミットを選んでください")
+        raise UserError("ri_too_many", n=len(hashes), max=REBASE_I_MAX)
     return hashes
 
 
 def api_rebase_todo(q):
     """対話的リベースの対象コミット一覧 (画面の編集ダイアログに出す)。"""
     if not HAS_WORKTREE:
-        raise ValueError("ワークツリーのないリポジトリではリベースできません")
+        raise UserError("rebase_no_worktree")
     base = resolve_commit((q.get("hash") or [""])[0])
     head = api_head()
     if not head["branch"]:
-        raise ValueError("ブランチをチェックアウトしていません (detached HEAD ではリベースできません)")
+        raise UserError("detached_rebase")
     hashes = check_rebase_i_range(base)
     out = git("log", "--no-walk=unsorted", "--date=short", "--format=%H%x1f%an%x1f%ad%x1f%s%x1f%B%x1e", *hashes)
     commits = []
@@ -3127,33 +3887,33 @@ def api_rebase_i(body):
     まとめた後) に exec で commit --amend -F を挟んで新しいメッセージにする。
     競合やエラーで止まったときは自動で rebase --abort して元に戻す。"""
     if not HAS_WORKTREE:
-        raise ValueError("ワークツリーのないリポジトリではリベースできません")
+        raise UserError("rebase_no_worktree")
     base = resolve_commit(body.get("hash", ""))
     if is_merging() or is_rebasing():
-        raise ValueError("マージまたはリベースの途中です。先に完了するか中止してください")
+        raise UserError("merge_or_rebase_in_progress")
     head = api_head()
     if not head["branch"]:
-        raise ValueError("ブランチをチェックアウトしていません (detached HEAD ではリベースできません)")
+        raise UserError("detached_rebase")
     if not has_head():
-        raise ValueError("最初のコミットがないためリベースできません")
+        raise UserError("rebase_no_commits")
     items = body.get("todo")
     if not isinstance(items, list) or not items or not all(isinstance(i, dict) for i in items):
-        raise ValueError("todo が不正です")
+        raise UserError("todo_invalid")
     todo = []
     for it in items:
         act, h = it.get("action"), str(it.get("hash", ""))
         if act not in REBASE_I_ACTIONS or not re.fullmatch(r"[0-9a-f]{40}", h):
-            raise ValueError("todo が不正です")
+            raise UserError("todo_invalid")
         msg = str(it.get("message") or "").strip()
         if act == "reword" and not msg:
-            raise ValueError(f"{h[:7]} の新しいコミットメッセージを入力してください")
+            raise UserError("ri_reword_msg_required", hash=h[:7])
         todo.append((act, h, msg))
     expected = check_rebase_i_range(base)
     if sorted(h for _, h, _ in todo) != sorted(expected):
-        raise ValueError("対象のコミットが変わっています。画面を更新して、もう一度やり直してください")
+        raise UserError("ri_changed")
     kept = [t for t in todo if t[0] != "drop"]
     if kept and kept[0][0] in ("squash", "fixup"):
-        raise ValueError("先頭のコミットは squash / fixup にできません (まとめ先のコミットが必要です)")
+        raise UserError("ri_first_squash")
 
     def fwd(path):  # sh から使うので区切りは / にそろえる (Windows 対策)
         return path.replace("\\", "/")
@@ -3192,18 +3952,18 @@ def api_rebase_i(body):
             if is_rebasing():  # 競合など → 元に戻す
                 subprocess.run(["git", "-C", REPO, "rebase", "--abort"], capture_output=True)
                 tail = "\n".join(out.splitlines()[-6:])
-                raise ValueError("対話的リベースの途中で競合またはエラーが起きたため、中止して元に戻しました。\n" + tail +
-                                 "\n競合を解決したい場合はコマンドラインで git rebase -i を実行してください")
-            raise ValueError(out or "リベースに失敗しました")
+                raise UserError("ri_aborted", tail=tail)
+            raise ValueError(out or tr("rebase_failed"))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     if git("rev-parse", "HEAD").strip() == before:
-        return {"ok": True, "message": f"{head['branch']} は変更なしでした"}
+        return {"ok": True, "message": tr("ri_noop", branch=head["branch"])}
     n = Counter(a for a, _, _ in todo)
-    parts = [f"{label} {n[k]}" for k, label in (("reword", "メッセージ変更"), ("squash", "squash"),
-                                               ("fixup", "fixup"), ("drop", "削除")) if n[k]]
-    return {"ok": True, "message": f"{head['branch']} を {base[:7]} の上に対話的リベースしました" +
-            (" (" + " / ".join(parts) + ")" if parts else "")}
+    parts = [tr(key, n=n[k]) for k, key in (("reword", "ri_part_reword"), ("squash", "ri_part_squash"),
+                                           ("fixup", "ri_part_fixup"), ("drop", "ri_part_drop")) if n[k]]
+    if parts:
+        return {"ok": True, "message": tr("ri_done_parts", branch=head["branch"], base=base[:7], parts=" / ".join(parts))}
+    return {"ok": True, "message": tr("ri_done", branch=head["branch"], base=base[:7])}
 
 
 # --------------------------------------------------------------------------
@@ -3221,8 +3981,7 @@ def run_git_net(*args, timeout=None):
                               encoding="utf-8", errors="replace", env=env, timeout=timeout,
                               stdin=subprocess.DEVNULL, start_new_session=True)  # 制御端末を切り離し ssh が /dev/tty に尋ねないように
     except subprocess.TimeoutExpired:
-        raise ValueError(f"git {args[0]} が {timeout} 秒でタイムアウトしました。認証の入力待ちなどで止まった可能性があります"
-                         " (認証情報を credential helper や ssh-agent に登録してください)")
+        raise UserError("net_timeout", cmd=args[0], sec=timeout)
 
 
 def net_error(r, fallback):
@@ -3256,10 +4015,8 @@ def api_fetch(body):
     r = run_git_net(*args, timeout=NET_TIMEOUT * min(max(len(git("remote").split()), 1), 4))
     n = count_changed_refs(before, refs_snapshot())
     if r.returncode != 0:  # 一部のリモートだけ失敗しても、git は残りのリモートを取得している
-        raise ValueError(net_error(r, "fetch に失敗しました") +
-                         (f"\n(失敗しなかったリモートの分は取得済みです: {n} 件のリモート追跡ブランチ/タグが更新されました)" if n else ""))
-    return {"ok": True, "message": f"fetch しました ({n} 件のリモート追跡ブランチ/タグが更新されました)" if n
-            else "fetch しました (更新はありません)"}
+        raise ValueError(net_error(r, tr("fetch_failed")) + (tr("fetch_partial", n=n) if n else ""))
+    return {"ok": True, "message": tr("fetch_done", n=n) if n else tr("fetch_done_none")}
 
 
 def list_remotes():
@@ -3280,10 +4037,10 @@ def api_remotes(q):
 
 def check_remote_name(name):
     if not isinstance(name, str) or not name or name.startswith("-") or "\0" in name or name != name.strip():
-        raise ValueError("リモート名が不正です")
+        raise UserError("remote_name_invalid")
     r = subprocess.run(["git", "-C", REPO, "check-ref-format", "refs/remotes/" + name + "/HEAD"], capture_output=True)
     if r.returncode != 0:
-        raise ValueError(f"{name!r} はリモート名として使えません")
+        raise UserError("remote_name_unusable", name=repr(name))
 
 
 def api_remote_add(body):
@@ -3291,20 +4048,20 @@ def api_remote_add(body):
     name, url = body.get("name"), body.get("url")
     check_remote_name(name)
     if not isinstance(url, str) or not url.strip() or "\0" in url or "\n" in url:
-        raise ValueError("URL が不正です")
+        raise UserError("url_invalid")
     url = url.strip()
     if url.startswith("-") or re.match(r"(ext|fd)::", url):  # オプション注入と、任意コマンドを実行できる転送方式を避ける
-        raise ValueError("この URL は使えません")
+        raise UserError("url_unusable")
     if name in {r["name"] for r in list_remotes()}:
-        raise ValueError(f"リモート {name} は既に登録されています")
+        raise UserError("remote_exists", name=name)
     run_git_write("remote", "add", "--", name, url)
-    msg = f"リモート {name} を追加しました"
+    msg = tr("remote_added", name=name)
     if body.get("fetch") is True:
         r = run_git_net("fetch", name)
         if r.returncode != 0:
             return {"ok": True, "fetch_failed": True,
-                    "message": msg + "が、fetch に失敗しました: " + net_error(r, "fetch に失敗しました")}
-        msg += " (fetch しました)"
+                    "message": tr("remote_added_fetch_failed", name=name, error=net_error(r, tr("fetch_failed")))}
+        msg = tr("remote_added_fetched", name=name)
     return {"ok": True, "message": msg}
 
 
@@ -3312,45 +4069,43 @@ def api_remote_remove(body):
     """リモートを削除する (リモート追跡ブランチと設定も消える。リモート側は変わらない)。"""
     name = body.get("name")
     if not isinstance(name, str) or name not in {r["name"] for r in list_remotes()}:  # 登録済みの名前だけ許可
-        raise ValueError("リモートが見つかりません")
+        raise UserError("remote_not_found")
     run_git_write("remote", "remove", "--", name)
-    return {"ok": True, "message": f"リモート {name} を削除しました (リモート追跡ブランチも削除しました)"}
+    return {"ok": True, "message": tr("remote_removed", name=name)}
 
 
 def api_pull(body):
     """現在のブランチに upstream の変更を取り込む。
     merge で競合したときはマージ途中で止める (WIP で解決)。rebase で競合したときは中止して元に戻す。"""
     if not HAS_WORKTREE:
-        raise ValueError("ワークツリーのないリポジトリでは pull できません")
+        raise UserError("pull_no_worktree")
     mode = body.get("mode", "ff-only")
     flags = {"ff-only": ["--ff-only"], "merge": ["--no-rebase", "--no-edit"], "rebase": ["--rebase"]}.get(str(mode))
     if flags is None:
-        raise ValueError("pull の方法が不正です")
+        raise UserError("pull_mode_invalid")
     if is_merging() or is_rebasing():
-        raise ValueError("マージまたはリベースの途中です。先に完了するか中止してください")
+        raise UserError("merge_or_rebase_in_progress")
     if not has_head():
-        raise ValueError("最初のコミットがないため pull できません")
+        raise UserError("pull_no_commits")
     branch = api_head()["branch"]
     if not branch:
-        raise ValueError("ブランチをチェックアウトしていません (detached HEAD では pull できません)")
+        raise UserError("detached_pull")
     up = upstream_of_head()
     if not up:
-        raise ValueError(f"ブランチ {branch} には upstream が設定されていません (git branch -u <リモート>/<ブランチ> で設定するか、push で設定してください)")
+        raise UserError("no_upstream", branch=branch)
     before = git("rev-parse", "HEAD").strip()
     r = run_git_net("pull", *flags)
     if r.returncode != 0:
         if is_merging():  # 競合 (自動マージできなかった)
             return {"ok": True, "conflict": True,
-                    "message": f"{up} のマージで競合しました。WIP の競合ファイルを解決してコミットしてください"}
+                    "message": tr("merge_conflict", target=up)}
         if is_rebasing():  # 競合 → 元に戻す
             subprocess.run(["git", "-C", REPO, "rebase", "--abort"], capture_output=True)
-            raise ValueError(f"{up} の上へのリベースで競合したため中止し、元に戻しました。"
-                             "競合を解決したい場合はコマンドラインで git pull --rebase を実行してください")
-        raise ValueError(net_error(r, "pull に失敗しました") +
-                         ("\n(履歴が分岐しています。方法を「マージ」か「リベース」にして再度 pull してください)" if mode == "ff-only" else ""))
+            raise UserError("rebase_conflict", target=up, cmd="git pull --rebase")
+        raise ValueError(net_error(r, tr("pull_failed")) + (tr("pull_diverged_hint") if mode == "ff-only" else ""))
     if git("rev-parse", "HEAD").strip() == before:
-        return {"ok": True, "message": f"{branch} は既に最新です (変更なし)"}
-    return {"ok": True, "message": f"{branch} に {up} の変更を取り込みました"}
+        return {"ok": True, "message": tr("pull_uptodate", branch=branch)}
+    return {"ok": True, "message": tr("pull_done", branch=branch, up=up)}
 
 
 def branch_config(branch, key):
@@ -3369,31 +4124,31 @@ def api_push(body):
     """ブランチを push する。body.branch があればそのローカルブランチ (チェックアウト中でなくてもよい)、
     なければ現在のブランチ。upstream があればその先へ、なければ set_upstream 確認のうえ -u で push する。"""
     if not has_head():
-        raise ValueError("最初のコミットがないため push できません")
+        raise UserError("push_no_commits")
     branch = body.get("branch")
     if branch:
         if not isinstance(branch, str) or branch.startswith("-"):
-            raise ValueError("ブランチ名が不正です")
+            raise UserError("branch_name_invalid")
         if subprocess.run(["git", "-C", REPO, "rev-parse", "-q", "--verify", f"refs/heads/{branch}"],
                           capture_output=True).returncode != 0:
-            raise ValueError(f"ローカルブランチ {branch} が見つかりません")
+            raise UserError("local_branch_missing", branch=branch)
     else:
         branch = api_head()["branch"]
         if not branch:
-            raise ValueError("ブランチをチェックアウトしていません (detached HEAD では push できません)")
+            raise UserError("detached_push")
     args = ["push"]
     if body.get("force") is True:
         args.append("--force-with-lease")
     remotes = git("remote").split()
     if not remotes:
-        raise ValueError("リモートが登録されていません")
+        raise UserError("no_remotes")
     upstream_remote, merge = branch_config(branch, "remote"), branch_config(branch, "merge")
     has_upstream = bool(upstream_remote and upstream_remote != "." and merge)
     # push 先: branch.<名前>.pushRemote > remote.pushDefault (git の優先順位と同じ)
     push_remote = branch_config(branch, "pushRemote") or git_config("remote.pushDefault")
     if push_remote:
         if push_remote not in remotes:
-            raise ValueError(f"push 先のリモート {push_remote!r} (pushRemote / remote.pushDefault) は登録されていません")
+            raise UserError("push_remote_unregistered", remote=repr(push_remote))
         remote = push_remote
         # upstream と同じリモートなら upstream のブランチ名へ、別のリモート (fork など) なら同名のブランチへ
         dest = merge if (has_upstream and push_remote == upstream_remote) else f"refs/heads/{branch}"
@@ -3409,16 +4164,16 @@ def api_push(body):
         if chosen is None:
             chosen = default
         if not isinstance(chosen, str) or chosen not in remotes:  # 登録済みの名前だけ許可 (オプション注入も防ぐ)
-            raise ValueError(f"リモート {chosen!r} は登録されていません")
+            raise UserError("remote_unregistered", remote=repr(chosen))
         remote = chosen
         args += ["-u", remote, f"refs/heads/{branch}:refs/heads/{branch}"]
     before = refs_snapshot()
     r = run_git_net(*args)
     if r.returncode != 0:
-        raise ValueError(net_error(r, "push に失敗しました"))
+        raise ValueError(net_error(r, tr("push_failed")))
     changed = count_changed_refs(before, refs_snapshot()) > 0
     where = f" ({remote})" if len(remotes) > 1 else ""
-    return {"ok": True, "message": f"{branch} を push しました{where}" if changed else f"{branch} を push しました{where} (更新するものはありませんでした)"}
+    return {"ok": True, "message": tr("pushed" if changed else "pushed_nothing", branch=branch, where=where)}
 
 
 POST_ROUTES = {"/api/stash": api_stash, "/api/rebase": api_rebase, "/api/rebase-i": api_rebase_i, "/api/cherry-pick": api_cherry_pick, "/api/merge": api_merge, "/api/branch": api_branch, "/api/tag": api_tag, "/api/ref-delete": api_delete_ref,
@@ -3477,25 +4232,25 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError as e:
             self._send(400, "text/plain", str(e))
         except FileNotFoundError:
-            self._send(500, "text/plain", "dot (Graphviz) が見つかりません。インストールしてください。")
+            self._send(500, "text/plain", tr("dot_missing"))
         except subprocess.CalledProcessError as e:
             self._send(500, "text/plain", f"command failed: {e.cmd}\n{e.stderr or ''}")
 
     def _check_post(self):
         """他サイトのページからの書き込みを防ぐ (CSRF / DNS rebinding 対策)。"""
         if not WRITABLE:
-            raise Forbidden("書き込み操作は無効です (--read-only 指定、またはローカル以外で待ち受け中)")
+            raise Forbidden(tr("write_disabled"))
         ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip()
         if ctype != "application/json":  # 他サイトからは preflight が必要になるため送れない
-            raise ValueError("Content-Type は application/json にしてください")
+            raise UserError("content_type_json")
         host = self.headers.get("Host", "")
         origin = self.headers.get("Origin")
         if origin is not None and origin != "http://" + host:
-            raise Forbidden("Origin が一致しません")
+            raise Forbidden(tr("origin_mismatch"))
         if is_loopback(OPTS.host):
             name = host if host.endswith("]") or ":" not in host else host.rsplit(":", 1)[0]
             if name not in ("127.0.0.1", "localhost", "[::1]"):
-                raise Forbidden("Host が不正です")
+                raise Forbidden(tr("host_invalid"))
 
     def do_POST(self):
         try:
@@ -3524,27 +4279,30 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     global REPO, OPTS, UI_LANG, WRITABLE, WIP_ENABLED, HAS_WORKTREE
+    pre = argparse.ArgumentParser(add_help=False)  # --help の文言も言語に合わせるため、先に --lang だけ読む
+    pre.add_argument("--lang", choices=sorted(TRANSLATIONS))
+    UI_LANG = detect_language(pre.parse_known_args()[0].lang)
     ap = argparse.ArgumentParser(description="git commit graph server")
-    ap.add_argument("revs", nargs="*", help="対象の rev (省略時は --all)")
-    ap.add_argument("-C", dest="repo", default=".", help="リポジトリのパス (既定: カレント)")
-    ap.add_argument("--host", default="127.0.0.1", help="待ち受けアドレス (既定: 127.0.0.1)")
+    ap.add_argument("revs", nargs="*", help=tr("cli_help_revs"))
+    ap.add_argument("-C", dest="repo", default=".", help=tr("cli_help_repo"))
+    ap.add_argument("--host", default="127.0.0.1", help=tr("cli_help_host"))
     ap.add_argument("--port", type=int, default=8000)
-    ap.add_argument("--open", action="store_true", help="起動後にブラウザで開く")
-    ap.add_argument("--no-remotes", action="store_true", help="リモートブランチを除外")
-    ap.add_argument("--no-tags", action="store_true", help="タグを除外")
-    ap.add_argument("--full-layout", action="store_true",
-                    help="ノードが多くても dot のレイアウト最適化を省略しない (遅いが交差が少し減る)")
-    ap.add_argument("--no-count", action="store_true", help="省略数 (+N) の計算をしない")
-    ap.add_argument("--rankdir", default="BT", help="BT(下から上) / TB / LR (既定: BT)")
-    ap.add_argument("--dot", action="store_true", help="dot を標準出力に出して終了")
-    ap.add_argument("--no-wip", action="store_true", help="未コミットの変更 (WIP ノード) を表示しない")
-    ap.add_argument("--read-only", action="store_true", help="書き込み操作 (ブランチ/タグ作成・チェックアウト) を無効にする")
-    ap.add_argument("--allow-write", action="store_true",
-                    help="127.0.0.1 以外で待ち受けるときも書き込み操作を許可する (既定では無効)")
-    ap.add_argument("--lan", action="store_true",
-                    help="--host 0.0.0.0 --allow-write の省略形 (他の端末からも操作可。認証はないので信頼できるネットワークで)")
+    ap.add_argument("--open", action="store_true", help=tr("cli_help_open"))
+    ap.add_argument("--no-remotes", action="store_true", help=tr("cli_help_no_remotes"))
+    ap.add_argument("--no-tags", action="store_true", help=tr("cli_help_no_tags"))
+    ap.add_argument("--full-layout", action="store_true", help=tr("cli_help_full_layout"))
+    ap.add_argument("--no-count", action="store_true", help=tr("cli_help_no_count"))
+    ap.add_argument("--rankdir", default="BT", help=tr("cli_help_rankdir"))
+    ap.add_argument("--dot", action="store_true", help=tr("cli_help_dot"))
+    ap.add_argument("--no-wip", action="store_true", help=tr("cli_help_no_wip"))
+    ap.add_argument("--read-only", action="store_true", help=tr("cli_help_read_only"))
+    ap.add_argument("--allow-write", action="store_true", help=tr("cli_help_allow_write"))
+    ap.add_argument("--lan", action="store_true", help=tr("cli_help_lan"))
+    ap.add_argument("--lang", choices=sorted(TRANSLATIONS), help=tr("cli_help_lang"))
+    ap.add_argument("--check-i18n", action="store_true", help=tr("cli_help_check_i18n"))
     OPTS = ap.parse_args()
-    UI_LANG = detect_language()
+    if OPTS.check_i18n:
+        sys.exit(check_i18n())
     if OPTS.lan:
         if OPTS.host == "127.0.0.1":  # --host を明示しているときはそちらを優先する
             OPTS.host = "0.0.0.0"
@@ -3555,7 +4313,7 @@ def main():
     try:
         git("rev-parse", "--git-dir")
     except (subprocess.CalledProcessError, FileNotFoundError):
-        sys.exit(f"{REPO!r} は git リポジトリではありません")
+        sys.exit(tr("cli_not_a_repo", repo=repr(REPO)))
     # サブディレクトリが指定されても、パスの扱い (status / diff はルート基準) がずれないようルートに揃える
     r = subprocess.run(["git", "-C", REPO, "rev-parse", "--show-toplevel"], capture_output=True, text=True)
     HAS_WORKTREE = r.returncode == 0
@@ -3567,13 +4325,14 @@ def main():
         print(build_graph(OPTS)[0])
         return
 
+    fill_template(HTML_TEMPLATE), fill_template(FILES_PAGE)  # 未定義の翻訳キーがあれば、起動時に KeyError で気づけるようにする
     server = ThreadingHTTPServer((OPTS.host, OPTS.port), Handler)
     url = f"http://{'localhost' if OPTS.host == '0.0.0.0' else OPTS.host}:{OPTS.port}/"  # 0.0.0.0 はブラウザで開く宛先にならない
-    print(f"serving {url}  (Ctrl+C で終了)  書き込み操作: {'有効' if WRITABLE else '無効'}")
+    print(tr("cli_serving", url=url, state=tr("cli_state_on" if WRITABLE else "cli_state_off")))
     if OPTS.host == "0.0.0.0":
-        print(f"  待ち受け: 0.0.0.0:{OPTS.port} (他の端末からは http://<このPCのIP>:{OPTS.port}/ )")
+        print(tr("cli_listening", port=OPTS.port))
         if WRITABLE:
-            print("  注意: 認証はありません。同じネットワークの誰でもブランチ作成・コミット・push などができます")
+            print(tr("cli_lan_warning"))
     if OPTS.open:
         webbrowser.open(url)
     try:
