@@ -97,6 +97,7 @@ TRANSLATIONS = {
         "reload": "↻ 更新",
         "clear": "クリア",
         "actions": "操作 ▾",
+        "ab_actions": "AB操作 ▾",
         "cancel": "キャンセル",
         "loading_graph": "コミットグラフを作成中…",
         "loading_graph_hint": "リポジトリが大きいと時間がかかります",
@@ -111,6 +112,7 @@ TRANSLATIONS = {
         "reset": "対象へリセット",
         "interactive_rebase": "対話的リベース",
         "compare_ab": "AB比較",
+        "compare_logs_ab": "ABログ比較",
         "push": "push",
         "push_branch_select": "pushするブランチ",
         "push_remote_select": "push先のremote",
@@ -539,6 +541,7 @@ TRANSLATIONS = {
         "reload": "↻ Reload",
         "clear": "Clear",
         "actions": "Actions ▾",
+        "ab_actions": "AB actions ▾",
         "cancel": "Cancel",
         "loading_graph": "Building commit graph…",
         "loading_graph_hint": "Large repositories may take longer",
@@ -553,6 +556,7 @@ TRANSLATIONS = {
         "reset": "Reset to target",
         "interactive_rebase": "Interactive rebase",
         "compare_ab": "Compare A/B",
+        "compare_logs_ab": "Compare AB logs",
         "push": "Push",
         "push_branch_select": "Branch to push",
         "push_remote_select": "Remote to push to",
@@ -1306,8 +1310,9 @@ __FAVICON__
   .menubar-spacer { flex: 1 1 auto; order: 1; }
   #remoteActions { order: 2; }
   #cmpActionsWrap { order: 3; }
-  #otherActionsWrap { order: 4; }
-  #compareToolbar > .cmp-hash, #clearCmpBtn { order: 5; }
+  #abActionsWrap { order: 4; }
+  #otherActionsWrap { order: 5; }
+  #compareToolbar > .cmp-hash { order: 6; }
   .abtn.mbtn { background: transparent; border-color: transparent; padding: 4px 10px; }
   .abtn.mbtn:hover { background: #dde6fa; border-color: #b8c7ee; }
   .abtn.mbtn[aria-expanded="true"] { background: #cfdcf8; border-color: #9fb4e8; }
@@ -1452,6 +1457,9 @@ __FAVICON__
     <div class="menubar-left">
       <button id="reload" class="sbtn" disabled title="{{reload_title}}">{{reload}}</button>
       <button id="graphZoomReset" class="sbtn" title="{{graph_zoom_reset}}">100%</button>
+      <span class="cmp-hash" id="actionTarget"></span>
+      <span class="cmp-hash" id="cmpA"></span><span class="cmp-hash" id="cmpB"></span>
+      <button class="sbtn" id="clearCmpBtn">{{clear}}</button>
     </div>
     <span class="menubar-spacer"></span>
     <span class="menu-wrap" id="cmpActionsWrap">
@@ -1474,9 +1482,6 @@ __FAVICON__
           <button class="abtn danger" id="deleteTagBtn" data-cact="delete-tag">{{delete_tag}}</button>
           <button class="abtn" data-cact="checkout">{{checkout}}</button>
         </div>
-        <hr class="menu-separator" id="compareMenuSeparator" hidden>
-        <button class="abtn" id="compareBtn" hidden>{{compare_ab}}</button>
-        <button class="abtn" id="rebaseRangeBtn" hidden title="{{tip_rebase_range}}">{{rebase_range}}</button>
         <div class="menu-section" id="stashActions" hidden>
           <button class="abtn" id="stashApplyBtn" title="{{tip_stash_apply}}">{{stash_apply}}</button>
           <button class="abtn" id="stashPopBtn" title="{{tip_stash_pop}}">{{stash_pop}}</button>
@@ -1489,6 +1494,14 @@ __FAVICON__
       <button class="abtn mbtn" data-cact="pull">pull</button>
       <button class="abtn mbtn" data-cact="fetch">fetch</button>
     </div>
+    <span class="menu-wrap" id="abActionsWrap">
+      <button class="abtn mbtn" id="abActToggle" aria-haspopup="true" aria-expanded="false" aria-controls="abActions">{{ab_actions}}</button>
+      <div class="dropdown" id="abActions" hidden>
+        <button class="abtn" id="compareBtn" hidden>{{compare_ab}}</button>
+        <button class="abtn" id="compareLogsBtn" hidden>{{compare_logs_ab}}</button>
+        <button class="abtn" id="rebaseRangeBtn" hidden title="{{tip_rebase_range}}">{{rebase_range}}</button>
+      </div>
+    </span>
     <span class="menu-wrap" id="otherActionsWrap">
       <button class="abtn mbtn" id="otherMenuBtn" aria-haspopup="true" aria-expanded="false" aria-controls="otherActions">{{other}}</button>
       <div class="dropdown" id="otherActions" hidden>
@@ -1498,9 +1511,6 @@ __FAVICON__
         <button class="abtn danger" data-cact="remote-remove" title="{{tip_remote_remove}}">{{remote_remove}}</button>
       </div>
     </span>
-    <span class="cmp-hash" id="actionTarget"></span>
-    <span class="cmp-hash" id="cmpA"></span><span class="cmp-hash" id="cmpB"></span>
-    <button class="sbtn" id="clearCmpBtn">{{clear}}</button>
   </div>
 </div>
 <div id="actionModal" hidden>
@@ -2149,10 +2159,13 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
   document.getElementById("cmpB").textContent = compareBHash ? "B: " + compareBHash.slice(0, 7) : "";
   document.getElementById("cmpActToggle").setAttribute("aria-expanded", cmpActOpen ? "true" : "false");
   document.getElementById("cmpActToggle").textContent = cmpActOpen ? t("actions").replace("▾", "▴") : t("actions");
+  document.getElementById("abActToggle").setAttribute("aria-expanded", abActOpen ? "true" : "false");
+  document.getElementById("abActToggle").textContent = abActOpen ? t("ab_actions").replace("▾", "▴") : t("ab_actions");
   document.getElementById("clearCmpBtn").disabled = !compareAHash && !compareBHash && !actionHash;
   document.getElementById("cmpActions").hidden = !cmpActOpen;
+  document.getElementById("abActions").hidden = !abActOpen;
   document.getElementById("compareBtn").hidden = !compareAHash || !compareBHash;
-  document.getElementById("compareMenuSeparator").hidden = !compareAHash || !compareBHash;
+  document.getElementById("compareLogsBtn").hidden = !compareAHash || !compareBHash;
   document.getElementById("rebaseRangeBtn").hidden = !compareAHash || !compareBHash;
   const isStash = !!actionHash && !!stashByHash[actionHash];
   document.getElementById("aActions").hidden = !actionHash || isStash;
@@ -2186,15 +2199,17 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
   document.getElementById("renameBranchBtn").disabled = !canWrite || !actionHash || isStash || !localBranches(actionHash).length;
 }
 let cmpActOpen = false;
+let abActOpen = false;
 function setOtherMenu(open) {  // 「その他」のメニュー
   const btn = document.getElementById("otherMenuBtn");
   document.getElementById("otherActions").hidden = !open;
   btn.setAttribute("aria-expanded", open ? "true" : "false");
   btn.textContent = open ? t("other").replace("▾", "▴") : t("other");
 }
-function closeMenus() {  // 開いているメニュー (操作 / その他) をすべて閉じる
-  const changed = cmpActOpen || !document.getElementById("otherActions").hidden;
+function closeMenus() {  // 開いているメニュー (操作 / AB操作 / その他) をすべて閉じる
+  const changed = cmpActOpen || abActOpen || !document.getElementById("otherActions").hidden;
   cmpActOpen = false;
+  abActOpen = false;
   setOtherMenu(false);
   if (changed) updateCmpClasses();
 }
@@ -2895,14 +2910,25 @@ function openFilesInNewTab(ev) {
 document.addEventListener("auxclick", openFilesInNewTab);
 document.addEventListener("click", openFilesInNewTab);
 document.getElementById("compareToolbar").addEventListener("click", ev => {  // メニューバー (操作 / push / pull / fetch / その他)
+  if (ev.target.closest("#abActToggle")) {
+    abActOpen = !abActOpen;
+    if (abActOpen) { cmpActOpen = false; setOtherMenu(false); }
+    updateCmpClasses();
+    saveUiState();
+    return;
+  }
   if (ev.target.closest("#otherMenuBtn")) {
     const open = document.getElementById("otherActions").hidden;
-    if (open && cmpActOpen) { cmpActOpen = false; updateCmpClasses(); }  // 同時に開くのは1つだけ
+    if (open && (cmpActOpen || abActOpen)) { cmpActOpen = false; abActOpen = false; updateCmpClasses(); }  // 同時に開くのは1つだけ
     setOtherMenu(open);
     return;
   }
   if (ev.target.closest("#compareBtn") && compareAHash && compareBHash) {
     showCompare(compareAHash, compareBHash);
+    return;
+  }
+  if (ev.target.closest("#compareLogsBtn") && compareAHash && compareBHash) {
+    showCompareLogs(compareAHash, compareBHash);
     return;
   }
   if (ev.target.closest("#rebaseRangeBtn")) { doRebaseRange(); return; }
@@ -2933,7 +2959,7 @@ document.getElementById("compareToolbar").addEventListener("click", ev => {  // 
 document.getElementById("compareToolbar").addEventListener("click", ev => {
   if (ev.target.closest("#cmpActToggle")) {
     cmpActOpen = !cmpActOpen;
-    if (cmpActOpen) setOtherMenu(false);  // 同時に開くのは1つだけ
+    if (cmpActOpen) { abActOpen = false; setOtherMenu(false); }  // 同時に開くのは1つだけ
     updateCmpClasses();
     saveUiState();
   } else if (ev.target.closest("#clearCmpBtn")) {
@@ -2959,14 +2985,13 @@ function onNodeClick(g, n, ev) {
   if (ev && (ev.ctrlKey || ev.metaKey) && actionHash && actionHash !== n.hash && !n.wip) {
     compareAHash = actionHash;
     compareBHash = n.hash;
-    cmpActOpen = true; setOtherMenu(false);
+    cmpActOpen = true; abActOpen = false; setOtherMenu(false);
     select(g);
     updateCmpClasses();
     saveUiState();
-    showCompareLogs(compareAHash, compareBHash);
     return;
   }
-  if (!n.wip) { cmpActOpen = true; setOtherMenu(false); }  // コミットを選んだら、操作メニューを自動で開く
+  if (!n.wip) { cmpActOpen = true; abActOpen = false; setOtherMenu(false); }  // コミットを選んだら、操作メニューを自動で開く
   if (n.wip) {  // 作業ツリーの変更 (WIP) ノード: ログではなく変更ファイルの一覧を出す
     clearCmp(); select(g); showWip();
     return;
