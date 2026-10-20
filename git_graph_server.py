@@ -558,7 +558,7 @@ TRANSLATIONS = {
         "quit": "終了",
         "tip_quit": "サーバーを終了します",
         "confirm_quit": "git_graph_server を終了します。このタブは操作できなくなります。よろしいですか？",
-        "server_stopped": "サーバーを終了しました。このタブは閉じて構いません。",
+        "server_stopped": "サーバーを終了しました。このタブを閉じてください。",
         "quit_failed": "終了できませんでした: {error}",
         "shutdown_forbidden": "このアドレスで待ち受けているときは、画面から終了できません (Ctrl+C で終了してください)",
         "branch_list": "ブランチ一覧",
@@ -1036,7 +1036,7 @@ TRANSLATIONS = {
         "quit": "Quit",
         "tip_quit": "Stop the server",
         "confirm_quit": "Stop git_graph_server. This tab will no longer work. Continue?",
-        "server_stopped": "The server has stopped. You can close this tab.",
+        "server_stopped": "The server has stopped. Please close this tab.",
         "quit_failed": "Could not quit: {error}",
         "shutdown_forbidden": "Cannot quit from the page while listening on this address (press Ctrl+C instead)",
         "branch_list": "Branch list",
@@ -3436,7 +3436,6 @@ document.getElementById("quitBtn").addEventListener("click", () => {  // サー�
   post("/api/shutdown", {})
     .then(() => {
       document.body.innerHTML = '<div style="padding:24px;font-size:14px">' + esc(t("server_stopped")) + "</div>";
-      try { window.close(); } catch (e) {}  // スクリプトで開いたタブでなければ閉じられない
     })
     .catch(e => setGraphStatus(t("quit_failed", {error: e.message}), "error"));
 });
@@ -5987,9 +5986,7 @@ class QuietServer(ThreadingHTTPServer):
 
 
 def api_shutdown(body):
-    """サーバーを終了する。応答を返してから止める。"""
-    if SERVER is not None:
-        threading.Thread(target=SERVER.shutdown, daemon=True).start()
+    """終了要求を返す。サーバーの停止は HTTP 応答の送信後に行う。"""
     return {"ok": True}
 
 
@@ -6089,6 +6086,8 @@ class Handler(BaseHTTPRequestHandler):
             with _write_lock:
                 res = route(body)
             self._send(200, "application/json", json.dumps(res, ensure_ascii=False))
+            if path == "/api/shutdown" and SERVER is not None:
+                threading.Thread(target=SERVER.shutdown, daemon=True).start()
         except Forbidden as e:
             self._send(403, "text/plain", str(e))
         except ValueError as e:  # JSON の不正も含む
