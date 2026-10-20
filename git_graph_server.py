@@ -2111,7 +2111,10 @@ function badge(f) {  // 変更の種類 (M/A/D/R...) のバッジ。WIP の一�
   return f.st ? '<span class="st ' + (ST_CLASS[f.st] || "stM") + '">' + esc(f.st) + "</span>" : "";
 }
 const WIP_DIR_COLLAPSE = 10;  // 1つのディレクトリの変更がこの件数以上なら、既定で畳む
+const WIP_OPEN_KEY = "git-graph-wip-open-dirs";  // /diff ページと共有する
 let wipOpenDirs = new Set();  // 開いているディレクトリ ("種別|パス")
+try { wipOpenDirs = new Set(JSON.parse(sessionStorage.getItem(WIP_OPEN_KEY) || "[]")); } catch (e) {}
+function saveWipOpenDirs() { try { sessionStorage.setItem(WIP_OPEN_KEY, JSON.stringify([...wipOpenDirs])); } catch (e) {} }
 function dirOf(path) { const i = path.lastIndexOf("/"); return i < 0 ? "" : path.slice(0, i); }
 function filesHtml(ctx, files, offset, withCheck, collapse) {
   offset = offset || 0;
@@ -3223,6 +3226,7 @@ detailView.addEventListener("click", ev => {
     if (ev.target.closest("input")) return;
     const key = dr.dataset.kind + "|" + dr.dataset.dir, open = !wipOpenDirs.has(key);
     if (open) wipOpenDirs.add(key); else wipOpenDirs.delete(key);
+    saveWipOpenDirs();
     dr.querySelector(".dtog").textContent = open ? "▼" : "▶";
     dr.closest("table").querySelectorAll("tr.frow").forEach(r => {
       if (r.dataset.dir === dr.dataset.dir) r.classList.toggle("dhide", !open);
@@ -4253,6 +4257,13 @@ def api_diff(q):
     return {"diff": diff, "encoding": encoding, "truncated": truncated}
 
 
+WIP_DIR_COLLAPSE = 10  # 1つのディレクトリの変更がこの件数以上なら畳む (画面側の JS の WIP_DIR_COLLAPSE と合わせる)
+
+
+def dir_of(path):
+    return path.rpartition("/")[0]
+
+
 DIFF_CSS = """
   html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-size: 13px; color: #222; }
   body { display: flex; }
@@ -4283,6 +4294,12 @@ DIFF_CSS = """
   .dl { padding: 0 6px; min-width: max-content; }
   .dl.ad { background: #e6ffec; } .dl.de { background: #ffebe9; }
   .dl.hk { background: #ddf4ff; color: #555; } .dl.hd { color: #777; background: #f6f8fa; }
+  #side .srow.dhide { display: none; }
+  #side .drow { margin-top: 2px; padding: 3px 6px; background: #f1f3f6; cursor: pointer; border-radius: 3px;
+                font-family: monospace; font-size: 12px; word-break: break-all; }
+  #side .drow:hover { background: #e6ebf5; }
+  #side .drow .dname { flex: 1; min-width: 0; }
+  #side .dtog { display: inline-block; width: 1em; color: #666; }
 """
 
 
@@ -4393,6 +4410,20 @@ def render_diff_page(q):
     can_commit = bool(wip_status is not None and WRITABLE and WIP_ENABLED)  # amend の差分ページには出さない
     staged_paths = {f["path"] for f in wip_status["staged"]} if can_commit else set()
     merging = bool(wip_status and wip_status.get("merging"))
+
+    # WIP: ディレクトリごとの件数・行数 (右ペインの filesHtml と同じ集計)
+    dir_count, dir_stat = Counter(), {}
+    if wip:
+        for f in files:
+            key = (f.get("wip"), dir_of(f["path"]))
+            dir_count[key] += 1
+            st = dir_stat.setdefault(key, [0, 0])
+            st[0] += f.get("added") or 0
+            st[1] += f.get("deleted") or 0
+    cur_dir_key = (wip, dir_of(path)) if wip else None  # いま開いているファイルのディレクトリは最初から開く
+    seen_dirs = set()
+    attr = lambda s: html.escape(s, quote=True)
+
     side, last = [], None
     for f in files:
         if wip and f.get("wip") != last:
@@ -4400,6 +4431,23 @@ def render_diff_page(q):
             gall = (f'<input type="checkbox" class="gall" data-kind="{html.escape(last)}" '
                     f'title="{html.escape(tr("select_all"))}"> ') if can_commit else ""
             side.append(f'<div class="grp">{gall}{html.escape(localized_wip_title(last))}</div>')
+        fdir = dir_of(f["path"])
+        key = (f.get("wip"), fdir)
+        folded = bool(wip) and dir_count[key] >= WIP_DIR_COLLAPSE
+        is_cur_dir = folded and key == cur_dir_key
+        if folded and key not in seen_dirs:
+            seen_dirs.add(key)
+            dck = (f'<input type="checkbox" class="dck" data-kind="{attr(f["wip"])}" data-dir="{attr(fdir)}"> '
+                   if can_commit else "")
+            data_cur = ' data-cur="1"' if is_cur_dir else ""
+            label = fdir + "/" if fdir else tr("dir_root")
+            plus, minus = dir_stat[key]
+            side.append(
+                f'<div class="srow drow" data-kind="{attr(f["wip"])}" data-dir="{attr(fdir)}"'
+                f'{data_cur} title="{attr(tr("dir_toggle"))}">{dck}'
+                f'<span class="dname"><span class="dtog">▶</span> {html.escape(label)} '
+                f'<span class="hint">({html.escape(tr("n_items", n=dir_count[key]))}) '
+                f'<span class="plus">+{plus}</span> <span class="minus">-{minus}</span></span></span></div>')
         fname = f"{f['old_path']} => {f['path']}" if f.get("old_path") else f["path"]
         if f.get("label"):
             counts = html.escape(tr(f["label"]))
@@ -4413,13 +4461,19 @@ def render_diff_page(q):
         cur = "cur" if f["path"] == path and (not wip or f.get("wip") == wip) else ""
         link = (f'<a class="{cur}" href="{html.escape(diff_url(ctx, f))}">'
                 f'<span>{html.escape(fname)}</span><span class="n">{counts}</span></a>')
-        if can_commit:
-            on = " checked" if (merging or f["path"] in staged_paths) else ""
-            link = (f'<div class="srow"><input type="checkbox" class="wck" data-kind="{html.escape(f["wip"])}" '
-                    f'data-path="{html.escape(f["path"], quote=True)}"{on}>{link}</div>')
+        if wip:
+            box = ""
+            if can_commit:
+                on = " checked" if (merging or f["path"] in staged_paths) else ""
+                box = (f'<input type="checkbox" class="wck" data-kind="{attr(f["wip"])}" '
+                       f'data-dir="{attr(fdir)}" data-path="{attr(f["path"])}"{on}>')
+            hide = " dhide" if folded and not is_cur_dir else ""
+            link = (f'<div class="srow frow{hide}" data-kind="{attr(f["wip"])}" '
+                    f'data-dir="{attr(fdir)}">{box}{link}</div>')
         side.append(link)
     commit_box = ""
     commit_js = ""
+    fold_js = DIFF_FOLD_JS if wip else ""
     if can_commit:
         commit_box = ('<div class="cbox"><textarea id="cmsg" placeholder="' + html.escape(tr("wip_commit_message"), quote=True) + '"></textarea>'
                       '<div><button id="cbtn" class="wbtn">' + html.escape(tr("wip_commit")) + '</button></div>'
@@ -4445,8 +4499,37 @@ def render_diff_page(q):
   <div class="diff">{diff_lines_html(d["diff"]) or '<p class="hint">' + tr("no_diff") + '</p>'}</div>
 </div>
 <script>{COPY_JS}</script>
+<script>{fold_js}</script>
 <script>{commit_js}</script>
 </body></html>
+"""
+
+
+DIFF_FOLD_JS = r"""
+const OPEN_KEY = "git-graph-wip-open-dirs";  // 右ペイン (WIP 一覧) と共有する。キーは "種別|ディレクトリ"
+function loadOpen() { try { return new Set(JSON.parse(sessionStorage.getItem(OPEN_KEY) || "[]")); } catch (e) { return new Set(); } }
+function saveOpen(s) { try { sessionStorage.setItem(OPEN_KEY, JSON.stringify([...s])); } catch (e) {} }
+const openDirs = loadOpen();
+function setDir(row, on) {
+  row.querySelector(".dtog").textContent = on ? "▼" : "▶";
+  document.querySelectorAll(".frow").forEach(r => {
+    if (r.dataset.kind === row.dataset.kind && r.dataset.dir === row.dataset.dir) r.classList.toggle("dhide", !on);
+  });
+}
+document.querySelectorAll(".drow").forEach(row => {
+  const key = row.dataset.kind + "|" + row.dataset.dir;
+  if (row.dataset.cur) openDirs.add(key);
+  setDir(row, openDirs.has(key));
+});
+saveOpen(openDirs);
+document.addEventListener("click", ev => {
+  const row = ev.target.closest(".drow");
+  if (!row || ev.target.closest("input")) return;
+  const key = row.dataset.kind + "|" + row.dataset.dir, on = !openDirs.has(key);
+  if (on) openDirs.add(key); else openDirs.delete(key);
+  saveOpen(openDirs);
+  setDir(row, on);
+});
 """
 
 
@@ -4463,14 +4546,19 @@ function sync() {
     g.checked = c.length > 0 && k === c.length;
     g.indeterminate = k > 0 && k < c.length;
   });
+  document.querySelectorAll(".dck").forEach(g => {
+    const c = cks().filter(x => x.dataset.kind === g.dataset.kind && x.dataset.dir === g.dataset.dir), k = c.filter(x => x.checked).length;
+    g.checked = c.length > 0 && k === c.length;
+    g.indeterminate = k > 0 && k < c.length;
+  });
 }
 document.addEventListener("change", ev => {
-  const g = ev.target.closest(".gall");
-  if (g) cks().filter(x => x.dataset.kind === g.dataset.kind).forEach(x => {
-    // 同じファイルが ステージ済み と 未ステージ の両方にあるときは、同じ状態にそろえる
-    cks().filter(y => y.dataset.path === x.dataset.path).forEach(y => { y.checked = g.checked; });
-  });
-  else if (ev.target.closest(".wck")) cks().filter(y => y.dataset.path === ev.target.dataset.path).forEach(y => { y.checked = ev.target.checked; });
+  const setPath = (p, v) => cks().filter(y => y.dataset.path === p).forEach(y => { y.checked = v; });
+  const g = ev.target.closest(".gall"), d = ev.target.closest(".dck");
+  if (g) cks().filter(x => x.dataset.kind === g.dataset.kind).forEach(x => setPath(x.dataset.path, g.checked));
+  else if (d) cks().filter(x => x.dataset.kind === d.dataset.kind && x.dataset.dir === d.dataset.dir)
+    .forEach(x => setPath(x.dataset.path, d.checked));
+  else if (ev.target.closest(".wck")) setPath(ev.target.dataset.path, ev.target.checked);
   else return;
   sync();
 });
