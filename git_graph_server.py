@@ -171,6 +171,8 @@ TRANSLATIONS = {
         "wip_title": "作業ツリーの変更 (WIP)",
         "no_changes": "変更はありません",
         "wip_commit_message": "コミットメッセージ",
+        "wip_commit_branch": "コミット先ブランチ (任意)",
+        "wip_commit_branch_placeholder": "空欄なら現在のブランチ",
         "wip_commit": "コミット",
         "wip_execute": "実行中…",
         "staged": "ステージ済み (git add 済み)",
@@ -647,6 +649,8 @@ TRANSLATIONS = {
         "wip_title": "Working tree changes (WIP)",
         "no_changes": "No changes.",
         "wip_commit_message": "Commit message",
+        "wip_commit_branch": "Commit to branch (optional)",
+        "wip_commit_branch_placeholder": "Leave blank for the current branch",
         "wip_commit": "Commit",
         "wip_execute": "Running…",
         "staged": "Staged (git add)",
@@ -1217,7 +1221,8 @@ def build_graph(opts):
     # merge-base を git で総当たり (O(n^2) 回のプロセス起動) せず、メモリ上で求める。
     # desc[x] = x の子孫である base コミットの集合 (ビットマスク)。
     # x が (a, b) の merge-base <=> a, b が desc[x] に入り、どの子の desc にも a, b が揃って入っていない。
-    base = set(labels) | {h for h in parents if not children[h]}
+    # 参照も子孫もないルートコミットも、履歴の始点として必ず表示する。
+    base = set(labels) | {h for h in parents if not children[h]} | {h for h, ps in parents.items() if not ps}
     bit = {h: 1 << i for i, h in enumerate(sorted(base))}
     desc = defaultdict(int)
     for h in order:  # 子 -> 親
@@ -1393,7 +1398,7 @@ __FAVICON__
   .graph-toast-close { flex: none; border: 0; background: transparent; color: inherit; cursor: pointer; font: inherit; padding: 0 2px; }
   #compareControls { flex: 0 0 auto; position: relative; z-index: 6; padding: 4px 8px; border-bottom: 1px solid #ccc; background: #f4f5f7; }
   #compareControls [hidden] { display: none; }
-  #compareToolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+  #compareToolbar { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
   #compareToolbar .sbtn { margin: 0; }
   #compareToolbar button { white-space: nowrap; }
   .sbtn.danger { background: #fde8e8; } .sbtn.danger:hover { background: #fbd3d3; }
@@ -1401,16 +1406,19 @@ __FAVICON__
   .menubar-group { display: flex; align-items: center; gap: 2px; }
   .menubar-spacer { flex: 1 1 auto; order: 1; }
   #remoteActions { order: 2; }
-  #cmpActionsWrap { order: 3; }
-  #abActionsWrap { order: 4; }
-  #otherActionsWrap { order: 5; }
-  #compareToolbar > .cmp-hash { order: 6; }
+  #cmpActionsWrap { order: 4; }
+  #abActionsWrap { order: 5; }
+  #otherActionsWrap { order: 6; }
+  #compareToolbar > .cmp-hash { order: 7; }
   .abtn.mbtn { background: transparent; border-color: transparent; padding: 4px 10px; }
   .abtn.mbtn:hover { background: #dde6fa; border-color: #b8c7ee; }
   .abtn.mbtn[aria-expanded="true"] { background: #cfdcf8; border-color: #9fb4e8; }
   .abtn.mbtn:disabled { background: transparent; border-color: transparent; }
   .menu-wrap { position: relative; display: inline-block; }
   .dropdown { position: absolute; top: calc(100% + 2px); left: 0; z-index: 20; display: flex; flex-direction: column; gap: 4px; box-sizing: border-box; min-width: 220px; max-width: min(440px, calc(100vw - 24px)); max-height: calc(100vh - 90px); overflow: auto; padding: 6px; border: 1px solid #ccc; border-radius: 4px; background: #fff; box-shadow: 0 2px 8px #0003; }
+  /* 右端のメニューは右ペイン側へはみ出さないよう右端を基準に開く。 */
+  #cmpActionsWrap, #abActionsWrap, #otherActionsWrap { position: static; }
+  #cmpActionsWrap .dropdown, #abActionsWrap .dropdown, #otherActionsWrap .dropdown { left: auto; right: 0; }
   .dropdown[hidden] { display: none; }
   .dropdown .abtn { text-align: left; }
   .dropdown .hint { margin: 2px 4px; }
@@ -1520,7 +1528,8 @@ __FAVICON__
   td.fp a { color: inherit; text-decoration: none; } td.fp a:hover { text-decoration: underline; }
   td.fk { width: 1%; padding-right: 0; } td.fk input, h3 .wipall { margin: 0 6px 0 0; vertical-align: middle; cursor: pointer; }
   .wipbox { border: 1px solid #ddd; background: #fafafa; border-radius: 4px; padding: 8px; margin: 8px 0; }
-  .wipbox textarea { width: 100%; box-sizing: border-box; min-height: 56px; padding: 4px 6px; border: 1px solid #bbb; border-radius: 3px; font: inherit; resize: vertical; }
+  .wipbox textarea, .wipbox input[type=text] { width: 100%; box-sizing: border-box; padding: 4px 6px; border: 1px solid #bbb; border-radius: 3px; font: inherit; }
+  .wipbox textarea { min-height: 56px; resize: vertical; }
   .wipbox .arow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 6px; }
   .wipbox .amendrow { display: block; margin: 0 0 6px; cursor: pointer; }
   .wipbox .amendrow input { margin: 0 6px 0 0; vertical-align: middle; }
@@ -1555,6 +1564,7 @@ __FAVICON__
       <button id="graphZoomReset" class="sbtn" title="{{graph_zoom_reset}}">100%</button>
       <span class="cmp-hash" id="actionTarget"></span>
       <span class="cmp-hash" id="cmpA"></span><span class="cmp-hash" id="cmpB"></span>
+      <button class="abtn mbtn" id="swapAbBtn" hidden>{{swap_ab}}</button>
       <button class="sbtn" id="clearCmpBtn">{{clear}}</button>
     </div>
     <span class="menubar-spacer"></span>
@@ -2248,7 +2258,7 @@ function showCompare(a, b, fromHistory) {  // a, b はコミットのハッシ�
   document.body.classList.remove("compare-logs-mode");
   if (!fromHistory) pushScreen({screen: "compare", a: a, b: b});
   setDocumentTitle(t("compare_heading", {from: a.slice(0, 7), to: b.slice(0, 7)}));
-  const btns = '<button class="back-btn">' + t("back_history") + '</button><button class="sbtn">' + esc(t("swap_ab")) + '</button>';
+  const btns = '<button class="back-btn">' + t("back_history") + '</button>';
   detailView.innerHTML = btns + '<p class="hint">' + esc(t("loading")) + '</p>';
   showView("detail");
   api("/api/compare", {from: a, to: b}).then(r => {
@@ -2287,6 +2297,7 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
   if (!compareAHash || !compareBHash) abActOpen = false;
   document.getElementById("cmpActToggle").disabled = !actionHash;
   document.getElementById("abActToggle").disabled = !compareAHash || !compareBHash;
+  document.getElementById("swapAbBtn").hidden = !compareAHash || !compareBHash;
   document.getElementById("cmpActToggle").setAttribute("aria-expanded", cmpActOpen ? "true" : "false");
   document.getElementById("cmpActToggle").textContent = cmpActOpen ? t("actions").replace("▾", "▴") : t("actions");
   document.getElementById("abActToggle").setAttribute("aria-expanded", abActOpen ? "true" : "false");
@@ -3061,13 +3072,6 @@ detailView.addEventListener("click", ev => {
   if (rb) { doWipResolve(rb.dataset.resolve); return; }
   const ab = ev.target.closest(".abtn");
   if (ab) { doAction(ab); return; }
-  if (ev.target.closest(".sbtn")) {
-    [compareAHash, compareBHash] = [compareBHash, compareAHash];
-    updateCmpClasses();
-    saveUiState();
-    if (compareAHash && compareBHash) showCompare(compareAHash, compareBHash);
-    return;
-  }
   if (ev.target.closest(".back-btn")) { history.back(); return; }
   const dr = ev.target.closest("tr.drow");
   if (dr) {  // ディレクトリ行: 配下のファイルを表示 / 非表示
@@ -3099,6 +3103,12 @@ function openFilesInNewTab(ev) {
 document.addEventListener("auxclick", openFilesInNewTab);
 document.addEventListener("click", openFilesInNewTab);
 document.getElementById("compareToolbar").addEventListener("click", ev => {  // メニューバー (操作 / push / pull / fetch / その他)
+  if (ev.target.closest("#swapAbBtn")) {
+    [compareAHash, compareBHash] = [compareBHash, compareAHash];
+    updateCmpClasses();
+    saveUiState();
+    return;
+  }
   if (ev.target.closest("#abActToggle")) {
     abActOpen = !abActOpen;
     if (abActOpen) { cmpActOpen = false; setOtherMenu(false); }
@@ -3285,6 +3295,8 @@ function setWipAmend(on) {  // amend のチェックを切り替える: 差分�
 }
 function doWipCommit() {
   const amend = wipAmendOn, paths = wipPaths(), ta = detailView.querySelector("#wipMsg"), msg = ta ? ta.value : "";
+  const branchInput = detailView.querySelector("#wipBranch");
+  const branch = branchInput ? branchInput.value.trim() : "";
   if (!msg.trim()) { wipSay(t("message_required"), false); return; }
   if (!amend && !paths.length) { wipSay(t("select_files"), false); return; }
   if (amend) {
@@ -3295,7 +3307,7 @@ function doWipCommit() {
   const btn = detailView.querySelector("#wipCommit");
   if (btn) btn.disabled = true;
   wipSay(t("wip_execute"), true);
-  post("/api/wip-commit", {paths: paths, message: msg, amend: amend})
+  post("/api/wip-commit", {paths: paths, message: msg, amend: amend, branch: branch})
     .then(r => {
       wipMsg = ""; wipMsgNormal = ""; wipSel = {}; wipAmendOn = false;
       showWip(true, r.message);
@@ -3390,6 +3402,7 @@ function showWip(fromHistory, okMsg) {
     const box = canCommit && (files.length || wipAmendOn)
       ? '<div class="wipbox">' +
         '<textarea id="wipMsg" placeholder="' + t("wip_commit_message") + '"></textarea>' +
+        (!wipAmendOn ? '<input type="text" id="wipBranch" placeholder="' + esc(t("wip_commit_branch_placeholder")) + '" aria-label="' + esc(t("wip_commit_branch")) + '">' : "") +
         (canAmend ? '<label class="amendrow"><input type="checkbox" id="wipAmendCk"' + (wipAmendOn ? " checked" : "") +
           '>' + t("amend_checkbox") + '</label>' : "") +
         '<div class="arow"><button class="wbtn" id="wipCommit">' + t("wip_commit") + '</button>' +
@@ -4896,6 +4909,24 @@ def api_wip_commit(body):
     if not WIP_ENABLED:
         raise UserError("wip_disabled")
     amend = body.get("amend") is True
+    branch = str(body.get("branch", "")).strip()
+    if branch and amend:
+        raise UserError("amend_blocked")
+    if branch:
+        check_ref_name("branch", branch)
+        current = api_head().get("branch")
+        if branch != current:
+            exists = subprocess.run(["git", "-C", REPO, "rev-parse", "--verify", "--quiet", "refs/heads/" + branch],
+                                    capture_output=True).returncode == 0
+            if exists:
+                checkout = checkout_resolving([branch], None)
+                if checkout and checkout.get("blocked"):
+                    raise ValueError(tr("checkout_failed"))
+            elif has_head():
+                run_git_write("branch", branch, "HEAD")
+                run_git_write("checkout", branch)
+            else:
+                run_git_write("checkout", "-b", branch)
     if amend:
         if not has_head():
             raise UserError("amend_no_commit")
