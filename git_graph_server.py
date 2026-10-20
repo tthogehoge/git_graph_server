@@ -215,7 +215,7 @@ TRANSLATIONS = {
         "no_commits_yet": "(コミットなし)",
         "copy_hash_title": "ハッシュ (40桁) をコピー",
         "set_compare": "比較 {slot} に設定",
-        "swap_ab": "A ⇄ B 入れ替え",
+        "swap_ab": "A⇄B",
         "compare_heading": "比較 {from} → {to}",
         "compare_logs_heading": "ログ比較 {from} → {to}",
         "file_log_heading": "ファイルログ: {path}",
@@ -693,7 +693,7 @@ TRANSLATIONS = {
         "no_commits_yet": "(no commits)",
         "copy_hash_title": "Copy the hash (40 characters)",
         "set_compare": "Set as comparison {slot}",
-        "swap_ab": "Swap A ⇄ B",
+        "swap_ab": "A⇄B",
         "compare_heading": "Compare {from} → {to}",
         "compare_logs_heading": "Compare logs {from} → {to}",
         "file_log_heading": "File log: {path}",
@@ -1434,7 +1434,7 @@ __FAVICON__
   #splitter:hover, body.resizing #splitter { background: #c8d8f0; }
   body.resizing { cursor: col-resize; user-select: none; }
   #panel { flex: 0 0 var(--panel-width, 480px); min-width: 240px; display: flex; flex-direction: column; border-left: 1px solid #ccc; background: #fafafa; box-sizing: border-box; }
-  body.compare-logs-mode #panel { flex-basis: min(760px, 68vw); }
+  body.compare-logs-mode #panel { flex-basis: min(var(--compare-panel-width, 760px), 68vw); }
   #listView, #detailView { flex: 1; min-height: 0; overflow: auto; padding: 14px; box-sizing: border-box; }
   #detailView { display: none; background: #fff; }
   h2 { font-size: 14px; margin: 0 0 8px; }
@@ -1725,12 +1725,16 @@ document.addEventListener("keydown", ev => {
 const splitter = document.getElementById("splitter");
 let resizing = false;
 const PANEL_WIDTH_KEY = "git-graph-panel-width";
-function applyPanelWidth(width) {
-  document.documentElement.style.setProperty("--panel-width", Math.max(240, Math.min(window.innerWidth - 166, width)) + "px");
+const COMPARE_PANEL_WIDTH_KEY = "git-graph-compare-panel-width";
+function applyPanelWidth(width, compareLogs = document.body.classList.contains("compare-logs-mode")) {
+  const property = compareLogs ? "--compare-panel-width" : "--panel-width";
+  document.documentElement.style.setProperty(property, Math.max(240, Math.min(window.innerWidth - 166, width)) + "px");
 }
 try {  // 別ページ (差分など) から戻ったときも、右ペインの幅を保つ
   const saved = parseInt(localStorage.getItem(PANEL_WIDTH_KEY), 10);
   if (saved > 0) applyPanelWidth(saved);
+  const compareSaved = parseInt(localStorage.getItem(COMPARE_PANEL_WIDTH_KEY), 10);
+  if (compareSaved > 0) applyPanelWidth(compareSaved, true);
 } catch (e) {}
 splitter.addEventListener("pointerdown", ev => {
   resizing = true;
@@ -1744,7 +1748,11 @@ splitter.addEventListener("pointermove", ev => {
 });
 function stopResizing() {
   if (resizing) {
-    try { localStorage.setItem(PANEL_WIDTH_KEY, String(parseInt(getComputedStyle(document.getElementById("panel")).width, 10))); } catch (e) {}
+    try {
+      const compareLogs = document.body.classList.contains("compare-logs-mode");
+      localStorage.setItem(compareLogs ? COMPARE_PANEL_WIDTH_KEY : PANEL_WIDTH_KEY,
+                           String(parseInt(getComputedStyle(document.getElementById("panel")).width, 10)));
+    } catch (e) {}
   }
   resizing = false;
   document.body.classList.remove("resizing");
@@ -3027,6 +3035,7 @@ function restoreScreen(state) {
   else {
     if (observer) { observer.disconnect(); observer = null; }
     ++token;
+    document.body.classList.remove("compare-logs-mode");
     listView.innerHTML = homeHtml;
     showView("list");
     setDocumentTitle("");
