@@ -31,6 +31,8 @@
   POST /api/rebase-range {from, to} (JSON)                   A以降の現在のブランチをBの上にリベース (A→B。競合したら中止して元に戻す)
   POST /api/rebase-descendants {from, to} (JSON)              Aの子孫にある全ローカルブランチをBへリベース (分岐構造を維持)
   POST /api/rebase-equivalent {from, to} (JSON)               A/Bの同一差分コミットを比較し、AをB側の親へ寄せる
+  POST /api/find-equivalent-parents {from, to} (JSON)          A/Bを先端から調べ、同じ差分のコミットへ選択位置を移す
+  POST /api/find-equivalent-branch {from, to} (JSON)          Bの子孫ブランチを先端から親へ調べ、Aに近い同一差分コミットを探す
   POST /api/cherry-pick {hash} (JSON)                        選んだコミットを現在の HEAD にチェリーピック (競合したら中止して元に戻す)
   POST /api/revert {hash} (JSON)                             選んだコミットを打ち消すコミットを作る (git revert。マージコミットは第1親基準。競合したら中止して元に戻す)
   POST /api/abort (JSON)                                     進行中のマージ / リベース / チェリーピック / リバートを --abort で中断
@@ -45,6 +47,7 @@
   /api/stash-list                                            stash の一覧 (git stash list)。画面では「操作」メニューの「stash一覧」
   POST /api/stash {hash, op} (JSON)                          stash の apply / pop / drop (hash は stash のコミット。op は apply | pop | drop)。画面では、stash を比較のAに選んだときの操作
   /api/branches | /api/tags                                  ブランチ一覧 / タグ一覧 (api_log と同じ形式)。画面では「その他」メニュー
+  /api/branches-containing?hash=<hash>                       コミットを含むブランチ一覧
   POST /api/shutdown (JSON)                                  サーバーを終了 (画面の左上の「終了」ボタン)
   /api/reflog?[branch=<名前>]&skip=0&limit=500               reflog (省略時は HEAD、branch 指定でそのローカルブランチ)。画面では「操作」メニューの「reflog」
   POST /api/fetch {prune} | /api/pull {mode} | /api/push {branch, force, set_upstream} (JSON)
@@ -113,7 +116,7 @@ TRANSLATIONS = {
         "rebase": "リベース",
         "rebase_range": "A..HEADをBへリベース",
         "rebase_descendants": "A..末端をBへリベース",
-        "rebase_equivalent": "同じ差分をB側へ寄せる",
+        "rebase_equivalent": "AをB側へ寄せる",
         "cherry_pick": "チェリーピック",
         "reset": "対象へリセット",
         "interactive_rebase": "対話的リベース",
@@ -148,6 +151,9 @@ TRANSLATIONS = {
         "current_branch": "カレントブランチ",
         "reload_busy": "更新中…",
         "target_label": "対象",
+        "branch_log_title": "{name} のログ",
+        "branches_containing_none": "コミット {hash} を含むブランチがありません",
+        "branch_log": "ブランチのログを表示",
         "commit_label": "コミット",
         "back_history": "← 履歴一覧に戻る",
         "all_log_to_root": "最初のコミットまでの全ログ",
@@ -232,7 +238,7 @@ TRANSLATIONS = {
         "tip_rebase": "現在のブランチをAの上にリベース",
         "tip_rebase_range": "現在のブランチの A..HEAD を B の上にリベース",
         "tip_rebase_descendants": "Aから末端までの全ローカルブランチをBの上に順次リベース",
-        "tip_rebase_equivalent": "A/Bの同じ差分コミットを比較し、AをB側の親へ寄せる",
+        "tip_rebase_equivalent": "A/Bの同じ内容のコミットを探し、AをB側へ寄せる",
         "tip_irebase": "現在のブランチをAの上に、コミットの並べ替え・squash・メッセージ変更・削除をしながらリベース (git rebase -i)",
         "tip_cherry": "Aを現在のHEADにチェリーピック",
         "tip_reset": "現在のHEADを対象コミットへリセット",
@@ -321,7 +327,7 @@ TRANSLATIONS = {
         "confirm_rebase": "ブランチ {branch} を コミット {hash} の上にリベースします。{branch} のコミットは作り直され、履歴が書き換わります (競合したときは自動で元に戻します)。よろしいですか？",
         "confirm_rebase_range": "ブランチ {branch} の A ({from}) より後のコミットを B ({to}) の上にリベースします。履歴が書き換わります (競合したときは自動で元に戻します)。よろしいですか？",
         "confirm_rebase_descendants": "A ({from}) から末端までの全ローカルブランチを B ({to}) の上に順次リベースします。分岐構造を保ったまま履歴を書き換えます (競合したときは自動で元に戻します)。よろしいですか？",
-        "confirm_rebase_equivalent": "A ({from}) と B ({to}) の共通親から同じ差分のコミットを比較し、A側の不一致以降をB側の親へリベースします。処理中はAをチェックアウトし、完了後に元のブランチへ戻します。よろしいですか？",
+        "confirm_rebase_equivalent": "A ({from}) と B ({to}) を先端から親へ調べ、件名が同じコミットのツリー内容を比較します。内容が一致したコミット以降のA側履歴をB側へリベースします。処理中はAをチェックアウトし、完了後に元のブランチへ戻します。よろしいですか？",
         "rebase_error": "リベースできませんでした: {error}",
         "target_detached_head": "現在の HEAD (detached)",
         "confirm_cherry_pick": "コミット {hash} を {target} にチェリーピックします。新しいコミットが作られます (競合したときは自動で元に戻します)。よろしいですか？",
@@ -425,10 +431,20 @@ TRANSLATIONS = {
         "rebase_descendants_done": "A ({from}) から末端までの {branches} ブランチを B ({to}) の上にリベースしました",
         "rebase_descendants_dirty": "全ブランチのリベースには、未コミットの変更がない作業ツリーが必要です",
         "rebase_descendants_merges": "Aから末端までの範囲にマージコミットがあるため、分岐構造を保ったリベースはできません",
-        "rebase_equivalent_done": "A ({from}) を B ({to}) 側の親へ寄せました ({matched} 件の同一差分を確認)",
+        "rebase_equivalent_done": "A ({from}) を B ({to}) 側へ寄せました ({matched} 件の同一差分を確認)",
         "rebase_equivalent_noop": "A ({from}) は既に B ({to}) 側へ寄っています (変更なし)",
         "rebase_equivalent_head": "A ({from}) を先端に持つローカルブランチが見つかりません",
         "rebase_equivalent_merges": "A/Bの比較範囲にマージコミットがあるため、同一差分コミットを比較できません",
+        "rebase_equivalent_no_base": "Aと候補の間に共通の親がないため、同一差分を比較できません",
+        "find_equivalent_parents": "AとBで同じ親を探す",
+        "tip_find_equivalent_parents": "AとBを先端から親へ調べ、件名が同じコミットだけツリー内容を比較します。一致したコミットを新しいA/Bに設定します。履歴は変更しません",
+        "find_equivalent_parents_none": "A/Bの親方向に、件名とツリー内容が一致するコミットは見つかりませんでした",
+        "find_equivalent_parents_found": "同じツリー内容のコミットをA/Bに設定しました (A: {a} / B: {b})",
+        "find_equivalent_branch": "Bの中からAに近いものを探す",
+        "tip_find_equivalent_branch": "Bの子孫にあるローカルブランチを先端から親へ調べます。コミット件名が同じものだけツリー内容を比較し、Aに最も近いブランチの先端を新しいBに設定します。履歴は変更しません",
+        "find_equivalent_branch_none": "B ({to}) の子孫に、A ({from}) と同じ差分が続く別のローカルブランチは見つかりませんでした",
+        "find_equivalent_branch_found": "Aに最も近いブランチを新しいBに設定しました: {branches} (A側の残り {remaining} 件)",
+        "find_equivalent_branch_candidate": "{branch} (一致したB: {commit} / 一致 {matched} 件)",
         "cherry_no_worktree": "ワークツリーのないリポジトリではチェリーピックできません",
         "cherry_no_commits": "最初のコミットがないためチェリーピックできません",
         "cherry_merge_commit": "マージコミットはチェリーピックできません (どちらの親側の変更を取るか決められないため)",
@@ -591,7 +607,7 @@ TRANSLATIONS = {
         "rebase": "Rebase",
         "rebase_range": "Rebase A..HEAD onto B",
         "rebase_descendants": "Rebase A..tips onto B",
-        "rebase_equivalent": "Align identical changes with B",
+        "rebase_equivalent": "Align A with B",
         "cherry_pick": "Cherry-pick",
         "reset": "Reset to target",
         "interactive_rebase": "Interactive rebase",
@@ -626,6 +642,9 @@ TRANSLATIONS = {
         "current_branch": "Current branch",
         "reload_busy": "Reloading…",
         "target_label": "Target",
+        "branch_log_title": "Log for {name}",
+        "branches_containing_none": "No branch contains commit {hash}",
+        "branch_log": "Show branch log",
         "commit_label": "Commit",
         "back_history": "← Back to history",
         "all_log_to_root": "Full log to the first commit",
@@ -710,7 +729,7 @@ TRANSLATIONS = {
         "tip_rebase": "Rebase the current branch onto A",
         "tip_rebase_range": "Rebase A..HEAD on the current branch onto B",
         "tip_rebase_descendants": "Sequentially rebase all local branches from A to their tips onto B",
-        "tip_rebase_equivalent": "Compare identical changes in A/B and align A with B's parent history",
+        "tip_rebase_equivalent": "Find matching commits in A/B and align A with B's history",
         "tip_irebase": "Rebase the current branch onto A while reordering, squashing, rewording or dropping commits (git rebase -i)",
         "tip_cherry": "Cherry-pick A onto the current HEAD",
         "tip_reset": "Reset the current HEAD to the target commit",
@@ -799,7 +818,7 @@ TRANSLATIONS = {
         "confirm_rebase": "Rebase branch {branch} onto commit {hash}. The commits of {branch} are recreated and the history is rewritten (it is rolled back automatically on conflicts). Continue?",
         "confirm_rebase_range": "Rebase commits after A ({from}) on branch {branch} onto B ({to}). History will be rewritten (it is rolled back automatically on conflicts). Continue?",
         "confirm_rebase_descendants": "Sequentially rebase all local branches from A ({from}) to their tips onto B ({to}), preserving the branch structure. History will be rewritten (it is rolled back automatically on conflicts). Continue?",
-        "confirm_rebase_equivalent": "Compare commits with identical changes from the common parent of A ({from}) and B ({to}), then rebase A's differing suffix onto B's side. A is checked out during the operation and the original branch is restored afterward. Continue?",
+        "confirm_rebase_equivalent": "Walk from the tips of A ({from}) and B ({to}) toward their parents, comparing commit trees only when subjects match. Rebase A's history after a matching commit onto B's side. A is checked out during the operation and the original branch is restored afterward. Continue?",
         "rebase_error": "Could not rebase: {error}",
         "target_detached_head": "the current HEAD (detached)",
         "confirm_cherry_pick": "Cherry-pick commit {hash} onto {target}. A new commit will be created (it is rolled back automatically on conflicts). Continue?",
@@ -903,10 +922,20 @@ TRANSLATIONS = {
         "rebase_descendants_done": "Rebased {branches} branches from A ({from}) to their tips onto B ({to})",
         "rebase_descendants_dirty": "Rebasing all branches requires a clean working tree",
         "rebase_descendants_merges": "The A-to-tips range contains merge commits, so it cannot be rebased while preserving the branch structure",
-        "rebase_equivalent_done": "Aligned A ({from}) with B ({to})'s parent history ({matched} identical changes checked)",
+        "rebase_equivalent_done": "Aligned A ({from}) with B ({to})'s history ({matched} identical changes checked)",
         "rebase_equivalent_noop": "A ({from}) is already aligned with B ({to}) (no change)",
         "rebase_equivalent_head": "No local branch points at A ({from})",
         "rebase_equivalent_merges": "The comparison range contains merge commits, so identical commit changes cannot be compared",
+        "rebase_equivalent_no_base": "A and the candidate have no common ancestor, so their changes cannot be compared",
+        "find_equivalent_parents": "Find matching parent in A and B",
+        "tip_find_equivalent_parents": "Walk A and B from their tips toward parents. Compare commit trees only for commits with matching subjects and set matching commits as the new A/B. No history is changed",
+        "find_equivalent_parents_none": "No commits with matching subjects and trees were found while walking A/B toward their parents",
+        "find_equivalent_parents_found": "Set commits with matching trees as A/B (A: {a} / B: {b})",
+        "find_equivalent_branch": "Find closest branch to A in B",
+        "tip_find_equivalent_branch": "Walk local branches descended from B from tip toward parents. Compare commit trees only when subjects match, then set the closest branch tip as the new B. No history is changed",
+        "find_equivalent_branch_none": "No other local branch descended from B ({to}) has a matching sequence of changes with A ({from})",
+        "find_equivalent_branch_found": "Set the closest branch to A as the new B: {branches} ({remaining} remaining on A)",
+        "find_equivalent_branch_candidate": "{branch} (matching B: {commit}; {matched} identical)",
         "cherry_no_worktree": "Cannot cherry-pick in a repository without a working tree",
         "cherry_no_commits": "Cannot cherry-pick because there are no commits yet",
         "cherry_merge_commit": "Cannot cherry-pick a merge commit (it is unclear which parent's changes to take)",
@@ -1401,6 +1430,8 @@ __FAVICON__
   #compareToolbar { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
   #compareToolbar .sbtn { margin: 0; }
   #compareToolbar button { white-space: nowrap; }
+  #compareToolbar button.cmp-hash-btn { border: 0; padding: 0; background: transparent; color: inherit; cursor: pointer; }
+  #compareToolbar button.cmp-hash-btn:hover { text-decoration: underline; }
   .sbtn.danger { background: #fde8e8; } .sbtn.danger:hover { background: #fbd3d3; }
   .menubar-left { display: flex; align-items: center; gap: 6px; order: 0; }
   .menubar-group { display: flex; align-items: center; gap: 2px; }
@@ -1563,7 +1594,8 @@ __FAVICON__
       <button id="reload" class="sbtn" disabled title="{{reload_title}}">{{reload}}</button>
       <button id="graphZoomReset" class="sbtn" title="{{graph_zoom_reset}}">100%</button>
       <span class="cmp-hash" id="actionTarget"></span>
-      <span class="cmp-hash" id="cmpA"></span><span class="cmp-hash" id="cmpB"></span>
+      <button type="button" class="cmp-hash cmp-hash-btn" id="cmpA" hidden></button>
+      <button type="button" class="cmp-hash cmp-hash-btn" id="cmpB" hidden></button>
       <button class="abtn mbtn" id="swapAbBtn" hidden>{{swap_ab}}</button>
       <button class="sbtn" id="clearCmpBtn">{{clear}}</button>
     </div>
@@ -1608,6 +1640,8 @@ __FAVICON__
         <button class="abtn" id="rebaseRangeBtn" hidden title="{{tip_rebase_range}}">{{rebase_range}}</button>
         <button class="abtn" id="rebaseDescendantsBtn" hidden title="{{tip_rebase_descendants}}">{{rebase_descendants}}</button>
         <button class="abtn" id="rebaseEquivalentBtn" hidden title="{{tip_rebase_equivalent}}">{{rebase_equivalent}}</button>
+        <button class="abtn" id="findEquivalentParentsBtn" hidden title="{{tip_find_equivalent_parents}}">{{find_equivalent_parents}}</button>
+        <button class="abtn" id="findEquivalentBranchBtn" hidden title="{{tip_find_equivalent_branch}}">{{find_equivalent_branch}}</button>
       </div>
     </span>
     <span class="menu-wrap" id="otherActionsWrap">
@@ -1825,9 +1859,9 @@ function rowHtml(c, extraClass) {  // c = [hash, short, author, date, subject]
 
 // git log を CHUNK 件ずつ取得して、末尾が見えたら続きを読み込む (全件読むまで続く)
 // src を渡すと /api/log の代わりに src.path (src.params を付けて) から同じ形式の一覧を取る (stash 一覧 / reflog)
-function showLog(titleHtml, rev, topHtml, fromHistory, restoreScroll, src) {
+function showLog(titleHtml, rev, topHtml, fromHistory, restoreScroll, src, targetHash) {
   document.body.classList.remove("compare-logs-mode");
-  if (!fromHistory) pushScreen({screen: "log", titleHtml: titleHtml, rev: rev, topHtml: topHtml, src: src || null});
+  if (!fromHistory) pushScreen({screen: "log", titleHtml: titleHtml, rev: rev, topHtml: topHtml, src: src || null, targetHash: targetHash || ""});
   setDocumentTitleFromHtml(titleHtml);
   const my = ++token;
   if (observer) { observer.disconnect(); observer = null; }
@@ -1866,7 +1900,20 @@ function showLog(titleHtml, rev, topHtml, fromHistory, restoreScroll, src) {
     }
   }
 
-  if ("IntersectionObserver" in window) {
+  if (targetHash) {
+    (async () => {
+      while (!done && my === token) {
+        await more();
+        if (my !== token) return;
+        const target = listView.querySelector('tr[data-h="' + targetHash + '"]');
+        if (target) {
+          target.classList.add("cur");
+          target.scrollIntoView({block: "center"});
+          break;
+        }
+      }
+    })();
+  } else if ("IntersectionObserver" in window) {
     const recheck = () => {
       if (!done && observer && my === token) { observer.unobserve(sentinel); observer.observe(sentinel); }
     };
@@ -1875,6 +1922,28 @@ function showLog(titleHtml, rev, topHtml, fromHistory, restoreScroll, src) {
     observer.observe(sentinel);
   } else {
     (async () => { while (!done && my === token) await more(); })();
+  }
+
+}
+
+async function showContainingBranchLog(hash, selectedRef) {
+  try {
+    const result = await api("/api/branches-containing", {hash: hash});
+    if (!result.branches.length) {
+      setGraphStatus(t("branches_containing_none", {hash: hash.slice(0, 7)}), "error");
+      return;
+    }
+    const branches = result.branches;
+    const preferred = "refs/heads/" + currentBranch;
+    const branch = branches.find(b => b.ref === selectedRef) ||
+      branches.find(b => b.ref === preferred) || branches[0];
+    const options = branches.map(b => '<option value="' + esc(b.ref) + '"' +
+      (b.ref === branch.ref ? " selected" : "") + ">" + esc(b.name) + "</option>").join("");
+    const top = '<div class="meta"><label>' + esc(t("target_label")) +
+      ': <select id="containingBranchSelect" data-h="' + esc(hash) + '">' + options + "</select></label></div>";
+    showLog(esc(t("branch_log_title", {name: branch.name})), branch.tip, top, false, 0, null, hash);
+  } catch (e) {
+    setGraphStatus(t("error") + e.message, "error");
   }
 }
 
@@ -2125,6 +2194,8 @@ function showReflog(branch) {  // branch が空なら HEAD の reflog
 listView.addEventListener("change", ev => {
   const sel = ev.target.closest(".reflog-ref");
   if (sel) showReflog(sel.value);
+  const branchSel = ev.target.closest("#containingBranchSelect");
+  if (branchSel) showContainingBranchLog(branchSel.dataset.h, branchSel.value);
 });
 function showDetail(h, fromHistory) {
   document.body.classList.remove("compare-logs-mode");
@@ -2299,8 +2370,11 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
     listView.querySelectorAll('tr[data-h="' + actionHash + '"]').forEach(tr => tr.classList.add("actionTarget"));
   }
   document.getElementById("actionTarget").textContent = actionHash ? t("target_label") + ": " + actionHash.slice(0, 7) : "";
-  document.getElementById("cmpA").textContent = compareAHash ? "A: " + compareAHash.slice(0, 7) : "";
-  document.getElementById("cmpB").textContent = compareBHash ? "B: " + compareBHash.slice(0, 7) : "";
+  const cmpA = document.getElementById("cmpA"), cmpB = document.getElementById("cmpB");
+  cmpA.textContent = compareAHash ? "A: " + compareAHash.slice(0, 7) : "";
+  cmpB.textContent = compareBHash ? "B: " + compareBHash.slice(0, 7) : "";
+  cmpA.hidden = !compareAHash; cmpB.hidden = !compareBHash;
+  cmpA.title = cmpB.title = t("branch_log");
   if (!actionHash) cmpActOpen = false;
   if (!compareAHash || !compareBHash) abActOpen = false;
   document.getElementById("cmpActToggle").disabled = !actionHash;
@@ -2318,6 +2392,8 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
   document.getElementById("rebaseRangeBtn").hidden = !compareAHash || !compareBHash;
   document.getElementById("rebaseDescendantsBtn").hidden = !compareAHash || !compareBHash;
   document.getElementById("rebaseEquivalentBtn").hidden = !compareAHash || !compareBHash;
+  document.getElementById("findEquivalentParentsBtn").hidden = !compareAHash || !compareBHash;
+  document.getElementById("findEquivalentBranchBtn").hidden = !compareAHash || !compareBHash;
   const isStash = !!actionHash && !!stashByHash[actionHash];
   document.getElementById("aActions").hidden = !actionHash || isStash;
   document.getElementById("stashActions").hidden = !isStash;
@@ -2329,6 +2405,8 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
   document.getElementById("rebaseRangeBtn").disabled = !compareAHash || !compareBHash || !canMerge;
   document.getElementById("rebaseDescendantsBtn").disabled = !compareAHash || !compareBHash || !canMerge;
   document.getElementById("rebaseEquivalentBtn").disabled = !compareAHash || !compareBHash || !DATA.writable || !DATA.merge;
+  document.getElementById("findEquivalentParentsBtn").disabled = !compareAHash || !compareBHash;
+  document.getElementById("findEquivalentBranchBtn").disabled = !compareAHash || !compareBHash;
   document.getElementById("cherryBtn").disabled = !canMerge;
   document.getElementById("revertBtn").disabled = !canMerge;
   document.getElementById("resetBtn").disabled = !canMerge;
@@ -2814,6 +2892,40 @@ function doRebaseEquivalent() {
     .catch(e => { setGraphStatus(t("rebase_error", {error: e.message}), "error"); })
     .finally(() => { btn.disabled = false; });
 }
+function doFindEquivalentBranch() {
+  if (!compareAHash || !compareBHash) return;
+  const from = compareAHash, to = compareBHash, btn = document.getElementById("findEquivalentBranchBtn");
+  btn.disabled = true;
+  setCmpMsg(t("find_equivalent_branch") + "…", "progress");
+  post("/api/find-equivalent-branch", {from: from, to: to})
+    .then(r => {
+      compareBHash = r.to;
+      updateCmpClasses();
+      saveUiState();
+      setCmpMsg("", true);
+      setCmpMsg(r.message, true);
+    })
+    .catch(e => setCmpMsg(e.message, false))
+    .finally(() => { btn.disabled = false; });
+}
+function doFindEquivalentParents() {
+  if (!compareAHash || !compareBHash) return;
+  const from = compareAHash, to = compareBHash, btn = document.getElementById("findEquivalentParentsBtn");
+  btn.disabled = true;
+  setCmpMsg(t("find_equivalent_parents") + "…", "progress");
+  post("/api/find-equivalent-parents", {from: from, to: to})
+    .then(r => {
+      if (!r.from || !r.to) { setCmpMsg(r.message, true); return; }
+      compareAHash = r.from;
+      compareBHash = r.to;
+      updateCmpClasses();
+      saveUiState();
+      setCmpMsg("", true);
+      setCmpMsg(r.message, true);
+    })
+    .catch(e => setCmpMsg(e.message, false))
+    .finally(() => { btn.disabled = false; });
+}
 function doCherryPick() {
   if (!actionHash) return;
   const h = actionHash, btn = document.getElementById("cherryBtn");
@@ -3021,7 +3133,7 @@ function restoreScreen(state) {
   if (Object.prototype.hasOwnProperty.call(state, "compareB")) compareBHash = state.compareB;
   if (Object.prototype.hasOwnProperty.call(state, "actionHash")) actionHash = state.actionHash;
   cmpActOpen = false;  // メニューは画面の復元では開かない (グラフを隠さない)
-  if (state.screen === "log") showLog(state.titleHtml, state.rev, state.topHtml, true, state.scroll || 0, state.src);
+  if (state.screen === "log") showLog(state.titleHtml, state.rev, state.topHtml, true, state.scroll || 0, state.src, state.targetHash);
   else if (state.screen === "detail") showDetail(state.hash, true);
   else if (state.screen === "compare") {
     compareAHash = state.a; compareBHash = state.b;
@@ -3112,6 +3224,14 @@ function openFilesInNewTab(ev) {
 document.addEventListener("auxclick", openFilesInNewTab);
 document.addEventListener("click", openFilesInNewTab);
 document.getElementById("compareToolbar").addEventListener("click", ev => {  // メニューバー (操作 / push / pull / fetch / その他)
+  if (ev.target.closest("#cmpA") && compareAHash) {
+    showContainingBranchLog(compareAHash);
+    return;
+  }
+  if (ev.target.closest("#cmpB") && compareBHash) {
+    showContainingBranchLog(compareBHash);
+    return;
+  }
   if (ev.target.closest("#swapAbBtn")) {
     [compareAHash, compareBHash] = [compareBHash, compareAHash];
     updateCmpClasses();
@@ -3142,6 +3262,8 @@ document.getElementById("compareToolbar").addEventListener("click", ev => {  // 
   if (ev.target.closest("#rebaseRangeBtn")) { doRebaseRange(); return; }
   if (ev.target.closest("#rebaseDescendantsBtn")) { doRebaseDescendants(); return; }
   if (ev.target.closest("#rebaseEquivalentBtn")) { doRebaseEquivalent(); return; }
+  if (ev.target.closest("#findEquivalentParentsBtn")) { doFindEquivalentParents(); return; }
+  if (ev.target.closest("#findEquivalentBranchBtn")) { doFindEquivalentBranch(); return; }
   if (ev.target.closest("#branchListBtn")) { showRefList("branches"); return; }
   if (ev.target.closest("#tagListBtn")) { showRefList("tags"); return; }
   if (ev.target.closest("#stashListBtn")) { showStashList(); return; }
@@ -3775,6 +3897,24 @@ def api_branches(q):
             h = git("rev-parse", ref + "^{commit}").strip()
             commits.append([h, h[:7], ref[len("refs/remotes/"):], date, subj])
     return {"commits": commits, "has_more": False, "total": len(commits)}
+
+
+def api_branches_containing(q):
+    """指定コミットを含むローカル / リモート追跡ブランチと各 tip を返す。"""
+    h = resolve_commit(q.get("hash", [""])[0])
+    refs = ["refs/heads"]
+    if not OPTS.no_remotes:
+        refs.append("refs/remotes")
+    out = git("for-each-ref", "--contains=" + h, "--format=%(refname)%1f%(objectname)", *refs)
+    branches = []
+    for line in out.splitlines():
+        ref, tip = line.split("\x1f", 1)
+        if ref.endswith("/HEAD"):
+            continue
+        name = ref.removeprefix("refs/heads/").removeprefix("refs/remotes/")
+        branches.append({"ref": ref, "name": name, "tip": tip})
+    branches.sort(key=lambda b: (0 if b["ref"].startswith("refs/heads/") else 1, b["name"].casefold(), b["name"]))
+    return {"branches": branches}
 
 
 def api_tags(q):
@@ -5131,10 +5271,10 @@ def api_rebase_descendants(body):
     # 残し、そこから分岐したブランチだけを載せ替える。
     b_descends_from_a = is_ancestor(a, b)
     branch_tips = []
-    for name in git("for-each-ref", "--format=%(refname:short)", "refs/heads").splitlines():
-        tip = git("rev-parse", f"refs/heads/{name}" + "^{commit}").strip()
+    for ref in git("for-each-ref", "--format=%(refname)", "refs/heads").splitlines():
+        tip = git("rev-parse", ref + "^{commit}").strip()
         if is_ancestor(a, tip) and not (b_descends_from_a and is_ancestor(b, tip)):
-            branch_tips.append((name, tip))
+            branch_tips.append((ref, tip))
     if not branch_tips:
         raise ValueError(tr("rebase_failed"))
 
@@ -5210,7 +5350,7 @@ def api_rebase_descendants(body):
         if any(new_tip is None for _, _, new_tip in updates):
             raise ValueError(tr("rebase_failed"))
         # 参照の更新は、全区間のリベースが成功した後にだけ行う。
-        lines = [f"update refs/heads/{name} {new_tip} {old_tip}" for name, old_tip, new_tip in updates if new_tip != old_tip]
+        lines = [f"update {ref} {new_tip} {old_tip}" for ref, old_tip, new_tip in updates if new_tip != old_tip]
         if lines:
             r = subprocess.run(["git", "-C", REPO, "update-ref", "--stdin"], input="\n".join(lines) + "\n",
                                capture_output=True, text=True, encoding="utf-8", errors="replace")
@@ -5230,31 +5370,12 @@ def api_rebase_descendants(body):
     return {"ok": True, "message": tr("rebase_descendants_done", branches=changed, **{"from": a[:7], "to": b[:7]})}
 
 
-def api_rebase_equivalent(body):
-    """A/B の共通親から同じ差分のコミットを比較し、A 側を B 側へ寄せる。"""
-    if not HAS_WORKTREE:
-        raise UserError("rebase_no_worktree")
-    a = resolve_commit(body.get("from", ""))
-    b = resolve_commit(body.get("to", ""))
-    if is_merging() or is_rebasing():
-        raise UserError("merge_or_rebase_in_progress")
-    head = api_head()
-    if not head["branch"]:
-        raise UserError("detached_rebase")
-    if git("status", "--porcelain", "--untracked-files=all").strip():
-        raise UserError("rebase_descendants_dirty")
-    if a == b:
-        return {"ok": True, "message": tr("rebase_equivalent_noop", **{"from": a[:7], "to": b[:7]})}
-
-    target_branches = []
-    for name in git("for-each-ref", "--format=%(refname:short)", "refs/heads").splitlines():
-        tip = git("rev-parse", f"refs/heads/{name}" + "^{commit}").strip()
-        if tip == a:
-            target_branches.append((name, tip))
-    if not target_branches:
-        raise UserError("rebase_equivalent_head", **{"from": a[:7]})
-
-    base = git("merge-base", a, b).strip()
+def equivalent_commit_prefix(a, b, allow_merges=False):
+    """A/B の共通親から、親相対の差分が連続して一致するコミット数を返す。"""
+    try:
+        base = git("merge-base", a, b).strip()
+    except subprocess.CalledProcessError as e:
+        raise UserError("rebase_equivalent_no_base") from e
 
     def commit_parents(commit):
         return git("rev-list", "--parents", "-n", "1", commit).split()[1:]
@@ -5264,7 +5385,7 @@ def api_rebase_equivalent(body):
         previous = base
         for commit in path:
             ps = commit_parents(commit)
-            if len(ps) != 1 or ps[0] != previous:
+            if not ps or ps[0] != previous or (len(ps) != 1 and not allow_merges):
                 raise UserError("rebase_equivalent_merges")
             previous = commit
         return path
@@ -5280,24 +5401,111 @@ def api_rebase_equivalent(body):
         if a_diff != b_diff:
             break
         matched += 1
+    return base, a_path, b_path, matched
 
-    if matched == 0:
+
+def first_parent_commits(tip):
+    """先端からルートまでの first-parent コミットを新しい順に返す。"""
+    out = git("log", "--first-parent", "--format=%H%x1f%P%x1f%s", tip)
+    empty_tree = subprocess.check_output(
+        ["git", "-C", REPO, "hash-object", "-t", "tree", "--stdin"], input=b""
+    ).decode("ascii").strip()
+    commits = []
+    for line in out.splitlines():
+        commit, parents, subject = (line.split("\x1f", 2) + ["", "", ""])[:3]
+        parent_list = parents.split()
+        commits.append({"hash": commit, "parent": parent_list[0] if parent_list else empty_tree,
+                        "subject": subject})
+    return commits
+
+
+def nearest_equivalent_parent(a, b):
+    """両方の先端から親へ探し、件名とコミット時点のツリーが一致する最初の組を返す。"""
+    a_commits = first_parent_commits(a)
+    b_commits = first_parent_commits(b)
+    for a_index, a_commit in enumerate(a_commits):
+        for b_index, b_commit in enumerate(b_commits):
+            if a_commit["subject"] != b_commit["subject"]:
+                continue
+            comparison = subprocess.run(
+                ["git", "-C", REPO, "diff", "--quiet", "--no-ext-diff",
+                 a_commit["hash"], b_commit["hash"]],
+                capture_output=True
+            )
+            if comparison.returncode == 0:
+                return a_commits, b_commits, a_index, b_index
+            if comparison.returncode != 1:
+                raise ValueError(comparison.stderr.decode("utf-8", errors="replace").strip()
+                                 or "git diff failed")
+    return a_commits, b_commits, None, None
+
+
+def api_find_equivalent_parents(body):
+    """A/B の先端から親へ探し、件名と親相対差分が一致するコミットを返す。"""
+    a = resolve_commit(body.get("from", ""))
+    b = resolve_commit(body.get("to", ""))
+    try:
+        a_commits, b_commits, a_index, b_index = nearest_equivalent_parent(a, b)
+    except UserError:
+        return {"message": tr("find_equivalent_parents_none")}
+    if a_index is None:
+        return {"message": tr("find_equivalent_parents_none")}
+    new_a, new_b = a_commits[a_index]["hash"], b_commits[b_index]["hash"]
+    return {"from": new_a, "to": new_b,
+            "message": tr("find_equivalent_parents_found", a=new_a[:7], b=new_b[:7])}
+
+
+def api_rebase_equivalent(body):
+    """A/B の先端から親へ同一差分を探し、A の一致コミット以降を B 側へ寄せる。"""
+    if not HAS_WORKTREE:
+        raise UserError("rebase_no_worktree")
+    a = resolve_commit(body.get("from", ""))
+    b = resolve_commit(body.get("to", ""))
+    if is_merging() or is_rebasing():
+        raise UserError("merge_or_rebase_in_progress")
+    head = api_head()
+    if not head["branch"]:
+        raise UserError("detached_rebase")
+    if git("status", "--porcelain", "--untracked-files=all").strip():
+        raise UserError("rebase_descendants_dirty")
+    if a == b:
         return {"ok": True, "message": tr("rebase_equivalent_noop", **{"from": a[:7], "to": b[:7]})}
 
-    old_parent = base if matched == 0 else a_path[matched - 1]
-    new_parent = base if matched == 0 else b_path[matched - 1]
-    if matched == len(a_path):
-        # A 側に残りの差分がない場合は、同じ内容の B 側コミットへ先端を寄せる。
-        new_tip = new_parent
+    target_branches = []
+    for ref in git("for-each-ref", "--format=%(refname)", "refs/heads").splitlines():
+        tip = git("rev-parse", ref + "^{commit}").strip()
+        if tip == a:
+            target_branches.append((ref, tip))
+    if not target_branches:
+        raise UserError("rebase_equivalent_head", **{"from": a[:7]})
+
+    a_commits, b_commits, a_index, b_index = nearest_equivalent_parent(a, b)
+    if a_index is None:
+        return {"ok": True, "message": tr("rebase_equivalent_noop", **{"from": a[:7], "to": b[:7]})}
+
+    matched_a = a_commits[a_index]["hash"]
+    matched_b = b_commits[b_index]["hash"]
+    if matched_a == matched_b:
+        return {"ok": True, "message": tr("rebase_equivalent_noop", **{"from": a[:7], "to": b[:7]})}
+    # a_commits は先端からの順なので、一致コミットより前が A 側のリベース対象。
+    replay = a_commits[:a_index]
+    if not replay:
+        new_tip = matched_b
         run_git_write("checkout", "--detach", a)
         try:
-            for name, old_tip in target_branches:
-                run_git_write("update-ref", f"refs/heads/{name}", new_tip, old_tip)
+            for ref, old_tip in target_branches:
+                run_git_write("update-ref", ref, new_tip, old_tip)
             run_git_write("checkout", head["branch"])
         except Exception:
             subprocess.run(["git", "-C", REPO, "checkout", head["branch"]], capture_output=True)
             raise
-        return {"ok": True, "message": tr("rebase_equivalent_done", **{"from": a[:7], "to": new_tip[:7]}, matched=matched)}
+        return {"ok": True, "message": tr("rebase_equivalent_done", **{"from": a[:7], "to": new_tip[:7]}, matched=1)}
+
+    replay_hashes = {c["hash"] for c in replay}
+    for commit in replay_hashes:
+        parents = git("rev-list", "--parents", "-n", "1", commit).split()[1:]
+        if len(parents) > 1:
+            raise UserError("rebase_equivalent_merges")
 
     temp = f"git-graph-rebase-equivalent-{os.getpid()}-{threading.get_ident()}"
     while subprocess.run(["git", "-C", REPO, "show-ref", "--verify", "--quiet", f"refs/heads/{temp}"]).returncode == 0:
@@ -5305,16 +5513,16 @@ def api_rebase_equivalent(body):
     try:
         run_git_write("checkout", "--detach", a)
         run_git_write("checkout", "-b", temp, a)
-        r = subprocess.run(["git", "-C", REPO, "rebase", "--onto", new_parent, old_parent],
+        r = subprocess.run(["git", "-C", REPO, "rebase", "--onto", matched_b, matched_a],
                            capture_output=True, text=True, encoding="utf-8", errors="replace")
         if r.returncode != 0:
             if is_rebasing():
                 subprocess.run(["git", "-C", REPO, "rebase", "--abort"], capture_output=True)
-                raise UserError("rebase_conflict", target=new_parent[:7], cmd="git rebase --onto")
+                raise UserError("rebase_conflict", target=matched_b[:7], cmd="git rebase --onto")
             raise ValueError((r.stdout + r.stderr).strip() or tr("rebase_failed"))
         new_tip = git("rev-parse", "HEAD").strip()
-        for name, old_tip in target_branches:
-            run_git_write("update-ref", f"refs/heads/{name}", new_tip, old_tip)
+        for ref, old_tip in target_branches:
+            run_git_write("update-ref", ref, new_tip, old_tip)
         run_git_write("checkout", head["branch"])
         run_git_write("branch", "-D", temp)
     except Exception:
@@ -5323,7 +5531,41 @@ def api_rebase_equivalent(body):
         subprocess.run(["git", "-C", REPO, "checkout", head["branch"]], capture_output=True)
         subprocess.run(["git", "-C", REPO, "branch", "-D", temp], capture_output=True)
         raise
-    return {"ok": True, "message": tr("rebase_equivalent_done", **{"from": a[:7], "to": new_tip[:7]}, matched=matched)}
+    return {"ok": True, "message": tr("rebase_equivalent_done", **{"from": a[:7], "to": new_tip[:7]}, matched=1)}
+
+
+def api_find_equivalent_branch(body):
+    """B の子孫ブランチから、A と最も近い連続同一差分の履歴を探す。"""
+    a = resolve_commit(body.get("from", ""))
+    b = resolve_commit(body.get("to", ""))
+    candidates = []
+    for ref in git("for-each-ref", "--format=%(refname)", "refs/heads").splitlines():
+        name = ref.removeprefix("refs/heads/")
+        tip = git("rev-parse", ref + "^{commit}").strip()
+        if subprocess.run(["git", "-C", REPO, "merge-base", "--is-ancestor", b, tip],
+                          capture_output=True).returncode != 0:
+            continue
+        if tip == a:
+            continue
+        a_commits, b_commits, a_index, b_index = nearest_equivalent_parent(a, tip)
+        if a_index is not None:
+            candidates.append({
+                "branch": name,
+                "tip": tip,
+                "commit": b_commits[b_index]["hash"],
+                "matched": 1,
+                "remaining": a_index,
+            })
+
+    if not candidates:
+        return {"message": tr("find_equivalent_branch_none", **{"from": a[:7], "to": b[:7]})}
+    nearest = min(c["remaining"] for c in candidates)
+    best = [c for c in candidates if c["remaining"] == nearest]
+    best.sort(key=lambda c: (-c["matched"], c["branch"]))
+    labels = ", ".join(tr("find_equivalent_branch_candidate", branch=c["branch"],
+                         commit=c["commit"][:7], matched=c["matched"]) for c in best)
+    return {"to": best[0]["tip"],
+            "message": tr("find_equivalent_branch_found", branches=labels, remaining=nearest)}
 
 
 def is_cherry_picking():
@@ -5969,7 +6211,7 @@ def api_push_tag(body):
     return {"ok": True, "message": tr("pushed_tag_nothing" if up_to_date else "pushed_tag", tag=tag, where=where)}
 
 
-POST_ROUTES = {"/api/stash": api_stash, "/api/rebase": api_rebase, "/api/rebase-range": api_rebase_range, "/api/rebase-descendants": api_rebase_descendants, "/api/rebase-equivalent": api_rebase_equivalent, "/api/rebase-i": api_rebase_i, "/api/cherry-pick": api_cherry_pick, "/api/revert": api_revert, "/api/abort": api_abort, "/api/resolve": api_resolve, "/api/discard": api_discard, "/api/branch-rename": api_branch_rename, "/api/merge": api_merge, "/api/branch": api_branch, "/api/tag": api_tag, "/api/ref-delete": api_delete_ref,
+POST_ROUTES = {"/api/stash": api_stash, "/api/rebase": api_rebase, "/api/rebase-range": api_rebase_range, "/api/rebase-descendants": api_rebase_descendants, "/api/rebase-equivalent": api_rebase_equivalent, "/api/find-equivalent-parents": api_find_equivalent_parents, "/api/find-equivalent-branch": api_find_equivalent_branch, "/api/rebase-i": api_rebase_i, "/api/cherry-pick": api_cherry_pick, "/api/revert": api_revert, "/api/abort": api_abort, "/api/resolve": api_resolve, "/api/discard": api_discard, "/api/branch-rename": api_branch_rename, "/api/merge": api_merge, "/api/branch": api_branch, "/api/tag": api_tag, "/api/ref-delete": api_delete_ref,
                "/api/checkout": api_checkout, "/api/reset": api_reset, "/api/wip-commit": api_wip_commit,
                "/api/fetch": api_fetch, "/api/pull": api_pull, "/api/push": api_push, "/api/push-tag": api_push_tag, "/api/file-copy": api_file_copy,
                "/api/remote-add": api_remote_add, "/api/remote-remove": api_remote_remove}
@@ -6012,6 +6254,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, "application/json", json.dumps(api_stash_list(q), ensure_ascii=False))
             elif u.path == "/api/branches":
                 self._send(200, "application/json", json.dumps(api_branches(q), ensure_ascii=False))
+            elif u.path == "/api/branches-containing":
+                self._send(200, "application/json", json.dumps(api_branches_containing(q), ensure_ascii=False))
             elif u.path == "/api/tags":
                 self._send(200, "application/json", json.dumps(api_tags(q), ensure_ascii=False))
             elif u.path == "/api/reflog":
