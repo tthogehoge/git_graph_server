@@ -5640,8 +5640,16 @@ HTTP_AUTH_CACHE = {}  # アプリ実行中だけ保持する remote 名 -> {user
 
 
 def run_git_net(*args, timeout=None, auth=None):
-    """リモートと通信する git を実行する。必要なら一時的な HTTP 認証用 askpass を使う。"""
+    """リモートと通信する git を実行する。
+    SSH の未知ホストは初回だけ known_hosts に登録し、登録済みホストの
+    鍵が変わった場合は SSH に拒否させる。必要なら一時的な HTTP 認証用
+    askpass を使う。
+    """
     env = dict(os.environ, GIT_TERMINAL_PROMPT="0")
+    # stdin は閉じて実行するため、SSH の yes/no 確認プロンプトは表示できない。
+    # accept-new なら未知ホストだけを自動登録し、鍵が変わったホストは拒否する。
+    # ユーザーが独自の SSH 設定を指定している場合はそれを優先する。
+    env.setdefault("GIT_SSH_COMMAND", "ssh -o StrictHostKeyChecking=accept-new")
     timeout = timeout or NET_TIMEOUT
     askpass_dir = None
     if auth:
