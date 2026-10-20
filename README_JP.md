@@ -12,7 +12,7 @@ Linux 向けのローカルサーバーです。Git のコミットグラフ、�
 - Git
 - Graphviz の `dot`
 
-コピー・配置するときは、`git_graph_server.py` と `static/`、`i18n/` をこの構成のまま一緒に置いてください。
+コピー・配置するときは、`git_graph_server.py`、Python モジュール（`app_state.py`、`gitrun.py`、`graph.py`、`wip.py`、`viewer.py`、`refops.py`、`rebase.py`、`remote.py`、`i18n.py`、`server.py`）、`static/`、`i18n/` をこの構成のまま一緒に置いてください。
 
 ## 起動
 

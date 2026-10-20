@@ -1,0 +1,8 @@
+REPO = "."
+PROJECT_NAME = ""
+OPTS = None
+UI_LANG = "ja"
+WRITABLE = False
+WIP_ENABLED = False
+HAS_WORKTREE = False
+SERVER = None

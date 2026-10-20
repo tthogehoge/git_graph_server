@@ -10,6 +10,7 @@ from urllib.error import HTTPError
 from urllib.request import urlopen
 
 import git_graph_server as app
+import app_state as state
 
 
 class ParseStatusTests(unittest.TestCase):
@@ -120,8 +121,8 @@ class GitApiIntegrationTests(unittest.TestCase):
     def setUpClass(cls):
         cls.temp_dir = tempfile.TemporaryDirectory()
         cls.repo = cls.temp_dir.name
-        cls.previous_repo = app.REPO
-        app.REPO = cls.repo
+        cls.previous_repo = state.REPO
+        state.REPO = cls.repo
 
         cls.git("init", "-q")
         cls.git("config", "user.name", "Test User")
@@ -150,7 +151,7 @@ class GitApiIntegrationTests(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        app.REPO = cls.previous_repo
+        state.REPO = cls.previous_repo
         cls.temp_dir.cleanup()
 
     @classmethod
@@ -185,6 +186,14 @@ class GitApiIntegrationTests(unittest.TestCase):
         self.assertEqual(result["hash"], self.second_commit)
         self.assertEqual(result["parents"], [self.first_commit])
         self.assertEqual({item["path"] for item in result["files"]}, {"README.md", "new.txt"})
+
+    def test_render_diff_page_includes_favicon(self):
+        page = app.render_diff_page({
+            "hash": [self.second_commit],
+            "path": ["README.md"],
+        })
+
+        self.assertIn("<link rel=\"icon\"", page)
 
     def test_api_tree_and_file_read_from_commit(self):
         tree = app.api_tree({"hash": [self.second_commit]})
@@ -274,12 +283,12 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.repo = self.temp_dir.name
-        self.previous_repo = app.REPO
-        self.previous_wip_enabled = app.WIP_ENABLED
-        self.previous_has_worktree = app.HAS_WORKTREE
-        app.REPO = self.repo
-        app.WIP_ENABLED = True
-        app.HAS_WORKTREE = True
+        self.previous_repo = state.REPO
+        self.previous_wip_enabled = state.WIP_ENABLED
+        self.previous_has_worktree = state.HAS_WORKTREE
+        state.REPO = self.repo
+        state.WIP_ENABLED = True
+        state.HAS_WORKTREE = True
 
         self.git("init", "-q")
         self.git("config", "user.name", "Test User")
@@ -291,9 +300,9 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.head = self.git("rev-parse", "HEAD").strip()
 
     def tearDown(self):
-        app.REPO = self.previous_repo
-        app.WIP_ENABLED = self.previous_wip_enabled
-        app.HAS_WORKTREE = self.previous_has_worktree
+        state.REPO = self.previous_repo
+        state.WIP_ENABLED = self.previous_wip_enabled
+        state.HAS_WORKTREE = self.previous_has_worktree
         self.temp_dir.cleanup()
 
     def git(self, *args):
@@ -378,10 +387,10 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(os.path.dirname(self.repo), "outside.txt")))
 
     def test_http_handler_routes_api_get_and_rejects_unknown_path(self):
-        previous_opts = app.OPTS
-        previous_writable = app.WRITABLE
-        app.OPTS = SimpleNamespace(host="127.0.0.1")
-        app.WRITABLE = True
+        previous_opts = state.OPTS
+        previous_writable = state.WRITABLE
+        state.OPTS = SimpleNamespace(host="127.0.0.1")
+        state.WRITABLE = True
         server = app.QuietServer(("127.0.0.1", 0), app.Handler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
@@ -417,8 +426,8 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
             thread.join(timeout=5)
-            app.OPTS = previous_opts
-            app.WRITABLE = previous_writable
+            state.OPTS = previous_opts
+            state.WRITABLE = previous_writable
 
     def test_wip_commit_commits_only_selected_files_and_preserves_other_changes(self):
         self.write_file("selected.txt", "selected content\n")
