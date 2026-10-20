@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>__PROJECT__ - git graph</title>
+__FAVICON__
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<div id="graphWrap">
+<div id="graphStatus" role="region" aria-label="{{notifications}}"></div>
+<div id="compareControls">
+  <div id="compareToolbar" role="menubar">
+    <div class="menubar-left">
+      <button id="quitBtn" class="sbtn danger" title="{{tip_quit}}">{{quit}}</button>
+      <button id="reload" class="sbtn" disabled title="{{reload_title}}">{{reload}}</button>
+      <button id="graphZoomReset" class="sbtn" title="{{graph_zoom_reset}}">100%</button>
+      <span class="cmp-hash" id="actionTarget"></span>
+      <button type="button" class="cmp-hash cmp-hash-btn" id="cmpA" hidden></button>
+      <button type="button" class="cmp-hash cmp-hash-btn" id="cmpB" hidden></button>
+      <button class="abtn mbtn" id="swapAbBtn" hidden>{{swap_ab}}</button>
+      <button class="sbtn" id="clearCmpBtn">{{clear}}</button>
+    </div>
+    <span class="menubar-spacer"></span>
+    <span class="menu-wrap" id="cmpActionsWrap">
+      <button class="abtn mbtn" id="cmpActToggle" aria-haspopup="true" aria-expanded="false" aria-controls="cmpActions">{{actions}}</button>
+      <div class="dropdown" id="cmpActions" hidden>
+        <div class="hint" id="actionsEmpty">{{menu_select_commit}}</div>
+        <div class="menu-section" id="aActions" hidden>
+          <button class="abtn" id="pushSelBtn" data-cact="push" data-push-sel="1" title="{{tip_push_selected}}">{{push}}</button>
+          <button class="abtn" id="mergeBtn" title="{{tip_merge}}">{{merge}}</button>
+          <button class="abtn" id="rebaseBtn" title="{{tip_rebase}}">{{rebase}}</button>
+          <button class="abtn" id="irebaseBtn" title="{{tip_irebase}}">{{interactive_rebase}}</button>
+          <button class="abtn" id="cherryBtn" title="{{tip_cherry}}">{{cherry_pick}}</button>
+          <button class="abtn" id="revertBtn" title="{{tip_revert}}">{{revert}}</button>
+          <button class="abtn danger" id="resetBtn" title="{{tip_reset}}">{{reset}}</button>
+          <button class="abtn" data-cact="branch">{{create_branch}}</button>
+          <button class="abtn" id="renameBranchBtn">{{rename_branch}}</button>
+          <button class="abtn danger" id="deleteBranchBtn" data-cact="delete-branch">{{delete_branch}}</button>
+          <button class="abtn danger" id="deleteRemoteBranchBtn">{{delete_remote_branch}}</button>
+          <button class="abtn" data-cact="tag">{{create_tag}}</button>
+          <button class="abtn danger" id="deleteTagBtn" data-cact="delete-tag">{{delete_tag}}</button>
+          <button class="abtn" data-cact="checkout">{{checkout}}</button>
+        </div>
+        <div class="menu-section" id="stashActions" hidden>
+          <button class="abtn" id="stashApplyBtn" title="{{tip_stash_apply}}">{{stash_apply}}</button>
+          <button class="abtn" id="stashPopBtn" title="{{tip_stash_pop}}">{{stash_pop}}</button>
+          <button class="abtn danger" id="stashDropBtn" title="{{tip_stash_drop}}">{{stash_drop}}</button>
+        </div>
+      </div>
+    </span>
+    <div class="menubar-group" id="remoteActions">
+      <button class="abtn mbtn" id="pushBtn" data-cact="push" title="{{tip_push_head}}">{{push}}</button>
+      <button class="abtn mbtn" data-cact="pull">pull</button>
+      <button class="abtn mbtn" data-cact="fetch">fetch</button>
+    </div>
+    <span class="menu-wrap" id="abActionsWrap">
+      <button class="abtn mbtn" id="abActToggle" aria-haspopup="true" aria-expanded="false" aria-controls="abActions">{{ab_actions}}</button>
+      <div class="dropdown" id="abActions" hidden>
+        <button class="abtn" id="compareBtn" hidden>{{compare_ab}}</button>
+        <button class="abtn" id="compareLogsBtn" hidden>{{compare_logs_ab}}</button>
+        <button class="abtn" id="rebaseRangeBtn" hidden title="{{tip_rebase_range}}">{{rebase_range}}</button>
+        <button class="abtn" id="rebaseDescendantsBtn" hidden title="{{tip_rebase_descendants}}">{{rebase_descendants}}</button>
+        <button class="abtn" id="rebaseEquivalentBtn" hidden title="{{tip_rebase_equivalent}}">{{rebase_equivalent}}</button>
+        <button class="abtn" id="findEquivalentParentsBtn" hidden title="{{tip_find_equivalent_parents}}">{{find_equivalent_parents}}</button>
+        <button class="abtn" id="findEquivalentBranchBtn" hidden title="{{tip_find_equivalent_branch}}">{{find_equivalent_branch}}</button>
+      </div>
+    </span>
+    <span class="menu-wrap" id="otherActionsWrap">
+      <button class="abtn mbtn" id="otherMenuBtn" aria-haspopup="true" aria-expanded="false" aria-controls="otherActions">{{other}}</button>
+      <div class="dropdown" id="otherActions" hidden>
+        <button class="abtn" id="branchListBtn" title="{{tip_branch_list}}">{{branch_list}}</button>
+        <button class="abtn" id="tagListBtn" title="{{tip_tag_list}}">{{tag_list}}</button>
+        <button class="abtn" id="stashListBtn" title="{{tip_stash_list}}">{{stash_list}}</button>
+        <button class="abtn" id="reflogBtn" title="{{tip_reflog}}">{{reflog}}</button>
+        <button class="abtn" data-cact="remote-add" title="{{tip_remote_add}}">{{remote_add}}</button>
+        <button class="abtn danger" data-cact="remote-remove" title="{{tip_remote_remove}}">{{remote_remove}}</button>
+      </div>
+    </span>
+  </div>
+</div>
+<div id="actionModal" hidden>
+  <form class="action-dialog" id="actionForm" role="dialog" aria-modal="true" aria-labelledby="actionTitle">
+    <h2 id="actionTitle"></h2>
+    <div class="action-fields" id="actionFields"></div>
+    <div class="amsg ng" id="actionError" role="alert"></div>
+    <div class="dialog-buttons">
+      <button type="button" class="abtn" data-dialog-cancel>{{cancel}}</button>
+      <button type="submit" class="abtn" id="actionSubmit"></button>
+    </div>
+  </form>
+</div>
+<div id="coModal" hidden><div class="comodal" role="dialog" aria-modal="true">
+  <div><b>{{checkout_blocked}}</b> — <span>{{checkout_blocked_hint}}</span></div>
+  <div id="coFiles"></div>
+  <div class="hint">{{co_hint_stash}}<br>
+  {{co_hint_discard}}</div>
+  <div class="arow"><button class="abtn" data-co="stash">{{stash_checkout}}</button>
+    <button class="abtn danger" data-co="discard">{{discard_checkout}}</button>
+    <button class="abtn" data-co="cancel">{{cancel}}</button></div>
+</div></div>
+<div id="graph">
+  <div id="loading">
+    <div class="spin"></div>
+    <div>{{loading_graph}}</div>
+    <div class="hint" id="lsub">{{loading_graph_hint}}</div>
+  </div>
+</div>
+</div>
+<div id="splitter" role="separator" aria-orientation="vertical" aria-label="{{resize_panel}}" tabindex="0"></div>
+<div id="panel">
+  <div id="listView"><p class="hint">{{graph_help_1}}</p>
+    <p class="hint">{{graph_help_2}}</p></div>
+  <div id="detailView"></div>
+</div>
+<script src="/static/app.js"></script>
+</body>
+</html>

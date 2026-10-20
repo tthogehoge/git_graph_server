@@ -14,6 +14,8 @@ Linux is the supported platform.
 - Git
 - Graphviz `dot`
 
+Keep `git_graph_server.py`, `static/`, and `i18n/` together when copying or deploying the application.
+
 ## Usage
 
 ```sh

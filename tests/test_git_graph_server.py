@@ -387,6 +387,24 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         thread.start()
         base_url = f"http://127.0.0.1:{server.server_address[1]}"
         try:
+            with urlopen(base_url) as response:
+                page = response.read().decode("utf-8")
+            self.assertIn('href="/static/app.css"', page)
+            self.assertIn('src="/static/app.js"', page)
+            self.assertNotIn("<style>", page)
+            self.assertNotIn("<script>\n", page)
+
+            with urlopen(f"{base_url}/static/app.js") as response:
+                app_js = response.read().decode("utf-8")
+                self.assertIn("application/javascript", response.headers.get("Content-Type"))
+            self.assertIn("const I18N = {", app_js)
+            self.assertNotIn("/*__I18N__*/", app_js)
+
+            with urlopen(f"{base_url}/static/app.css") as response:
+                app_css = response.read().decode("utf-8")
+                self.assertIn("text/css", response.headers.get("Content-Type"))
+            self.assertIn("#graphWrap", app_css)
+
             with urlopen(f"{base_url}/api/log?rev={self.head}") as response:
                 payload = json.loads(response.read())
             self.assertEqual(payload["total"], 1)
