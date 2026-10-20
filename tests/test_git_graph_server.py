@@ -11,6 +11,7 @@ from urllib.request import Request, urlopen
 
 import git_graph_server as app
 import app_state as state
+import viewer
 
 
 class ParseStatusTests(unittest.TestCase):
@@ -495,6 +496,20 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
             })
 
         self.assertEqual(self.git("rev-parse", "HEAD").strip(), self.head)
+
+    def test_wip_diff_page_has_branch_and_discard_controls(self):
+        self.write_file("tracked.txt", "working tree change\n")
+        previous_writable = state.WRITABLE
+        state.WRITABLE = True
+        try:
+            page = viewer.render_diff_page({"path": ["tracked.txt"], "wip": ["unstaged"]})
+        finally:
+            state.WRITABLE = previous_writable
+
+        self.assertIn('id="cbranch"', page)
+        self.assertIn('id="dbtn"', page)
+        self.assertIn("branch: branch", page)
+        self.assertIn('fetch("/api/discard"', page)
 
     def test_mixed_reset_moves_head_and_leaves_changes_unstaged(self):
         self.write_file("tracked.txt", "second commit\n")

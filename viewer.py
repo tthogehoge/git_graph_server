@@ -449,10 +449,13 @@ DIFF_CSS = """
   #side .grp { margin: 10px 0 2px; font-weight: bold; }
   #side .srow { display: flex; align-items: center; } #side .srow a { flex: 1; min-width: 0; }
   #side input[type=checkbox] { margin: 0 6px 0 0; cursor: pointer; }
-  .cbox { margin: 6px 0 8px; } .cbox textarea { width: 100%; box-sizing: border-box; min-height: 56px; padding: 4px 6px; border: 1px solid #bbb; border-radius: 3px; font: inherit; resize: vertical; }
-  .cbox button { margin-top: 4px; } .cbox .hint { white-space: pre-wrap; }
+  .cbox { margin: 6px 0 8px; } .cbox textarea, .cbox input[type=text] { width: 100%; box-sizing: border-box; padding: 4px 6px; border: 1px solid #bbb; border-radius: 3px; font: inherit; }
+  .cbox textarea { min-height: 56px; resize: vertical; }
+  .cbox .arow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 6px; }
+  .cbox .hint { white-space: pre-wrap; }
   .wbtn { background: #1a7f37; color: #fff; border: 1px solid #176b30; padding: 3px 10px; border-radius: 3px; cursor: pointer; }
   .wbtn:hover { background: #176b30; } .wbtn:disabled { opacity: .5; cursor: default; }
+  .wbtn.danger { background: #b42318; border-color: #912018; } .wbtn.danger:hover { background: #912018; }
   #main { flex: 1; min-width: 0; overflow: auto; padding: 14px 18px; }
   h1 { font-size: 15px; margin: 0 0 6px; word-break: break-all; }
   .meta { color: #555; margin: 2px 0; }
@@ -581,6 +584,9 @@ def render_diff_page(q):
     can_commit = bool(wip_status is not None and state.WRITABLE and state.WIP_ENABLED)  # amend の差分ページには出さない
     staged_paths = {f["path"] for f in wip_status["staged"]} if can_commit else set()
     merging = bool(wip_status and wip_status.get("merging"))
+    op_in_progress = bool(wip_status and any(
+        wip_status.get(key) for key in ("merging", "rebasing", "cherry_picking", "reverting")
+    ))
 
     # WIP: ディレクトリごとの件数・行数 (右ペインの filesHtml と同じ集計)
     dir_count, dir_stat = Counter(), {}
@@ -647,9 +653,16 @@ def render_diff_page(q):
     fold_js = DIFF_FOLD_JS if wip else ""
     if can_commit:
         commit_box = ('<div class="cbox"><textarea id="cmsg" placeholder="' + html.escape(tr("wip_commit_message"), quote=True) + '"></textarea>'
-                      '<div><button id="cbtn" class="wbtn">' + html.escape(tr("wip_commit")) + '</button></div>'
+                      '<input type="text" id="cbranch" placeholder="' + html.escape(tr("wip_commit_branch_placeholder"), quote=True)
+                      + '" aria-label="' + html.escape(tr("wip_commit_branch"), quote=True) + '">'
+                      '<div class="arow"><button id="cbtn" class="wbtn">' + html.escape(tr("wip_commit")) + '</button>'
+                      + ('<button id="dbtn" class="wbtn danger">' + html.escape(tr("wip_discard")) + '</button>' if not op_in_progress else "")
+                      + '</div>'
                       '<div id="cout" class="hint"></div></div>')
-        texts = {k: tr(k) for k in ("wip_commit", "message_required", "select_files", "wip_execute")}
+        texts = {k: tr(k) for k in (
+            "wip_commit", "message_required", "select_files", "wip_execute",
+            "wip_discard", "confirm_discard", "discard_conflict",
+        )}
         commit_js = "const T = " + json.dumps(texts, ensure_ascii=False).replace("</", "<\\/") + ";\n" + WIP_DIFF_COMMIT_JS
     return f"""<!DOCTYPE html>
 <html lang="{state.UI_LANG}"><head><meta charset="utf-8">
@@ -707,9 +720,15 @@ const cks = () => [...document.querySelectorAll(".wck")];
 function paths() { return [...new Set(cks().filter(x => x.checked).map(x => x.dataset.path))]; }
 function sync() {
   const n = paths().length, b = document.getElementById("cbtn");
-  if (!b) return;
-  b.disabled = n === 0;
-  b.textContent = T.wip_commit + " (" + n + ")";
+  if (b) {
+    b.disabled = n === 0;
+    b.textContent = T.wip_commit + " (" + n + ")";
+  }
+  const discard = document.getElementById("dbtn");
+  if (discard) {
+    discard.disabled = n === 0;
+    discard.textContent = T.wip_discard + " (" + n + ")";
+  }
   document.querySelectorAll(".gall").forEach(g => {
     const c = cks().filter(x => x.dataset.kind === g.dataset.kind), k = c.filter(x => x.checked).length;
     g.checked = c.length > 0 && k === c.length;
@@ -737,8 +756,25 @@ if (cbtn) cbtn.addEventListener("click", () => {
   const say = (text, ok) => { out.textContent = text; out.style.color = ok ? "#1a7f37" : "#cf222e"; };
   if (!msg.trim()) { say(T.message_required, false); return; }
   if (!paths().length) { say(T.select_files, false); return; }
+  const branch = document.getElementById("cbranch").value.trim();
   cbtn.disabled = true; say(T.wip_execute, true);
-  fetch("/api/wip-commit", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({paths: paths(), message: msg, amend: false})})
+  fetch("/api/wip-commit", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({paths: paths(), message: msg, amend: false, branch: branch})})
+    .then(r => r.ok ? r.json() : r.text().then(m => { throw new Error(m || r.status); }))
+    .then(r => { say(r.message, true); setTimeout(() => location.reload(), 800); })
+    .catch(e => { say(e.message, false); sync(); });
+});
+const dbtn = document.getElementById("dbtn");
+if (dbtn) dbtn.addEventListener("click", () => {
+  const selected = cks().filter(x => x.checked), selectedPaths = paths();
+  if (!selectedPaths.length) return;
+  const conflicts = [...new Set(selected.filter(x => x.dataset.kind === "conflict").map(x => x.dataset.path))];
+  const out = document.getElementById("cout"), say = (text, ok) => {
+    out.textContent = text; out.style.color = ok ? "#1a7f37" : "#cf222e";
+  };
+  if (conflicts.length) { say(T.discard_conflict.replace("{files}", conflicts.slice(0, 3).join(", ")), false); return; }
+  if (!confirm(T.confirm_discard.replace("{n}", selectedPaths.length))) return;
+  dbtn.disabled = true; say(T.wip_execute, true);
+  fetch("/api/discard", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({paths: selectedPaths})})
     .then(r => r.ok ? r.json() : r.text().then(m => { throw new Error(m || r.status); }))
     .then(r => { say(r.message, true); setTimeout(() => location.reload(), 800); })
     .catch(e => { say(e.message, false); sync(); });
