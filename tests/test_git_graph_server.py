@@ -223,6 +223,30 @@ class GitApiIntegrationTests(unittest.TestCase):
         self.assertFalse(file_data["binary"])
         self.assertEqual(file_data["encoding"], "ASCII")
 
+    def test_api_blame_returns_line_attribution(self):
+        result = app.api_blame({"hash": [self.second_commit], "path": ["README.md"]})
+
+        self.assertEqual(result["hash"], self.second_commit)
+        self.assertEqual(result["path"], "README.md")
+        self.assertEqual(result["lines"], [{
+            "hash": self.second_commit,
+            "line": 1,
+            "author": "Test User",
+            "date": self.git("show", "-s", "--format=%ad", "--date=short", self.second_commit).strip(),
+            "content": "second version",
+        }])
+
+    def test_files_page_includes_blame_action(self):
+        page = viewer.render_files_page()
+
+        self.assertIn('id="fileBlameBtn"', page)
+        self.assertIn(".blame-no { flex: none; width: 8ch", page)
+        self.assertIn('class="blame-commit"', page)
+        self.assertIn('type: "git-graph-commit"', page)
+        self.assertIn('showContainingBranchLog(ev.data.hash)', app.render_app_js())
+        self.assertIn('showContainingBranchLog(commitHash)', app.render_app_js())
+        self.assertIn('api("/api/blame"', page)
+
     def test_api_compare_returns_file_changes_between_commits(self):
         result = app.api_compare({
             "from": [self.first_commit],

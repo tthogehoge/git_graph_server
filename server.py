@@ -29,7 +29,7 @@ from remote import (
     api_remotes,
 )
 from viewer import (
-    api_branches, api_branches_containing, api_commit, api_compare, api_file,
+    api_blame, api_branches, api_branches_containing, api_commit, api_compare, api_file,
     api_file_copy, api_log, api_merge_base, api_reflog, api_stash_list, api_tags,
     api_tree, render_diff_page, render_files_page,
 )

@@ -274,7 +274,7 @@ function showLog(titleHtml, rev, topHtml, fromHistory, restoreScroll, src, targe
 
 }
 
-async function showContainingBranchLog(hash, selectedRef) {
+async function showContainingBranchLog(hash, selectedRef, replaceHistory = false) {
   try {
     const result = await api("/api/branches-containing", {hash: hash});
     if (!result.branches.length) {
@@ -287,9 +287,9 @@ async function showContainingBranchLog(hash, selectedRef) {
       branches.find(b => b.ref === preferred) || branches[0];
     const options = branches.map(b => '<option value="' + esc(b.ref) + '"' +
       (b.ref === branch.ref ? " selected" : "") + ">" + esc(b.name) + "</option>").join("");
-    const top = '<div class="meta"><label>' + esc(t("target_label")) +
+    const top = '<button class="back-btn">' + t("back_history") + '</button><div class="meta"><label>' + esc(t("target_label")) +
       ': <select id="containingBranchSelect" data-h="' + esc(hash) + '">' + options + "</select></label></div>";
-    showLog(esc(t("branch_log_title", {name: branch.name})), branch.tip, top, false, 0, null, hash);
+    showLog(esc(t("branch_log_title", {name: branch.name})), branch.tip, top, replaceHistory, 0, null, hash);
   } catch (e) {
     setGraphStatus(t("error") + e.message, "error");
   }
@@ -1537,13 +1537,19 @@ function showFileLogInGraph(hash, path) {
           false, 0, {path: "/api/log", params: {rev: hash, path: path}});
 }
 window.addEventListener("message", ev => {
-  if (ev.origin !== location.origin || !ev.data || ev.data.type !== "git-graph-file-log") return;
+  if (ev.origin !== location.origin || !ev.data) return;
+  if (ev.data.type === "git-graph-commit") {
+    if (typeof ev.data.hash === "string" && ev.data.hash) showContainingBranchLog(ev.data.hash);
+    return;
+  }
+  if (ev.data.type !== "git-graph-file-log") return;
   const hash = ev.data.hash, path = ev.data.path;
   if (typeof hash !== "string" || typeof path !== "string" || !hash || !path) return;
   showFileLogInGraph(hash, path);
 });
 
 listView.addEventListener("click", ev => {
+  if (ev.target.closest(".back-btn")) { history.back(); return; }
   if (ev.detail > 1) return;
   const tr = ev.target.closest("tr.clickable");
   if (!tr) return;
@@ -1984,10 +1990,14 @@ fetch("/api/graph")
     restoreScreen(history.state || {screen: "home"});
     const fileLogHash = new URLSearchParams(location.search).get("file_log_hash");
     const fileLogPath = new URLSearchParams(location.search).get("file_log_path");
+    const commitHash = new URLSearchParams(location.search).get("commit_hash");
     if (fileLogHash && fileLogPath) {
       // 一度だけ消費し、以後の履歴には一時的なクエリを残さない。
       history.replaceState({screen: "home"}, "", "/");
       showFileLogInGraph(fileLogHash, fileLogPath);
+    } else if (commitHash) {
+      history.replaceState({screen: "home"}, "", "/");
+      showContainingBranchLog(commitHash);
     }
   })
   .catch(e => {

@@ -5,6 +5,7 @@ import os
 import re
 import subprocess
 from collections import Counter
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 import app_state as state
 from i18n import FAVICON_LINK
@@ -312,6 +313,43 @@ def api_file(q):
     text, encoding = decode_text(data, truncated)
     return {"hash": h, "path": path, "content": text or "", "encoding": encoding,
             "binary": text is None, "truncated": truncated, "size": len(raw)}
+
+@route("/api/blame")
+def api_blame(q):
+    from gitrun import git, resolve_commit
+    h = resolve_commit(q.get("hash", [""])[0])
+    path = validate_file_path(q.get("path", [""])[0], allow_empty=False)
+    out = git("blame", "--line-porcelain", h, "--", path, literal=True)
+    raw_lines = out.splitlines()
+    lines, i = [], 0
+    while i < len(raw_lines):
+        header = raw_lines[i].split()
+        if len(header) < 3:
+            raise ValueError("bad blame output")
+        commit, line_no = header[0], int(header[2])
+        author, author_time, author_tz = "", "", "+0000"
+        i += 1
+        while i < len(raw_lines) and not raw_lines[i].startswith("\t"):
+            item = raw_lines[i]
+            if item.startswith("author "):
+                author = item[7:]
+            elif item.startswith("author-time "):
+                author_time = item[12:]
+            elif item.startswith("author-tz "):
+                author_tz = item[10:]
+            i += 1
+        if i >= len(raw_lines):
+            raise ValueError("bad blame output")
+        offset = int(author_tz[1:3]) * 60 + int(author_tz[3:5])
+        if author_tz[0] == "-":
+            offset = -offset
+        date = datetime.fromtimestamp(
+            int(author_time), timezone(timedelta(minutes=offset))
+        ).date().isoformat()
+        lines.append({"hash": commit, "line": line_no, "author": author,
+                      "date": date, "content": raw_lines[i][1:]})
+        i += 1
+    return {"hash": h, "path": path, "lines": lines}
 
 @route("/api/file-copy", method="POST")
 def api_file_copy(body):
@@ -823,6 +861,13 @@ FILES_CSS = """
   table.file-log td.date { width: 1%; color: #777; white-space: nowrap; }
   table.file-log a { color: inherit; text-decoration: none; }
   table.file-log tr:hover td { background: #eef; }
+  .blame-line { display: flex; font: 12px monospace; white-space: pre-wrap; }
+  .blame-line:hover { background: #f6f8fa; }
+  .blame-no { flex: none; width: 8ch; box-sizing: border-box; padding-right: 1ch; text-align: right; color: #8c959f; }
+  .blame-meta { flex: none; width: 24em; overflow: hidden; text-overflow: ellipsis; color: #666; }
+  .blame-meta a { color: inherit; text-decoration: none; }
+  .blame-meta a:hover { text-decoration: underline; }
+  .blame-code { min-width: 0; }
 """
 
 FILES_PAGE = r"""<!DOCTYPE html>
@@ -832,7 +877,7 @@ __FAVICON__
 <style>__CSS__</style><script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script></head>
 <body><aside id="tree"><h1>{{file_view}}</h1><div class="meta" id="commit"></div><div id="list"></div></aside>
 <main id="main"><h2 id="title">{{select_file}}</h2>
-<div id="fileActions" class="file-actions" hidden><button id="fileLogBtn">{{file_log}}</button><button id="fileContentBtn" hidden>{{file_content}}</button><button id="fileCopyBtn" hidden>{{copy_to_work}}</button><span id="fileMsg" class="msg"></span></div>
+<div id="fileActions" class="file-actions" hidden><button id="fileLogBtn">{{file_log}}</button><button id="fileBlameBtn">{{file_blame}}</button><button id="fileContentBtn" hidden>{{file_content}}</button><button id="fileCopyBtn" hidden>{{copy_to_work}}</button><span id="fileMsg" class="msg"></span></div>
 <div id="content" class="hint">{{select_file_hint}}</div></main>
 <script>
 /*__FILE_I18N__*/
@@ -849,7 +894,7 @@ function setDocumentTitle(label) {
 
 const qs = new URLSearchParams(location.search), hash = qs.get("hash"), fileViewTab = qs.get("file_view") === "1";
 const list = document.getElementById("list"), content = document.getElementById("content"), title = document.getElementById("title");
-const fileActions = document.getElementById("fileActions"), fileLogBtn = document.getElementById("fileLogBtn"), fileContentBtn = document.getElementById("fileContentBtn");
+const fileActions = document.getElementById("fileActions"), fileLogBtn = document.getElementById("fileLogBtn"), fileBlameBtn = document.getElementById("fileBlameBtn"), fileContentBtn = document.getElementById("fileContentBtn");
 const fileCopyBtn = document.getElementById("fileCopyBtn"), fileMsg = document.getElementById("fileMsg");
 fileCopyBtn.hidden = !CAN_COPY;
 let current = "", currentFile = "";
@@ -897,18 +942,42 @@ function loadFile(path) {
   setFileMsg("", true);
   fileActions.hidden = false;
   fileLogBtn.hidden = false;
+  fileBlameBtn.hidden = false;
   fileContentBtn.hidden = true;
   api("/api/file", {hash: hash, path: path}).then(r => {
     const lang = languageFor(r.path);
     title.textContent = r.path + (lang ? " (" + lang + ")" : "") + (r.encoding ? " [" + r.encoding + "]" : "");
     content.className = r.binary ? "binary" : "";
     content.innerHTML = r.binary ? t("binary_file") : numberedCode(r.content, lang) + (r.truncated ? '<p class="hint">' + t("large_file_head") + '</p>' : '');
+    fileBlameBtn.hidden = r.binary;
   }).catch(e => { title.textContent = path; content.className = "hint"; content.textContent = t("error") + e.message; });
 }
+function loadFileBlame(path) {
+  fileLogBtn.hidden = true;
+  fileBlameBtn.hidden = true;
+  fileContentBtn.hidden = false;
+  setDocumentTitle(t("file_blame_title", {path: path}));
+  title.textContent = t("file_blame_title", {path: path});
+  content.className = "";
+  content.textContent = t("loading");
+  api("/api/blame", {hash: hash, path: path}).then(r => {
+    content.innerHTML = '<div class="meta">' + esc(t("n_lines", {n: r.lines.length})) + '</div><div class="blame">' +
+      r.lines.map(line => '<div class="blame-line"><span class="blame-no">' + line.line + '</span><span class="blame-meta"><a class="blame-commit" href="/?commit_hash=' +
+        encodeURIComponent(line.hash) + '">' + esc(line.hash.slice(0, 7)) + '</a> ' + esc(line.author + " " + line.date) +
+        '</span><span class="blame-code">' + esc(line.content) + '</span></div>').join("") + '</div>';
+  }).catch(e => { content.className = "hint"; content.textContent = t("error") + e.message; });
+}
+content.addEventListener("click", ev => {
+  const link = ev.target.closest("a.blame-commit");
+  if (!link || !window.opener || window.opener.closed) return;
+  ev.preventDefault();
+  window.opener.postMessage({type: "git-graph-commit", hash: new URL(link.href).searchParams.get("commit_hash")}, location.origin);
+});
 function loadFileLog(path) {
   if (fileViewTab || (window.opener && !window.opener.closed)) {
     // 別タブでは親のグラフへ通知せず、このファイル画面にログを表示する。
     fileLogBtn.hidden = true;
+    fileBlameBtn.hidden = true;
     fileContentBtn.hidden = false;
     setDocumentTitle(t("file_history_title", {path: path}));
     title.textContent = t("file_history_title", {path: path});
@@ -927,6 +996,7 @@ function loadFileLog(path) {
   location.href = "/?file_log_hash=" + encodeURIComponent(hash) + "&file_log_path=" + encodeURIComponent(path);
 }
 fileLogBtn.onclick = () => { if (currentFile) loadFileLog(currentFile); };
+fileBlameBtn.onclick = () => { if (currentFile) loadFileBlame(currentFile); };
 fileContentBtn.onclick = () => { if (currentFile) loadFile(currentFile); };
 const KEYWORDS = {
   python: "and as assert async await break case class continue def del elif else except finally for from global if import in is lambda match nonlocal not or pass raise return try while with yield None True False self",
@@ -1027,5 +1097,5 @@ __all__ = [
     "api_file_copy", "api_log", "api_merge_base", "api_reflog", "api_stash_list",
     "api_tags", "api_tree", "commit_info", "decode_text", "diff_lines_html",
     "diff_url", "dir_of", "localized_wip_title", "paging", "parse_numstat",
-    "render_diff_page", "render_files_page", "validate_file_path", "wip_files",
+    "api_blame", "render_diff_page", "render_files_page", "validate_file_path", "wip_files",
 ]
