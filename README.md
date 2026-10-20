@@ -88,3 +88,4 @@ Operations such as reset, checkout, and dropping a stash may cause data loss. Ba
 ![Graph](screenshot/Screenshot1.png)
 ![Commit](screenshot/Screenshot2.png)
 ![Diff](screenshot/Screenshot3.png)
+![AB log comparison](screenshot/Screenshot4.png)
