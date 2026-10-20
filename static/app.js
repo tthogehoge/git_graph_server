@@ -720,7 +720,10 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
     if (nodeEl[actionHash]) nodeEl[actionHash].classList.add("actionTarget");
     listView.querySelectorAll('tr[data-h="' + actionHash + '"]').forEach(tr => tr.classList.add("actionTarget"));
   }
-  document.getElementById("actionTarget").textContent = actionHash ? t("target_label") + ": " + actionHash.slice(0, 7) : "";
+  const actionTarget = document.getElementById("actionTarget");
+  actionTarget.textContent = actionHash ? t("target_label") + ": " + actionHash.slice(0, 7) : "";
+  actionTarget.hidden = !actionHash;
+  actionTarget.title = t("branch_log");
   const cmpA = document.getElementById("cmpA"), cmpB = document.getElementById("cmpB");
   cmpA.textContent = compareAHash ? "A: " + compareAHash.slice(0, 7) : "";
   cmpB.textContent = compareBHash ? "B: " + compareBHash.slice(0, 7) : "";
@@ -1601,6 +1604,10 @@ function openFilesInNewTab(ev) {
 document.addEventListener("auxclick", openFilesInNewTab);
 document.addEventListener("click", openFilesInNewTab);
 document.getElementById("compareToolbar").addEventListener("click", ev => {  // メニューバー (操作 / push / pull / fetch / その他)
+  if (ev.target.closest("#actionTarget") && actionHash) {
+    showContainingBranchLog(actionHash);
+    return;
+  }
   if (ev.target.closest("#cmpA") && compareAHash) {
     showContainingBranchLog(compareAHash);
     return;
