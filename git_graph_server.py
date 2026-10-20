@@ -44,6 +44,8 @@
   /api/head                                                  現在のブランチ名 (マージ/リベース前の確認用)
   /api/stash-list                                            stash の一覧 (git stash list)。画面では「操作」メニューの「stash一覧」
   POST /api/stash {hash, op} (JSON)                          stash の apply / pop / drop (hash は stash のコミット。op は apply | pop | drop)。画面では、stash を比較のAに選んだときの操作
+  /api/branches | /api/tags                                  ブランチ一覧 / タグ一覧 (api_log と同じ形式)。画面では「その他」メニュー
+  POST /api/shutdown (JSON)                                  サーバーを終了 (画面の左上の「終了」ボタン)
   /api/reflog?[branch=<名前>]&skip=0&limit=500               reflog (省略時は HEAD、branch 指定でそのローカルブランチ)。画面では「操作」メニューの「reflog」
   POST /api/fetch {prune} | /api/pull {mode} | /api/push {branch, force, set_upstream} (JSON)
   POST /api/push-tag {tag, remote} (JSON)                       タグを push (リモートが複数で決まらないときは needs_remote を返す)
@@ -551,6 +553,25 @@ TRANSLATIONS = {
         "branch_renamed": "ブランチ {old} を {new} に変更しました",
         "branch_renamed_remote": "ブランチ {old} を {new} に変更しました。リモートのブランチ名は変わりません (必要なら新しい名前で push し、古いリモートブランチを削除してください)",
         "rename_failed": "名前を変更できませんでした: {error}",
+        "quit": "終了",
+        "tip_quit": "サーバーを終了します",
+        "confirm_quit": "git_graph_server を終了します。このタブは操作できなくなります。よろしいですか？",
+        "server_stopped": "サーバーを終了しました。このタブは閉じて構いません。",
+        "quit_failed": "終了できませんでした: {error}",
+        "shutdown_forbidden": "このアドレスで待ち受けているときは、画面から終了できません (Ctrl+C で終了してください)",
+        "branch_list": "ブランチ一覧",
+        "tag_list": "タグ一覧",
+        "tip_branch_list": "ローカル / リモートのブランチ一覧",
+        "tip_tag_list": "タグ一覧",
+        "branch_list_title": "ブランチ一覧",
+        "tag_list_title": "タグ一覧",
+        "branch_list_help": "ローカルブランチ、リモート追跡ブランチの順 (★ は現在のブランチ)。クリックでそのコミットを表示します",
+        "tag_list_help": "新しい順。クリックでそのコミットを表示します",
+        "dir_toggle": "このディレクトリのファイルを表示 / 非表示",
+        "dir_root": "(ルート)",
+        "cli_help_port": "待ち受けポート (既定: 8000。使用中なら空いているポートを自動で選ぶ。指定したポートが使用中ならエラーで終了)",
+        "cli_port_in_use": "ポート {port} は使用中です",
+        "cli_port_auto": "ポート {port} は使用中のため、{actual} を使います",
     },
     "en": {
         "reload": "↻ Reload",
@@ -1008,6 +1029,25 @@ TRANSLATIONS = {
         "branch_renamed": "Renamed branch {old} to {new}",
         "branch_renamed_remote": "Renamed branch {old} to {new}. The remote branch name is unchanged (push under the new name and delete the old remote branch if needed)",
         "rename_failed": "Could not rename: {error}",
+        "quit": "Quit",
+        "tip_quit": "Stop the server",
+        "confirm_quit": "Stop git_graph_server. This tab will no longer work. Continue?",
+        "server_stopped": "The server has stopped. You can close this tab.",
+        "quit_failed": "Could not quit: {error}",
+        "shutdown_forbidden": "Cannot quit from the page while listening on this address (press Ctrl+C instead)",
+        "branch_list": "Branch list",
+        "tag_list": "Tag list",
+        "tip_branch_list": "List of local / remote branches",
+        "tip_tag_list": "List of tags",
+        "branch_list_title": "Branch list",
+        "tag_list_title": "Tag list",
+        "branch_list_help": "Local branches first, then remote-tracking branches (★ is the current branch). Click an entry to view that commit",
+        "tag_list_help": "Newest first. Click an entry to view that commit",
+        "dir_toggle": "Show / hide the files in this directory",
+        "dir_root": "(root)",
+        "cli_help_port": "port to listen on (default: 8000; if it is in use, a free port is chosen automatically; an explicitly given port that is in use is an error)",
+        "cli_port_in_use": "Port {port} is already in use",
+        "cli_port_auto": "Port {port} is in use, so {actual} is used instead",
     },
 }
 DEFAULT_LANG = "ja"  # 環境変数から言語を決められないときの言語
@@ -1100,6 +1140,29 @@ def truncate_width(text, limit):
             return text[:i]
         width += w
     return text
+
+
+_SVG_TOKEN = re.compile(r'<g id="[^"]*" class="node">|<polygon [^>]*?points="([^"]+)"[^>]*/>|<text text-anchor="start" x="[^"]*"')
+
+
+def center_node_text(svg):
+    """ノード内の文字を、囲んでいるセルの中央に寄せる。
+    dot は文字の幅を自分のフォント計測で求めて text-anchor="start" で出力するため、
+    ブラウザ側のフォント幅と違う (特に日本語) と左に寄って見える。セルの中央を基準に text-anchor="middle" にする。"""
+    state = {"cx": None}
+
+    def fix(m):
+        tok = m.group(0)
+        if tok.startswith("<g "):
+            state["cx"] = None
+        elif tok.startswith("<polygon"):
+            xs = [float(pt.split(",")[0]) for pt in m.group(1).split()]
+            state["cx"] = (min(xs) + max(xs)) / 2
+        elif state["cx"] is not None:
+            return f'<text text-anchor="middle" x="{state["cx"]:g}"'
+        return tok
+
+    return _SVG_TOKEN.sub(fix, svg)
 
 
 def build_graph(opts):
@@ -1333,6 +1396,7 @@ __FAVICON__
   #compareToolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
   #compareToolbar .sbtn { margin: 0; }
   #compareToolbar button { white-space: nowrap; }
+  .sbtn.danger { background: #fde8e8; } .sbtn.danger:hover { background: #fbd3d3; }
   .menubar-left { display: flex; align-items: center; gap: 6px; order: 0; }
   .menubar-group { display: flex; align-items: center; gap: 2px; }
   .menubar-spacer { flex: 1 1 auto; order: 1; }
@@ -1448,6 +1512,9 @@ __FAVICON__
   @media (max-width: 760px) { .compare-logs { grid-template-columns: 1fr; } }
   table.files { border-collapse: collapse; margin: 6px 0; font-family: monospace; font-size: 12px; width: 100%; }
   table.files td { padding: 2px 6px; vertical-align: top; }
+  tr.frow.dhide { display: none; }
+  tr.drow { cursor: pointer; background: #f1f3f6; } tr.drow:hover td { background: #e6ebf5; }
+  .dtog { display: inline-block; width: 1em; color: #666; }
   tr.frow { cursor: pointer; } tr.frow:hover td { background: #eef; }
   td.fp { color: #06c; word-break: break-all; } td.fc { text-align: right; white-space: nowrap; } td.fb { white-space: nowrap; }
   td.fp a { color: inherit; text-decoration: none; } td.fp a:hover { text-decoration: underline; }
@@ -1483,6 +1550,7 @@ __FAVICON__
 <div id="compareControls">
   <div id="compareToolbar" role="menubar">
     <div class="menubar-left">
+      <button id="quitBtn" class="sbtn danger" title="{{tip_quit}}">{{quit}}</button>
       <button id="reload" class="sbtn" disabled title="{{reload_title}}">{{reload}}</button>
       <button id="graphZoomReset" class="sbtn" title="{{graph_zoom_reset}}">100%</button>
       <span class="cmp-hash" id="actionTarget"></span>
@@ -1535,6 +1603,8 @@ __FAVICON__
     <span class="menu-wrap" id="otherActionsWrap">
       <button class="abtn mbtn" id="otherMenuBtn" aria-haspopup="true" aria-expanded="false" aria-controls="otherActions">{{other}}</button>
       <div class="dropdown" id="otherActions" hidden>
+        <button class="abtn" id="branchListBtn" title="{{tip_branch_list}}">{{branch_list}}</button>
+        <button class="abtn" id="tagListBtn" title="{{tip_tag_list}}">{{tag_list}}</button>
         <button class="abtn" id="stashListBtn" title="{{tip_stash_list}}">{{stash_list}}</button>
         <button class="abtn" id="reflogBtn" title="{{tip_reflog}}">{{reflog}}</button>
         <button class="abtn" data-cact="remote-add" title="{{tip_remote_add}}">{{remote_add}}</button>
@@ -1929,17 +1999,38 @@ const ST_CLASS = {M: "stM", T: "stM", A: "stA", D: "stD", R: "stR", C: "stR", U:
 function badge(f) {  // 変更の種類 (M/A/D/R...) のバッジ。WIP の一覧で使う
   return f.st ? '<span class="st ' + (ST_CLASS[f.st] || "stM") + '">' + esc(f.st) + "</span>" : "";
 }
-function filesHtml(ctx, files, offset, withCheck) {
+const WIP_DIR_COLLAPSE = 10;  // 1つのディレクトリの変更がこの件数以上なら、既定で畳む
+let wipOpenDirs = new Set();  // 開いているディレクトリ ("種別|パス")
+function dirOf(path) { const i = path.lastIndexOf("/"); return i < 0 ? "" : path.slice(0, i); }
+function filesHtml(ctx, files, offset, withCheck, collapse) {
   offset = offset || 0;
   if (!files.length) return '<p class="hint">' + esc(t("no_changed_files")) + '</p>';
   let add = 0, del = 0, max = 0;
   files.forEach(f => { add += f.added || 0; del += f.deleted || 0; max = Math.max(max, (f.added || 0) + (f.deleted || 0)); });
   const scale = max > 40 ? 40 / max : 1;
+  const dirCount = {}, dirStat = {}, dirSeen = {};
+  if (collapse) files.forEach(f => {
+    const dir = dirOf(f.path);
+    dirCount[dir] = (dirCount[dir] || 0) + 1;
+    dirStat[dir] = dirStat[dir] || [0, 0];
+    dirStat[dir][0] += f.added || 0; dirStat[dir][1] += f.deleted || 0;
+  });
   const rows = files.map((f, k) => {
     const a = f.added || 0, d = f.deleted || 0;
+    const dir = dirOf(f.path), folded = collapse && dirCount[dir] >= WIP_DIR_COLLAPSE;
+    const open = folded && wipOpenDirs.has(f.wip + "|" + dir);
+    let head = "";
+    if (folded && !dirSeen[dir]) {
+      dirSeen[dir] = true;
+      head = '<tr class="drow" data-dir="' + esc(dir) + '" data-kind="' + esc(f.wip) + '" title="' + esc(t("dir_toggle")) + '">' +
+        (withCheck ? '<td class="fk"><input type="checkbox" class="wipdir" data-kind="' + esc(f.wip) + '" data-dir="' + esc(dir) + '"></td>' : "") +
+        '<td class="fp" colspan="3"><span class="dtog">' + (open ? "▼" : "▶") + '</span> ' + esc(dir ? dir + "/" : t("dir_root")) +
+        ' <span class="hint">(' + esc(t("n_items", {n: dirCount[dir]})) + ') <span class="plus">+' + dirStat[dir][0] +
+        '</span> <span class="minus">-' + dirStat[dir][1] + '</span></span></td></tr>';
+    }
     const pa = a ? Math.max(1, Math.round(a * scale)) : 0, pd = d ? Math.max(1, Math.round(d * scale)) : 0;
     const name = f.old_path ? f.old_path + " => " + f.path : f.path;
-    return '<tr class="frow" data-k="' + (offset + k) + '">' + (withCheck ? wipCheckCell(f) : "") + '<td class="fp">' + badge(f) + (f.tag ? '<span class="hint">[' + esc(f.tag) + '] </span>' : "") + '<a href="' + esc(diffUrl(ctx, f)) +
+    return head + '<tr class="frow' + (folded && !open ? " dhide" : "") + '" data-k="' + (offset + k) + '" data-dir="' + esc(dir) + '">' + (withCheck ? wipCheckCell(f) : "") + '<td class="fp">' + badge(f) + (f.tag ? '<span class="hint">[' + esc(f.tag) + '] </span>' : "") + '<a href="' + esc(diffUrl(ctx, f)) +
       '">' + esc(name) + '</a></td><td class="fc">' +
       (f.label ? esc(t(f.label)) : f.added === null ? "Bin" : a + d) + '</td><td class="fb"><span class="plus">' + "+".repeat(pa) +
       '</span><span class="minus">' + "-".repeat(pd) + "</span></td></tr>";
@@ -1967,6 +2058,11 @@ function defaultNewBranchName(h) {
 function localTags(h) {
   const n = DATA.nodes[h];
   return n ? n.refs.filter(r => r.kind === "tag").map(r => r.name) : [];
+}
+function showRefList(kind) {  // kind: "branches" | "tags"
+  showLog(t(kind === "tags" ? "tag_list_title" : "branch_list_title"), "",
+          '<div class="meta">' + esc(t(kind === "tags" ? "tag_list_help" : "branch_list_help")) + '</div>',
+          false, 0, {path: "/api/" + kind, params: {}});
 }
 function showStashList(fromHistory) {
   loadStashes();
@@ -2973,6 +3069,17 @@ detailView.addEventListener("click", ev => {
     return;
   }
   if (ev.target.closest(".back-btn")) { history.back(); return; }
+  const dr = ev.target.closest("tr.drow");
+  if (dr) {  // ディレクトリ行: 配下のファイルを表示 / 非表示
+    if (ev.target.closest("input")) return;
+    const key = dr.dataset.kind + "|" + dr.dataset.dir, open = !wipOpenDirs.has(key);
+    if (open) wipOpenDirs.add(key); else wipOpenDirs.delete(key);
+    dr.querySelector(".dtog").textContent = open ? "▼" : "▶";
+    dr.closest("table").querySelectorAll("tr.frow").forEach(r => {
+      if (r.dataset.dir === dr.dataset.dir) r.classList.toggle("dhide", !open);
+    });
+    return;
+  }
   const tr = ev.target.closest("tr.frow");
   if (tr && !ev.target.closest("a, input, td.fk") && curCtx)  // 行のどこをクリックしても差分を開く
     location.href = diffUrl(curCtx, curFiles[+tr.dataset.k]);
@@ -3016,6 +3123,8 @@ document.getElementById("compareToolbar").addEventListener("click", ev => {  // 
   if (ev.target.closest("#rebaseRangeBtn")) { doRebaseRange(); return; }
   if (ev.target.closest("#rebaseDescendantsBtn")) { doRebaseDescendants(); return; }
   if (ev.target.closest("#rebaseEquivalentBtn")) { doRebaseEquivalent(); return; }
+  if (ev.target.closest("#branchListBtn")) { showRefList("branches"); return; }
+  if (ev.target.closest("#tagListBtn")) { showRefList("tags"); return; }
   if (ev.target.closest("#stashListBtn")) { showStashList(); return; }
   if (ev.target.closest("#stashApplyBtn")) { doStash("apply"); return; }
   if (ev.target.closest("#stashPopBtn")) { doStash("pop"); return; }
@@ -3054,7 +3163,7 @@ document.getElementById("compareToolbar").addEventListener("click", ev => {  // 
   if (ev.target.closest(".dropdown .abtn")) closeMenus();  // 無効なボタンはクリック自体が発火しない
 });
 document.addEventListener("click", ev => {  // メニューの外をクリックしたら閉じる
-  if (ev.target.closest(".menu-wrap") || ev.target.closest("svg g.node")) return;  // ノードのクリックは onNodeClick が扱う
+  if (ev.target.closest(".menu-wrap") || ev.target.closest("svg g.node") || ev.target.closest("#panel")) return;  // 右ペインのクリックでは閉じない  // ノードのクリックは onNodeClick が扱う
   closeMenus();
 });
 document.addEventListener("keydown", ev => { if (ev.key === "Escape") closeMenus(); });
@@ -3125,7 +3234,7 @@ function wipIsChecked(f) {  // amend: 直前のコミットのファイルは、
   return f.path in wipSel ? wipSel[f.path] : (wipMerging || !!f.in_head || wipStaged.has(f.path));
 }
 function wipCheckCell(f) {
-  return '<td class="fk"><input type="checkbox" class="wipck" data-kind="' + esc(f.wip) + '" data-path="' + esc(f.path) + '"' +
+  return '<td class="fk"><input type="checkbox" class="wipck" data-kind="' + esc(f.wip) + '" data-dir="' + esc(dirOf(f.path)) + '" data-path="' + esc(f.path) + '"' +
     (wipIsChecked(f) ? " checked" : "") + (f.in_head ? ' title="' + t("wip_file_remove_title") + '"' : "") + "></td>";
 }
 function wipCks(kind) {  // 操作できる (disabled でない) チェックボックス
@@ -3148,6 +3257,12 @@ function wipSync() {  // コミットボタンの件数と、グループの全�
     b.disabled = n === 0;
     b.textContent = t("wip_commit") + " (" + n + ")" + (wipAmendOn ? " amend" : "");
   }
+  detailView.querySelectorAll(".wipdir").forEach(dc => {
+    const cks = wipCks(dc.dataset.kind).filter(x => x.dataset.dir === dc.dataset.dir), c = cks.filter(x => x.checked).length;
+    dc.disabled = cks.length === 0;
+    dc.checked = cks.length > 0 && c === cks.length;
+    dc.indeterminate = c > 0 && c < cks.length;
+  });
   detailView.querySelectorAll(".wipall").forEach(all => {
     const cks = wipCks(all.dataset.kind), c = cks.filter(x => x.checked).length;
     all.disabled = cks.length === 0;
@@ -3190,8 +3305,9 @@ function doWipCommit() {
 }
 detailView.addEventListener("change", ev => {
   if (ev.target.id === "wipAmendCk") { setWipAmend(ev.target.checked); return; }
-  const ck = ev.target.closest(".wipck"), all = ev.target.closest(".wipall");
+  const ck = ev.target.closest(".wipck"), all = ev.target.closest(".wipall"), dc = ev.target.closest(".wipdir");
   if (ck) setWipPath(ck.dataset.path, ck.checked);
+  else if (dc) wipCks(dc.dataset.kind).filter(x => x.dataset.dir === dc.dataset.dir).forEach(x => setWipPath(x.dataset.path, dc.checked));
   else if (all) wipCks(all.dataset.kind).forEach(x => setWipPath(x.dataset.path, all.checked));
   else return;
   wipSync();
@@ -3264,7 +3380,7 @@ function showWip(fromHistory, okMsg) {
       if (!items.length) return;
       const list = items.map(f => Object.assign({wip: kind}, f));
       body += "<h3>" + (canCommit ? '<input type="checkbox" class="wipall" data-kind="' + kind + '" title="' + t("select_all") + '">' : "") +
-        title + " (" + list.length + ")</h3>" + (kind === "conflict" && canCommit ? resolveBarHtml() : "") + filesHtml({}, list, files.length, canCommit);
+        title + " (" + list.length + ")</h3>" + (kind === "conflict" && canCommit ? resolveBarHtml() : "") + filesHtml({}, list, files.length, canCommit, true);
       files = files.concat(list);
     });
     curCtx = {}; curFiles = files;
@@ -3293,6 +3409,15 @@ function showWip(fromHistory, okMsg) {
   });
 }
 
+document.getElementById("quitBtn").addEventListener("click", () => {  // サーバーを終了する
+  if (!confirm(t("confirm_quit"))) return;
+  post("/api/shutdown", {})
+    .then(() => {
+      document.body.innerHTML = '<div style="padding:24px;font-size:14px">' + esc(t("server_stopped")) + "</div>";
+      try { window.close(); } catch (e) {}  // スクリプトで開いたタブでなければ閉じられない
+    })
+    .catch(e => setGraphStatus(t("quit_failed", {error: e.message}), "error"));
+});
 document.getElementById("reload").addEventListener("click", ev => {  // グラフを最新の状態に更新
   const b = ev.currentTarget;
   b.disabled = true; b.textContent = t("reload_busy");
@@ -3546,7 +3671,7 @@ def graph_payload():
         # dot が "not well-formed" になるため、UTF-8 のバイト列で入出力する
         svg = subprocess.run(["dot", "-Tsvg"], input=dot_text.encode("utf-8"),
                              capture_output=True, check=True).stdout.decode("utf-8", errors="replace")
-        svg = svg[svg.index("<svg"):]
+        svg = center_node_text(svg[svg.index("<svg"):])
         payload = json.dumps({"svg": svg, "nodes": nodes, "edges": edges, "writable": WRITABLE,
                               "merge": WRITABLE and HAS_WORKTREE},
                              ensure_ascii=False)
@@ -3602,6 +3727,47 @@ def api_stash_list(q):
     for l in out.splitlines():
         h, short, sel, date, subj = (l.split("\x1f") + [""] * 5)[:5]
         commits.append([h, short, sel, date[:16], subj])
+    return {"commits": commits, "has_more": False, "total": len(commits)}
+
+
+def _ref_list(refs, fmt, kinds):
+    """for-each-ref の結果を api_log と同じ [hash, short, 名前, 日付, 件名] の形にする。"""
+    out = git("for-each-ref", "--format=" + fmt, *refs)
+    rows = []
+    for l in out.splitlines():
+        parts = (l.split("\x1f") + [""] * 6)[:6]
+        rows.append(parts)
+    return rows
+
+
+def api_branches(q):
+    """ローカルブランチ → リモート追跡ブランチの順の一覧。現在のブランチには ★ を付ける。"""
+    fmt = "%(refname)%1f%(objectname)%1f%(HEAD)%1f%(committerdate:short)%1f%(subject)"
+    commits = []
+    for ref, name_, head, date, subj in (r[:5] for r in _ref_list(["refs/heads"], fmt, None)):
+        h = git("rev-parse", ref + "^{commit}").strip()
+        commits.append([h, h[:7], ("★ " if head == "*" else "") + ref[len("refs/heads/"):], date, subj])
+    if not OPTS.no_remotes:
+        for ref, name_, head, date, subj in (r[:5] for r in _ref_list(["refs/remotes"], fmt, None)):
+            if ref.endswith("/HEAD"):
+                continue
+            h = git("rev-parse", ref + "^{commit}").strip()
+            commits.append([h, h[:7], ref[len("refs/remotes/"):], date, subj])
+    return {"commits": commits, "has_more": False, "total": len(commits)}
+
+
+def api_tags(q):
+    """タグの一覧 (新しい順)。注釈付きタグは指しているコミットを使う。"""
+    fmt = "%(refname)%1f%(creatordate:short)%1f%(*subject)%1f%(subject)"
+    out = git("for-each-ref", "--sort=-creatordate", "--format=" + fmt, "refs/tags")
+    commits = []
+    for l in out.splitlines():
+        ref, date, psubj, subj = (l.split("\x1f") + [""] * 4)[:4]
+        try:
+            h = git("rev-parse", "--verify", "--quiet", ref + "^{commit}").strip()
+        except subprocess.CalledProcessError:  # コミットを指さないタグ (ツリーなど) は出さない
+            continue
+        commits.append([h, h[:7], ref[len("refs/tags/"):], date, psubj or subj])
     return {"commits": commits, "has_more": False, "total": len(commits)}
 
 
@@ -3912,6 +4078,12 @@ DIFF_CSS = """
   #side a.cur { background: #ffe9a0; color: #222; font-weight: bold; }
   #side .n { white-space: nowrap; }
   #side .grp { margin: 10px 0 2px; font-weight: bold; }
+  #side .srow { display: flex; align-items: center; } #side .srow a { flex: 1; min-width: 0; }
+  #side input[type=checkbox] { margin: 0 6px 0 0; cursor: pointer; }
+  .cbox { margin: 6px 0 8px; } .cbox textarea { width: 100%; box-sizing: border-box; min-height: 56px; padding: 4px 6px; border: 1px solid #bbb; border-radius: 3px; font: inherit; resize: vertical; }
+  .cbox button { margin-top: 4px; } .cbox .hint { white-space: pre-wrap; }
+  .wbtn { background: #1a7f37; color: #fff; border: 1px solid #176b30; padding: 3px 10px; border-radius: 3px; cursor: pointer; }
+  .wbtn:hover { background: #176b30; } .wbtn:disabled { opacity: .5; cursor: default; }
   #main { flex: 1; min-width: 0; overflow: auto; padding: 14px 18px; }
   h1 { font-size: 15px; margin: 0 0 6px; word-break: break-all; }
   .meta { color: #555; margin: 2px 0; }
@@ -3985,7 +4157,7 @@ def commit_line_html(label, c):
             f'{html.escape(c["date"])})</span></div>')
 
 
-def wip_files(kind=""):
+def wip_files(kind="", status=None):
     """WIP の全ファイルを 競合 → ステージ済み → 未ステージ → 未追跡 の順に、種別(wip)つきで返す。
     kind が amend のときは、amend 後のコミットの内容 (直前のコミットの親との差分) を返す。"""
     if kind == "amend":
@@ -3993,7 +4165,7 @@ def wip_files(kind=""):
         if "amend_files" not in s:
             raise UserError("amend_unavailable")
         return s["amend_files"]
-    s = api_status({})
+    s = status or api_status({})
     out = []
     for kind, key in (("conflict", "conflicts"), ("staged", "staged"),
                       ("unstaged", "unstaged"), ("untracked", "untracked")):
@@ -4007,8 +4179,11 @@ def render_diff_page(q):
     old = q.get("old", [""])[0]
     wip = q.get("wip", [""])[0]
     d = api_diff(q)
+    wip_status = None
     if wip:  # 作業ツリーの変更
-        files, ctx, ref = wip_files(wip), {}, "WIP"
+        if wip != "amend":
+            wip_status = api_status({})
+        files, ctx, ref = wip_files(wip, wip_status), {}, "WIP"
         info = f'<div class="meta">{html.escape(tr("working_tree"))} — {html.escape(localized_wip_title(wip))}</div>'
         cmd = {"staged": f"git diff --cached -- {path}", "amend": f"git diff HEAD^ -- {path}",
                "untracked": f"git diff --no-index /dev/null {path}"}.get(wip, f"git diff -- {path}")
@@ -4030,11 +4205,16 @@ def render_diff_page(q):
         cmd = f"git show {ref} -- {path}"
     name = f"{old} => {path}" if old else path
 
+    can_commit = bool(wip_status is not None and WRITABLE and WIP_ENABLED)  # amend の差分ページには出さない
+    staged_paths = {f["path"] for f in wip_status["staged"]} if can_commit else set()
+    merging = bool(wip_status and wip_status.get("merging"))
     side, last = [], None
     for f in files:
         if wip and f.get("wip") != last:
             last = f.get("wip")
-            side.append(f'<div class="grp">{html.escape(localized_wip_title(last))}</div>')
+            gall = (f'<input type="checkbox" class="gall" data-kind="{html.escape(last)}" '
+                    f'title="{html.escape(tr("select_all"))}"> ') if can_commit else ""
+            side.append(f'<div class="grp">{gall}{html.escape(localized_wip_title(last))}</div>')
         fname = f"{f['old_path']} => {f['path']}" if f.get("old_path") else f["path"]
         if f.get("label"):
             counts = html.escape(tr(f["label"]))
@@ -4046,9 +4226,21 @@ def render_diff_page(q):
             counts = (f'<span class="plus">+{f["added"]}</span> '
                       f'<span class="minus">-{f["deleted"]}</span>')
         cur = "cur" if f["path"] == path and (not wip or f.get("wip") == wip) else ""
-        side.append(f'<a class="{cur}" href="{html.escape(diff_url(ctx, f))}">'
-                    f'<span>{html.escape(fname)}</span><span class="n">{counts}</span></a>')
-
+        link = (f'<a class="{cur}" href="{html.escape(diff_url(ctx, f))}">'
+                f'<span>{html.escape(fname)}</span><span class="n">{counts}</span></a>')
+        if can_commit:
+            on = " checked" if (merging or f["path"] in staged_paths) else ""
+            link = (f'<div class="srow"><input type="checkbox" class="wck" data-kind="{html.escape(f["wip"])}" '
+                    f'data-path="{html.escape(f["path"], quote=True)}"{on}>{link}</div>')
+        side.append(link)
+    commit_box = ""
+    commit_js = ""
+    if can_commit:
+        commit_box = ('<div class="cbox"><textarea id="cmsg" placeholder="' + html.escape(tr("wip_commit_message"), quote=True) + '"></textarea>'
+                      '<div><button id="cbtn" class="wbtn">' + html.escape(tr("wip_commit")) + '</button></div>'
+                      '<div id="cout" class="hint"></div></div>')
+        texts = {k: tr(k) for k in ("wip_commit", "message_required", "select_files", "wip_execute")}
+        commit_js = "const T = " + json.dumps(texts, ensure_ascii=False).replace("</", "<\\/") + ";\n" + WIP_DIFF_COMMIT_JS
     return f"""<!DOCTYPE html>
 <html lang="{UI_LANG}"><head><meta charset="utf-8">
 <title>{html.escape(path)} @ {ref} - {html.escape(PROJECT_NAME)}</title>
@@ -4056,6 +4248,7 @@ def render_diff_page(q):
 <style>{DIFF_CSS}</style></head><body>
 <div id="side">
   <div class="meta">{len(files)} {tr("files_changed")}</div>
+  {commit_box}
   {"".join(side)}
 </div>
 <div id="main">
@@ -4067,7 +4260,48 @@ def render_diff_page(q):
   <div class="diff">{diff_lines_html(d["diff"]) or '<p class="hint">' + tr("no_diff") + '</p>'}</div>
 </div>
 <script>{COPY_JS}</script>
+<script>{commit_js}</script>
 </body></html>
+"""
+
+
+WIP_DIFF_COMMIT_JS = r"""
+const cks = () => [...document.querySelectorAll(".wck")];
+function paths() { return [...new Set(cks().filter(x => x.checked).map(x => x.dataset.path))]; }
+function sync() {
+  const n = paths().length, b = document.getElementById("cbtn");
+  if (!b) return;
+  b.disabled = n === 0;
+  b.textContent = T.wip_commit + " (" + n + ")";
+  document.querySelectorAll(".gall").forEach(g => {
+    const c = cks().filter(x => x.dataset.kind === g.dataset.kind), k = c.filter(x => x.checked).length;
+    g.checked = c.length > 0 && k === c.length;
+    g.indeterminate = k > 0 && k < c.length;
+  });
+}
+document.addEventListener("change", ev => {
+  const g = ev.target.closest(".gall");
+  if (g) cks().filter(x => x.dataset.kind === g.dataset.kind).forEach(x => {
+    // 同じファイルが ステージ済み と 未ステージ の両方にあるときは、同じ状態にそろえる
+    cks().filter(y => y.dataset.path === x.dataset.path).forEach(y => { y.checked = g.checked; });
+  });
+  else if (ev.target.closest(".wck")) cks().filter(y => y.dataset.path === ev.target.dataset.path).forEach(y => { y.checked = ev.target.checked; });
+  else return;
+  sync();
+});
+const cbtn = document.getElementById("cbtn");
+if (cbtn) cbtn.addEventListener("click", () => {
+  const out = document.getElementById("cout"), msg = document.getElementById("cmsg").value;
+  const say = (text, ok) => { out.textContent = text; out.style.color = ok ? "#1a7f37" : "#cf222e"; };
+  if (!msg.trim()) { say(T.message_required, false); return; }
+  if (!paths().length) { say(T.select_files, false); return; }
+  cbtn.disabled = true; say(T.wip_execute, true);
+  fetch("/api/wip-commit", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({paths: paths(), message: msg, amend: false})})
+    .then(r => r.ok ? r.json() : r.text().then(m => { throw new Error(m || r.status); }))
+    .then(r => { say(r.message, true); setTimeout(() => location.reload(), 800); })
+    .catch(e => { say(e.message, false); sync(); });
+});
+sync();
 """
 
 
@@ -5694,6 +5928,23 @@ POST_ROUTES = {"/api/stash": api_stash, "/api/rebase": api_rebase, "/api/rebase-
                "/api/remote-add": api_remote_add, "/api/remote-remove": api_remote_remove}
 
 
+DEFAULT_PORT = 8000
+SERVER = None
+
+
+class QuietServer(ThreadingHTTPServer):
+    # Windows では SO_REUSEADDR が「使用中のポートへの二重 bind」を許してしまうため、無効にする
+    allow_reuse_address = os.name != "nt"
+    daemon_threads = True
+
+
+def api_shutdown(body):
+    """サーバーを終了する。応答を返してから止める。"""
+    if SERVER is not None:
+        threading.Thread(target=SERVER.shutdown, daemon=True).start()
+    return {"ok": True}
+
+
 class Handler(BaseHTTPRequestHandler):
     def _send(self, code, ctype, body):
         data = body.encode("utf-8")
@@ -5714,6 +5965,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, "application/json", json.dumps(api_log(q), ensure_ascii=False))
             elif u.path == "/api/stash-list":
                 self._send(200, "application/json", json.dumps(api_stash_list(q), ensure_ascii=False))
+            elif u.path == "/api/branches":
+                self._send(200, "application/json", json.dumps(api_branches(q), ensure_ascii=False))
+            elif u.path == "/api/tags":
+                self._send(200, "application/json", json.dumps(api_tags(q), ensure_ascii=False))
             elif u.path == "/api/reflog":
                 self._send(200, "application/json", json.dumps(api_reflog(q), ensure_ascii=False))
             elif u.path == "/api/status":
@@ -5750,9 +6005,12 @@ class Handler(BaseHTTPRequestHandler):
         except subprocess.CalledProcessError as e:
             self._send(500, "text/plain", f"command failed: {e.cmd}\n{e.stderr or ''}")
 
-    def _check_post(self):
+    def _check_post(self, shutdown=False):
         """他サイトのページからの書き込みを防ぐ (CSRF / DNS rebinding 対策)。"""
-        if not WRITABLE:
+        if shutdown:  # 終了は --read-only でもできる。ただし他の端末から止められないよう、ローカルで待ち受けているときだけ
+            if not (WRITABLE or is_loopback(OPTS.host)):
+                raise Forbidden(tr("shutdown_forbidden"))
+        elif not WRITABLE:
             raise Forbidden(tr("write_disabled"))
         ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip()
         if ctype != "application/json":  # 他サイトからは preflight が必要になるため送れない
@@ -5768,11 +6026,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         try:
-            route = POST_ROUTES.get(urlparse(self.path).path)
+            path = urlparse(self.path).path
+            route = POST_ROUTES.get(path) or (api_shutdown if path == "/api/shutdown" else None)
             if route is None:
                 self._send(404, "text/plain", "not found")
                 return
-            self._check_post()
+            self._check_post(shutdown=path == "/api/shutdown")
             n = int(self.headers.get("Content-Length") or 0)
             if n > 100000:
                 raise ValueError("body too large")
@@ -5800,7 +6059,7 @@ def main():
     ap.add_argument("revs", nargs="*", help=tr("cli_help_revs"))
     ap.add_argument("-C", dest="repo", default=".", help=tr("cli_help_repo"))
     ap.add_argument("--host", default="127.0.0.1", help=tr("cli_help_host"))
-    ap.add_argument("--port", type=int, default=8000)
+    ap.add_argument("--port", type=int, default=None, help=tr("cli_help_port"))
     ap.add_argument("--open", action="store_true", help=tr("cli_help_open"))
     ap.add_argument("--no-remotes", action="store_true", help=tr("cli_help_no_remotes"))
     ap.add_argument("--no-tags", action="store_true", help=tr("cli_help_no_tags"))
@@ -5842,7 +6101,17 @@ def main():
         return
 
     fill_template(HTML_TEMPLATE), fill_template(FILES_PAGE)  # 未定義の翻訳キーがあれば、起動時に KeyError で気づけるようにする
-    server = ThreadingHTTPServer((OPTS.host, OPTS.port), Handler)
+    global SERVER
+    wanted = OPTS.port if OPTS.port is not None else DEFAULT_PORT
+    try:
+        SERVER = QuietServer((OPTS.host, wanted), Handler)
+    except OSError:
+        if OPTS.port is not None:  # --port を指定したときは、自動で変えずにエラーで終わる
+            sys.exit(tr("cli_port_in_use", port=OPTS.port))
+        SERVER = QuietServer((OPTS.host, 0), Handler)  # OS に空いているポートを選ばせる
+        print(tr("cli_port_auto", port=wanted, actual=SERVER.server_address[1]))
+    server = SERVER
+    OPTS.port = server.server_address[1]
     url = f"http://{'localhost' if OPTS.host == '0.0.0.0' else OPTS.host}:{OPTS.port}/"  # 0.0.0.0 はブラウザで開く宛先にならない
     print(tr("cli_serving", url=url, state=tr("cli_state_on" if WRITABLE else "cli_state_off")))
     if OPTS.host == "0.0.0.0":

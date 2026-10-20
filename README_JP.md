@@ -24,7 +24,7 @@ python git_graph_server.py --open
 python git_graph_server.py -C /path/to/repo --port 8080
 ```
 
-対象の rev を指定しない場合は、全ブランチ・タグを表示します。終了は `Ctrl+C` です。
+対象の rev を指定しない場合は、全ブランチ・タグを表示します。終了は `Ctrl+C`、または画面左上の「終了」ボタンです。
 
 ## 表示言語
 
@@ -40,7 +40,7 @@ LANG=en_US.UTF-8 python git_graph_server.py
 | オプション | 説明 |
 | --- | --- |
 | `-C PATH` | 対象リポジトリ（既定: カレントディレクトリ） |
-| `--host HOST` / `--port PORT` | 待ち受けアドレス / ポート |
+| `--host HOST` / `--port PORT` | 待ち受けアドレス / ポート (既定 8000。使用中なら空きポートを自動選択。`--port` を指定して使用中ならエラー終了) |
 | `--open` | 起動後にブラウザで開く |
 | `--no-remotes` / `--no-tags` | リモート / タグを非表示 |
 | `--no-wip` | 未コミット変更の WIP ノードを非表示 |
