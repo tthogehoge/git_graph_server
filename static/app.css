@@ -38,6 +38,7 @@ html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-s
   /* 右端のメニューは右ペイン側へはみ出さないよう右端を基準に開く。 */
   #cmpActionsWrap, #abActionsWrap, #otherActionsWrap { position: static; }
   #cmpActionsWrap .dropdown, #abActionsWrap .dropdown, #otherActionsWrap .dropdown { left: auto; right: 0; }
+  #cmpActions.near-pointer, #abActions.near-pointer { position: fixed; top: var(--menu-top); left: var(--menu-left); right: auto; }
   .dropdown[hidden] { display: none; }
   .dropdown .abtn { text-align: left; }
   .dropdown .hint { margin: 2px 4px; }

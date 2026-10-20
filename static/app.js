@@ -738,6 +738,8 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
   document.getElementById("clearCmpBtn").disabled = !compareAHash && !compareBHash && !actionHash;
   document.getElementById("cmpActions").hidden = !cmpActOpen;
   document.getElementById("abActions").hidden = !abActOpen;
+  if (!cmpActOpen) restoreMenuPosition(document.getElementById("cmpActions"));
+  if (!abActOpen) restoreMenuPosition(document.getElementById("abActions"));
   document.getElementById("compareBtn").hidden = !compareAHash || !compareBHash;
   document.getElementById("compareLogsBtn").hidden = !compareAHash || !compareBHash;
   document.getElementById("rebaseRangeBtn").hidden = !compareAHash || !compareBHash;
@@ -782,6 +784,26 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
 }
 let cmpActOpen = false;
 let abActOpen = false;
+function restoreMenuPosition(menu) {
+  menu.classList.remove("near-pointer");
+  menu.style.removeProperty("--menu-left");
+  menu.style.removeProperty("--menu-top");
+}
+function positionMenuNearPointer(menu, ev) {
+  if (!ev || (ev.detail === 0 && ev.type !== "contextmenu")) return;
+  const gap = 12, edge = 8;
+  menu.classList.add("near-pointer");
+  menu.style.setProperty("--menu-left", (ev.clientX + gap) + "px");
+  menu.style.setProperty("--menu-top", (ev.clientY + gap) + "px");
+  const rect = menu.getBoundingClientRect();
+  let left = ev.clientX + gap, top = ev.clientY + gap;
+  if (left + rect.width > window.innerWidth - edge) left = ev.clientX - rect.width - gap;
+  if (top + rect.height > window.innerHeight - edge) top = ev.clientY - rect.height - gap;
+  left = Math.max(edge, Math.min(left, window.innerWidth - rect.width - edge));
+  top = Math.max(edge, Math.min(top, window.innerHeight - rect.height - edge));
+  menu.style.setProperty("--menu-left", left + "px");
+  menu.style.setProperty("--menu-top", top + "px");
+}
 function setOtherMenu(open) {  // 「その他」のメニュー
   const btn = document.getElementById("otherMenuBtn");
   document.getElementById("otherActions").hidden = !open;
@@ -1533,6 +1555,9 @@ listView.addEventListener("click", ev => {
   selectActionTarget(tr.dataset.h);
   if (curRow) curRow.classList.remove("cur");
   curRow = tr; tr.classList.add("cur");
+  restoreMenuPosition(document.getElementById("cmpActions"));
+  cmpActOpen = true; abActOpen = false; setOtherMenu(false);
+  updateCmpClasses();
   showDetail(tr.dataset.h);
 });
 detailView.addEventListener("click", ev => {
@@ -1668,22 +1693,33 @@ function select(g) {
 }
 
 function onNodeClick(g, n, ev) {
-  if (ev && (ev.ctrlKey || ev.metaKey) && actionHash && actionHash !== n.hash && !n.wip) {
-    compareAHash = actionHash;
-    compareBHash = n.hash;
+  const openMenu = ev && ev.type === "contextmenu";
+  if (openMenu && (n.hash === compareAHash || n.hash === compareBHash)) {
     cmpActOpen = false; abActOpen = true; setOtherMenu(false);
     select(g);
     updateCmpClasses();
+    positionMenuNearPointer(document.getElementById("abActions"), ev);
     saveUiState();
     return;
   }
-  if (!n.wip) { cmpActOpen = true; abActOpen = false; setOtherMenu(false); }  // コミットを選んだら、操作メニューを自動で開く
+  if (ev && ev.type !== "contextmenu" && (ev.ctrlKey || ev.metaKey) && actionHash && actionHash !== n.hash && !n.wip) {
+    compareAHash = actionHash;
+    compareBHash = n.hash;
+    cmpActOpen = false; abActOpen = openMenu; setOtherMenu(false);
+    select(g);
+    updateCmpClasses();
+    if (openMenu) positionMenuNearPointer(document.getElementById("abActions"), ev);
+    saveUiState();
+    return;
+  }
+  if (!n.wip) { cmpActOpen = !!openMenu; abActOpen = false; setOtherMenu(false); }
   if (n.wip) {  // 作業ツリーの変更 (WIP) ノード: ログではなく変更ファイルの一覧を出す
     clearCmp(); select(g); showWip();
     return;
   }
   selectActionTarget(n.hash);
   select(g);
+  if (openMenu) positionMenuNearPointer(document.getElementById("cmpActions"), ev);
   showLog("git log --oneline " + esc(n.hash.slice(0, 7)), n.hash,
           chips(n.hash) + '<div class="meta">' + t("all_log_to_root") + '</div>');
 }
@@ -1700,6 +1736,7 @@ function init() {
       hit.setAttribute("fill", "transparent"); hit.setAttribute("pointer-events", "all");
       g.insertBefore(hit, g.children[1] || null);
       g.addEventListener("click", ev => { if (ev.detail <= 1) onNodeClick(g, n, ev); });
+      g.addEventListener("contextmenu", ev => { ev.preventDefault(); onNodeClick(g, n, ev); });
     }
   });
   document.querySelectorAll("svg g.edge").forEach(g => {
