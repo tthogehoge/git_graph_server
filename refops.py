@@ -2,8 +2,10 @@ import os
 import subprocess
 import time
 import app_state as state
+from routing import route
 
 
+@route("/api/stash", method="POST")
 def api_stash(body):
     """stash の apply / pop / drop。stash の位置 (stash@{n}) は変わるので、コミットのハッシュから毎回引き直す。
     apply / pop で競合したときは、git の通常の動作どおり作業ツリーに競合を残す (pop は stash も残る)。"""
@@ -126,6 +128,7 @@ def with_stash_note(res, msg):
         msg += tr("stash_note", stash=res["stashed"])
     return msg
 
+@route("/api/branch", method="POST")
 def api_branch(body):
     from gitrun import check_ref_name, resolve_commit, run_git_write
     from i18n import UserError, tr
@@ -152,6 +155,7 @@ def api_branch(body):
     run_git_write("branch", name, h)
     return {"ok": True, "message": tr("branch_created", name=name)}
 
+@route("/api/tag", method="POST")
 def api_tag(body):
     from gitrun import check_ref_name, resolve_commit, run_git_write
     from i18n import tr
@@ -165,6 +169,7 @@ def api_tag(body):
     run_git_write("tag", name, h)
     return {"ok": True, "message": tr("tag_created", name=name)}
 
+@route("/api/ref-delete", method="POST")
 def api_delete_ref(body):
     from gitrun import HTTP_AUTH_CACHE, auth_for_remote, check_ref_name, git, is_http_auth_error, net_error, remember_auth, run_git_net, run_git_write
     from i18n import UserError, tr
@@ -210,6 +215,7 @@ def api_delete_ref(body):
     run_git_write("tag", "-d", "--", name)
     return {"ok": True, "message": tr("tag_deleted", name=name)}
 
+@route("/api/checkout", method="POST")
 def api_checkout(body):
     from gitrun import check_ref_name, resolve_commit
     from i18n import tr
@@ -227,6 +233,7 @@ def api_checkout(body):
         return res
     return {"ok": True, "message": with_stash_note(res, tr("checkout_detached_done", hash=h[:7]))}
 
+@route("/api/reset", method="POST")
 def api_reset(body):
     """現在の HEAD を選択したコミットへ移動する。"""
     from gitrun import git, resolve_commit, run_git_write
@@ -252,6 +259,7 @@ def has_parent():
     return subprocess.run(["git", "-C", state.REPO, "rev-parse", "-q", "--verify", "HEAD^"],
                           capture_output=True).returncode == 0
 
+@route("/api/discard", method="POST")
 def api_discard(body):
     """選んだファイルの変更を破棄する (取り消せない)。追跡中のファイルはステージ済み・未ステージとも HEAD の状態に戻し、
     HEAD にない新規ファイル (ステージ済み) は削除し、未追跡ファイルは削除する。競合中のファイルと、マージなどの途中は対象外。"""
@@ -295,6 +303,7 @@ def api_discard(body):
         run_git_write("clean", "-f", "-q", "--", *clean[i:i + step], literal=True)
     return {"ok": True, "message": tr("discarded", n=len(checked))}
 
+@route("/api/branch-rename", method="POST")
 def api_branch_rename(body):
     """ローカルブランチの名前を変える (git branch -m)。リモートのブランチは変わらない。"""
     from gitrun import check_ref_name, run_git_write

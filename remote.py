@@ -1,6 +1,7 @@
 import re
 import subprocess
 import app_state as state
+from routing import route
 
 
 def refs_snapshot():
@@ -16,6 +17,7 @@ def upstream_of_head():
                        capture_output=True, text=True, encoding="utf-8", errors="replace")
     return r.stdout.strip() if r.returncode == 0 else None
 
+@route("/api/fetch", method="POST")
 def api_fetch(body):
     from gitrun import HTTP_AUTH_CACHE, auth_for_remote, git, is_http_auth_error, net_error, remember_auth, run_git_net
     from i18n import tr
@@ -53,6 +55,7 @@ def list_remotes():
         out.setdefault(name, "")
     return [{"name": n, "url": u} for n, u in out.items()]
 
+@route("/api/remotes")
 def api_remotes(q):
     return {"remotes": list_remotes()}
 
@@ -64,6 +67,7 @@ def check_remote_name(name):
     if r.returncode != 0:
         raise UserError("remote_name_unusable", name=repr(name))
 
+@route("/api/remote-add", method="POST")
 def api_remote_add(body):
     """リモートを追加する。fetch:true なら続けて fetch する (fetch に失敗してもリモートは追加済み)。"""
     from gitrun import net_error, run_git_net, run_git_write
@@ -87,6 +91,7 @@ def api_remote_add(body):
         msg = tr("remote_added_fetched", name=name)
     return {"ok": True, "message": msg}
 
+@route("/api/remote-remove", method="POST")
 def api_remote_remove(body):
     """リモートを削除する (リモート追跡ブランチと設定も消える。リモート側は変わらない)。"""
     from gitrun import run_git_write
@@ -97,6 +102,7 @@ def api_remote_remove(body):
     run_git_write("remote", "remove", "--", name)
     return {"ok": True, "message": tr("remote_removed", name=name)}
 
+@route("/api/pull", method="POST")
 def api_pull(body):
     """現在のブランチに upstream の変更を取り込む。
     merge で競合したときはマージ途中で止める (WIP で解決)。rebase で競合したときは中止して元に戻す。"""
@@ -152,6 +158,7 @@ def git_config(key):
                        capture_output=True, text=True, encoding="utf-8", errors="replace")
     return r.stdout.strip() if r.returncode == 0 else None
 
+@route("/api/push", method="POST")
 def api_push(body):
     """ブランチを push する。body.branch があればそのローカルブランチ (チェックアウト中でなくてもよい)、
     なければ現在のブランチ。body.remote が指定された場合は、その remote の同名ブランチへ push する。"""
@@ -230,6 +237,7 @@ def api_push(body):
     where = f" ({remote})" if len(remotes) > 1 else ""
     return {"ok": True, "message": tr("pushed" if changed else "pushed_nothing", branch=branch, where=where)}
 
+@route("/api/push-tag", method="POST")
 def api_push_tag(body):
     """タグを push する。push 先のリモートが決まらない (複数あって pushDefault も無い) ときは、選択肢を返す。"""
     from gitrun import HTTP_AUTH_CACHE, auth_for_remote, git, is_http_auth_error, net_error, remember_auth, run_git_net

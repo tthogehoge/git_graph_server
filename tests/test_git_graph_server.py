@@ -7,7 +7,7 @@ import threading
 import unittest
 from types import SimpleNamespace
 from urllib.error import HTTPError
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 import git_graph_server as app
 import app_state as state
@@ -56,6 +56,19 @@ class ParseStatusTests(unittest.TestCase):
         }
 
         self.assertEqual(app.wip_count(status), 3)
+
+
+class RouteRegistrationTests(unittest.TestCase):
+    def test_api_routes_are_registered_with_method_and_path(self):
+        self.assertIs(app.ROUTES[("GET", "/api/log")], app.api_log)
+        self.assertIs(app.ROUTES[("GET", "/api/graph")], app.graph_payload)
+        self.assertIs(app.ROUTES[("POST", "/api/push")], app.api_push)
+        self.assertIs(app.ROUTES[("POST", "/api/shutdown")], app.api_shutdown)
+        self.assertEqual(
+            app.POST_ROUTES,
+            {path: handler for (method, path), handler in app.ROUTES.items()
+             if method == "POST"},
+        )
 
 
 class GitOutputParserTests(unittest.TestCase):
@@ -389,7 +402,14 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
     def test_http_handler_routes_api_get_and_rejects_unknown_path(self):
         previous_opts = state.OPTS
         previous_writable = state.WRITABLE
-        state.OPTS = SimpleNamespace(host="127.0.0.1")
+        state.OPTS = SimpleNamespace(
+            host="127.0.0.1",
+            revs=[],
+            no_remotes=False,
+            no_tags=False,
+            rankdir="BT",
+            no_count=False,
+        )
         state.WRITABLE = True
         server = app.QuietServer(("127.0.0.1", 0), app.Handler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -418,6 +438,26 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
                 payload = json.loads(response.read())
             self.assertEqual(payload["total"], 1)
             self.assertEqual(payload["commits"][0][0], self.head)
+
+            with urlopen(f"{base_url}/api/graph") as response:
+                graph = json.loads(response.read())
+            self.assertIsInstance(graph["nodes"], dict)
+            self.assertIsInstance(graph["edges"], dict)
+            self.assertTrue(graph["svg"].startswith("<svg"))
+
+            with urlopen(f"{base_url}/api/head") as response:
+                head = json.loads(response.read())
+            self.assertEqual(head["branch"], "main")
+
+            request = Request(
+                f"{base_url}/api/branch",
+                data=json.dumps({"hash": self.head, "name": "http-feature"}).encode(),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urlopen(request) as response:
+                self.assertTrue(json.loads(response.read())["ok"])
+            self.assertEqual(self.git("rev-parse", "refs/heads/http-feature").strip(), self.head)
 
             with self.assertRaises(HTTPError) as error:
                 urlopen(f"{base_url}/missing")

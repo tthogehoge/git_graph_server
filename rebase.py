@@ -7,6 +7,7 @@ import tempfile
 import threading
 from collections import Counter, defaultdict
 import app_state as state
+from routing import route
 
 
 def is_merging():
@@ -22,11 +23,13 @@ def is_rebasing():
             return True
     return False
 
+@route("/api/head")
 def api_head(q=None):
     r = subprocess.run(["git", "-C", state.REPO, "symbolic-ref", "--short", "-q", "HEAD"],
                        capture_output=True, text=True, encoding="utf-8", errors="replace")
     return {"branch": r.stdout.strip() or None, "merging": (is_merging() or is_rebasing()) if state.HAS_WORKTREE else False}
 
+@route("/api/merge", method="POST")
 def api_merge(body):
     """選んだコミットを、いまチェックアウトしている HEAD にマージする。
     競合したときはマージ途中の状態で止める (WIP の一覧に競合ファイルが出るので、解決してコミットする)。"""
@@ -56,6 +59,7 @@ def api_merge(body):
         return {"ok": True, "message": tr("merge_uptodate", hash=h[:7])}
     return {"ok": True, "message": tr("merge_done", hash=h[:7])}
 
+@route("/api/rebase", method="POST")
 def api_rebase(body):
     """現在のブランチを、選んだコミットの上にリベースする。競合したら自動で中止して元に戻す。"""
     from gitrun import git, resolve_commit
@@ -81,6 +85,7 @@ def api_rebase(body):
         return {"ok": True, "message": tr("rebase_noop", branch=head["branch"], hash=h[:7])}
     return {"ok": True, "message": tr("rebase_done", branch=head["branch"], hash=h[:7])}
 
+@route("/api/rebase-range", method="POST")
 def api_rebase_range(body):
     """A より後の現在のブランチのコミットを B の上にリベースする。
     競合したら自動で中止して元に戻す。"""
@@ -108,6 +113,7 @@ def api_rebase_range(body):
         return {"ok": True, "message": tr("rebase_noop", branch=head["branch"], hash=b[:7])}
     return {"ok": True, "message": tr("rebase_range_done", branch=head["branch"], **{"from": a[:7], "to": b[:7]})}
 
+@route("/api/rebase-descendants", method="POST")
 def api_rebase_descendants(body):
     """A の子孫にある全ローカルブランチを、分岐構造を保って B の上へ移す。
 
@@ -312,6 +318,7 @@ def nearest_equivalent_parent(a, b):
                                  or "git diff failed")
     return a_commits, b_commits, None, None
 
+@route("/api/find-equivalent-parents", method="POST")
 def api_find_equivalent_parents(body):
     """A/B の先端から親へ探し、件名と親相対差分が一致するコミットを返す。"""
     from gitrun import resolve_commit
@@ -328,6 +335,7 @@ def api_find_equivalent_parents(body):
     return {"from": new_a, "to": new_b,
             "message": tr("find_equivalent_parents_found", a=new_a[:7], b=new_b[:7])}
 
+@route("/api/rebase-equivalent", method="POST")
 def api_rebase_equivalent(body):
     """A/B の先端から親へ同一差分を探し、A の一致コミット以降を B 側へ寄せる。"""
     from gitrun import git, resolve_commit, run_git_write
@@ -408,6 +416,7 @@ def api_rebase_equivalent(body):
         raise
     return {"ok": True, "message": tr("rebase_equivalent_done", **{"from": a[:7], "to": new_tip[:7]}, matched=1)}
 
+@route("/api/find-equivalent-branch", method="POST")
 def api_find_equivalent_branch(body):
     """B の子孫ブランチから、A と最も近い連続同一差分の履歴を探す。"""
     from gitrun import git, resolve_commit
@@ -451,6 +460,7 @@ def is_reverting():
     return subprocess.run(["git", "-C", state.REPO, "rev-parse", "-q", "--verify", "REVERT_HEAD"],
                           capture_output=True).returncode == 0
 
+@route("/api/cherry-pick", method="POST")
 def api_cherry_pick(body):
     """選んだコミットを、いまチェックアウトしている HEAD にチェリーピックする。
     競合したときと、変更が空になるとき (既に取り込み済み) は、中止して元に戻す。"""
@@ -483,6 +493,7 @@ def api_cherry_pick(body):
         return {"ok": True, "message": tr("cherry_noop", hash=h[:7])}
     return {"ok": True, "message": tr("cherry_done", hash=h[:7])}
 
+@route("/api/revert", method="POST")
 def api_revert(body):
     """選んだコミットの変更を打ち消すコミットを、いまの HEAD の上に作る (git revert)。
     競合したときと、変更が空になるとき (既に打ち消し済み) は、中止して元に戻す。マージコミットは第1親を基準にする。"""
@@ -512,6 +523,7 @@ def api_revert(body):
         raise ValueError(out or tr("revert_failed"))
     return {"ok": True, "message": tr("revert_done_merge" if is_merge else "revert_done", hash=h[:7])}
 
+@route("/api/abort", method="POST")
 def api_abort(body):
     """進行中のマージ / リベース / チェリーピック / リバートを中断して、開始前の状態に戻す。"""
     from gitrun import run_git_write
@@ -531,6 +543,7 @@ def unmerged_stages(path):
     out = git("ls-files", "-u", "-z", "--", path, literal=True)
     return {rec.split("\t", 1)[0].split()[-1] for rec in out.split("\0") if "\t" in rec}
 
+@route("/api/resolve", method="POST")
 def api_resolve(body):
     """競合しているファイルを、ours か theirs の内容で丸ごと置き換えて解決済みにする (片側で削除されていたら削除する)。"""
     from gitrun import run_git_write
@@ -598,6 +611,7 @@ def check_rebase_i_range(base):
         raise UserError("ri_too_many", n=len(hashes), max=REBASE_I_MAX)
     return hashes
 
+@route("/api/rebase-todo")
 def api_rebase_todo(q):
     """対話的リベースの対象コミット一覧 (画面の編集ダイアログに出す)。"""
     from gitrun import git, resolve_commit
@@ -619,6 +633,7 @@ def api_rebase_todo(q):
         commits.append({"hash": h, "short": h[:7], "author": an, "date": ad, "subject": subj, "message": msg.strip()})
     return {"base": base, "branch": head["branch"], "commits": commits}
 
+@route("/api/rebase-i", method="POST")
 def api_rebase_i(body):
     """git rebase -i 相当。画面で編集した todo (順序と pick/reword/squash/fixup/drop) をそのまま実行する。
     エディタは起こさず、todo は GIT_SEQUENCE_EDITOR で差し替える。reword は、そのコミット (squash/fixup を

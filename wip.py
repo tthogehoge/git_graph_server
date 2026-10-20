@@ -1,6 +1,7 @@
 import os
 import subprocess
 import app_state as state
+from routing import route
 
 
 CONFLICT_CODES = {"DD", "AU", "UD", "UA", "DU", "AA", "UU"}
@@ -102,6 +103,7 @@ def amend_files(s):
         out.append(dict(f, wip="amend", tag="WIP"))
     return out
 
+@route("/api/status")
 def api_status(q):
     """作業ツリーの変更 (WIP)。ステージ済み/未ステージには追加・削除行数も付ける。"""
     from gitrun import git
@@ -161,6 +163,7 @@ def wip_diff(kind, path, specs):
         return git_bytes("diff", "--no-color", "-M", amend_base(), "--", *specs, literal=True)
     raise ValueError("bad wip")
 
+@route("/api/wip-commit", method="POST")
 def api_wip_commit(body):
     """チェックされたファイルを add してコミットする (TortoiseGit のコミットダイアログと同じ考え方)。
     ステージ済みでチェックのないファイルは、ステージから外す (作業ツリーの内容はそのまま)。"""

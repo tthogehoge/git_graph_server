@@ -8,6 +8,7 @@ from collections import Counter
 from urllib.parse import urlencode
 import app_state as state
 from i18n import FAVICON_LINK
+from routing import route
 
 
 COPY_JS = """
@@ -56,6 +57,7 @@ document.addEventListener("click", ev => {
 
 REV_RE = re.compile(r"[0-9a-f]{40}(\.\.[0-9a-f]{40})?")
 
+@route("/api/log")
 def api_log(q):
     from gitrun import git
     rev = q.get("rev", [""])[0]
@@ -86,6 +88,7 @@ def paging(q):
         raise ValueError("bad paging")
     return skip, limit
 
+@route("/api/stash-list")
 def api_stash_list(q):
     """stash の一覧 (新しい順)。api_log と同じ [hash, short, 選択子, 日時, 件名] の形で返す。"""
     from gitrun import git
@@ -109,6 +112,7 @@ def _ref_list(refs, fmt, kinds):
         rows.append(parts)
     return rows
 
+@route("/api/branches")
 def api_branches(q):
     """ローカルブランチ → リモート追跡ブランチの順の一覧。現在のブランチには ★ を付ける。"""
     from gitrun import git
@@ -125,6 +129,7 @@ def api_branches(q):
             commits.append([h, h[:7], ref[len("refs/remotes/"):], date, subj])
     return {"commits": commits, "has_more": False, "total": len(commits)}
 
+@route("/api/branches-containing")
 def api_branches_containing(q):
     """指定コミットを含むローカル / リモート追跡ブランチと各 tip を返す。"""
     from gitrun import git, resolve_commit
@@ -143,6 +148,7 @@ def api_branches_containing(q):
     branches.sort(key=lambda b: (0 if b["ref"].startswith("refs/heads/") else 1, b["name"].casefold(), b["name"]))
     return {"branches": branches}
 
+@route("/api/tags")
 def api_tags(q):
     """タグの一覧 (新しい順)。注釈付きタグは指しているコミットを使う。"""
     from gitrun import git
@@ -158,6 +164,7 @@ def api_tags(q):
         commits.append([h, h[:7], ref[len("refs/tags/"):], date, psubj or subj])
     return {"commits": commits, "has_more": False, "total": len(commits)}
 
+@route("/api/reflog")
 def api_reflog(q):
     """reflog (新しい順)。branch 省略で HEAD、指定でそのローカルブランチ。"""
     from gitrun import check_ref_name, git
@@ -196,6 +203,7 @@ def commit_info(h):
     return {"hash": full, "author": author, "date": date, "parents": par.split(),
             "message": msg.strip()}
 
+@route("/api/commit")
 def api_commit(q):
     from gitrun import git
     info = commit_info(q.get("hash", [""])[0])
@@ -214,6 +222,7 @@ def validate_file_path(path, allow_empty=True):
         raise ValueError("bad path")
     return path
 
+@route("/api/tree")
 def api_tree(q):
     from gitrun import git, resolve_commit
     from i18n import UserError
@@ -287,6 +296,7 @@ def decode_text(data, truncated=False):
         return best[1], best[2]
     return data.decode("utf-8", errors="replace"), "UTF-8 (invalid bytes replaced)"
 
+@route("/api/file")
 def api_file(q):
     from gitrun import git, resolve_commit
     from i18n import UserError
@@ -303,6 +313,7 @@ def api_file(q):
     return {"hash": h, "path": path, "content": text or "", "encoding": encoding,
             "binary": text is None, "truncated": truncated, "size": len(raw)}
 
+@route("/api/file-copy", method="POST")
 def api_file_copy(body):
     """コミット内のファイルを、作業ツリーの別のパスにコピーする。既存のファイルは上書きしない。"""
     from gitrun import git, resolve_commit
@@ -348,6 +359,7 @@ def api_file_copy(body):
         raise ValueError(str(e))
     return {"ok": True, "message": tr("file_copied", path=dest)}
 
+@route("/api/compare")
 def api_compare(q):
     """2つのコミット間の差分 (from → to) のファイル一覧。"""
     from gitrun import git
@@ -356,6 +368,7 @@ def api_compare(q):
     raw = git("diff", "--numstat", "-z", "-M", a["hash"], b["hash"], "--")
     return {"from": a, "to": b, "files": parse_numstat(raw)}
 
+@route("/api/merge-base")
 def api_merge_base(q):
     """2つのコミットの共通祖先 (最も新しいもの)。"""
     from gitrun import git, resolve_commit

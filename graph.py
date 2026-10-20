@@ -1,5 +1,4 @@
 import html
-import json
 import re
 import subprocess
 import sys
@@ -7,6 +6,7 @@ import threading
 import unicodedata
 from collections import Counter, defaultdict
 import app_state as state
+from routing import route
 
 
 FAST_LAYOUT_NODES = 300
@@ -241,7 +241,8 @@ def add_wip(dot_text, nodes, head, count):
     nodes["WIP"] = {"hash": "WIP", "refs": [], "wip": True, "count": count}
     return dot_text[:i] + lines + dot_text[i:], nodes
 
-def graph_payload():
+@route("/api/graph")
+def graph_payload(q=None):
     """グラフ(SVG + ノード/エッジ情報)の JSON を返す。
     重い部分 (merge-base の総当たり) は ref と HEAD が変わらない限りキャッシュし、
     作業ツリーの変更 (WIP ノード) だけを毎回付け替える。"""
@@ -281,9 +282,8 @@ def graph_payload():
         svg = subprocess.run(["dot", "-Tsvg"], input=dot_text.encode("utf-8"),
                              capture_output=True, check=True).stdout.decode("utf-8", errors="replace")
         svg = center_node_text(svg[svg.index("<svg"):])
-        payload = json.dumps({"svg": svg, "nodes": nodes, "edges": edges, "writable": state.WRITABLE,
-                              "merge": state.WRITABLE and state.HAS_WORKTREE},
-                             ensure_ascii=False)
+        payload = {"svg": svg, "nodes": nodes, "edges": edges, "writable": state.WRITABLE,
+                   "merge": state.WRITABLE and state.HAS_WORKTREE}
         _cache.update(payload_key=(key, raw), payload=payload)
         return payload
 

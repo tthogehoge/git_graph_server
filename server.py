@@ -34,17 +34,13 @@ from viewer import (
     api_tree, render_diff_page, render_files_page,
 )
 from wip import api_status, api_wip_commit
+from routing import ROUTES, route
 
 
 class Forbidden(Exception):
     pass
 
 _write_lock = threading.Lock()
-
-POST_ROUTES = {"/api/stash": api_stash, "/api/rebase": api_rebase, "/api/rebase-range": api_rebase_range, "/api/rebase-descendants": api_rebase_descendants, "/api/rebase-equivalent": api_rebase_equivalent, "/api/find-equivalent-parents": api_find_equivalent_parents, "/api/find-equivalent-branch": api_find_equivalent_branch, "/api/rebase-i": api_rebase_i, "/api/cherry-pick": api_cherry_pick, "/api/revert": api_revert, "/api/abort": api_abort, "/api/resolve": api_resolve, "/api/discard": api_discard, "/api/branch-rename": api_branch_rename, "/api/merge": api_merge, "/api/branch": api_branch, "/api/tag": api_tag, "/api/ref-delete": api_delete_ref,
-               "/api/checkout": api_checkout, "/api/reset": api_reset, "/api/wip-commit": api_wip_commit,
-               "/api/fetch": api_fetch, "/api/pull": api_pull, "/api/push": api_push, "/api/push-tag": api_push_tag, "/api/file-copy": api_file_copy,
-               "/api/remote-add": api_remote_add, "/api/remote-remove": api_remote_remove}
 
 DEFAULT_PORT = 8000
 
@@ -53,9 +49,12 @@ class QuietServer(ThreadingHTTPServer):
     allow_reuse_address = os.name != "nt"
     daemon_threads = True
 
+@route("/api/shutdown", method="POST")
 def api_shutdown(body):
     """終了要求を返す。サーバーの停止は HTTP 応答の送信後に行う。"""
     return {"ok": True}
+
+POST_ROUTES = {path: handler for (method, path), handler in ROUTES.items() if method == "POST"}
 
 class Handler(BaseHTTPRequestHandler):
     def _send(self, code, ctype, body):
@@ -77,38 +76,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, "application/javascript", render_app_js())
             elif u.path == "/static/app.css":
                 self._send(200, "text/css", APP_CSS)
-            elif u.path == "/api/log":
-                self._send(200, "application/json", json.dumps(api_log(q), ensure_ascii=False))
-            elif u.path == "/api/stash-list":
-                self._send(200, "application/json", json.dumps(api_stash_list(q), ensure_ascii=False))
-            elif u.path == "/api/branches":
-                self._send(200, "application/json", json.dumps(api_branches(q), ensure_ascii=False))
-            elif u.path == "/api/branches-containing":
-                self._send(200, "application/json", json.dumps(api_branches_containing(q), ensure_ascii=False))
-            elif u.path == "/api/tags":
-                self._send(200, "application/json", json.dumps(api_tags(q), ensure_ascii=False))
-            elif u.path == "/api/reflog":
-                self._send(200, "application/json", json.dumps(api_reflog(q), ensure_ascii=False))
-            elif u.path == "/api/status":
-                self._send(200, "application/json", json.dumps(api_status(q), ensure_ascii=False))
-            elif u.path == "/api/remotes":
-                self._send(200, "application/json", json.dumps(api_remotes(q), ensure_ascii=False))
-            elif u.path == "/api/graph":
-                self._send(200, "application/json", graph_payload())
-            elif u.path == "/api/rebase-todo":
-                self._send(200, "application/json", json.dumps(api_rebase_todo(q), ensure_ascii=False))
-            elif u.path == "/api/head":
-                self._send(200, "application/json", json.dumps(api_head(q), ensure_ascii=False))
-            elif u.path == "/api/compare":
-                self._send(200, "application/json", json.dumps(api_compare(q), ensure_ascii=False))
-            elif u.path == "/api/merge-base":
-                self._send(200, "application/json", json.dumps(api_merge_base(q), ensure_ascii=False))
-            elif u.path == "/api/commit":
-                self._send(200, "application/json", json.dumps(api_commit(q), ensure_ascii=False))
-            elif u.path == "/api/tree":
-                self._send(200, "application/json", json.dumps(api_tree(q), ensure_ascii=False))
-            elif u.path == "/api/file":
-                self._send(200, "application/json", json.dumps(api_file(q), ensure_ascii=False))
+            elif (handler := ROUTES.get(("GET", u.path))) is not None:
+                result = handler(q)
+                self._send(200, "application/json", json.dumps(result, ensure_ascii=False))
             elif u.path == "/files":
                 h = resolve_commit(q.get("hash", [""])[0])
                 self._send(200, "text/html", render_files_page().replace("__HASH__", html.escape(h)))
@@ -145,8 +115,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         try:
             path = urlparse(self.path).path
-            route = POST_ROUTES.get(path) or (api_shutdown if path == "/api/shutdown" else None)
-            if route is None:
+            handler = ROUTES.get(("POST", path))
+            if handler is None:
                 self._send(404, "text/plain", "not found")
                 return
             self._check_post(shutdown=path == "/api/shutdown")
@@ -157,7 +127,7 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(body, dict):
                 raise ValueError("bad body")
             with _write_lock:
-                res = route(body)
+                res = handler(body)
             self._send(200, "application/json", json.dumps(res, ensure_ascii=False))
             if path == "/api/shutdown" and state.SERVER is not None:
                 threading.Thread(target=state.SERVER.shutdown, daemon=True).start()
@@ -248,4 +218,5 @@ def main():
         pass
 
 
-__all__ = ["DEFAULT_PORT", "Forbidden", "Handler", "POST_ROUTES", "QuietServer", "api_shutdown", "main"]
+__all__ = ["DEFAULT_PORT", "Forbidden", "Handler", "POST_ROUTES", "QuietServer", "ROUTES",
+           "api_shutdown", "main", "route"]
