@@ -514,6 +514,7 @@ TRANSLATIONS = {
         "cli_help_open": "起動後にブラウザで開く",
         "cli_help_no_remotes": "リモートブランチを除外",
         "cli_help_no_tags": "タグを除外",
+        "cli_help_include_tips": "ブランチ / タグのない末端コミットも表示対象にする",
         "cli_help_full_layout": "ノードが多くても dot のレイアウト最適化を省略しない (遅いが交差が少し減る)",
         "cli_help_no_count": "省略数 (+N) の計算をしない",
         "cli_help_rankdir": "BT(下から上) / TB / LR (既定: BT)",
@@ -1005,6 +1006,7 @@ TRANSLATIONS = {
         "cli_help_open": "open the browser after starting",
         "cli_help_no_remotes": "exclude remote branches",
         "cli_help_no_tags": "exclude tags",
+        "cli_help_include_tips": "include terminal commits without a branch or tag",
         "cli_help_full_layout": "do not skip dot layout optimization even with many nodes (slower, slightly fewer crossings)",
         "cli_help_no_count": "do not compute the omitted-commit counts (+N)",
         "cli_help_rankdir": "BT (bottom to top) / TB / LR (default: BT)",
@@ -1201,11 +1203,27 @@ def center_node_text(svg):
 def build_graph(opts):
     """残すコミットとエッジを決め、dot / ノード情報 / エッジ情報を返す。"""
     sys.setrecursionlimit(100000)
-    revs = opts.revs or ["--all"]
+    revs = opts.revs
+    if not revs:
+        refs = git("for-each-ref", "--format=%(refname)").splitlines()
+        revs = [
+            ref for ref in refs
+            if not ref.endswith("/HEAD")
+            and (getattr(opts, "include_tips", False)
+                 or ref.startswith(("refs/heads/", "refs/remotes/", "refs/tags/")))
+            and (not opts.no_remotes or not ref.startswith("refs/remotes/"))
+            and (not opts.no_tags or not ref.startswith("refs/tags/"))
+        ]
+        try:
+            git("rev-parse", "--verify", "--quiet", "HEAD")
+            revs.append("HEAD")
+        except subprocess.CalledProcessError:
+            pass
 
     parents, subjects, order = {}, {}, []  # order: 子が親より先 (--topo-order)
     children = defaultdict(list)
-    for line in git("log", *revs, "--topo-order", "--format=%H%x09%P%x09%s").splitlines():
+    log = git("log", *revs, "--topo-order", "--format=%H%x09%P%x09%s") if revs else ""
+    for line in log.splitlines():
         h, p, s = (line.split("\t", 2) + ["", ""])[:3]
         ps = p.split()
         parents[h] = ps
@@ -1246,12 +1264,17 @@ def build_graph(opts):
     except subprocess.CalledProcessError:
         pass
 
-    # ref の指す先 + 末端 + それらの merge-base
+    # ブランチ / タグ / HEAD の指す先 + ルート + それらの merge-base。
+    # --include-tips では、名前のない末端コミットも対象に加える。
     # merge-base を git で総当たり (O(n^2) 回のプロセス起動) せず、メモリ上で求める。
     # desc[x] = x の子孫である base コミットの集合 (ビットマスク)。
     # x が (a, b) の merge-base <=> a, b が desc[x] に入り、どの子の desc にも a, b が揃って入っていない。
     # 参照も子孫もないルートコミットも、履歴の始点として必ず表示する。
-    base = set(labels) | {h for h in parents if not children[h]} | {h for h, ps in parents.items() if not ps}
+    named_tips = {h for h, refs in labels.items()
+                  if any(kind in ("branch", "current", "remote", "tag", "head") for _, kind in refs)}
+    base = named_tips | {h for h, ps in parents.items() if not ps}
+    if getattr(opts, "include_tips", False):
+        base.update(h for h in parents if not children[h])
     bit = {h: 1 << i for i, h in enumerate(sorted(base))}
     desc = defaultdict(int)
     for h in order:  # 子 -> 親
@@ -1307,6 +1330,7 @@ def build_graph(opts):
         for d in sorted(direct[c]):
             if not deep & kbit[d]:  # d が他の直接祖先の祖先でなければ残す
                 edges.append((d, c))
+    kbit = {h: 1 << i for i, h in enumerate(keep_order)}
     keep_order.reverse()  # 出力の順序を毎回同じにする (レイアウトが安定する)
 
     font = (getattr(opts, "font", None) or "Helvetica").replace("\\", "").replace('"', "")  # dot の文字列に埋めるため引用符は除く
@@ -6354,6 +6378,7 @@ def main():
     ap.add_argument("--open", action="store_true", help=tr("cli_help_open"))
     ap.add_argument("--no-remotes", action="store_true", help=tr("cli_help_no_remotes"))
     ap.add_argument("--no-tags", action="store_true", help=tr("cli_help_no_tags"))
+    ap.add_argument("--include-tips", action="store_true", help=tr("cli_help_include_tips"))
     ap.add_argument("--full-layout", action="store_true", help=tr("cli_help_full_layout"))
     ap.add_argument("--no-count", action="store_true", help=tr("cli_help_no_count"))
     ap.add_argument("--rankdir", default="BT", help=tr("cli_help_rankdir"))
