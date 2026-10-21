@@ -6,7 +6,11 @@ import threading
 import unicodedata
 from collections import Counter, defaultdict
 from . import app_state as state
+from .gitrun import git
+from .gitstate import parse_status, read_status_raw
+from .i18n import tr
 from .routing import route
+from .wip import wip_count
 
 
 FAST_LAYOUT_NODES = 300
@@ -48,7 +52,6 @@ def center_node_text(svg):
 
 def build_graph(opts):
     """残すコミットとエッジを決め、dot / ノード情報 / エッジ情報を返す。"""
-    from .gitrun import git
     sys.setrecursionlimit(100000)
     revs = opts.revs
     if not revs:
@@ -232,7 +235,6 @@ _lock = threading.Lock()
 
 def add_wip(dot_text, nodes, head, count):
     """HEAD の子として、破線の WIP ノードを dot とノード情報に追加する。"""
-    from .i18n import tr
     label = ('<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3" STYLE="dashed" BGCOLOR="#fff8dc">'
              f'<TR><TD><B>WIP</B></TD></TR><TR><TD>{html.escape(tr("n_changes", n=count))}</TD></TR></TABLE>>')
     lines = f'  "WIP" [label={label}];\n  "{head}" -> "WIP" [style=dashed];\n'
@@ -246,8 +248,6 @@ def graph_payload(q=None):
     """グラフ(SVG + ノード/エッジ情報)の JSON を返す。
     重い部分 (merge-base の総当たり) は ref と HEAD が変わらない限りキャッシュし、
     作業ツリーの変更 (WIP ノード) だけを毎回付け替える。"""
-    from .gitrun import git
-    from .wip import parse_status, read_status_raw, wip_count
     with _lock:  # 同時に複数回作らない (2つ目以降はキャッシュを使う)
         try:
             head = git("rev-parse", "HEAD").strip()

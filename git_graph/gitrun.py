@@ -4,6 +4,7 @@ import shutil
 import subprocess
 import tempfile
 from . import app_state as state
+from .i18n import tr, UserError
 
 
 def git(*args, literal=False):
@@ -19,7 +20,6 @@ def git_bytes(*args, literal=False):
 HASH_RE = re.compile(r"[0-9a-f]{7,40}")
 
 def resolve_commit(h):
-    from .i18n import UserError
     if not HASH_RE.fullmatch(h or ""):
         raise ValueError("bad hash")
     try:
@@ -28,7 +28,6 @@ def resolve_commit(h):
         raise UserError("commit_not_found")
 
 def check_ref_name(kind, name):
-    from .i18n import UserError
     prefix = {"branch": "refs/heads/", "tag": "refs/tags/"}[kind]
     label = {"branch": ("branch_name_invalid", "branch_name_unusable"),
              "tag": ("tag_name_invalid", "tag_name_unusable")}[kind]
@@ -43,7 +42,6 @@ def is_loopback(host):
 
 def run_git_write(*args, literal=False, cwd=None):
     """git を実行し、失敗したら git のエラーメッセージを ValueError にして返す。"""
-    from .i18n import tr
     env = dict(os.environ, GIT_LITERAL_PATHSPECS="1") if literal else None  # パスをglobとして解釈しない
     r = subprocess.run(["git", "-C", cwd or state.REPO, *args], capture_output=True, text=True,
                        encoding="utf-8", errors="replace", env=env)
@@ -67,7 +65,6 @@ def run_git_net(*args, timeout=None, auth=None):
     鍵が変わった場合は SSH に拒否させる。必要なら一時的な HTTP 認証用
     askpass を使う。
     """
-    from .i18n import UserError
     env = dict(os.environ, GIT_TERMINAL_PROMPT="0")
     # stdin は閉じて実行するため、SSH の yes/no 確認プロンプトは表示できない。
     # accept-new なら未知ホストだけを自動登録し、鍵が変わったホストは拒否する。

@@ -1,54 +1,22 @@
 import os
 import subprocess
 from . import app_state as state
+from .gitrun import check_ref_name, git, git_bytes, run_git_write
+from .gitstate import (
+    commit_info, has_head, has_parent, is_cherry_picking, is_merging, is_rebasing,
+    is_reverting, parse_numstat, parse_status, read_status_raw,
+)
+from .i18n import tr, UserError
+from .rebase import api_head
+from .refops import checkout_resolving
 from .routing import route
 
-
-CONFLICT_CODES = {"DD", "AU", "UD", "UA", "DU", "AA", "UU"}
-
-def read_status_raw():
-    from .gitrun import git
-    return git("status", "--porcelain=v1", "-z", "--untracked-files=all")
-
-def parse_status(raw, limit=5000):
-    """git status --porcelain=v1 -z を ステージ済み / 未ステージ / 未追跡 / 競合 に分ける (パスはリポジトリルート基準)。"""
-    res = {"staged": [], "unstaged": [], "untracked": [], "conflicts": [], "truncated": False}
-    toks = raw.split("\0")
-    i = n = 0
-    while i < len(toks):
-        t = toks[i]
-        i += 1
-        if len(t) < 4 or t[2] != " ":
-            continue
-        xy, path = t[:2], t[3:]
-        old = None
-        if "R" in xy or "C" in xy:  # リネーム/コピーは続くトークンが元のパス
-            old = toks[i] if i < len(toks) else None
-            i += 1
-        if xy == "!!":
-            continue
-        n += 1
-        if n > limit:
-            res["truncated"] = True
-            break
-        if xy == "??":
-            res["untracked"].append({"path": path, "st": "?", "label": "new_file"})  # label は翻訳キー (画面側で翻訳する)
-        elif xy in CONFLICT_CODES:
-            res["conflicts"].append({"path": path, "st": "U", "label": "label_conflict"})
-        else:
-            x, y = xy[0], xy[1]
-            if x != " ":
-                res["staged"].append({"path": path, "old_path": old if x in "RC" else None, "st": x})
-            if y != " ":
-                res["unstaged"].append({"path": path, "old_path": None, "st": y})
-    return res
 
 def wip_count(status):
     return len({f["path"] for k in ("staged", "unstaged", "untracked", "conflicts") for f in status[k]})
 
 def amend_base():
     """amend 後のコミットの親 (HEAD^)。最初のコミットなら空ツリー。"""
-    from .gitrun import git
     try:
         return git("rev-parse", "--verify", "--quiet", "HEAD^").strip()
     except subprocess.CalledProcessError:
@@ -77,15 +45,12 @@ def parse_name_status(raw):
 
 def amend_head_changes(base):
     """直前のコミット (HEAD) が変更したファイル {新しいパス: 元のパス or None}。"""
-    from .gitrun import git
     names = parse_name_status(git("diff", "--name-status", "-z", "-M", base, "HEAD", "--"))
     return {path: old for path, (_, old) in names.items()}
 
 def amend_files(s):
     """amend 後のコミットの内容 = 「直前のコミットの親」と作業ツリーの差分のファイル一覧。
     直前のコミットで変更したファイルは in_head=True (チェックを外すとコミットから外れる)。WIP の変更があるものは tag=WIP。"""
-    from .gitrun import git
-    from .viewer import parse_numstat
     base = amend_base()
     letters = parse_name_status(git("diff", "--name-status", "-z", "-M", base, "--"))
     in_head = amend_head_changes(base)
@@ -106,10 +71,6 @@ def amend_files(s):
 @route("/api/status")
 def api_status(q):
     """作業ツリーの変更 (WIP)。ステージ済み/未ステージには追加・削除行数も付ける。"""
-    from .gitrun import git
-    from .i18n import UserError
-    from .rebase import is_cherry_picking, is_merging, is_rebasing, is_reverting
-    from .viewer import commit_info, parse_numstat
     if not state.WIP_ENABLED:
         raise UserError("wip_disabled")
     s = parse_status(read_status_raw())
@@ -136,8 +97,6 @@ def api_status(q):
     return s
 
 def wip_diff(kind, path, specs):
-    from .gitrun import git_bytes
-    from .i18n import UserError, tr
     if not state.HAS_WORKTREE:
         raise UserError("no_worktree")
     if kind == "staged":
@@ -167,10 +126,6 @@ def wip_diff(kind, path, specs):
 def api_wip_commit(body):
     """チェックされたファイルを add してコミットする (TortoiseGit のコミットダイアログと同じ考え方)。
     ステージ済みでチェックのないファイルは、ステージから外す (作業ツリーの内容はそのまま)。"""
-    from .gitrun import check_ref_name, git, run_git_write
-    from .i18n import UserError, tr
-    from .rebase import api_head, is_merging, is_rebasing
-    from .refops import checkout_resolving, has_head, has_parent
     if not state.WIP_ENABLED:
         raise UserError("wip_disabled")
     amend = body.get("amend") is True
@@ -262,7 +217,6 @@ def api_wip_commit(body):
 
 
 __all__ = [
-    "CONFLICT_CODES", "amend_base", "amend_files", "amend_head_changes",
-    "api_status", "api_wip_commit", "parse_name_status", "parse_status",
-    "read_status_raw", "wip_count", "wip_diff",
+    "amend_base", "amend_files", "amend_head_changes", "api_status", "api_wip_commit",
+    "parse_name_status", "wip_count", "wip_diff",
 ]

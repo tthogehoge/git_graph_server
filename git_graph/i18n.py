@@ -14,6 +14,7 @@ LOCALES_DIR = ASSET_DIR / "locales"
 TRANSLATIONS = {lang: json.loads((LOCALES_DIR / f"{lang}.json").read_text(encoding="utf-8"))
                 for lang in ("ja", "en")}
 HTML_TEMPLATE = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+FILES_PAGE = (STATIC_DIR / "files.html").read_text(encoding="utf-8")
 APP_JS = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
 APP_CSS = (STATIC_DIR / "app.css").read_text(encoding="utf-8")
 _FAVICON_SVG = ("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'>"
@@ -94,7 +95,6 @@ def check_i18n():
     2. コードが使うキーが定義済みか / 使われていないキーがないか
     3. 辞書の外に日本語のリテラルが残っていないか (docstring とコメントは除く)
     4. 日本語以外の言語でテンプレートを展開しても、日本語や未置換のキーが残らないか"""
-    from .viewer import FILES_PAGE
     problems = []
     base = TRANSLATIONS["en"]
     params_of = lambda s: sorted(set(re.findall(r"\{(\w+)\}", s)))
@@ -109,7 +109,7 @@ def check_i18n():
     src = "\n".join(path.read_text(encoding="utf-8")
                     for path in sorted(Path(__file__).resolve().parent.glob("*.py")))
     assets = "\n".join((STATIC_DIR / name).read_text(encoding="utf-8")
-                       for name in ("index.html", "app.js", "app.css"))
+                       for name in ("index.html", "files.html", "app.js", "app.css"))
     tree = ast.parse(src)
     docstrings = set()
     for node in ast.walk(tree):
@@ -160,6 +160,7 @@ def check_i18n():
 
 
 __all__ = [
+    "FILES_PAGE",
     "APP_CSS", "APP_JS", "DEFAULT_LANG", "FAVICON_LINK", "HTML_TEMPLATE",
     "TRANSLATIONS", "UserError", "check_i18n", "client_translations",
     "detect_language", "fill_template", "render_app_js", "render_main_page",

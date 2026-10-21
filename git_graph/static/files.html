@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="ja"><head><meta charset="utf-8"><title>{{file_view}} - __PROJECT__</title>
+__FAVICON__
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+<style>
+  html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-size: 13px; color: #222; }
+  body { display: flex; }
+  #tree { width: 360px; flex: none; overflow: auto; border-right: 1px solid #ccc; background: #fafafa; padding: 12px; box-sizing: border-box; }
+  #main { flex: 1; min-width: 0; overflow: auto; padding: 14px 18px; box-sizing: border-box; }
+  h1 { font-size: 15px; margin: 0 0 8px; word-break: break-all; }
+  h2 { font-size: 14px; margin: 0 0 8px; }
+  .meta, .hint { color: #666; margin: 3px 0; }
+  .crumb { margin: 8px 0; word-break: break-all; }
+  .crumb a, .entry { color: #06c; text-decoration: none; cursor: pointer; }
+  .crumb a:hover, .entry:hover { text-decoration: underline; }
+  .entry { display: flex; gap: 8px; padding: 4px 6px; border-radius: 3px; font-family: monospace; }
+  .entry:hover { background: #eef; }
+  .entry .size { margin-left: auto; color: #777; white-space: nowrap; }
+  pre { white-space: pre-wrap; word-break: break-word; background: #fff; border: 1px solid #ddd; padding: 10px; font: 12px monospace; }
+  pre.code { color: #24292f; tab-size: 4; }
+  pre.code { padding-left: 0; }
+  .ln { display: flex; }
+  .ln:hover { background: #f6f8fa; }
+  .ln .no { flex: none; width: var(--nw, 3ch); box-sizing: content-box; padding: 0 10px; margin-right: 10px; text-align: right; color: #8c959f; border-right: 1px solid #e3e3e3; user-select: none; }
+  .ln .tx { flex: 1; min-width: 0; }
+  .tok-keyword { color: #8250df; font-weight: 600; }
+  .tok-string { color: #0a7b35; }
+  .tok-comment { color: #6e7781; font-style: italic; }
+  .tok-number { color: #0550ae; }
+  .tok-type { color: #953800; }
+  .tok-tag { color: #116329; }
+  .tok-attr { color: #8250df; }
+  .tok-regex { color: #cf222e; }
+  .binary { color: #777; padding: 10px; border: 1px solid #ddd; }
+  .file-actions { display: flex; gap: 6px; margin: 8px 0; }
+  .file-actions button { background: #e8eefc; border: 1px solid #b8c7ee; padding: 4px 8px; border-radius: 3px; cursor: pointer; }
+  .file-actions button:hover { background: #d6e2fb; }
+  .file-actions .msg { margin-left: 8px; color: #0a7b35; white-space: pre-wrap; }
+  .file-actions .msg.err { color: #c00; }
+  table.file-log { border-collapse: collapse; width: 100%; margin-top: 8px; }
+  table.file-log td { border-bottom: 1px solid #e3e3e3; padding: 5px 6px; vertical-align: top; }
+  table.file-log td.hash { width: 1%; font-family: monospace; white-space: nowrap; }
+  table.file-log td.date { width: 1%; color: #777; white-space: nowrap; }
+  table.file-log a { color: inherit; text-decoration: none; }
+  table.file-log tr:hover td { background: #eef; }
+  .blame-line { display: flex; font: 12px monospace; white-space: pre-wrap; }
+  .blame-line:hover { background: #f6f8fa; }
+  .blame-no { flex: none; width: 8ch; box-sizing: border-box; padding-right: 1ch; text-align: right; color: #8c959f; }
+  .blame-meta { flex: none; width: 24em; overflow: hidden; text-overflow: ellipsis; color: #666; }
+  .blame-meta a { color: inherit; text-decoration: none; }
+  .blame-meta a:hover { text-decoration: underline; }
+  .blame-code { min-width: 0; }
+</style><script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script></head>
+<body><aside id="tree"><h1>{{file_view}}</h1><div class="meta" id="commit"></div><div id="list"></div></aside>
+<main id="main"><h2 id="title">{{select_file}}</h2>
+<div id="fileActions" class="file-actions" hidden><button id="fileLogBtn">{{file_log}}</button><button id="fileBlameBtn">{{file_blame}}</button><button id="fileContentBtn" hidden>{{file_content}}</button><button id="fileCopyBtn" hidden>{{copy_to_work}}</button><span id="fileMsg" class="msg"></span></div>
+<div id="content" class="hint">{{select_file_hint}}</div></main>
+<script>
+/*__FILE_I18N__*/
+function t(key, values = {}) {
+  let text = key in I18N ? I18N[key] : key;
+  Object.entries(values).forEach(([name, value]) => { text = text.replaceAll("{" + name + "}", () => String(value)); });
+  return text;
+}
+
+const PROJECT_DOCUMENT_TITLE = document.title.substring(document.title.indexOf(" - ") + 3);
+function setDocumentTitle(label) {
+  document.title = label ? label + " - " + PROJECT_DOCUMENT_TITLE : t("file_view") + " - " + PROJECT_DOCUMENT_TITLE;
+}
+
+const qs = new URLSearchParams(location.search), hash = qs.get("hash"), fileViewTab = qs.get("file_view") === "1";
+const list = document.getElementById("list"), content = document.getElementById("content"), title = document.getElementById("title");
+const fileActions = document.getElementById("fileActions"), fileLogBtn = document.getElementById("fileLogBtn"), fileBlameBtn = document.getElementById("fileBlameBtn"), fileContentBtn = document.getElementById("fileContentBtn");
+const fileCopyBtn = document.getElementById("fileCopyBtn"), fileMsg = document.getElementById("fileMsg");
+fileCopyBtn.hidden = !CAN_COPY;
+let current = "", currentFile = "";
+function esc(s) { return String(s).replace(/[&<>\"]/g, c => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", "\"":"&quot;"}[c])); }
+function api(path, params) { return fetch(path + "?" + new URLSearchParams(params)).then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); })); }
+function showError(e) { list.innerHTML = '<p class="hint">' + t("error") + esc(e.message) + '</p>'; }
+function loadTree(path, push) {
+  current = path;
+  fileActions.hidden = true;
+  if (push) history.pushState({path: path}, "", "?hash=" + encodeURIComponent(hash) + (path ? "&path=" + encodeURIComponent(path) : ""));
+  api("/api/tree", {hash: hash, path: path}).then(r => {
+    document.getElementById("commit").textContent = r.hash.slice(0, 7);
+    const parts = path ? path.split("/") : [];
+    let crumb = '<div class="crumb"><a data-dir="">📁 ' + t("root") + '</a>';
+    parts.forEach((p, i) => { const d = parts.slice(0, i + 1).join("/"); crumb += ' / <a data-dir="' + esc(d) + '">' + esc(p) + '</a>'; });
+    crumb += '</div>';
+    list.innerHTML = crumb + (r.entries.length ? r.entries.map(e => {
+      const p = path ? path + "/" + e.name : e.name;
+      const icon = e.type === "tree" ? "📁" : "📄";
+      const size = e.size === null ? "" : e.size.toLocaleString() + " B";
+      return '<div class="entry" data-type="' + e.type + '" data-path="' + esc(p) + '"><span>' + icon + ' ' + esc(e.name) + '</span><span class="size">' + size + '</span></div>';
+    }).join("") : '<p class="hint">' + t("empty_directory") + '</p>');
+    list.querySelectorAll("[data-dir]").forEach(a => a.onclick = () => loadTree(a.dataset.dir, true));
+    list.querySelectorAll(".entry").forEach(a => a.onclick = () => a.dataset.type === "tree" ? loadTree(a.dataset.path, true) : loadFile(a.dataset.path));
+  }).catch(showError);
+}
+function setFileMsg(text, ok) { fileMsg.textContent = text; fileMsg.className = "msg" + (ok ? "" : " err"); }
+function defaultCopyName(path) {  // 例: src/a.py → src/a_1234567.py
+  const i = path.lastIndexOf("/"), dir = path.slice(0, i + 1), name = path.slice(i + 1), dot = name.lastIndexOf(".");
+  const suffix = "_" + hash.slice(0, 7);
+  return dir + (dot > 0 ? name.slice(0, dot) + suffix + name.slice(dot) : name + suffix);
+}
+fileCopyBtn.onclick = () => {
+  if (!currentFile) return;
+  const dest = prompt(t("prompt_copy_dest"), defaultCopyName(currentFile));
+  if (dest === null || !dest.trim()) return;
+  fetch("/api/file-copy", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({hash: hash, path: currentFile, dest: dest.trim()})})
+    .then(r => r.ok ? r.json() : r.text().then(m => { throw new Error(m || r.status); }))
+    .then(r => setFileMsg(r.message, true))
+    .catch(e => setFileMsg(e.message, false));
+};
+function loadFile(path) {
+  currentFile = path;
+  setDocumentTitle(path);
+  setFileMsg("", true);
+  fileActions.hidden = false;
+  fileLogBtn.hidden = false;
+  fileBlameBtn.hidden = false;
+  fileContentBtn.hidden = true;
+  api("/api/file", {hash: hash, path: path}).then(r => {
+    const lang = languageFor(r.path);
+    title.textContent = r.path + (lang ? " (" + lang + ")" : "") + (r.encoding ? " [" + r.encoding + "]" : "");
+    content.className = r.binary ? "binary" : "";
+    content.innerHTML = r.binary ? t("binary_file") : numberedCode(r.content, lang) + (r.truncated ? '<p class="hint">' + t("large_file_head") + '</p>' : '');
+    fileBlameBtn.hidden = r.binary;
+  }).catch(e => { title.textContent = path; content.className = "hint"; content.textContent = t("error") + e.message; });
+}
+function loadFileBlame(path) {
+  fileLogBtn.hidden = true;
+  fileBlameBtn.hidden = true;
+  fileContentBtn.hidden = false;
+  setDocumentTitle(t("file_blame_title", {path: path}));
+  title.textContent = t("file_blame_title", {path: path});
+  content.className = "";
+  content.textContent = t("loading");
+  api("/api/blame", {hash: hash, path: path}).then(r => {
+    content.innerHTML = '<div class="meta">' + esc(t("n_lines", {n: r.lines.length})) + '</div><div class="blame">' +
+      r.lines.map(line => '<div class="blame-line"><span class="blame-no">' + line.line + '</span><span class="blame-meta"><a class="blame-commit" href="/?commit_hash=' +
+        encodeURIComponent(line.hash) + '">' + esc(line.hash.slice(0, 7)) + '</a> ' + esc(line.author + " " + line.date) +
+        '</span><span class="blame-code">' + esc(line.content) + '</span></div>').join("") + '</div>';
+  }).catch(e => { content.className = "hint"; content.textContent = t("error") + e.message; });
+}
+content.addEventListener("click", ev => {
+  const link = ev.target.closest("a.blame-commit");
+  if (!link || !window.opener || window.opener.closed) return;
+  ev.preventDefault();
+  window.opener.postMessage({type: "git-graph-commit", hash: new URL(link.href).searchParams.get("commit_hash")}, location.origin);
+});
+function loadFileLog(path) {
+  if (fileViewTab || (window.opener && !window.opener.closed)) {
+    // 別タブでは親のグラフへ通知せず、このファイル画面にログを表示する。
+    fileLogBtn.hidden = true;
+    fileBlameBtn.hidden = true;
+    fileContentBtn.hidden = false;
+    setDocumentTitle(t("file_history_title", {path: path}));
+    title.textContent = t("file_history_title", {path: path});
+    content.className = "hint";
+    content.textContent = t("loading");
+    api("/api/log", {rev: hash, path: path}).then(r => {
+      const rows = r.commits.map(c => '<tr><td class="hash">' + esc(c[1]) +
+        '</td><td class="date">' + esc(c[3]) + '</td><td>' + esc(c[4]) + '</td></tr>').join("");
+      content.className = "";
+      content.innerHTML = '<div class="meta">' + esc(t("n_commits", {n: r.total})) + '</div>' +
+        (rows ? '<table class="file-log"><tbody>' + rows + '</tbody></table>' : '<p class="hint">' + t("no_history") + '</p>');
+    }).catch(e => { content.className = "hint"; content.textContent = t("error") + e.message; });
+    return;
+  }
+  // 同一タブではファイル画面にログを描画せず、グラフ画面へ戻して表示する。
+  location.href = "/?file_log_hash=" + encodeURIComponent(hash) + "&file_log_path=" + encodeURIComponent(path);
+}
+fileLogBtn.onclick = () => { if (currentFile) loadFileLog(currentFile); };
+fileBlameBtn.onclick = () => { if (currentFile) loadFileBlame(currentFile); };
+fileContentBtn.onclick = () => { if (currentFile) loadFile(currentFile); };
+const KEYWORDS = {
+  python: "and as assert async await break case class continue def del elif else except finally for from global if import in is lambda match nonlocal not or pass raise return try while with yield None True False self",
+  javascript: "as async await break case catch class const continue debugger default delete do else export extends false finally for from function get if import in instanceof let new null of return set static super switch this throw true try typeof undefined var void while with yield",
+  typescript: "as async await break case catch class const continue debugger default delete do else export extends false finally for from function get if import in instanceof interface let new null of private protected public readonly return set static super switch this throw true try typeof type undefined var void while with yield",
+  java: "abstract assert boolean break byte case catch char class const continue default do double else enum extends final finally float for if implements import instanceof int interface long native new package private protected public return short static strictfp super switch synchronized this throw throws transient try void volatile while true false null",
+  c: "auto break case char const continue default do double else enum extern float for goto if inline int long register restrict return short signed sizeof static struct switch typedef union unsigned void volatile while true false NULL",
+  go: "break default func interface select case defer go map struct chan else goto package switch const fallthrough if range type continue for import return var true false nil",
+  rust: "as async await break const continue crate dyn else enum extern false fn for if impl in let loop match mod move mut pub ref return self Self static struct super trait true type unsafe use where while",
+  sql: "select from where and or not insert into update delete create alter drop table index view join inner left right full outer on as group by order having limit offset distinct union all null is like values set",
+  shell: "if then else elif fi for while in do done case esac function select time coproc true false",
+  ruby: "BEGIN END alias and begin break case class def defined do else elsif end ensure false for if in module next nil not or redo rescue retry return self super then true undef unless until when while yield require attr_reader attr_writer attr_accessor include extend private protected public",
+  json: "true false null"
+};
+Object.keys(KEYWORDS).forEach(k => KEYWORDS[k] = new Set(KEYWORDS[k].split(" ")));
+function languageFor(path) {
+  const name = path.toLowerCase().split("/").pop();
+  if (["dockerfile", "makefile"].includes(name)) return "shell";
+  const ext = name.includes(".") ? name.split(".").pop() : "";
+  return ({py:"python", pyw:"python", js:"javascript", jsx:"javascript", mjs:"javascript", cjs:"javascript", ts:"typescript", tsx:"typescript", java:"java", c:"c", h:"c", cc:"c", cpp:"c", hpp:"c", go:"go", rs:"rust", rb:"ruby", ru:"ruby", sql:"sql", sh:"shell", bash:"shell", zsh:"shell", json:"json", css:"css", html:"html", htm:"html", xml:"html", md:"markdown", markdown:"markdown", yml:"yaml", yaml:"yaml"})[ext] || "";
+}
+function token(cls, text) { return '<span class="tok-' + cls + '">' + esc(text) + '</span>'; }
+function highlight(source, lang) {
+  if (!lang || lang === "markdown") return esc(source);
+  if (lang === "html") return source.split(/(<[^>]*>)/g).map(x => x.startsWith("<") ? token("tag", x) : esc(x)).join("");
+  const words = KEYWORDS[lang] || new Set(), out = [];
+  let i = 0;
+  while (i < source.length) {
+    const rest = source.slice(i), ch = source[i];
+    const lineComment = (["python", "ruby", "shell", "yaml"].includes(lang)) && ch === "#";
+    const slashComment = (ch === "/" && (source[i + 1] === "/" || source[i + 1] === "*"));
+    if (lineComment || slashComment) {
+      const end = lineComment ? source.indexOf("\n", i) : (source[i + 1] === "/" ? source.indexOf("\n", i) : source.indexOf("*/", i) + 2);
+      const j = end < (lineComment ? 0 : 2) ? source.length : end;
+      out.push(token("comment", source.slice(i, j))); i = j; continue;
+    }
+    const triple = lang === "python" && (source.startsWith("'''", i) || source.startsWith('\"\"\"', i));
+    if (triple || ch === "'" || ch === '"' || (ch === "`" && ["javascript", "typescript"].includes(lang))) {
+      const quote = triple ? source.slice(i, i + 3) : ch; let j = i + quote.length;
+      if (triple) {
+        const end = source.indexOf(quote, j);
+        j = end < 0 ? source.length : end + quote.length;
+      } else {
+        while (j < source.length) { if (source[j] === "\\") j += 2; else if (source[j++] === quote) break; }
+      }
+      out.push(token("string", source.slice(i, j))); i = j; continue;
+    }
+    const number = rest.match(/^(?:0x[\da-f]+|\d+(?:\.\d+)?(?:e[+-]?\d+)?)/i);
+    if (number) { out.push(token("number", number[0])); i += number[0].length; continue; }
+    const word = rest.match(/^[A-Za-z_$][\w$]*/);
+    if (word) { const w = word[0]; out.push(words.has(w) ? token("keyword", w) : esc(w)); i += w.length; continue; }
+    out.push(esc(ch)); i++;
+  }
+  return out.join("");
+}
+function highlightCode(source, lang) {
+  if (window.hljs && lang && hljs.getLanguage(lang)) {
+    try { return hljs.highlight(source, {language: lang, ignoreIllegals: true}).value; } catch (e) {}
+  }
+  return highlight(source, lang);
+}
+/* ハイライト済み HTML を行ごとに分割する。複数行にまたがる span は行末で閉じて次の行で開き直す */
+function splitHighlightedLines(html) {
+  const lines = [], open = [];
+  let cur = "";
+  html.split(/(<[^>]+>|\n)/).forEach(p => {
+    if (p === "\n") { cur += "</span>".repeat(open.length); lines.push(cur); cur = open.join(""); }
+    else if (p.startsWith("</")) { open.pop(); cur += p; }
+    else if (p.startsWith("<")) { open.push(p); cur += p; }
+    else cur += p;
+  });
+  lines.push(cur);
+  return lines;
+}
+function numberedCode(source, lang) {
+  const lines = splitHighlightedLines(highlightCode(source.replace(/\r\n?/g, "\n"), lang));
+  if (lines.length > 1 && lines[lines.length - 1].replace(/<[^>]*>/g, "") === "") lines.pop();  // 末尾の改行は空行として数えない
+  const width = String(lines.length).length;
+  return '<pre class="code" style="--nw:' + width + 'ch"><code>' +
+    lines.map((l, i) => '<div class="ln" id="L' + (i + 1) + '"><span class="no">' + (i + 1) + '</span><span class="tx">' + l + '</span></div>').join("") +
+    '</code></pre>';
+}
+window.onpopstate = () => loadTree(new URLSearchParams(location.search).get("path") || "", false);
+if (!hash) showError(new Error(t("commit_required"))); else loadTree(qs.get("path") || "", false);
+</script></body></html>

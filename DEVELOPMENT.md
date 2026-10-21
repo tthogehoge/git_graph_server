@@ -61,6 +61,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.test_git_graph_server.InputV
 | `git_graph/routing.py` | `@route` による API ルート登録。HTTP メソッドとパスの組み合わせで管理し、重複登録を拒否します。 |
 | `git_graph/app_state.py` | 対象リポジトリ、起動オプション、書き込み可否、worktree 状態、HTTP サーバーなどのプロセス共有状態。 |
 | `git_graph/gitrun.py` | Git コマンド実行、コミット/ref/ホストの検証、書き込みコマンド、リモート通信と認証情報の処理。 |
+| `git_graph/gitstate.py` | マージ中・HEAD の有無・`git status` / `--numstat` の解析など、リポジトリの状態を調べる共通関数。機能モジュールから共通で使われる低レベルの層。 |
 | `git_graph/graph.py` | Git の履歴・ref を読み込み、表示対象ノードとエッジを決定し、Graphviz の DOT/SVG 情報を生成。 |
 | `git_graph/viewer.py` | ログ、コミット、ツリー、ファイル、差分、ブランチ、タグ、reflog、stash などの参照 API と HTML ページ。 |
 | `git_graph/wip.py` | `git status` の解析、作業ツリー差分の表示、未コミット変更を含めた操作。 |
@@ -70,6 +71,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.test_git_graph_server.InputV
 | `git_graph/i18n.py` | 翻訳辞書の読み込み、言語選択、HTML/JavaScript テンプレート展開、翻訳整合性の検査。 |
 | `git_graph/locales/ja.json`、`git_graph/locales/en.json` | 日本語・英語の翻訳辞書。 |
 | `git_graph/static/index.html` | メイン画面の HTML 骨格。 |
+| `git_graph/static/files.html` | ファイル表示ページ(`/files`)の HTML。`i18n.py` が読み込みます。 |
 | `git_graph/static/app.js` | グラフ、ログ、詳細、アクションなどブラウザー側の動作。翻訳辞書は起動時に埋め込まれます。 |
 | `git_graph/static/app.css` | メイン画面と各ビューのスタイル。 |
 | `tests/test_git_graph_server.py` | 単体テスト、API 統合テスト、HTTP/書き込み操作のテスト。 |
@@ -120,3 +122,18 @@ python3 git_graph_server.py --check-i18n
 ```
 
 UI/API を変更した場合は、テストに加えて専用のテスト用リポジトリでアプリを起動し、ブラウザー上の表示と操作、開発者ツールのコンソールやネットワークエラーも確認してください。グラフ生成を変更した場合は、直線的な履歴だけでなく、分岐・merge・タグ・remote ref を含む履歴も確認します。最後に `git diff --check` を実行し、変更差分に不要な空白や意図しないファイルが含まれていないことを確認してください。
+
+## モジュールの依存の向き
+
+モジュール間の import は、すべてファイル先頭の通常の import で、循環はありません(関数内での遅延 import は使いません)。依存は次の向きだけです。新しい関数を足すときは、下の層にあるものだけを import してください。互いに必要になったら、共通部分を下の層(`gitstate.py` など)へ移します。
+
+```
+app_state, routing
+  └ i18n
+      └ gitrun
+          └ gitstate
+              ├ rebase, refops
+              │   └ wip, remote
+              │       └ viewer, graph
+              │           └ server
+```

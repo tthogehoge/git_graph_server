@@ -10,6 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from git_graph.i18n import *
 from git_graph.gitrun import *
+from git_graph.gitstate import *
 from git_graph.graph import *
 from git_graph.wip import *
 from git_graph.viewer import *

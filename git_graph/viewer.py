@@ -8,8 +8,13 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 from . import app_state as state
-from .i18n import FAVICON_LINK
+from .gitstate import commit_info, parse_numstat
+from .gitrun import check_ref_name, git, git_bytes, HASH_RE, resolve_commit
+from .i18n import (
+    client_translations, FAVICON_LINK, FILES_PAGE, fill_template, tr, UserError, with_project,
+)
 from .routing import route
+from .wip import api_status, wip_diff
 
 
 COPY_JS = """
@@ -60,7 +65,6 @@ REV_RE = re.compile(r"[0-9a-f]{40}(\.\.[0-9a-f]{40})?")
 
 @route("/api/log")
 def api_log(q):
-    from .gitrun import git
     rev = q.get("rev", [""])[0]
     if not REV_RE.fullmatch(rev):
         raise ValueError("bad rev")
@@ -92,7 +96,6 @@ def paging(q):
 @route("/api/stash-list")
 def api_stash_list(q):
     """stash の一覧 (新しい順)。api_log と同じ [hash, short, 選択子, 日時, 件名] の形で返す。"""
-    from .gitrun import git
     try:
         out = git("stash", "list", "--format=%H%x1f%h%x1f%gd%x1f%ci%x1f%gs")
     except subprocess.CalledProcessError:
@@ -105,7 +108,6 @@ def api_stash_list(q):
 
 def _ref_list(refs, fmt, kinds):
     """for-each-ref の結果を api_log と同じ [hash, short, 名前, 日付, 件名] の形にする。"""
-    from .gitrun import git
     out = git("for-each-ref", "--format=" + fmt, *refs)
     rows = []
     for l in out.splitlines():
@@ -116,7 +118,6 @@ def _ref_list(refs, fmt, kinds):
 @route("/api/branches")
 def api_branches(q):
     """ローカルブランチ → リモート追跡ブランチの順の一覧。現在のブランチには ★ を付ける。"""
-    from .gitrun import git
     fmt = "%(refname)%1f%(objectname)%1f%(HEAD)%1f%(committerdate:short)%1f%(subject)"
     commits = []
     for ref, name_, head, date, subj in (r[:5] for r in _ref_list(["refs/heads"], fmt, None)):
@@ -133,7 +134,6 @@ def api_branches(q):
 @route("/api/branches-containing")
 def api_branches_containing(q):
     """指定コミットを含むローカル / リモート追跡ブランチと各 tip を返す。"""
-    from .gitrun import git, resolve_commit
     h = resolve_commit(q.get("hash", [""])[0])
     refs = ["refs/heads"]
     if not state.OPTS.no_remotes:
@@ -152,7 +152,6 @@ def api_branches_containing(q):
 @route("/api/tags")
 def api_tags(q):
     """タグの一覧 (新しい順)。注釈付きタグは指しているコミットを使う。"""
-    from .gitrun import git
     fmt = "%(refname)%1f%(creatordate:short)%1f%(*subject)%1f%(subject)"
     out = git("for-each-ref", "--sort=-creatordate", "--format=" + fmt, "refs/tags")
     commits = []
@@ -168,8 +167,6 @@ def api_tags(q):
 @route("/api/reflog")
 def api_reflog(q):
     """reflog (新しい順)。branch 省略で HEAD、指定でそのローカルブランチ。"""
-    from .gitrun import check_ref_name, git
-    from .i18n import UserError
     branch = q.get("branch", [""])[0]
     if branch:
         check_ref_name("branch", branch)
@@ -195,18 +192,8 @@ def api_reflog(q):
             1 for _ in git("reflog", "show", "--format=%H", ref, "--").splitlines())
     return res
 
-def commit_info(h):
-    from .gitrun import HASH_RE, git
-    if not HASH_RE.fullmatch(h):
-        raise ValueError("bad hash")
-    o = git("show", "-s", "--date=iso", "--format=%H%x1f%an <%ae>%x1f%ad%x1f%P%x1f%B", h, "--")
-    full, author, date, par, msg = (o.split("\x1f", 4) + [""] * 5)[:5]
-    return {"hash": full, "author": author, "date": date, "parents": par.split(),
-            "message": msg.strip()}
-
 @route("/api/commit")
 def api_commit(q):
-    from .gitrun import git
     info = commit_info(q.get("hash", [""])[0])
     raw = git("show", "--numstat", "-z", "-M", "--first-parent", "--format=", info["hash"], "--")
     info["files"] = parse_numstat(raw)
@@ -225,8 +212,6 @@ def validate_file_path(path, allow_empty=True):
 
 @route("/api/tree")
 def api_tree(q):
-    from .gitrun import git, resolve_commit
-    from .i18n import UserError
     h = resolve_commit(q.get("hash", [""])[0])
     path = validate_file_path(q.get("path", [""])[0])
     treeish = h if not path else h + ":" + path
@@ -299,8 +284,6 @@ def decode_text(data, truncated=False):
 
 @route("/api/file")
 def api_file(q):
-    from .gitrun import git, resolve_commit
-    from .i18n import UserError
     h = resolve_commit(q.get("hash", [""])[0])
     path = validate_file_path(q.get("path", [""])[0], allow_empty=False)
     spec = h + ":" + path
@@ -316,7 +299,6 @@ def api_file(q):
 
 @route("/api/blame")
 def api_blame(q):
-    from .gitrun import git, resolve_commit
     h = resolve_commit(q.get("hash", [""])[0])
     path = validate_file_path(q.get("path", [""])[0], allow_empty=False)
     out = git("blame", "--line-porcelain", h, "--", path, literal=True)
@@ -354,8 +336,6 @@ def api_blame(q):
 @route("/api/file-copy", method="POST")
 def api_file_copy(body):
     """コミット内のファイルを、作業ツリーの別のパスにコピーする。既存のファイルは上書きしない。"""
-    from .gitrun import git, resolve_commit
-    from .i18n import UserError, tr
     if not state.HAS_WORKTREE:
         raise UserError("copy_no_worktree")
     h = resolve_commit(body.get("hash", ""))
@@ -400,7 +380,6 @@ def api_file_copy(body):
 @route("/api/compare")
 def api_compare(q):
     """2つのコミット間の差分 (from → to) のファイル一覧。"""
-    from .gitrun import git
     a = commit_info(q.get("from", [""])[0])
     b = commit_info(q.get("to", [""])[0])
     raw = git("diff", "--numstat", "-z", "-M", a["hash"], b["hash"], "--")
@@ -409,7 +388,6 @@ def api_compare(q):
 @route("/api/merge-base")
 def api_merge_base(q):
     """2つのコミットの共通祖先 (最も新しいもの)。"""
-    from .gitrun import git, resolve_commit
     a = resolve_commit(q.get("from", [""])[0])
     b = resolve_commit(q.get("to", [""])[0])
     try:
@@ -418,33 +396,10 @@ def api_merge_base(q):
         base = ""
     return {"hash": base}
 
-def parse_numstat(raw):
-    """--numstat -z の出力を [{path, old_path, added, deleted}] にする (バイナリは None)。"""
-    toks = raw.split("\0")
-    files, i = [], 0
-    while i < len(toks):
-        t = toks[i].lstrip("\n")
-        if not t:
-            i += 1
-            continue
-        a, d, path = (t.split("\t", 2) + ["", ""])[:3]
-        old = None
-        if path == "":  # リネーム: 続く2トークンが 旧パス, 新パス
-            old, path = toks[i + 1], toks[i + 2]
-            i += 3
-        else:
-            i += 1
-        files.append({"path": path, "old_path": old,
-                      "added": None if a == "-" else int(a),
-                      "deleted": None if d == "-" else int(d)})
-    return files
-
 DIFF_LIMIT = 400000
 
 def api_diff(q):
     """1ファイルの差分。hash=... (1コミット) か from=...&to=... (2コミット間) を指定する。"""
-    from .gitrun import HASH_RE, git_bytes
-    from .wip import wip_diff
     path = q.get("path", [""])[0]
     old = q.get("old", [""])[0]
     if not path or "\0" in path or "\0" in old:
@@ -543,7 +498,6 @@ def diff_lines_html(text):
     return "".join(out)
 
 def localized_wip_title(kind):
-    from .i18n import tr
     return {
         "amend": tr("amend_content"),
         "conflict": tr("conflict"),
@@ -561,7 +515,6 @@ def diff_url(ctx, f):
     return "/diff?" + urlencode(params)
 
 def commit_line_html(label, c):
-    from .i18n import tr
     subject = c["message"].split("\n", 1)[0]
     return (f'<div class="meta"><span class="tag tag{label}">{label}</span>{c["hash"][:7]}'
             f'<a class="copy" data-copy="{c["hash"]}" title="{html.escape(tr("copy_hash_title"))}">📋</a> — '
@@ -571,8 +524,6 @@ def commit_line_html(label, c):
 def wip_files(kind="", status=None):
     """WIP の全ファイルを 競合 → ステージ済み → 未ステージ → 未追跡 の順に、種別(wip)つきで返す。
     kind が amend のときは、amend 後のコミットの内容 (直前のコミットの親との差分) を返す。"""
-    from .i18n import UserError
-    from .wip import api_status
     if kind == "amend":
         s = api_status({"amend": ["1"]})
         if "amend_files" not in s:
@@ -587,8 +538,6 @@ def wip_files(kind="", status=None):
 
 def render_diff_page(q):
     """1ファイルの差分ページ。左にそのコミット(比較 / WIP)の変更ファイル一覧を出す。"""
-    from .i18n import tr
-    from .wip import api_status
     path = q.get("path", [""])[0]
     old = q.get("old", [""])[0]
     wip = q.get("wip", [""])[0]
@@ -870,221 +819,7 @@ FILES_CSS = """
   .blame-code { min-width: 0; }
 """
 
-FILES_PAGE = r"""<!DOCTYPE html>
-<html lang="ja"><head><meta charset="utf-8"><title>{{file_view}} - __PROJECT__</title>
-__FAVICON__
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
-<style>__CSS__</style><script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script></head>
-<body><aside id="tree"><h1>{{file_view}}</h1><div class="meta" id="commit"></div><div id="list"></div></aside>
-<main id="main"><h2 id="title">{{select_file}}</h2>
-<div id="fileActions" class="file-actions" hidden><button id="fileLogBtn">{{file_log}}</button><button id="fileBlameBtn">{{file_blame}}</button><button id="fileContentBtn" hidden>{{file_content}}</button><button id="fileCopyBtn" hidden>{{copy_to_work}}</button><span id="fileMsg" class="msg"></span></div>
-<div id="content" class="hint">{{select_file_hint}}</div></main>
-<script>
-/*__FILE_I18N__*/
-function t(key, values = {}) {
-  let text = key in I18N ? I18N[key] : key;
-  Object.entries(values).forEach(([name, value]) => { text = text.replaceAll("{" + name + "}", () => String(value)); });
-  return text;
-}
-
-const PROJECT_DOCUMENT_TITLE = document.title.substring(document.title.indexOf(" - ") + 3);
-function setDocumentTitle(label) {
-  document.title = label ? label + " - " + PROJECT_DOCUMENT_TITLE : t("file_view") + " - " + PROJECT_DOCUMENT_TITLE;
-}
-
-const qs = new URLSearchParams(location.search), hash = qs.get("hash"), fileViewTab = qs.get("file_view") === "1";
-const list = document.getElementById("list"), content = document.getElementById("content"), title = document.getElementById("title");
-const fileActions = document.getElementById("fileActions"), fileLogBtn = document.getElementById("fileLogBtn"), fileBlameBtn = document.getElementById("fileBlameBtn"), fileContentBtn = document.getElementById("fileContentBtn");
-const fileCopyBtn = document.getElementById("fileCopyBtn"), fileMsg = document.getElementById("fileMsg");
-fileCopyBtn.hidden = !CAN_COPY;
-let current = "", currentFile = "";
-function esc(s) { return String(s).replace(/[&<>\"]/g, c => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", "\"":"&quot;"}[c])); }
-function api(path, params) { return fetch(path + "?" + new URLSearchParams(params)).then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); })); }
-function showError(e) { list.innerHTML = '<p class="hint">' + t("error") + esc(e.message) + '</p>'; }
-function loadTree(path, push) {
-  current = path;
-  fileActions.hidden = true;
-  if (push) history.pushState({path: path}, "", "?hash=" + encodeURIComponent(hash) + (path ? "&path=" + encodeURIComponent(path) : ""));
-  api("/api/tree", {hash: hash, path: path}).then(r => {
-    document.getElementById("commit").textContent = r.hash.slice(0, 7);
-    const parts = path ? path.split("/") : [];
-    let crumb = '<div class="crumb"><a data-dir="">📁 ' + t("root") + '</a>';
-    parts.forEach((p, i) => { const d = parts.slice(0, i + 1).join("/"); crumb += ' / <a data-dir="' + esc(d) + '">' + esc(p) + '</a>'; });
-    crumb += '</div>';
-    list.innerHTML = crumb + (r.entries.length ? r.entries.map(e => {
-      const p = path ? path + "/" + e.name : e.name;
-      const icon = e.type === "tree" ? "📁" : "📄";
-      const size = e.size === null ? "" : e.size.toLocaleString() + " B";
-      return '<div class="entry" data-type="' + e.type + '" data-path="' + esc(p) + '"><span>' + icon + ' ' + esc(e.name) + '</span><span class="size">' + size + '</span></div>';
-    }).join("") : '<p class="hint">' + t("empty_directory") + '</p>');
-    list.querySelectorAll("[data-dir]").forEach(a => a.onclick = () => loadTree(a.dataset.dir, true));
-    list.querySelectorAll(".entry").forEach(a => a.onclick = () => a.dataset.type === "tree" ? loadTree(a.dataset.path, true) : loadFile(a.dataset.path));
-  }).catch(showError);
-}
-function setFileMsg(text, ok) { fileMsg.textContent = text; fileMsg.className = "msg" + (ok ? "" : " err"); }
-function defaultCopyName(path) {  // 例: src/a.py → src/a_1234567.py
-  const i = path.lastIndexOf("/"), dir = path.slice(0, i + 1), name = path.slice(i + 1), dot = name.lastIndexOf(".");
-  const suffix = "_" + hash.slice(0, 7);
-  return dir + (dot > 0 ? name.slice(0, dot) + suffix + name.slice(dot) : name + suffix);
-}
-fileCopyBtn.onclick = () => {
-  if (!currentFile) return;
-  const dest = prompt(t("prompt_copy_dest"), defaultCopyName(currentFile));
-  if (dest === null || !dest.trim()) return;
-  fetch("/api/file-copy", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({hash: hash, path: currentFile, dest: dest.trim()})})
-    .then(r => r.ok ? r.json() : r.text().then(m => { throw new Error(m || r.status); }))
-    .then(r => setFileMsg(r.message, true))
-    .catch(e => setFileMsg(e.message, false));
-};
-function loadFile(path) {
-  currentFile = path;
-  setDocumentTitle(path);
-  setFileMsg("", true);
-  fileActions.hidden = false;
-  fileLogBtn.hidden = false;
-  fileBlameBtn.hidden = false;
-  fileContentBtn.hidden = true;
-  api("/api/file", {hash: hash, path: path}).then(r => {
-    const lang = languageFor(r.path);
-    title.textContent = r.path + (lang ? " (" + lang + ")" : "") + (r.encoding ? " [" + r.encoding + "]" : "");
-    content.className = r.binary ? "binary" : "";
-    content.innerHTML = r.binary ? t("binary_file") : numberedCode(r.content, lang) + (r.truncated ? '<p class="hint">' + t("large_file_head") + '</p>' : '');
-    fileBlameBtn.hidden = r.binary;
-  }).catch(e => { title.textContent = path; content.className = "hint"; content.textContent = t("error") + e.message; });
-}
-function loadFileBlame(path) {
-  fileLogBtn.hidden = true;
-  fileBlameBtn.hidden = true;
-  fileContentBtn.hidden = false;
-  setDocumentTitle(t("file_blame_title", {path: path}));
-  title.textContent = t("file_blame_title", {path: path});
-  content.className = "";
-  content.textContent = t("loading");
-  api("/api/blame", {hash: hash, path: path}).then(r => {
-    content.innerHTML = '<div class="meta">' + esc(t("n_lines", {n: r.lines.length})) + '</div><div class="blame">' +
-      r.lines.map(line => '<div class="blame-line"><span class="blame-no">' + line.line + '</span><span class="blame-meta"><a class="blame-commit" href="/?commit_hash=' +
-        encodeURIComponent(line.hash) + '">' + esc(line.hash.slice(0, 7)) + '</a> ' + esc(line.author + " " + line.date) +
-        '</span><span class="blame-code">' + esc(line.content) + '</span></div>').join("") + '</div>';
-  }).catch(e => { content.className = "hint"; content.textContent = t("error") + e.message; });
-}
-content.addEventListener("click", ev => {
-  const link = ev.target.closest("a.blame-commit");
-  if (!link || !window.opener || window.opener.closed) return;
-  ev.preventDefault();
-  window.opener.postMessage({type: "git-graph-commit", hash: new URL(link.href).searchParams.get("commit_hash")}, location.origin);
-});
-function loadFileLog(path) {
-  if (fileViewTab || (window.opener && !window.opener.closed)) {
-    // 別タブでは親のグラフへ通知せず、このファイル画面にログを表示する。
-    fileLogBtn.hidden = true;
-    fileBlameBtn.hidden = true;
-    fileContentBtn.hidden = false;
-    setDocumentTitle(t("file_history_title", {path: path}));
-    title.textContent = t("file_history_title", {path: path});
-    content.className = "hint";
-    content.textContent = t("loading");
-    api("/api/log", {rev: hash, path: path}).then(r => {
-      const rows = r.commits.map(c => '<tr><td class="hash">' + esc(c[1]) +
-        '</td><td class="date">' + esc(c[3]) + '</td><td>' + esc(c[4]) + '</td></tr>').join("");
-      content.className = "";
-      content.innerHTML = '<div class="meta">' + esc(t("n_commits", {n: r.total})) + '</div>' +
-        (rows ? '<table class="file-log"><tbody>' + rows + '</tbody></table>' : '<p class="hint">' + t("no_history") + '</p>');
-    }).catch(e => { content.className = "hint"; content.textContent = t("error") + e.message; });
-    return;
-  }
-  // 同一タブではファイル画面にログを描画せず、グラフ画面へ戻して表示する。
-  location.href = "/?file_log_hash=" + encodeURIComponent(hash) + "&file_log_path=" + encodeURIComponent(path);
-}
-fileLogBtn.onclick = () => { if (currentFile) loadFileLog(currentFile); };
-fileBlameBtn.onclick = () => { if (currentFile) loadFileBlame(currentFile); };
-fileContentBtn.onclick = () => { if (currentFile) loadFile(currentFile); };
-const KEYWORDS = {
-  python: "and as assert async await break case class continue def del elif else except finally for from global if import in is lambda match nonlocal not or pass raise return try while with yield None True False self",
-  javascript: "as async await break case catch class const continue debugger default delete do else export extends false finally for from function get if import in instanceof let new null of return set static super switch this throw true try typeof undefined var void while with yield",
-  typescript: "as async await break case catch class const continue debugger default delete do else export extends false finally for from function get if import in instanceof interface let new null of private protected public readonly return set static super switch this throw true try typeof type undefined var void while with yield",
-  java: "abstract assert boolean break byte case catch char class const continue default do double else enum extends final finally float for if implements import instanceof int interface long native new package private protected public return short static strictfp super switch synchronized this throw throws transient try void volatile while true false null",
-  c: "auto break case char const continue default do double else enum extern float for goto if inline int long register restrict return short signed sizeof static struct switch typedef union unsigned void volatile while true false NULL",
-  go: "break default func interface select case defer go map struct chan else goto package switch const fallthrough if range type continue for import return var true false nil",
-  rust: "as async await break const continue crate dyn else enum extern false fn for if impl in let loop match mod move mut pub ref return self Self static struct super trait true type unsafe use where while",
-  sql: "select from where and or not insert into update delete create alter drop table index view join inner left right full outer on as group by order having limit offset distinct union all null is like values set",
-  shell: "if then else elif fi for while in do done case esac function select time coproc true false",
-  ruby: "BEGIN END alias and begin break case class def defined do else elsif end ensure false for if in module next nil not or redo rescue retry return self super then true undef unless until when while yield require attr_reader attr_writer attr_accessor include extend private protected public",
-  json: "true false null"
-};
-Object.keys(KEYWORDS).forEach(k => KEYWORDS[k] = new Set(KEYWORDS[k].split(" ")));
-function languageFor(path) {
-  const name = path.toLowerCase().split("/").pop();
-  if (["dockerfile", "makefile"].includes(name)) return "shell";
-  const ext = name.includes(".") ? name.split(".").pop() : "";
-  return ({py:"python", pyw:"python", js:"javascript", jsx:"javascript", mjs:"javascript", cjs:"javascript", ts:"typescript", tsx:"typescript", java:"java", c:"c", h:"c", cc:"c", cpp:"c", hpp:"c", go:"go", rs:"rust", rb:"ruby", ru:"ruby", sql:"sql", sh:"shell", bash:"shell", zsh:"shell", json:"json", css:"css", html:"html", htm:"html", xml:"html", md:"markdown", markdown:"markdown", yml:"yaml", yaml:"yaml"})[ext] || "";
-}
-function token(cls, text) { return '<span class="tok-' + cls + '">' + esc(text) + '</span>'; }
-function highlight(source, lang) {
-  if (!lang || lang === "markdown") return esc(source);
-  if (lang === "html") return source.split(/(<[^>]*>)/g).map(x => x.startsWith("<") ? token("tag", x) : esc(x)).join("");
-  const words = KEYWORDS[lang] || new Set(), out = [];
-  let i = 0;
-  while (i < source.length) {
-    const rest = source.slice(i), ch = source[i];
-    const lineComment = (["python", "ruby", "shell", "yaml"].includes(lang)) && ch === "#";
-    const slashComment = (ch === "/" && (source[i + 1] === "/" || source[i + 1] === "*"));
-    if (lineComment || slashComment) {
-      const end = lineComment ? source.indexOf("\n", i) : (source[i + 1] === "/" ? source.indexOf("\n", i) : source.indexOf("*/", i) + 2);
-      const j = end < (lineComment ? 0 : 2) ? source.length : end;
-      out.push(token("comment", source.slice(i, j))); i = j; continue;
-    }
-    const triple = lang === "python" && (source.startsWith("'''", i) || source.startsWith('\"\"\"', i));
-    if (triple || ch === "'" || ch === '"' || (ch === "`" && ["javascript", "typescript"].includes(lang))) {
-      const quote = triple ? source.slice(i, i + 3) : ch; let j = i + quote.length;
-      if (triple) {
-        const end = source.indexOf(quote, j);
-        j = end < 0 ? source.length : end + quote.length;
-      } else {
-        while (j < source.length) { if (source[j] === "\\") j += 2; else if (source[j++] === quote) break; }
-      }
-      out.push(token("string", source.slice(i, j))); i = j; continue;
-    }
-    const number = rest.match(/^(?:0x[\da-f]+|\d+(?:\.\d+)?(?:e[+-]?\d+)?)/i);
-    if (number) { out.push(token("number", number[0])); i += number[0].length; continue; }
-    const word = rest.match(/^[A-Za-z_$][\w$]*/);
-    if (word) { const w = word[0]; out.push(words.has(w) ? token("keyword", w) : esc(w)); i += w.length; continue; }
-    out.push(esc(ch)); i++;
-  }
-  return out.join("");
-}
-function highlightCode(source, lang) {
-  if (window.hljs && lang && hljs.getLanguage(lang)) {
-    try { return hljs.highlight(source, {language: lang, ignoreIllegals: true}).value; } catch (e) {}
-  }
-  return highlight(source, lang);
-}
-/* ハイライト済み HTML を行ごとに分割する。複数行にまたがる span は行末で閉じて次の行で開き直す */
-function splitHighlightedLines(html) {
-  const lines = [], open = [];
-  let cur = "";
-  html.split(/(<[^>]+>|\n)/).forEach(p => {
-    if (p === "\n") { cur += "</span>".repeat(open.length); lines.push(cur); cur = open.join(""); }
-    else if (p.startsWith("</")) { open.pop(); cur += p; }
-    else if (p.startsWith("<")) { open.push(p); cur += p; }
-    else cur += p;
-  });
-  lines.push(cur);
-  return lines;
-}
-function numberedCode(source, lang) {
-  const lines = splitHighlightedLines(highlightCode(source.replace(/\r\n?/g, "\n"), lang));
-  if (lines.length > 1 && lines[lines.length - 1].replace(/<[^>]*>/g, "") === "") lines.pop();  // 末尾の改行は空行として数えない
-  const width = String(lines.length).length;
-  return '<pre class="code" style="--nw:' + width + 'ch"><code>' +
-    lines.map((l, i) => '<div class="ln" id="L' + (i + 1) + '"><span class="no">' + (i + 1) + '</span><span class="tx">' + l + '</span></div>').join("") +
-    '</code></pre>';
-}
-window.onpopstate = () => loadTree(new URLSearchParams(location.search).get("path") || "", false);
-if (!hash) showError(new Error(t("commit_required"))); else loadTree(qs.get("path") || "", false);
-</script></body></html>""".replace("__CSS__", FILES_CSS)
-
 def render_files_page():
-    from .i18n import client_translations, fill_template, with_project
     return with_project(fill_template(FILES_PAGE)
             .replace('<html lang="ja">', f'<html lang="{state.UI_LANG}">')
             .replace("/*__FILE_I18N__*/", "const I18N = " + client_translations() + ";\n"
@@ -1093,9 +828,8 @@ def render_files_page():
 
 __all__ = [
     "DIFF_LIMIT", "FILE_CONTENT_LIMIT", "WIP_DIR_COLLAPSE", "api_branches",
-    "api_branches_containing", "api_commit", "api_compare", "api_diff", "api_file",
-    "api_file_copy", "api_log", "api_merge_base", "api_reflog", "api_stash_list",
-    "api_tags", "api_tree", "commit_info", "decode_text", "diff_lines_html",
-    "diff_url", "dir_of", "localized_wip_title", "paging", "parse_numstat",
+    "api_branches_containing", "api_commit", "api_compare", "api_diff", "api_file", "api_file_copy",
+    "api_log", "api_merge_base", "api_reflog", "api_stash_list", "api_tags", "api_tree",
+    "decode_text", "diff_lines_html", "diff_url", "dir_of", "localized_wip_title", "paging",
     "api_blame", "render_diff_page", "render_files_page", "validate_file_path", "wip_files",
 ]
