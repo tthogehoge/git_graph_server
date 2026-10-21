@@ -43,7 +43,7 @@ function loadStashes() {
   }).catch(() => {});
 }
 // 編集中のファイルや同名の管理外ファイルに操作を止められたとき、止めているファイルを見せて、stash / 破棄 / キャンセルを選んでもらう。
-// kind: "checkout" (既定) / "pull" / "merge" / "stash" (stash の適用: stash は選べず、破棄して上書きして適用するだけ)
+// kind: "checkout" (既定) / "pull" / "merge" / "rebase" / "cherry" / "revert" / "stash" (stash の適用: stash は選べず、破棄して上書きして適用するだけ)
 function askCheckoutConflict(r, kind) {
   kind = kind || "checkout";
   return new Promise(resolve => {
@@ -55,7 +55,8 @@ function askCheckoutConflict(r, kind) {
       document.getElementById("coStashBtn").textContent = t("stash_checkout");
       document.getElementById("coDiscardBtn").textContent = t("discard_checkout");
     } else {
-      const op = {pull: "pull", merge: t("merge"), stash: t("stash_apply")}[kind];
+      const op = {pull: "pull", merge: t("merge"), stash: t("stash_apply"),
+                  rebase: t("rebase"), cherry: t("cherry_pick"), revert: t("revert")}[kind] || kind;
       document.getElementById("coTitle").textContent = t("co_blocked_op", {op: op});
       document.getElementById("coSub").textContent = t("co_blocked_hint_op");
       document.getElementById("coHint").innerHTML = kind === "stash" ? esc(t("co_hint_force_apply"))
@@ -116,6 +117,15 @@ function openActionDialog(title, fields, submitLabel, opts) {  // opts: {wide, v
     window.addEventListener("keydown", onKeyDown);
     const first = form.querySelector("input, select");
     if (first) first.focus();
+  });
+}
+function retryIfBlocked(r, kind, progressMsg, retry) {  // 手元の変更に邪魔されたら stash / 破棄を選ばせて再実行する
+  if (!r || !r.blocked) return Promise.resolve(r);
+  setGraphStatus("");
+  return askCheckoutConflict(r, kind).then(mode => {
+    if (!mode) return null;
+    setGraphStatus(progressMsg, "progress");
+    return retry(mode);
   });
 }
 function setCmpMsg(text, state) {  // state: true = 成功 / false = 失敗 / "progress" = 実行中

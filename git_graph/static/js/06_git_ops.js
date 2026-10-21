@@ -10,6 +10,7 @@ function doRebase() {
       setGraphStatus(t("rebasing"), "progress");
       return post("/api/rebase", {hash: h});
     })
+    .then(r => retryIfBlocked(r, "rebase", t("rebasing"), mode => post("/api/rebase", {hash: h, on_conflict: mode})))
     .then(r => {
       if (r === null) { setGraphStatus(""); return; }
       clearCmp();
@@ -31,6 +32,7 @@ function doRebaseRange() {
       setGraphStatus(t("rebasing"), "progress");
       return post("/api/rebase-range", {from: from, to: to});
     })
+    .then(r => retryIfBlocked(r, "rebase", t("rebasing"), mode => post("/api/rebase-range", {from: from, to: to, on_conflict: mode})))
     .then(r => {
       if (r === null) { setGraphStatus(""); return; }
       clearCmp();
@@ -52,6 +54,7 @@ function doRebaseDescendants() {
       setGraphStatus(t("rebasing"), "progress");
       return post("/api/rebase-descendants", {from: from, to: to});
     })
+    .then(r => retryIfBlocked(r, "rebase", t("rebasing"), mode => post("/api/rebase-descendants", {from: from, to: to, on_conflict: mode})))
     .then(r => {
       if (r === null) { setGraphStatus(""); return; }
       clearCmp();
@@ -73,6 +76,7 @@ function doRebaseEquivalent() {
       setGraphStatus(t("rebasing"), "progress");
       return post("/api/rebase-equivalent", {from: from, to: to});
     })
+    .then(r => retryIfBlocked(r, "rebase", t("rebasing"), mode => post("/api/rebase-equivalent", {from: from, to: to, on_conflict: mode})))
     .then(r => {
       if (r === null) { setGraphStatus(""); return; }
       clearCmp();
@@ -127,6 +131,7 @@ function doCherryPick() {
       setGraphStatus(t("cherry_picking"), "progress");
       return post("/api/cherry-pick", {hash: h});
     })
+    .then(r => retryIfBlocked(r, "cherry", t("cherry_picking"), mode => post("/api/cherry-pick", {hash: h, on_conflict: mode})))
     .then(r => {
       if (r === null) { setGraphStatus(""); return; }
       clearCmp();
@@ -147,6 +152,7 @@ function doRevert() {
       setGraphStatus(t("reverting"), "progress");
       return post("/api/revert", {hash: h});
     })
+    .then(r => retryIfBlocked(r, "revert", t("reverting"), mode => post("/api/revert", {hash: h, on_conflict: mode})))
     .then(r => {
       if (r === null) { setGraphStatus(""); return; }
       clearCmp();
@@ -263,7 +269,9 @@ async function doRebaseI() {  // 対話的リベース (git rebase -i 相当)
                   n("fixup") && t("ri_part_fixup", {n: n("fixup")}), n("drop") && t("ri_part_drop", {n: n("drop")})].filter(Boolean).join(" / ");
     if (!confirm(t("confirm_rebase_i", {branch: info.branch, count: todo.length, hash: h.slice(0, 7), note: note ? " (" + note + ")" : ""}))) return;
     setGraphStatus(t("rebasing"), "progress");
-    const r = await post("/api/rebase-i", {hash: h, todo: todo});
+    let r = await post("/api/rebase-i", {hash: h, todo: todo});
+    r = await retryIfBlocked(r, "rebase", t("rebasing"), mode => post("/api/rebase-i", {hash: h, todo: todo, on_conflict: mode}));
+    if (r === null) { setGraphStatus(""); return; }
     clearCmp();
     setGraphStatus(r.message, "success");
     await refreshGraph().catch(() => {});
@@ -289,15 +297,7 @@ async function doMerge() {
       setGraphStatus(t("merging"), "progress");
       return post("/api/merge", {hash: h, no_ff: noFf});
     })
-    .then(r => {  // 編集中のファイルや管理外ファイルに邪魔されたら、stash / 破棄を選ばせて再実行する
-      if (!r || !r.blocked) return r;
-      setGraphStatus("");
-      return askCheckoutConflict(r, "merge").then(mode => {
-        if (!mode) return null;
-        setGraphStatus(t("merging"), "progress");
-        return post("/api/merge", {hash: h, no_ff: noFf, on_conflict: mode});
-      });
-    })
+    .then(r => retryIfBlocked(r, "merge", t("merging"), mode => post("/api/merge", {hash: h, no_ff: noFf, on_conflict: mode})))
     .then(r => {
       if (r === null) { setGraphStatus(""); return; }
       clearCmp();

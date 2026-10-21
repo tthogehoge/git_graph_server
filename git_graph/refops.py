@@ -97,7 +97,7 @@ def api_stash_push(body):
 ALREADY_EXISTS_RE = re.compile(r"(.+) already exists, no checkout$")
 
 def parse_checkout_blockers(text):
-    """checkout / merge / pull / stash apply が止まったときのエラーから、止めているファイルを取り出す。
+    """checkout / merge / pull / rebase / cherry-pick / revert / stash apply が止まったときのエラーから、止めているファイルを取り出す。
     modified: 編集中 (ステージ済み含む) で上書きされてしまうファイル / untracked: 同名の管理外ファイル"""
     res = {"modified": [], "untracked": []}
     kind = None
@@ -196,19 +196,43 @@ def dirty_tracked_files():
     r = git_c_locale("diff", "--name-only", "-z", "HEAD")
     return [p for p in r.stdout.split("\0") if p] if r.returncode == 0 else []
 
+def dirty_worktree_blockers():
+    """作業ツリーが汚れているときの modified / untracked 一覧。"""
+    r = git_c_locale("ls-files", "-o", "-z", "--exclude-standard")
+    untracked = [p for p in r.stdout.split("\0") if p] if r.returncode == 0 else []
+    return {"modified": dirty_tracked_files(), "untracked": untracked}
+
+def resolve_dirty_worktree(mode):
+    """作業ツリーがきれいである必要がある操作向け。汚れていれば checkout と同じ blocked / stash / discard で扱う。
+    戻り値は (blocked, stash の名前)。blocked は {blocked, modified, untracked} (mode が None のときだけ)。"""
+    if mode not in (None, "stash", "discard"):
+        raise UserError("on_conflict_invalid")
+    blockers = dirty_worktree_blockers()
+    if not (blockers["modified"] or blockers["untracked"]):
+        return None, None
+    if mode is None:
+        return {"blocked": True, **blockers}, None
+    if mode == "stash":
+        return None, stash_all_changes()
+    discard_blockers(blockers)
+    leftover = dirty_worktree_blockers()
+    if leftover["modified"] or leftover["untracked"]:
+        raise ValueError(tr("op_still_blocked"))
+    return None, None
+
 def run_resolving(run, mode, rebase_dirty=False):
-    """編集中のファイルや同名の管理外ファイルに邪魔されて止まる git コマンド (pull / merge) を、チェックアウトと同じ方法で実行する。
+    """編集中のファイルや同名の管理外ファイルに邪魔されて止まる git コマンド (pull / merge / rebase / cherry-pick など) を、チェックアウトと同じ方法で実行する。
     run(c_locale) は git を実行して CompletedProcess を返す (c_locale=True は、メッセージを解析できるよう C ロケールで)。
     mode: None=止まったら止めているファイルを返す / "stash"=最初に全変更を stash する / "discard"=止めているファイルだけ破棄して再実行する。
     戻り値は (最後の実行結果, blocked, stash の名前)。blocked は {blocked, modified, untracked} (mode が None で止まったときだけ)。
     止まった原因がそれ以外 (競合・通信エラーなど) なら blocked は None で、呼び出し側が実行結果を見て処理する。
-    rebase_dirty: pull --rebase は「変更があるので実行できない」とだけ言いファイル名を出さないので、変更中の全ファイルを対象にする。"""
+    rebase_dirty: rebase は「変更があるので実行できない」とだけ言いファイル名を出さないので、変更中の全ファイルを対象にする。"""
     if mode not in (None, "stash", "discard"):
         raise UserError("on_conflict_invalid")
     stashed = stash_all_changes() if mode == "stash" else None
     r = run(False)
     for _ in range(3):
-        if r.returncode == 0 or is_merging() or is_rebasing():
+        if r.returncode == 0 or is_merging() or is_rebasing() or is_cherry_picking() or is_reverting():
             return r, None, stashed
         text = (r.stderr + r.stdout)
         if is_http_auth_error(r) or not (rebase_dirty or any(l.startswith("\t") for l in text.splitlines())):
@@ -411,6 +435,7 @@ def api_branch_rename(body):
 __all__ = [
     "api_branch", "api_branch_rename", "api_checkout", "api_delete_ref", "api_discard", "api_reset",
     "api_stash", "api_tag", "checkout_resolving", "discard_blockers", "parse_checkout_blockers",
-    "ALREADY_EXISTS_RE", "DIRTY_RE", "api_stash_push", "dirty_tracked_files", "run_resolving",
+    "ALREADY_EXISTS_RE", "DIRTY_RE", "api_stash_push", "dirty_tracked_files",
+    "dirty_worktree_blockers", "resolve_dirty_worktree", "run_resolving",
     "stash_all_changes", "stash_push", "stash_top", "with_stash_note",
 ]

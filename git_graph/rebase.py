@@ -13,7 +13,7 @@ from .gitstate import (
     read_status_raw,
 )
 from .i18n import tr, UserError
-from .refops import run_resolving, with_stash_note
+from .refops import resolve_dirty_worktree, run_resolving, with_stash_note
 from .routing import route
 
 
@@ -59,9 +59,18 @@ def api_merge(body):
         return {"ok": True, "message": with_stash_note(stash, tr("merge_uptodate", hash=h[:7]))}
     return {"ok": True, "message": with_stash_note(stash, tr("merge_done", hash=h[:7]))}
 
+def _git_run(args, c_locale=False, env=None):
+    env = dict(os.environ if env is None else env)
+    if c_locale:
+        env.update(LC_ALL="C", LANGUAGE="C")
+    return subprocess.run(["git", "-C", state.REPO, *args], capture_output=True, text=True,
+                          encoding="utf-8", errors="replace", env=env)
+
 @route("/api/rebase", method="POST")
 def api_rebase(body):
-    """現在のブランチを、選んだコミットの上にリベースする。競合したら自動で中止して元に戻す。"""
+    """現在のブランチを、選んだコミットの上にリベースする。競合したら自動で中止して元に戻す。
+    編集中のファイルに邪魔されて実行できないときは、止めているファイルを返す ({blocked, modified, untracked})。
+    on_conflict="stash" で再実行すると全変更を stash してから、"discard" で再実行すると止めているファイルだけ破棄してからリベースする。"""
     if not state.HAS_WORKTREE:
         raise UserError("rebase_no_worktree")
     h = resolve_commit(body.get("hash", ""))
@@ -71,22 +80,25 @@ def api_rebase(body):
     if not head["branch"]:
         raise UserError("detached_rebase")
     before = git("rev-parse", "HEAD").strip()
-    r = subprocess.run(["git", "-C", state.REPO, "rebase", h], capture_output=True, text=True,
-                       encoding="utf-8", errors="replace")
+    r, blocked, stashed = run_resolving(lambda c: _git_run(["rebase", h], c), body.get("on_conflict"), rebase_dirty=True)
+    if blocked:
+        return blocked
+    stash = {"stashed": stashed}
     out = (r.stdout + r.stderr).strip()
     if r.returncode != 0:
         if is_rebasing():  # 競合 → 元に戻す
             subprocess.run(["git", "-C", state.REPO, "rebase", "--abort"], capture_output=True)
             raise UserError("rebase_conflict", target=h[:7], cmd="git rebase")
-        raise ValueError(out or tr("rebase_failed"))
+        raise ValueError(with_stash_note(stash, out or tr("rebase_failed")))
     if git("rev-parse", "HEAD").strip() == before:
-        return {"ok": True, "message": tr("rebase_noop", branch=head["branch"], hash=h[:7])}
-    return {"ok": True, "message": tr("rebase_done", branch=head["branch"], hash=h[:7])}
+        return {"ok": True, "message": with_stash_note(stash, tr("rebase_noop", branch=head["branch"], hash=h[:7]))}
+    return {"ok": True, "message": with_stash_note(stash, tr("rebase_done", branch=head["branch"], hash=h[:7]))}
 
 @route("/api/rebase-range", method="POST")
 def api_rebase_range(body):
     """A より後の現在のブランチのコミットを B の上にリベースする。
-    競合したら自動で中止して元に戻す。"""
+    競合したら自動で中止して元に戻す。
+    編集中のファイルに邪魔されて実行できないときは、止めているファイルを返す ({blocked, modified, untracked})。"""
     if not state.HAS_WORKTREE:
         raise UserError("rebase_no_worktree")
     a = resolve_commit(body.get("from", ""))
@@ -97,17 +109,20 @@ def api_rebase_range(body):
     if not head["branch"]:
         raise UserError("detached_rebase")
     before = git("rev-parse", "HEAD").strip()
-    r = subprocess.run(["git", "-C", state.REPO, "rebase", "--onto", b, a], capture_output=True, text=True,
-                       encoding="utf-8", errors="replace")
+    r, blocked, stashed = run_resolving(
+        lambda c: _git_run(["rebase", "--onto", b, a], c), body.get("on_conflict"), rebase_dirty=True)
+    if blocked:
+        return blocked
+    stash = {"stashed": stashed}
     out = (r.stdout + r.stderr).strip()
     if r.returncode != 0:
         if is_rebasing():
             subprocess.run(["git", "-C", state.REPO, "rebase", "--abort"], capture_output=True)
             raise UserError("rebase_conflict", target=b[:7], cmd="git rebase --onto")
-        raise ValueError(out or tr("rebase_failed"))
+        raise ValueError(with_stash_note(stash, out or tr("rebase_failed")))
     if git("rev-parse", "HEAD").strip() == before:
-        return {"ok": True, "message": tr("rebase_noop", branch=head["branch"], hash=b[:7])}
-    return {"ok": True, "message": tr("rebase_range_done", branch=head["branch"], **{"from": a[:7], "to": b[:7]})}
+        return {"ok": True, "message": with_stash_note(stash, tr("rebase_noop", branch=head["branch"], hash=b[:7]))}
+    return {"ok": True, "message": with_stash_note(stash, tr("rebase_range_done", branch=head["branch"], **{"from": a[:7], "to": b[:7]}))}
 
 @route("/api/rebase-descendants", method="POST")
 def api_rebase_descendants(body):
@@ -127,10 +142,12 @@ def api_rebase_descendants(body):
     head = api_head()
     if not head["branch"]:
         raise UserError("detached_rebase")
-    if git("status", "--porcelain", "--untracked-files=all").strip():
-        raise UserError("rebase_descendants_dirty")
+    blocked, stashed = resolve_dirty_worktree(body.get("on_conflict"))
+    if blocked:
+        return blocked
+    stash = {"stashed": stashed}
     if a == b:
-        return {"ok": True, "message": tr("rebase_noop", branch=head["branch"], hash=b[:7])}
+        return {"ok": True, "message": with_stash_note(stash, tr("rebase_noop", branch=head["branch"], hash=b[:7]))}
 
     def parents(commit):
         fields = git("rev-list", "--parents", "-n", "1", commit).split()
@@ -240,7 +257,7 @@ def api_rebase_descendants(body):
             subprocess.run(["git", "-C", state.REPO, "branch", "-D", temp], capture_output=True)
         raise
     changed = len([1 for _, old_tip, new_tip in updates if old_tip != new_tip])
-    return {"ok": True, "message": tr("rebase_descendants_done", branches=changed, **{"from": a[:7], "to": b[:7]})}
+    return {"ok": True, "message": with_stash_note(stash, tr("rebase_descendants_done", branches=changed, **{"from": a[:7], "to": b[:7]}))}
 
 def equivalent_commit_prefix(a, b, allow_merges=False):
     """A/B の共通親から、親相対の差分が連続して一致するコミット数を返す。"""
@@ -336,10 +353,12 @@ def api_rebase_equivalent(body):
     head = api_head()
     if not head["branch"]:
         raise UserError("detached_rebase")
-    if git("status", "--porcelain", "--untracked-files=all").strip():
-        raise UserError("rebase_descendants_dirty")
+    blocked, stashed = resolve_dirty_worktree(body.get("on_conflict"))
+    if blocked:
+        return blocked
+    stash = {"stashed": stashed}
     if a == b:
-        return {"ok": True, "message": tr("rebase_equivalent_noop", **{"from": a[:7], "to": b[:7]})}
+        return {"ok": True, "message": with_stash_note(stash, tr("rebase_equivalent_noop", **{"from": a[:7], "to": b[:7]}))}
 
     target_branches = []
     for ref in git("for-each-ref", "--format=%(refname)", "refs/heads").splitlines():
@@ -351,12 +370,12 @@ def api_rebase_equivalent(body):
 
     a_commits, b_commits, a_index, b_index = nearest_equivalent_parent(a, b)
     if a_index is None:
-        return {"ok": True, "message": tr("rebase_equivalent_noop", **{"from": a[:7], "to": b[:7]})}
+        return {"ok": True, "message": with_stash_note(stash, tr("rebase_equivalent_noop", **{"from": a[:7], "to": b[:7]}))}
 
     matched_a = a_commits[a_index]["hash"]
     matched_b = b_commits[b_index]["hash"]
     if matched_a == matched_b:
-        return {"ok": True, "message": tr("rebase_equivalent_noop", **{"from": a[:7], "to": b[:7]})}
+        return {"ok": True, "message": with_stash_note(stash, tr("rebase_equivalent_noop", **{"from": a[:7], "to": b[:7]}))}
     # a_commits は先端からの順なので、一致コミットより前が A 側のリベース対象。
     replay = a_commits[:a_index]
     if not replay:
@@ -369,7 +388,7 @@ def api_rebase_equivalent(body):
         except Exception:
             subprocess.run(["git", "-C", state.REPO, "checkout", head["branch"]], capture_output=True)
             raise
-        return {"ok": True, "message": tr("rebase_equivalent_done", **{"from": a[:7], "to": new_tip[:7]}, matched=1)}
+        return {"ok": True, "message": with_stash_note(stash, tr("rebase_equivalent_done", **{"from": a[:7], "to": new_tip[:7]}, matched=1))}
 
     replay_hashes = {c["hash"] for c in replay}
     for commit in replay_hashes:
@@ -401,7 +420,7 @@ def api_rebase_equivalent(body):
         subprocess.run(["git", "-C", state.REPO, "checkout", head["branch"]], capture_output=True)
         subprocess.run(["git", "-C", state.REPO, "branch", "-D", temp], capture_output=True)
         raise
-    return {"ok": True, "message": tr("rebase_equivalent_done", **{"from": a[:7], "to": new_tip[:7]}, matched=1)}
+    return {"ok": True, "message": with_stash_note(stash, tr("rebase_equivalent_done", **{"from": a[:7], "to": new_tip[:7]}, matched=1))}
 
 @route("/api/find-equivalent-branch", method="POST")
 def api_find_equivalent_branch(body):
@@ -440,7 +459,8 @@ def api_find_equivalent_branch(body):
 @route("/api/cherry-pick", method="POST")
 def api_cherry_pick(body):
     """選んだコミットを、いまチェックアウトしている HEAD にチェリーピックする。
-    競合したときと、変更が空になるとき (既に取り込み済み) は、中止して元に戻す。"""
+    競合したときと、変更が空になるとき (既に取り込み済み) は、中止して元に戻す。
+    編集中のファイルや同名の管理外ファイルに邪魔されたときは、止めているファイルを返す ({blocked, modified, untracked})。"""
     if not state.HAS_WORKTREE:
         raise UserError("cherry_no_worktree")
     h = resolve_commit(body.get("hash", ""))
@@ -451,8 +471,10 @@ def api_cherry_pick(body):
     if len(git("rev-list", "--parents", "-n", "1", h).split()) > 2:
         raise UserError("cherry_merge_commit")
     before = git("rev-parse", "HEAD").strip()
-    r = subprocess.run(["git", "-C", state.REPO, "cherry-pick", h], capture_output=True, text=True,
-                       encoding="utf-8", errors="replace")
+    r, blocked, stashed = run_resolving(lambda c: _git_run(["cherry-pick", h], c), body.get("on_conflict"))
+    if blocked:
+        return blocked
+    stash = {"stashed": stashed}
     out = (r.stdout + r.stderr).strip()
     if r.returncode != 0:
         if is_cherry_picking():
@@ -462,15 +484,16 @@ def api_cherry_pick(body):
             if not unmerged:  # 競合ではなく、変更が空になった
                 raise UserError("cherry_empty", hash=h[:7])
             raise UserError("cherry_conflict", hash=h[:7])
-        raise ValueError(out or tr("cherry_failed"))
+        raise ValueError(with_stash_note(stash, out or tr("cherry_failed")))
     if git("rev-parse", "HEAD").strip() == before:
-        return {"ok": True, "message": tr("cherry_noop", hash=h[:7])}
-    return {"ok": True, "message": tr("cherry_done", hash=h[:7])}
+        return {"ok": True, "message": with_stash_note(stash, tr("cherry_noop", hash=h[:7]))}
+    return {"ok": True, "message": with_stash_note(stash, tr("cherry_done", hash=h[:7]))}
 
 @route("/api/revert", method="POST")
 def api_revert(body):
     """選んだコミットの変更を打ち消すコミットを、いまの HEAD の上に作る (git revert)。
-    競合したときと、変更が空になるとき (既に打ち消し済み) は、中止して元に戻す。マージコミットは第1親を基準にする。"""
+    競合したときと、変更が空になるとき (既に打ち消し済み) は、中止して元に戻す。マージコミットは第1親を基準にする。
+    編集中のファイルや同名の管理外ファイルに邪魔されたときは、止めているファイルを返す ({blocked, modified, untracked})。"""
     if not state.HAS_WORKTREE:
         raise UserError("revert_no_worktree")
     h = resolve_commit(body.get("hash", ""))
@@ -479,9 +502,11 @@ def api_revert(body):
     if not has_head():
         raise UserError("revert_no_commits")
     is_merge = len(git("rev-list", "--parents", "-n", "1", h).split()) > 2
-    args = ["revert", "--no-edit"] + (["-m", "1"] if is_merge else [])
-    r = subprocess.run(["git", "-C", state.REPO, *args, h], capture_output=True, text=True,
-                       encoding="utf-8", errors="replace")
+    args = ["revert", "--no-edit"] + (["-m", "1"] if is_merge else []) + [h]
+    r, blocked, stashed = run_resolving(lambda c: _git_run(args, c), body.get("on_conflict"))
+    if blocked:
+        return blocked
+    stash = {"stashed": stashed}
     out = (r.stdout + r.stderr).strip()
     if r.returncode != 0:
         if is_reverting():
@@ -491,8 +516,8 @@ def api_revert(body):
             if not unmerged:  # 競合ではなく、変更が空になった
                 raise UserError("revert_empty", hash=h[:7])
             raise UserError("revert_conflict", hash=h[:7])
-        raise ValueError(out or tr("revert_failed"))
-    return {"ok": True, "message": tr("revert_done_merge" if is_merge else "revert_done", hash=h[:7])}
+        raise ValueError(with_stash_note(stash, out or tr("revert_failed")))
+    return {"ok": True, "message": with_stash_note(stash, tr("revert_done_merge" if is_merge else "revert_done", hash=h[:7]))}
 
 @route("/api/abort", method="POST")
 def api_abort(body):
@@ -647,25 +672,28 @@ def api_rebase_i(body):
             f.write("import shutil, sys\nshutil.copyfile(sys.argv[1], sys.argv[2])\n")  # argv[2] が git の todo
         env = dict(os.environ, GIT_EDITOR=":", GIT_TERMINAL_PROMPT="0",
                    GIT_SEQUENCE_EDITOR=f'"{fwd(sys.executable)}" "{fwd(script)}" "{fwd(todo_path)}"')
-        r = subprocess.run(["git", "-C", state.REPO, "rebase", "-i", base], capture_output=True, text=True,
-                           encoding="utf-8", errors="replace", env=env)
+        r, blocked, stashed = run_resolving(
+            lambda c: _git_run(["rebase", "-i", base], c, env), body.get("on_conflict"), rebase_dirty=True)
+        if blocked:
+            return blocked
+        stash = {"stashed": stashed}
         out = (r.stdout + r.stderr).strip()
         if r.returncode != 0:
             if is_rebasing():  # 競合など → 元に戻す
                 subprocess.run(["git", "-C", state.REPO, "rebase", "--abort"], capture_output=True)
                 tail = "\n".join(out.splitlines()[-6:])
                 raise UserError("ri_aborted", tail=tail)
-            raise ValueError(out or tr("rebase_failed"))
+            raise ValueError(with_stash_note(stash, out or tr("rebase_failed")))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     if git("rev-parse", "HEAD").strip() == before:
-        return {"ok": True, "message": tr("ri_noop", branch=head["branch"])}
+        return {"ok": True, "message": with_stash_note(stash, tr("ri_noop", branch=head["branch"]))}
     n = Counter(a for a, _, _ in todo)
     parts = [tr(key, n=n[k]) for k, key in (("reword", "ri_part_reword"), ("squash", "ri_part_squash"),
                                            ("fixup", "ri_part_fixup"), ("drop", "ri_part_drop")) if n[k]]
     if parts:
-        return {"ok": True, "message": tr("ri_done_parts", branch=head["branch"], base=base[:7], parts=" / ".join(parts))}
-    return {"ok": True, "message": tr("ri_done", branch=head["branch"], base=base[:7])}
+        return {"ok": True, "message": with_stash_note(stash, tr("ri_done_parts", branch=head["branch"], base=base[:7], parts=" / ".join(parts)))}
+    return {"ok": True, "message": with_stash_note(stash, tr("ri_done", branch=head["branch"], base=base[:7]))}
 
 
 __all__ = [

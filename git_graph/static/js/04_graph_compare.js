@@ -1,22 +1,15 @@
 const graphStatusTimers = new Map();
 function setGraphStatus(message, type, clearProgress) {
   const container = document.getElementById("graphStatus");
-  if (clearProgress) {
-    container.querySelectorAll(".graph-toast.progress").forEach(toast => {
-      clearTimeout(graphStatusTimers.get(toast));
-      graphStatusTimers.delete(toast);
-      toast.remove();
-    });
-  }
-  if (!message) {
-    container.querySelectorAll(".graph-toast.progress").forEach(toast => {
-      clearTimeout(graphStatusTimers.get(toast));
-      graphStatusTimers.delete(toast);
-      toast.remove();
-    });
-    return;
-  }
   const progress = type === "progress";  // 進捗かどうかは表示文言ではなく type で明示する (文言は翻訳で変わる)
+  if (clearProgress || !progress) {
+    container.querySelectorAll(".graph-toast.progress").forEach(toast => {
+      clearTimeout(graphStatusTimers.get(toast));
+      graphStatusTimers.delete(toast);
+      toast.remove();
+    });
+  }
+  if (!message) return;
   const toast = [...container.children].find(el =>
     el.dataset.message === message && el.classList.contains(progress ? "progress" : (type || "info")));
   if (toast) {
