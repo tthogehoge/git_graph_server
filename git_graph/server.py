@@ -10,31 +10,33 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 from . import app_state as state
 from .gitrun import git, is_loopback, resolve_commit
-from .graph import build_graph, graph_payload
+# 次の import のうち、api_* などは名前を直接使わない。各モジュールの @route 登録を実行させるための import なので、
+# 未使用の警告 (F401) を抑止している。
+from .graph import build_graph, graph_payload  # noqa: F401
 from .i18n import (
     APP_CSS, check_i18n, detect_language, FILES_PAGE, fill_template, HTML_TEMPLATE, render_app_js,
     render_main_page, tr, TRANSLATIONS, UserError,
 )
-from .rebase import (
+from .rebase import (  # noqa: F401
     api_abort, api_cherry_pick, api_find_equivalent_branch, api_find_equivalent_parents, api_head,
     api_merge, api_rebase, api_rebase_descendants, api_rebase_equivalent, api_rebase_i,
     api_rebase_range, api_rebase_todo, api_resolve, api_revert,
 )
-from .refops import (
+from .refops import (  # noqa: F401
     api_branch, api_branch_rename, api_checkout, api_delete_ref, api_discard, api_reset, api_stash,
     api_tag,
 )
-from .remote import (
+from .remote import (  # noqa: F401
     api_fetch, api_pull, api_push, api_push_tag, api_remote_add, api_remote_remove, api_remotes,
 )
 from .routing import route, ROUTES
-from .files import api_blame, api_file, api_file_copy, api_tree
-from .history import (
+from .files import api_blame, api_file, api_file_copy, api_tree  # noqa: F401
+from .history import (  # noqa: F401
     api_branches, api_branches_containing, api_commit, api_compare, api_log, api_merge_base,
     api_reflog, api_stash_list, api_tags,
 )
 from .pages import render_diff_page, render_files_page
-from .wip import api_status, api_wip_commit
+from .wip import api_status, api_wip_commit  # noqa: F401
 
 
 class Forbidden(Exception):
