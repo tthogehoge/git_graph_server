@@ -21,7 +21,7 @@ html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-s
   #compareToolbar button.cmp-hash-btn { border: 0; padding: 0; background: transparent; color: inherit; cursor: pointer; }
   #compareToolbar button.cmp-hash-btn:hover { text-decoration: underline; }
   .sbtn.danger { background: #fde8e8; } .sbtn.danger:hover { background: #fbd3d3; }
-  .menubar-left { display: flex; align-items: center; gap: 6px; order: 0; }
+  .menubar-left { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; order: 0; min-width: 0; }  /* 幅が狭いときは折り返して、右ペインにはみ出さない */
   .menubar-group { display: flex; align-items: center; gap: 2px; }
   .menubar-spacer { flex: 1 1 auto; order: 1; }
   #remoteActions { order: 2; }

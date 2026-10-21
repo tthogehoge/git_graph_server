@@ -66,9 +66,10 @@ const splitter = document.getElementById("splitter");
 let resizing = false;
 const PANEL_WIDTH_KEY = "git-graph-panel-width";
 const COMPARE_PANEL_WIDTH_KEY = "git-graph-compare-panel-width";
+const MIN_GRAPH_WIDTH = 260;  // 右ペインを最大まで広げても、メニューバーとメニューが収まる左側の幅を残す
 function applyPanelWidth(width, compareLogs = document.body.classList.contains("compare-logs-mode")) {
   const property = compareLogs ? "--compare-panel-width" : "--panel-width";
-  document.documentElement.style.setProperty(property, Math.max(240, Math.min(window.innerWidth - 166, width)) + "px");
+  document.documentElement.style.setProperty(property, Math.max(240, Math.min(window.innerWidth - MIN_GRAPH_WIDTH, width)) + "px");
 }
 try {  // 別ページ (差分など) から戻ったときも、右ペインの幅を保つ
   const saved = parseInt(localStorage.getItem(PANEL_WIDTH_KEY), 10);
