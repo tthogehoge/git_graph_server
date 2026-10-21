@@ -110,9 +110,18 @@ def render_diff_page(q):
     path = q.get("path", [""])[0]
     old = q.get("old", [""])[0]
     wip = q.get("wip", [""])[0]
+    is_wip_compare = wip == "compare"
     d = api_diff(q)
     wip_status = None
-    if wip:  # 作業ツリーの変更
+    if wip == "compare":  # コミットと作業ツリーの比較
+        c = api_compare({"from": q.get("from", [""]), "to": ["WIP"]})
+        a = c["from"]
+        files, ctx = c["files"], {"from": a["hash"], "wip": "compare"}
+        ref = f'{a["hash"][:7]}..WIP'
+        info = (commit_line_html("A", a) +
+                f'<div class="meta"><span class="tag tagB">B</span>{html.escape(tr("wip_title"))}</div>')
+        cmd = f"git diff {a['hash'][:7]} -- {path}"
+    elif wip:  # 作業ツリーの変更
         if wip != "amend":
             wip_status = api_status({})
         files, ctx, ref = wip_files(wip, wip_status), {}, "WIP"
@@ -150,27 +159,27 @@ def render_diff_page(q):
 
     # WIP: ディレクトリごとの件数・行数 (右ペインの filesHtml と同じ集計)
     dir_count, dir_stat = Counter(), {}
-    if wip:
+    if wip and not is_wip_compare:
         for f in files:
             key = (f.get("wip"), dir_of(f["path"]))
             dir_count[key] += 1
             st = dir_stat.setdefault(key, [0, 0])
             st[0] += f.get("added") or 0
             st[1] += f.get("deleted") or 0
-    cur_dir_key = (wip, dir_of(path)) if wip else None  # いま開いているファイルのディレクトリは最初から開く
+    cur_dir_key = (wip, dir_of(path)) if wip and not is_wip_compare else None  # いま開いているファイルのディレクトリは最初から開く
     seen_dirs = set()
     attr = lambda s: html.escape(s, quote=True)
 
     side, last = [], None
     for f in files:
-        if wip and f.get("wip") != last:
+        if wip and not is_wip_compare and f.get("wip") != last:
             last = f.get("wip")
             gall = (f'<input type="checkbox" class="gall" data-kind="{html.escape(last)}" '
                     f'title="{html.escape(tr("select_all"))}"> ') if can_commit else ""
             side.append(f'<div class="grp">{gall}{html.escape(localized_wip_title(last))}</div>')
         fdir = dir_of(f["path"])
         key = (f.get("wip"), fdir)
-        folded = bool(wip) and dir_count[key] >= WIP_DIR_COLLAPSE
+        folded = bool(wip and not is_wip_compare) and dir_count[key] >= WIP_DIR_COLLAPSE
         is_cur_dir = folded and key == cur_dir_key
         if folded and key not in seen_dirs:
             seen_dirs.add(key)
@@ -195,10 +204,10 @@ def render_diff_page(q):
         else:
             counts = (f'<span class="plus">+{f["added"]}</span> '
                       f'<span class="minus">-{f["deleted"]}</span>')
-        cur = "cur" if f["path"] == path and (not wip or f.get("wip") == wip) else ""
+        cur = "cur" if f["path"] == path and (not wip or is_wip_compare or f.get("wip") == wip) else ""
         link = (f'<a class="{cur}" href="{html.escape(diff_url(ctx, f))}">'
                 f'<span>{html.escape(fname)}</span><span class="n">{counts}</span></a>')
-        if wip:
+        if wip and not is_wip_compare:
             box = ""
             if can_commit:
                 on = " checked" if (merging or f["path"] in staged_paths) else ""
@@ -210,7 +219,7 @@ def render_diff_page(q):
         side.append(link)
     commit_box = ""
     commit_js = ""
-    fold_js = DIFF_FOLD_JS if wip else ""
+    fold_js = DIFF_FOLD_JS if wip and not is_wip_compare else ""
     if can_commit:
         commit_box = ('<div class="cbox"><textarea id="cmsg" placeholder="' + html.escape(tr("wip_commit_message"), quote=True) + '"></textarea>'
                       '<input type="text" id="cbranch" placeholder="' + html.escape(tr("wip_commit_branch_placeholder"), quote=True)

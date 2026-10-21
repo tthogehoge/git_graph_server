@@ -5,9 +5,9 @@ from . import app_state as state
 from .files import decode_text
 from .gitrun import check_ref_name, git, git_bytes, HASH_RE, resolve_commit
 from .gitstate import commit_info, parse_numstat
-from .i18n import UserError
+from .i18n import tr, UserError
 from .routing import route
-from .wip import wip_diff
+from .wip import api_status, wip_diff
 
 
 REV_RE = re.compile(r"[0-9a-f]{40}(\.\.[0-9a-f]{40})?")
@@ -175,8 +175,30 @@ def api_commit(q):
 
 @route("/api/compare")
 def api_compare(q):
-    """2つのコミット間の差分 (from → to) のファイル一覧。"""
+    """2つのコミット間、またはコミットと WIP の差分ファイル一覧。"""
     a = commit_info(q.get("from", [""])[0])
+    if q.get("to", [""])[0] == "WIP":
+        if not state.WIP_ENABLED or not state.HAS_WORKTREE:
+            raise UserError("wip_disabled")
+        status = api_status({})
+        files = parse_numstat(git("diff", "--numstat", "-z", "-M", a["hash"], "--"))
+        included = {f["path"] for f in files}
+        base_paths = set(git("ls-tree", "-r", "--name-only", "-z", a["hash"]).split("\0"))
+        for f in status["untracked"]:
+            path = f["path"]
+            if path in included or path in base_paths:
+                continue
+            result = subprocess.run(
+                ["git", "-C", state.REPO, "diff", "--no-index", "--numstat", "-z",
+                 "--", "/dev/null", path],
+                capture_output=True,
+            )
+            if result.returncode not in (0, 1):
+                raise ValueError(result.stderr.decode("utf-8", errors="replace").strip() or tr("git_diff_failed"))
+            for added in parse_numstat(result.stdout.decode("utf-8", errors="replace")):
+                added["wip"] = "compare"
+                files.append(added)
+        return {"from": a, "to": {"hash": "WIP"}, "files": files}
     b = commit_info(q.get("to", [""])[0])
     raw = git("diff", "--numstat", "-z", "-M", a["hash"], b["hash"], "--")
     return {"from": a, "to": b, "files": parse_numstat(raw)}
@@ -198,14 +220,28 @@ DIFF_LIMIT = 400000
 
 
 def api_diff(q):
-    """1ファイルの差分。hash=... (1コミット) か from=...&to=... (2コミット間) を指定する。"""
+    """1ファイルの差分。hash、from/to のコミット間、または from/WIP の比較を指定する。"""
     path = q.get("path", [""])[0]
     old = q.get("old", [""])[0]
     if not path or "\0" in path or "\0" in old:
         raise ValueError("bad path")
     specs = [old, path] if old else [path]
     wip = q.get("wip", [""])[0]
-    if wip:  # 作業ツリーの変更
+    if wip == "compare":
+        base = q.get("from", [""])[0]
+        if not HASH_RE.fullmatch(base):
+            raise ValueError("bad hash")
+        if not state.WIP_ENABLED or not state.HAS_WORKTREE:
+            raise UserError("wip_disabled")
+        untracked = {f["path"] for f in api_status({})["untracked"]}
+        tracked_in_base = bool(git(
+            "ls-tree", "-r", "--name-only", "-z", base, "--", path, literal=True
+        ).strip("\0"))
+        if path in untracked and not tracked_in_base:
+            out = wip_diff("untracked", path, specs)
+        else:
+            out = git_bytes("diff", "--no-color", "-M", base, "--", *specs, literal=True)
+    elif wip:  # 作業ツリーの変更
         out = wip_diff(wip, path, specs)
     elif "from" in q or "to" in q:
         a, b = q.get("from", [""])[0], q.get("to", [""])[0]

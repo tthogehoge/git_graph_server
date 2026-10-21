@@ -140,6 +140,10 @@ document.getElementById("compareToolbar").addEventListener("click", ev => {  // 
     showCompare(compareAHash, compareBHash);
     return;
   }
+  if (ev.target.closest("#compareWipBtn") && actionHash) {
+    showCompare(actionHash, "WIP");
+    return;
+  }
   if (ev.target.closest("#compareLogsBtn") && compareAHash && compareBHash) {
     showCompareLogs(compareAHash, compareBHash);
     return;
@@ -261,4 +265,3 @@ function init() {
     });
   });
 }
-

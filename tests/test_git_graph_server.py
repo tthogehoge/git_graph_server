@@ -401,6 +401,30 @@ class WorkingTreeFilesTests(unittest.TestCase):
         self.assertEqual(app.api_file({"hash": ["WIP"], "path": ["README.md"]})["content"], "first\nsecond\n")
         self.assertEqual(app.api_file({"hash": ["WIP"], "path": ["new.txt"]})["content"], "untracked\n")
 
+    def test_api_compare_includes_working_tree_and_untracked_changes(self):
+        previous = state.WIP_ENABLED
+        state.WIP_ENABLED = True
+        self.addCleanup(setattr, state, "WIP_ENABLED", previous)
+
+        result = app.api_compare({"from": [self.head], "to": ["WIP"]})
+
+        self.assertEqual(result["to"]["hash"], "WIP")
+        self.assertEqual(
+            {item["path"] for item in result["files"]},
+            {"README.md", "gone.txt", "new.txt"},
+        )
+        self.assertIn(
+            "+second",
+            app.api_diff({"from": [self.head], "wip": ["compare"], "path": ["README.md"]})["diff"],
+        )
+        self.assertIn(
+            "untracked",
+            app.api_diff({"from": [self.head], "wip": ["compare"], "path": ["new.txt"]})["diff"],
+        )
+        page = app.render_diff_page({"from": [self.head], "wip": ["compare"], "path": ["README.md"]})
+        self.assertIn("作業ツリーの変更 (WIP)", page)
+        self.assertNotIn('id="cbtn"', page)
+
     def test_blame_marks_uncommitted_lines(self):
         lines = app.api_blame({"hash": ["WIP"], "path": ["README.md"]})["lines"]
         self.assertEqual(lines[0]["hash"], self.head)

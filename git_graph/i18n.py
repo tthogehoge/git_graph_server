@@ -85,7 +85,8 @@ def render_main_page():
             .replace('<html lang="ja">', f'<html lang="{state.UI_LANG}">'))
 
 def render_app_js():
-    return APP_JS.replace("/*__I18N__*/", "const I18N = " + client_translations() + ";")
+    return APP_JS.replace("/*__I18N__*/", "const I18N = " + client_translations() + ";\n"
+                          + "const WIP_ENABLED = " + ("true" if state.WIP_ENABLED else "false") + ";")
 
 _CJK = re.compile(r"[\u3040-\u30ff\u3400-\u9fff\uff00-\uffef]")
 

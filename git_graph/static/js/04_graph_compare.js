@@ -81,15 +81,26 @@ function commitLine(label, c) {
 function showCompare(a, b, fromHistory) {  // a, b はコミットのハッシュ
   document.body.classList.remove("compare-logs-mode");
   if (!fromHistory) pushScreen({screen: "compare", a: a, b: b});
-  setDocumentTitle(t("compare_heading", {from: a.slice(0, 7), to: b.slice(0, 7)}));
+  const toLabel = b === "WIP" ? t("wip_title") : b.slice(0, 7);
+  setDocumentTitle(t("compare_heading", {from: a.slice(0, 7), to: toLabel}));
   const btns = '<button class="back-btn">' + t("back_history") + '</button>';
   detailView.innerHTML = btns + '<p class="hint">' + esc(t("loading")) + '</p>';
   showView("detail");
   api("/api/compare", {from: a, to: b}).then(r => {
-    curCtx = {from: r.from.hash, to: r.to.hash}; curFiles = r.files;
-    detailView.innerHTML = btns + "<h2>" + esc(t("compare_heading", {from: r.from.hash.slice(0, 7), to: r.to.hash.slice(0, 7)})) + "</h2>" +
-      commitLine("A", r.from) + commitLine("B", r.to) + filesHtml(curCtx, r.files) +
-      '<div class="meta"><code>git diff ' + esc(r.from.hash.slice(0, 7)) + " " + esc(r.to.hash.slice(0, 7)) + "</code></div>";
+    const isWip = r.to.hash === "WIP";
+    curCtx = isWip ? {from: r.from.hash, wip: "compare"} : {from: r.from.hash, to: r.to.hash};
+    curFiles = r.files;
+    const heading = t("compare_heading", {
+      from: r.from.hash.slice(0, 7),
+      to: isWip ? t("wip_title") : r.to.hash.slice(0, 7),
+    });
+    const toLine = isWip
+      ? '<div class="meta"><span class="tag tagB">B</span>' + esc(t("wip_title")) + "</div>"
+      : commitLine("B", r.to);
+    const command = "git diff " + r.from.hash.slice(0, 7) + (isWip ? "" : " " + r.to.hash.slice(0, 7));
+    detailView.innerHTML = btns + "<h2>" + esc(heading) + "</h2>" +
+      commitLine("A", r.from) + toLine + filesHtml(curCtx, r.files) +
+      '<div class="meta"><code>' + esc(command) + "</code></div>";
   }).catch(e => {
     detailView.innerHTML = btns + '<p class="hint">' + esc(t("error")) + esc(e.message) + "</p>";
   });
@@ -145,6 +156,9 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
   document.getElementById("findEquivalentParentsBtn").hidden = !compareAHash || !compareBHash;
   document.getElementById("findEquivalentBranchBtn").hidden = !compareAHash || !compareBHash;
   const isStash = !!actionHash && (!!stashByHash[actionHash] || !!stashNameOf(actionHash));
+  const compareWipBtn = document.getElementById("compareWipBtn");
+  compareWipBtn.hidden = !actionHash || isStash || !WIP_ENABLED;
+  compareWipBtn.disabled = !actionHash || isStash || !WIP_ENABLED;
   document.getElementById("aActions").hidden = !actionHash || isStash;
   document.getElementById("stashActions").hidden = !isStash;
   document.getElementById("actionsEmpty").hidden = !!actionHash || (!!compareAHash && !!compareBHash);
@@ -162,7 +176,10 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
   document.getElementById("resetBtn").disabled = !canMerge;
   const canWrite = !!DATA.writable;
   document.querySelectorAll("#aActions button")
-    .forEach(el => { el.disabled = !canWrite || (["mergeBtn", "rebaseBtn", "irebaseBtn", "cherryBtn", "revertBtn", "resetBtn"].includes(el.id) && !DATA.merge); });
+    .forEach(el => {
+      if (el.id === "compareWipBtn") return;
+      el.disabled = !canWrite || (["mergeBtn", "rebaseBtn", "irebaseBtn", "cherryBtn", "revertBtn", "resetBtn"].includes(el.id) && !DATA.merge);
+    });
   document.querySelectorAll("#remoteActions button")
     .forEach(el => { el.disabled = !canWrite || (el.dataset.cact === "pull" && !DATA.merge); });
   document.querySelectorAll("#remoteConfigActions button").forEach(el => { el.disabled = !canWrite; });
