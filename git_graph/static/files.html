@@ -394,7 +394,16 @@ function restoreFromUrl(first) {  // URL の path / file の状態を画面に�
   }
   const tree = first || dir !== current ? loadTree(dir, false) : Promise.resolve();
   // WIP ではツリーの読み込みで HEAD が分かってから開く (ログ / blame ボタンの表示に使う)
-  tree.then(() => { if (file) { if (file !== currentFile || first) loadFile(file, false); } else if (currentFile) clearFile(); });
+  const wantEdit = first && file && p.get("edit") === "1";  // 差分ページの「このファイルを編集」から来たとき
+  tree.then(() => {
+    if (file) { if (file !== currentFile || first) return loadFile(file, false); } else if (currentFile) clearFile();
+  }).then(() => {
+    if (!wantEdit) return;
+    history.replaceState({path: current, file: currentFile}, "", pageUrl(current, currentFile));  // 再読み込みで編集を開き直さない
+    if (!CAN_EDIT) setFileMsg(t("write_disabled"), false);
+    else if (fileData && fileData.editable) startEdit();
+    else if (fileData) setFileMsg(t(fileData.edit_reason || "edit_bad_encoding"), false);
+  });
 }
 window.onpopstate = () => restoreFromUrl(false);
 if (!hash) showError(new Error(t("commit_required"))); else { loadCommitChanges(); restoreFromUrl(true); }

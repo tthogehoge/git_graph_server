@@ -1,6 +1,7 @@
 # HTML ページ (/diff 差分ページと /files ファイル表示ページ) の組み立て。
 import html
 import json
+import os
 from collections import Counter
 from urllib.parse import urlencode
 from . import app_state as state
@@ -10,6 +11,15 @@ from .i18n import (
     with_project,
 )
 from .wip import api_status
+from .files import WIP_HASH, worktree_target
+
+
+def wip_file_exists(path):
+    try:
+        target = worktree_target(path)
+    except ValueError:  # UserError も含む
+        return False
+    return os.path.isfile(target) and not os.path.islink(target)
 
 COPY_JS = read_asset("copy.js")
 DIFF_CSS = read_asset("diff.css")
@@ -126,6 +136,10 @@ def render_diff_page(q):
                 f'<div class="meta">{html.escape(c["author"])} / {html.escape(c["date"])}</div>')
         cmd = f"git show {ref} -- {path}"
     name = f"{old} => {path}" if old else path
+    edit_link = ""
+    if wip and state.WRITABLE and state.HAS_WORKTREE and wip_file_exists(path):  # 作業ツリーにあるファイルは編集画面へ
+        edit_url = "/files?" + urlencode({"hash": WIP_HASH, "path": dir_of(path), "file": path, "edit": "1"})
+        edit_link = (f'<a class="ebtn" href="{html.escape(edit_url)}">{html.escape(tr("file_edit"))}</a>')
 
     can_commit = bool(wip_status is not None and state.WRITABLE and state.WIP_ENABLED)  # amend の差分ページには出さない
     staged_paths = {f["path"] for f in wip_status["staged"]} if can_commit else set()
@@ -221,7 +235,7 @@ def render_diff_page(q):
   {"".join(side)}
 </div>
 <div id="main">
-  <h1>{html.escape(name)}</h1>
+  <h1>{html.escape(name)}{edit_link}</h1>
   {info}
   <div class="meta"><code>{html.escape(cmd)}</code></div>
   <div class="meta">{html.escape(d["encoding"] or "binary")}</div>

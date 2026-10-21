@@ -37,3 +37,5 @@
   #side .drow:hover { background: #e6ebf5; }
   #side .drow .dname { flex: 1; min-width: 0; }
   #side .dtog { display: inline-block; width: 1em; color: #666; }
+  .ebtn { margin-left: 10px; font-size: 12px; font-weight: normal; background: #e8eefc; border: 1px solid #b8c7ee; color: #06c; padding: 2px 8px; border-radius: 3px; text-decoration: none; white-space: nowrap; }
+  .ebtn:hover { background: #d6e2fb; }
