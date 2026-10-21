@@ -11,7 +11,7 @@ from urllib.request import Request, urlopen
 
 import git_graph_server as app
 from git_graph import app_state as state
-from git_graph import viewer
+from git_graph import pages as viewer
 
 
 class ParseStatusTests(unittest.TestCase):

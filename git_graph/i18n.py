@@ -11,11 +11,18 @@ from . import app_state as state
 ASSET_DIR = Path(__file__).resolve().parent
 STATIC_DIR = ASSET_DIR / "static"
 LOCALES_DIR = ASSET_DIR / "locales"
+def read_asset(name):
+    return (STATIC_DIR / name).read_text(encoding="utf-8")
+
+
 TRANSLATIONS = {lang: json.loads((LOCALES_DIR / f"{lang}.json").read_text(encoding="utf-8"))
                 for lang in ("ja", "en")}
 HTML_TEMPLATE = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
 FILES_PAGE = (STATIC_DIR / "files.html").read_text(encoding="utf-8")
-APP_JS = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+# ブラウザ側の JavaScript は static/js/ の部品 (番号順) を連結して、/static/app.js として配る。
+# 部品の境界を示すコメントを挟むので、ブラウザーのエラーに出る行番号から元のファイルを探せる。
+APP_JS = "".join(f"/* ---- js/{path.name} ---- */\n" + path.read_text(encoding="utf-8")
+                 for path in sorted((STATIC_DIR / "js").glob("*.js")))
 APP_CSS = (STATIC_DIR / "app.css").read_text(encoding="utf-8")
 _FAVICON_SVG = ("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'>"
                 "<path d='M16 7V25M16 16C16 11 24 13 24 7' stroke='#889' stroke-width='3' fill='none'/>"
@@ -108,8 +115,8 @@ def check_i18n():
 
     src = "\n".join(path.read_text(encoding="utf-8")
                     for path in sorted(Path(__file__).resolve().parent.glob("*.py")))
-    assets = "\n".join((STATIC_DIR / name).read_text(encoding="utf-8")
-                       for name in ("index.html", "files.html", "app.js", "app.css"))
+    assets = "\n".join(path.read_text(encoding="utf-8")
+                       for ext in ("html", "js", "css") for path in sorted(STATIC_DIR.rglob(f"*.{ext}")))
     tree = ast.parse(src)
     docstrings = set()
     for node in ast.walk(tree):
@@ -160,6 +167,7 @@ def check_i18n():
 
 
 __all__ = [
+    "read_asset",
     "FILES_PAGE",
     "APP_CSS", "APP_JS", "DEFAULT_LANG", "FAVICON_LINK", "HTML_TEMPLATE",
     "TRANSLATIONS", "UserError", "check_i18n", "client_translations",

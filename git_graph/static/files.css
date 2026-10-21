@@ -1,0 +1,48 @@
+
+  html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-size: 13px; color: #222; }
+  body { display: flex; }
+  #tree { width: 360px; flex: none; overflow: auto; border-right: 1px solid #ccc; background: #fafafa; padding: 12px; box-sizing: border-box; }
+  #main { flex: 1; min-width: 0; overflow: auto; padding: 14px 18px; box-sizing: border-box; }
+  h1 { font-size: 15px; margin: 0 0 8px; word-break: break-all; }
+  h2 { font-size: 14px; margin: 0 0 8px; }
+  .meta, .hint { color: #666; margin: 3px 0; }
+  .crumb { margin: 8px 0; word-break: break-all; }
+  .crumb a, .entry { color: #06c; text-decoration: none; cursor: pointer; }
+  .crumb a:hover, .entry:hover { text-decoration: underline; }
+  .entry { display: flex; gap: 8px; padding: 4px 6px; border-radius: 3px; font-family: monospace; }
+  .entry:hover { background: #eef; }
+  .entry .size { margin-left: auto; color: #777; white-space: nowrap; }
+  pre { white-space: pre-wrap; word-break: break-word; background: #fff; border: 1px solid #ddd; padding: 10px; font: 12px monospace; }
+  pre.code { color: #24292f; tab-size: 4; }
+  pre.code { padding-left: 0; }
+  .ln { display: flex; }
+  .ln:hover { background: #f6f8fa; }
+  .ln .no { flex: none; width: var(--nw, 3ch); box-sizing: content-box; padding: 0 10px; margin-right: 10px; text-align: right; color: #8c959f; border-right: 1px solid #e3e3e3; user-select: none; }
+  .ln .tx { flex: 1; min-width: 0; }
+  .tok-keyword { color: #8250df; font-weight: 600; }
+  .tok-string { color: #0a7b35; }
+  .tok-comment { color: #6e7781; font-style: italic; }
+  .tok-number { color: #0550ae; }
+  .tok-type { color: #953800; }
+  .tok-tag { color: #116329; }
+  .tok-attr { color: #8250df; }
+  .tok-regex { color: #cf222e; }
+  .binary { color: #777; padding: 10px; border: 1px solid #ddd; }
+  .file-actions { display: flex; gap: 6px; margin: 8px 0; }
+  .file-actions button { background: #e8eefc; border: 1px solid #b8c7ee; padding: 4px 8px; border-radius: 3px; cursor: pointer; }
+  .file-actions button:hover { background: #d6e2fb; }
+  .file-actions .msg { margin-left: 8px; color: #0a7b35; white-space: pre-wrap; }
+  .file-actions .msg.err { color: #c00; }
+  table.file-log { border-collapse: collapse; width: 100%; margin-top: 8px; }
+  table.file-log td { border-bottom: 1px solid #e3e3e3; padding: 5px 6px; vertical-align: top; }
+  table.file-log td.hash { width: 1%; font-family: monospace; white-space: nowrap; }
+  table.file-log td.date { width: 1%; color: #777; white-space: nowrap; }
+  table.file-log a { color: inherit; text-decoration: none; }
+  table.file-log tr:hover td { background: #eef; }
+  .blame-line { display: flex; font: 12px monospace; white-space: pre-wrap; }
+  .blame-line:hover { background: #f6f8fa; }
+  .blame-no { flex: none; width: 8ch; box-sizing: border-box; padding-right: 1ch; text-align: right; color: #8c959f; }
+  .blame-meta { flex: none; width: 24em; overflow: hidden; text-overflow: ellipsis; color: #666; }
+  .blame-meta a { color: inherit; text-decoration: none; }
+  .blame-meta a:hover { text-decoration: underline; }
+  .blame-code { min-width: 0; }

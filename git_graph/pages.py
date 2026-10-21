@@ -1,0 +1,248 @@
+# HTML ページ (/diff 差分ページと /files ファイル表示ページ) の組み立て。
+import html
+import json
+from collections import Counter
+from urllib.parse import urlencode
+from . import app_state as state
+from .history import api_commit, api_compare, api_diff
+from .i18n import (
+    client_translations, FAVICON_LINK, FILES_PAGE, fill_template, read_asset, tr, UserError,
+    with_project,
+)
+from .wip import api_status
+
+COPY_JS = read_asset("copy.js")
+DIFF_CSS = read_asset("diff.css")
+DIFF_FOLD_JS = read_asset("diff_fold.js")
+WIP_DIFF_COMMIT_JS = read_asset("wip_diff_commit.js")
+FILES_CSS = read_asset("files.css")
+
+
+WIP_DIR_COLLAPSE = 10
+
+
+def dir_of(path):
+    return path.rpartition("/")[0]
+
+
+def diff_lines_html(text):
+    """差分を行ごとに色分けする (ヘッダ部と本文を区別)。"""
+    lines = text.split("\n")
+    if lines and lines[-1] == "":
+        lines.pop()
+    in_hunk, out = False, []
+    for l in lines:
+        cls = ""
+        if l.startswith("diff "):
+            in_hunk, cls = False, "hd"
+        elif not in_hunk:
+            if l.startswith("@@"):
+                in_hunk, cls = True, "hk"
+            else:
+                cls = "hd"
+        elif l.startswith("@@"):
+            cls = "hk"
+        elif l.startswith("+"):
+            cls = "ad"
+        elif l.startswith("-"):
+            cls = "de"
+        elif l.startswith("\\"):
+            cls = "hd"
+        out.append(f'<div class="dl {cls}">{html.escape(l) or " "}</div>')
+    return "".join(out)
+
+
+def localized_wip_title(kind):
+    return {
+        "amend": tr("amend_content"),
+        "conflict": tr("conflict"),
+        "staged": tr("staged"),
+        "unstaged": tr("unstaged"),
+        "untracked": tr("untracked"),
+    }.get(kind, kind)
+
+
+def diff_url(ctx, f):
+    params = dict(ctx, path=f["path"])
+    if f.get("wip"):
+        params["wip"] = f["wip"]
+    if f.get("old_path"):
+        params["old"] = f["old_path"]
+    return "/diff?" + urlencode(params)
+
+
+def commit_line_html(label, c):
+    subject = c["message"].split("\n", 1)[0]
+    return (f'<div class="meta"><span class="tag tag{label}">{label}</span>{c["hash"][:7]}'
+            f'<a class="copy" data-copy="{c["hash"]}" title="{html.escape(tr("copy_hash_title"))}">📋</a> — '
+            f'{html.escape(subject)} <span class="hint">({html.escape(c["author"])} / '
+            f'{html.escape(c["date"])})</span></div>')
+
+
+def wip_files(kind="", status=None):
+    """WIP の全ファイルを 競合 → ステージ済み → 未ステージ → 未追跡 の順に、種別(wip)つきで返す。
+    kind が amend のときは、amend 後のコミットの内容 (直前のコミットの親との差分) を返す。"""
+    if kind == "amend":
+        s = api_status({"amend": ["1"]})
+        if "amend_files" not in s:
+            raise UserError("amend_unavailable")
+        return s["amend_files"]
+    s = status or api_status({})
+    out = []
+    for kind, key in (("conflict", "conflicts"), ("staged", "staged"),
+                      ("unstaged", "unstaged"), ("untracked", "untracked")):
+        out.extend(dict(f, wip=kind) for f in s[key])
+    return out
+
+
+def render_diff_page(q):
+    """1ファイルの差分ページ。左にそのコミット(比較 / WIP)の変更ファイル一覧を出す。"""
+    path = q.get("path", [""])[0]
+    old = q.get("old", [""])[0]
+    wip = q.get("wip", [""])[0]
+    d = api_diff(q)
+    wip_status = None
+    if wip:  # 作業ツリーの変更
+        if wip != "amend":
+            wip_status = api_status({})
+        files, ctx, ref = wip_files(wip, wip_status), {}, "WIP"
+        info = f'<div class="meta">{html.escape(tr("working_tree"))} — {html.escape(localized_wip_title(wip))}</div>'
+        cmd = {"staged": f"git diff --cached -- {path}", "amend": f"git diff HEAD^ -- {path}",
+               "untracked": f"git diff --no-index /dev/null {path}"}.get(wip, f"git diff -- {path}")
+    elif "from" in q:  # 2コミット間の比較
+        c = api_compare(q)
+        a, b = c["from"], c["to"]
+        files, ctx = c["files"], {"from": a["hash"], "to": b["hash"]}
+        ref = f"{a['hash'][:7]}..{b['hash'][:7]}"
+        info = commit_line_html("A", a) + commit_line_html("B", b)
+        cmd = f"git diff {a['hash'][:7]} {b['hash'][:7]} -- {path}"
+    else:
+        c = api_commit(q)
+        files, ctx, ref = c["files"], {"hash": c["hash"]}, c["hash"][:7]
+        subject = c["message"].split("\n", 1)[0]
+        info = (f'<div class="meta">{html.escape(tr("commit_label"))} {ref}'
+                f'<a class="copy" data-copy="{c["hash"]}" title="{html.escape(tr("copy_hash_title"))}">📋</a>'
+                f' — {html.escape(subject)}</div>'
+                f'<div class="meta">{html.escape(c["author"])} / {html.escape(c["date"])}</div>')
+        cmd = f"git show {ref} -- {path}"
+    name = f"{old} => {path}" if old else path
+
+    can_commit = bool(wip_status is not None and state.WRITABLE and state.WIP_ENABLED)  # amend の差分ページには出さない
+    staged_paths = {f["path"] for f in wip_status["staged"]} if can_commit else set()
+    merging = bool(wip_status and wip_status.get("merging"))
+    op_in_progress = bool(wip_status and any(
+        wip_status.get(key) for key in ("merging", "rebasing", "cherry_picking", "reverting")
+    ))
+
+    # WIP: ディレクトリごとの件数・行数 (右ペインの filesHtml と同じ集計)
+    dir_count, dir_stat = Counter(), {}
+    if wip:
+        for f in files:
+            key = (f.get("wip"), dir_of(f["path"]))
+            dir_count[key] += 1
+            st = dir_stat.setdefault(key, [0, 0])
+            st[0] += f.get("added") or 0
+            st[1] += f.get("deleted") or 0
+    cur_dir_key = (wip, dir_of(path)) if wip else None  # いま開いているファイルのディレクトリは最初から開く
+    seen_dirs = set()
+    attr = lambda s: html.escape(s, quote=True)
+
+    side, last = [], None
+    for f in files:
+        if wip and f.get("wip") != last:
+            last = f.get("wip")
+            gall = (f'<input type="checkbox" class="gall" data-kind="{html.escape(last)}" '
+                    f'title="{html.escape(tr("select_all"))}"> ') if can_commit else ""
+            side.append(f'<div class="grp">{gall}{html.escape(localized_wip_title(last))}</div>')
+        fdir = dir_of(f["path"])
+        key = (f.get("wip"), fdir)
+        folded = bool(wip) and dir_count[key] >= WIP_DIR_COLLAPSE
+        is_cur_dir = folded and key == cur_dir_key
+        if folded and key not in seen_dirs:
+            seen_dirs.add(key)
+            dck = (f'<input type="checkbox" class="dck" data-kind="{attr(f["wip"])}" data-dir="{attr(fdir)}"> '
+                   if can_commit else "")
+            data_cur = ' data-cur="1"' if is_cur_dir else ""
+            label = fdir + "/" if fdir else tr("dir_root")
+            plus, minus = dir_stat[key]
+            side.append(
+                f'<div class="srow drow" data-kind="{attr(f["wip"])}" data-dir="{attr(fdir)}"'
+                f'{data_cur} title="{attr(tr("dir_toggle"))}">{dck}'
+                f'<span class="dname"><span class="dtog">▶</span> {html.escape(label)} '
+                f'<span class="hint">({html.escape(tr("n_items", n=dir_count[key]))}) '
+                f'<span class="plus">+{plus}</span> <span class="minus">-{minus}</span></span></span></div>')
+        fname = f"{f['old_path']} => {f['path']}" if f.get("old_path") else f["path"]
+        if f.get("label"):
+            counts = html.escape(tr(f["label"]))
+        elif "added" not in f:
+            counts = ""
+        elif f["added"] is None:
+            counts = "Bin"
+        else:
+            counts = (f'<span class="plus">+{f["added"]}</span> '
+                      f'<span class="minus">-{f["deleted"]}</span>')
+        cur = "cur" if f["path"] == path and (not wip or f.get("wip") == wip) else ""
+        link = (f'<a class="{cur}" href="{html.escape(diff_url(ctx, f))}">'
+                f'<span>{html.escape(fname)}</span><span class="n">{counts}</span></a>')
+        if wip:
+            box = ""
+            if can_commit:
+                on = " checked" if (merging or f["path"] in staged_paths) else ""
+                box = (f'<input type="checkbox" class="wck" data-kind="{attr(f["wip"])}" '
+                       f'data-dir="{attr(fdir)}" data-path="{attr(f["path"])}"{on}>')
+            hide = " dhide" if folded and not is_cur_dir else ""
+            link = (f'<div class="srow frow{hide}" data-kind="{attr(f["wip"])}" '
+                    f'data-dir="{attr(fdir)}">{box}{link}</div>')
+        side.append(link)
+    commit_box = ""
+    commit_js = ""
+    fold_js = DIFF_FOLD_JS if wip else ""
+    if can_commit:
+        commit_box = ('<div class="cbox"><textarea id="cmsg" placeholder="' + html.escape(tr("wip_commit_message"), quote=True) + '"></textarea>'
+                      '<input type="text" id="cbranch" placeholder="' + html.escape(tr("wip_commit_branch_placeholder"), quote=True)
+                      + '" aria-label="' + html.escape(tr("wip_commit_branch"), quote=True) + '">'
+                      '<div class="arow"><button id="cbtn" class="wbtn">' + html.escape(tr("wip_commit")) + '</button>'
+                      + ('<button id="dbtn" class="wbtn danger">' + html.escape(tr("wip_discard")) + '</button>' if not op_in_progress else "")
+                      + '</div>'
+                      '<div id="cout" class="hint"></div></div>')
+        texts = {k: tr(k) for k in (
+            "wip_commit", "message_required", "select_files", "wip_execute",
+            "wip_discard", "confirm_discard", "discard_conflict",
+        )}
+        commit_js = "const T = " + json.dumps(texts, ensure_ascii=False).replace("</", "<\\/") + ";\n" + WIP_DIFF_COMMIT_JS
+    return f"""<!DOCTYPE html>
+<html lang="{state.UI_LANG}"><head><meta charset="utf-8">
+<title>{html.escape(path)} @ {ref} - {html.escape(state.PROJECT_NAME)}</title>
+{FAVICON_LINK}
+<style>{DIFF_CSS}</style></head><body>
+<div id="side">
+  <div class="meta">{len(files)} {tr("files_changed")}</div>
+  {commit_box}
+  {"".join(side)}
+</div>
+<div id="main">
+  <h1>{html.escape(name)}</h1>
+  {info}
+  <div class="meta"><code>{html.escape(cmd)}</code></div>
+  <div class="meta">{html.escape(d["encoding"] or "binary")}</div>
+  {'<p class="hint">' + tr("large_file_diff") + '</p>' if d["truncated"] else ""}
+  <div class="diff">{diff_lines_html(d["diff"]) or '<p class="hint">' + tr("no_diff") + '</p>'}</div>
+</div>
+<script>{COPY_JS}</script>
+<script>{fold_js}</script>
+<script>{commit_js}</script>
+</body></html>
+"""
+
+
+def render_files_page():
+    return with_project(fill_template(FILES_PAGE)
+            .replace('<html lang="ja">', f'<html lang="{state.UI_LANG}">')
+            .replace("/*__FILE_I18N__*/", "const I18N = " + client_translations() + ";\n"
+                     + "const CAN_COPY = " + ("true" if state.WRITABLE and state.HAS_WORKTREE else "false") + ";"))
+
+
+__all__ = [
+    "WIP_DIR_COLLAPSE", "diff_lines_html", "diff_url", "dir_of", "localized_wip_title",
+    "render_diff_page", "render_files_page", "wip_files",
+]

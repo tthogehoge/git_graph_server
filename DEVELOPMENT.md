@@ -24,7 +24,7 @@ python3 git_graph_server.py --check-i18n
 1. `git_graph_server.py` が `git_graph/server.py` の `main()` を呼び出します。`main()` は CLI 引数と言語を決定し、指定された Git リポジトリのルートを特定します。
 2. `git_graph/app_state.py` に対象リポジトリや起動設定を設定します。各機能モジュールはこの状態を参照し、`git_graph/gitrun.py` のヘルパーを通じて Git を実行します。
 3. `git_graph/server.py` の HTTP ハンドラーが HTML、静的アセット、API リクエストを処理します。ページの HTML/CSS/JavaScript は `git_graph/i18n.py` を通じてテンプレート展開されます。
-4. API ハンドラーは機能別モジュールにあり、`@route` で登録されます。グラフ API は Git 履歴を `git_graph/graph.py` で処理し、画面側の `git_graph/static/app.js` が API を呼んで画面を更新します。
+4. API ハンドラーは機能別モジュールにあり、`@route` で登録されます。グラフ API は Git 履歴を `git_graph/graph.py` で処理し、画面側の `git_graph/static/js/` が API を呼んで画面を更新します。
 
 サーバーは Python の `ThreadingHTTPServer` を使います。POST リクエストのハンドラーは書き込みロック内で実行されるため、書き込み操作同士は直列化されます。状態はプロセス内の共有値であり、複数リポジトリを同じプロセスで同時に操作する構成ではありません。
 
@@ -63,7 +63,9 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.test_git_graph_server.InputV
 | `git_graph/gitrun.py` | Git コマンド実行、コミット/ref/ホストの検証、書き込みコマンド、リモート通信と認証情報の処理。 |
 | `git_graph/gitstate.py` | マージ中・HEAD の有無・`git status` / `--numstat` の解析など、リポジトリの状態を調べる共通関数。機能モジュールから共通で使われる低レベルの層。 |
 | `git_graph/graph.py` | Git の履歴・ref を読み込み、表示対象ノードとエッジを決定し、Graphviz の DOT/SVG 情報を生成。 |
-| `git_graph/viewer.py` | ログ、コミット、ツリー、ファイル、差分、ブランチ、タグ、reflog、stash などの参照 API と HTML ページ。 |
+| `git_graph/history.py` | ログ・ブランチ・タグ・reflog・stash 一覧・コミット詳細・比較・差分を返すデータ API。 |
+| `git_graph/files.py` | ファイルの一覧・内容・blame・作業ディレクトリへのコピーと、文字コードの判別。 |
+| `git_graph/pages.py` | `/diff`(差分ページ)と `/files`(ファイル表示ページ)の HTML を組み立てます。 |
 | `git_graph/wip.py` | `git status` の解析、作業ツリー差分の表示、未コミット変更を含めた操作。 |
 | `git_graph/refops.py` | ブランチ・タグの作成/削除/rename、checkout、reset、stash、変更の破棄。 |
 | `git_graph/rebase.py` | merge、rebase、cherry-pick、revert、rebase 中断、競合解決と履歴上の対応コミット検索。 |
@@ -72,7 +74,8 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.test_git_graph_server.InputV
 | `git_graph/locales/ja.json`、`git_graph/locales/en.json` | 日本語・英語の翻訳辞書。 |
 | `git_graph/static/index.html` | メイン画面の HTML 骨格。 |
 | `git_graph/static/files.html` | ファイル表示ページ(`/files`)の HTML。`i18n.py` が読み込みます。 |
-| `git_graph/static/app.js` | グラフ、ログ、詳細、アクションなどブラウザー側の動作。翻訳辞書は起動時に埋め込まれます。 |
+| `git_graph/static/diff.css`、`files.css`、`copy.js`、`diff_fold.js`、`wip_diff_commit.js` | `/diff` ページと `/files` ページで使う CSS / JavaScript。`pages.py` が読み込みます。 |
+| `git_graph/static/js/*.js` | ブラウザー側の動作。番号順に連結され、1つの `/static/app.js` として配られます(`01_core` 共通部、`02_log` ログ、`03_detail` 詳細、`04_graph_compare` グラフ更新と比較、`05_actions` メニューと操作、`06_git_ops` rebase / revert / merge など、`07_screens` 画面遷移と初期化、`08_wip` WIP、`09_boot` 起動)。翻訳辞書は起動時に埋め込まれます。 |
 | `git_graph/static/app.css` | メイン画面と各ビューのスタイル。 |
 | `tests/test_git_graph_server.py` | 単体テスト、API 統合テスト、HTTP/書き込み操作のテスト。 |
 
@@ -96,7 +99,7 @@ GET は JSON を返し、POST も JSON オブジェクトを受け取って JSON
 
 ### 画面や翻訳を変更する
 
-- 画面の構造は `git_graph/static/index.html`、動作は `git_graph/static/app.js`、見た目は `git_graph/static/app.css` にあります。
+- 画面の構造は `git_graph/static/index.html`、動作は `git_graph/static/js/`、見た目は `git_graph/static/app.css` にあります。JavaScript の部品は番号順の1本のスクリプトとして連結されるので、トップレベルの変数や関数は部品をまたいで使えます。新しい部品を足すときは、ファイル名の番号で順序を決めてください。
 - `{{translation_key}}` は HTML テンプレート用、JavaScript の `t("translation_key")` はブラウザー側の文言用です。
 - ユーザー向け文言を追加・変更したら `git_graph/locales/ja.json` と `git_graph/locales/en.json` の両方を更新し、`--check-i18n` を実行してください。
 - API のエラーには既存の `UserError` と翻訳キーを使い、画面に返すメッセージを一貫させてください。
@@ -131,9 +134,13 @@ UI/API を変更した場合は、テストに加えて専用のテスト用リ�
 app_state, routing
   └ i18n
       └ gitrun
+          ├ files
           └ gitstate
               ├ rebase, refops
-              │   └ wip, remote
-              │       └ viewer, graph
-              │           └ server
+              │   ├ remote
+              │   └ wip
+              │       ├ graph
+              │       └ history  (files も使う)
+              │           └ pages
+server  (すべてを束ねる最上位)
 ```

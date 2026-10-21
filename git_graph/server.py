@@ -28,11 +28,12 @@ from .remote import (
     api_fetch, api_pull, api_push, api_push_tag, api_remote_add, api_remote_remove, api_remotes,
 )
 from .routing import route, ROUTES
-from .viewer import (
-    api_blame, api_branches, api_branches_containing, api_commit, api_compare, api_file,
-    api_file_copy, api_log, api_merge_base, api_reflog, api_stash_list, api_tags, api_tree,
-    render_diff_page, render_files_page,
+from .files import api_blame, api_file, api_file_copy, api_tree
+from .history import (
+    api_branches, api_branches_containing, api_commit, api_compare, api_log, api_merge_base,
+    api_reflog, api_stash_list, api_tags,
 )
+from .pages import render_diff_page, render_files_page
 from .wip import api_status, api_wip_commit
 
 

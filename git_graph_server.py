@@ -13,7 +13,9 @@ from git_graph.gitrun import *
 from git_graph.gitstate import *
 from git_graph.graph import *
 from git_graph.wip import *
-from git_graph.viewer import *
+from git_graph.files import *
+from git_graph.history import *
+from git_graph.pages import *
 from git_graph.refops import *
 from git_graph.rebase import *
 from git_graph.remote import *
