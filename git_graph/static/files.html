@@ -52,10 +52,18 @@ __FAVICON__
   .blame-meta a { color: inherit; text-decoration: none; }
   .blame-meta a:hover { text-decoration: underline; }
   .blame-code { min-width: 0; }
+  .edit-info { color: #666; margin: 4px 0; }
+  .edit-info.warn { color: #b35900; }
+  textarea.editor { width: 100%; height: calc(100vh - 190px); min-height: 200px; box-sizing: border-box; font: 12px monospace; tab-size: 4; padding: 8px; border: 1px solid #bbb; resize: vertical; white-space: pre; overflow-wrap: normal; }
+  .edit-bar { display: flex; gap: 6px; margin: 6px 0; }
+  .edit-bar button { background: #e8eefc; border: 1px solid #b8c7ee; padding: 4px 10px; border-radius: 3px; cursor: pointer; }
+  .edit-bar button.primary { background: #1a7f37; border-color: #1a7f37; color: #fff; }
+  .edit-bar button:disabled { opacity: .5; cursor: default; }
+  .file-actions button:disabled { opacity: .5; cursor: default; }
 </style><script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script></head>
 <body><aside id="tree"><h1>{{file_view}}</h1><div class="meta" id="commit"></div><div id="list"></div></aside>
 <main id="main"><h2 id="title">{{select_file}}</h2>
-<div id="fileActions" class="file-actions" hidden><button id="fileLogBtn">{{file_log}}</button><button id="fileBlameBtn">{{file_blame}}</button><button id="fileDiffBtn" hidden>{{file_diff}}</button><button id="fileContentBtn" hidden>{{file_content}}</button><button id="fileCopyBtn" hidden>{{copy_to_work}}</button><span id="fileMsg" class="msg"></span></div>
+<div id="fileActions" class="file-actions" hidden><button id="fileLogBtn">{{file_log}}</button><button id="fileBlameBtn">{{file_blame}}</button><button id="fileDiffBtn" hidden>{{file_diff}}</button><button id="fileEditBtn" hidden>{{file_edit}}</button><button id="fileContentBtn" hidden>{{file_content}}</button><button id="fileCopyBtn" hidden>{{copy_to_work}}</button><span id="fileMsg" class="msg"></span></div>
 <div id="content" class="hint">{{select_file_hint}}</div></main>
 <script>
 /*__FILE_I18N__*/
@@ -74,7 +82,8 @@ const qs = new URLSearchParams(location.search), hash = qs.get("hash"), fileView
 const list = document.getElementById("list"), content = document.getElementById("content"), title = document.getElementById("title");
 const fileActions = document.getElementById("fileActions"), fileLogBtn = document.getElementById("fileLogBtn"), fileBlameBtn = document.getElementById("fileBlameBtn"), fileContentBtn = document.getElementById("fileContentBtn");
 const fileCopyBtn = document.getElementById("fileCopyBtn"), fileMsg = document.getElementById("fileMsg");
-const fileDiffBtn = document.getElementById("fileDiffBtn");
+const fileDiffBtn = document.getElementById("fileDiffBtn"), fileEditBtn = document.getElementById("fileEditBtn");
+const CAN_EDIT = CAN_COPY && hash === "WIP";  // 作業ツリーのファイルだけ編集できる (書き込みが有効なとき)
 const isWip = hash === "WIP";  // 作業ツリーのファイルを表示する
 fileCopyBtn.hidden = !CAN_COPY || isWip;
 let current = "", currentFile = "", wipHead = null;
@@ -170,6 +179,7 @@ function clearFile() {  // ファイルを選ぶ前の表示に戻す
   content.textContent = t("select_file_hint");
 }
 function loadFile(path, push) {
+  if (!leaveEdit()) return;
   if (push && path !== currentFile) history.pushState({path: current, file: path}, "", pageUrl(current, path));
   currentFile = path;
   setDocumentTitle(path);
@@ -179,7 +189,13 @@ function loadFile(path, push) {
   fileBlameBtn.hidden = isWip && !wipHead;
   fileContentBtn.hidden = true;
   updateDiffBtn();
-  api("/api/file", {hash: hash, path: path}).then(r => {
+  fileEditBtn.hidden = true; fileData = null;
+  return api("/api/file", {hash: hash, path: path}).then(r => {
+    if (path !== currentFile) return;
+    fileData = r;
+    fileEditBtn.hidden = !CAN_EDIT || r.binary;
+    fileEditBtn.disabled = !r.editable;
+    fileEditBtn.title = r.editable ? "" : t(r.edit_reason || "edit_bad_encoding");
     const lang = languageFor(r.path);
     title.textContent = r.path + (lang ? " (" + lang + ")" : "") + (r.encoding ? " [" + r.encoding + "]" : "");
     content.className = r.binary ? "binary" : "";
@@ -187,6 +203,60 @@ function loadFile(path, push) {
     fileBlameBtn.hidden = r.binary || (isWip && !wipHead);
   }).catch(e => { title.textContent = path; content.className = "hint"; content.textContent = t("error") + e.message; });
 }
+// ---- 編集 (作業ツリーのみ) ----
+// 編集欄では改行が LF になるので、保存時にサーバー側で元の改行コード・文字コード・BOM に戻す
+let fileData = null, editing = false, editDirty = false;
+const EOL_LABEL = {crlf: "CRLF", lf: "LF", cr: "CR"};
+function leaveEdit() {  // 編集中なら、変更を捨ててよいか確認して編集をやめる
+  if (editing && editDirty && !confirm(t("edit_discard_confirm"))) return false;
+  editing = editDirty = false;
+  return true;
+}
+window.addEventListener("beforeunload", ev => { if (editing && editDirty) { ev.preventDefault(); ev.returnValue = ""; } });
+function startEdit() {
+  if (!fileData || !fileData.editable || !currentFile) return;
+  editing = true; editDirty = false;
+  setFileMsg("", true);
+  [fileLogBtn, fileBlameBtn, fileDiffBtn, fileEditBtn, fileContentBtn, fileCopyBtn].forEach(b => { b.hidden = true; });
+  const eol = EOL_LABEL[fileData.eol] || t("edit_eol_none");
+  title.textContent = t("file_edit_title", {path: currentFile});
+  content.className = "";
+  content.innerHTML = '<div class="edit-info">' + esc(t("edit_format", {encoding: fileData.encoding, eol: eol})) + '</div>' +
+    (fileData.eol_mixed ? '<div class="edit-info warn">' + esc(t("edit_eol_mixed", {eol: eol})) + '</div>' : "") +
+    '<div class="edit-bar"><button class="primary" id="editSave">' + esc(t("edit_save")) + '</button><button id="editCancel">' +
+    esc(t("edit_cancel")) + '</button></div><textarea class="editor" id="editor" spellcheck="false"></textarea>';
+  const ta = document.getElementById("editor");
+  ta.value = fileData.content;
+  ta.focus();
+  ta.addEventListener("input", () => { editDirty = true; });
+  ta.addEventListener("keydown", ev => {
+    if ((ev.ctrlKey || ev.metaKey) && ev.key === "s") { ev.preventDefault(); saveEdit(); }
+    else if (ev.key === "Tab" && !ev.shiftKey && !ev.ctrlKey && !ev.altKey) {  // Tab でフォーカスを移さず、タブ文字を入れる
+      ev.preventDefault();
+      ta.setRangeText("\t", ta.selectionStart, ta.selectionEnd, "end");
+      editDirty = true;
+    }
+  });
+  document.getElementById("editSave").onclick = saveEdit;
+  document.getElementById("editCancel").onclick = () => { if (leaveEdit()) loadFile(currentFile, false); };
+}
+function saveEdit() {
+  const ta = document.getElementById("editor"), btn = document.getElementById("editSave");
+  if (!editing || !ta || btn.disabled) return;
+  btn.disabled = true;
+  const path = currentFile;
+  fetch("/api/file-save", {method: "POST", headers: {"Content-Type": "application/json"},
+                           body: JSON.stringify({path: path, content: ta.value, sha: fileData.sha})})
+    .then(r => r.ok ? r.json() : r.text().then(m => { throw new Error(m || r.status); }))
+    .then(r => {
+      editing = editDirty = false;
+      return loadTree(current, false)  // 変更の印と差分ボタンを更新する
+        .then(() => loadFile(path, false))
+        .then(() => setFileMsg(r.message, true));
+    })
+    .catch(e => { btn.disabled = false; setFileMsg(e.message, false); fileActions.hidden = false; });
+}
+fileEditBtn.onclick = startEdit;
 function loadFileBlame(path) {
   fileLogBtn.hidden = true;
   fileBlameBtn.hidden = true;
@@ -235,7 +305,7 @@ function loadFileLog(path) {
 }
 fileLogBtn.onclick = () => { if (currentFile) loadFileLog(currentFile); };
 fileBlameBtn.onclick = () => { if (currentFile) loadFileBlame(currentFile); };
-fileContentBtn.onclick = () => { if (currentFile) loadFile(currentFile); };
+fileContentBtn.onclick = () => { if (currentFile) loadFile(currentFile, false); };
 const KEYWORDS = {
   python: "and as assert async await break case class continue def del elif else except finally for from global if import in is lambda match nonlocal not or pass raise return try while with yield None True False self",
   javascript: "as async await break case catch class const continue debugger default delete do else export extends false finally for from function get if import in instanceof let new null of return set static super switch this throw true try typeof undefined var void while with yield",
@@ -319,6 +389,9 @@ function numberedCode(source, lang) {
 }
 function restoreFromUrl(first) {  // URL の path / file の状態を画面に反映する
   const p = new URLSearchParams(location.search), dir = p.get("path") || "", file = p.get("file") || "";
+  if (!first && editing && file !== currentFile) {
+    if (!leaveEdit()) { history.pushState({path: current, file: currentFile}, "", pageUrl(current, currentFile)); return; }
+  }
   const tree = first || dir !== current ? loadTree(dir, false) : Promise.resolve();
   // WIP ではツリーの読み込みで HEAD が分かってから開く (ログ / blame ボタンの表示に使う)
   tree.then(() => { if (file) { if (file !== currentFile || first) loadFile(file, false); } else if (currentFile) clearFile(); });

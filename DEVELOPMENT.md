@@ -64,7 +64,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.test_git_graph_server.InputV
 | `git_graph/gitstate.py` | マージ中・HEAD の有無・`git status` / `--numstat` の解析など、リポジトリの状態を調べる共通関数。機能モジュールから共通で使われる低レベルの層。 |
 | `git_graph/graph.py` | Git の履歴・ref を読み込み、表示対象ノードとエッジを決定し、Graphviz の DOT/SVG 情報を生成。 |
 | `git_graph/history.py` | ログ・ブランチ・タグ・reflog・stash 一覧・コミット詳細・比較・差分を返すデータ API。 |
-| `git_graph/files.py` | ファイルの一覧・内容・blame・作業ディレクトリへのコピーと、文字コードの判別。`hash=WIP` のときはコミットではなく作業ツリーを読みます (`.gitignore` で無視されたファイルは出さず、リポジトリ外を指すパスは拒否)。 |
+| `git_graph/files.py` | ファイルの一覧・内容・blame・作業ディレクトリへのコピーと、文字コードの判別。`hash=WIP` のときはコミットではなく作業ツリーを読みます (`.gitignore` で無視されたファイルは出さず、リポジトリ外を指すパスは拒否)。作業ツリーのファイルの編集 (`/api/file-save`) もここにあり、保存時は元の文字コード・BOM・改行コードに戻します。元のバイト列に正確に戻せないファイルは編集できません。 |
 | `git_graph/pages.py` | `/diff`(差分ページ)と `/files`(ファイル表示ページ)の HTML を組み立てます。 |
 | `git_graph/wip.py` | `git status` の解析、作業ツリー差分の表示、未コミット変更を含めた操作。 |
 | `git_graph/refops.py` | ブランチ・タグの作成/削除/rename、checkout、reset、stash、変更の破棄。 |

@@ -1,6 +1,8 @@
 # ファイルの一覧・内容・blame・作業ディレクトリへのコピーと、文字コードの判別。
 import codecs
+import hashlib
 import os
+import tempfile
 import subprocess
 from datetime import datetime, timedelta, timezone
 from . import app_state as state
@@ -127,6 +129,60 @@ def wip_tree(path):
             "entries": sorted(entries, key=lambda x: (x["type"] != "tree", x["name"]))}
 
 
+# decode_text の文字コード名 → 保存し直すときのコーデック。BOM 付きのものは BOM を見て決める
+_SAVE_CODECS = {"ASCII": "utf-8", "UTF-8": "utf-8", "ISO-2022-JP": "iso2022_jp",
+                "Shift_JIS (CP932)": "cp932", "EUC-JP": "euc_jp"}
+_BOM_CODECS = ((codecs.BOM_UTF8, "utf-8"), (codecs.BOM_UTF32_LE, "utf-32-le"), (codecs.BOM_UTF32_BE, "utf-32-be"),
+               (codecs.BOM_UTF16_LE, "utf-16-le"), (codecs.BOM_UTF16_BE, "utf-16-be"))
+EOLS = {"crlf": "\r\n", "lf": "\n", "cr": "\r"}
+
+
+def save_codec(raw, label):
+    """元のバイト列と文字コード名から (コーデック, BOM) を返す。保存し直せない文字コードなら None。"""
+    for bom, codec in _BOM_CODECS:
+        if raw.startswith(bom):
+            return codec, bom
+    codec = _SAVE_CODECS.get(label)
+    return (codec, b"") if codec else None
+
+
+def detect_eol(text):
+    """改行コード ("crlf" / "lf" / "cr" / 改行なしは None) と、混在しているかどうか。多いものを選ぶ。"""
+    crlf = text.count("\r\n")
+    counts = {"crlf": crlf, "lf": text.count("\n") - crlf, "cr": text.count("\r") - crlf}
+    used = [k for k, n in counts.items() if n]
+    if not used:
+        return None, False
+    return max(used, key=lambda k: counts[k]), len(used) > 1
+
+
+def encode_for_save(text, codec, bom, eol):
+    """編集した文字列を、元の改行コード・文字コード (BOM も) のバイト列に戻す。"""
+    text = text.replace("\r\n", "\n").replace("\r", "\n")  # ブラウザの編集欄は LF になっている
+    if eol and eol != "lf":
+        text = text.replace("\n", EOLS[eol])
+    return bom + text.encode(codec)
+
+
+def edit_info(raw, text, label, truncated):
+    """作業ツリーのファイルを画面で編集できるか調べる。できなければ理由 (翻訳キー) を返す。"""
+    if text is None:
+        return {"editable": False, "edit_reason": "edit_binary"}
+    if truncated:
+        return {"editable": False, "edit_reason": "edit_too_large"}
+    sc = save_codec(raw, label)
+    if not sc:
+        return {"editable": False, "edit_reason": "edit_bad_encoding"}
+    try:  # 元の文字コードに戻して、まったく同じバイト列になるときだけ編集できる (CP932 の一部の文字など)
+        same = sc[1] + text.encode(sc[0]) == raw
+    except UnicodeEncodeError:
+        same = False
+    if not same:
+        return {"editable": False, "edit_reason": "edit_bad_encoding"}
+    eol, mixed = detect_eol(text)  # 混在しているときは、保存すると多い方に統一される
+    return {"editable": True, "eol": eol, "eol_mixed": mixed, "save_encoding": sc[0] + (" (BOM)" if sc[1] else "")}
+
+
 def wip_file(path):
     target = worktree_target(path)
     if os.path.islink(target):  # git と同じく、リンク先のパスを内容として扱う
@@ -140,8 +196,60 @@ def wip_file(path):
     data = raw[:FILE_CONTENT_LIMIT]
     text, encoding = decode_text(data, truncated)
     size = len(raw) if os.path.islink(target) else os.path.getsize(target)
-    return {"hash": WIP_HASH, "path": path, "content": text or "", "encoding": encoding,
-            "binary": text is None, "truncated": truncated, "size": size}
+    res = {"hash": WIP_HASH, "path": path, "content": text or "", "encoding": encoding,
+           "binary": text is None, "truncated": truncated, "size": size,
+           "sha": hashlib.sha256(raw).hexdigest()}
+    if os.path.islink(target):
+        res.update(editable=False, edit_reason="edit_symlink")
+    else:
+        res.update(edit_info(raw, text, encoding, truncated))
+    return res
+
+
+SAVE_BODY_LIMIT = 16_000_000  # /api/file-save の JSON の上限 (FILE_CONTENT_LIMIT の文字列をエスケープしても収まる大きさ)
+
+
+@route("/api/file-save", method="POST")
+def api_file_save(body):
+    """作業ツリーのファイルを、画面で編集した内容で上書きする。
+    文字コード・BOM・改行コードは保存前のファイルに合わせて戻す。開いてから別の場所で変更されていたら保存しない。"""
+    path = body.get("path", "")
+    content, base = body.get("content"), body.get("sha", "")
+    if not isinstance(path, str) or not isinstance(content, str) or not isinstance(base, str):
+        raise ValueError("bad body")
+    path = validate_file_path(path, allow_empty=False)
+    target = worktree_target(path)
+    if os.path.islink(target) or not os.path.isfile(target):
+        raise UserError("not_a_file")
+    with open(target, "rb") as f:
+        raw = f.read()
+    if hashlib.sha256(raw).hexdigest() != base:
+        raise UserError("edit_changed_on_disk", path=path)
+    text, label = decode_text(raw[:FILE_CONTENT_LIMIT], len(raw) > FILE_CONTENT_LIMIT)
+    info = edit_info(raw, text, label, len(raw) > FILE_CONTENT_LIMIT)
+    if not info["editable"]:
+        raise UserError(info["edit_reason"])
+    codec, bom = save_codec(raw, label)
+    try:
+        data = encode_for_save(content, codec, bom, info["eol"] or "lf")
+    except UnicodeEncodeError as e:
+        raise UserError("edit_encode_failed", encoding=label, char=e.object[e.start:e.end])
+    if data == raw:
+        return {"ok": True, "unchanged": True, "sha": base, "message": tr("edit_unchanged")}
+    mode = os.stat(target).st_mode
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(target), prefix=".git_graph_edit_")
+    try:  # 書きかけのファイルが残らないよう、一時ファイルに書いてから置き換える
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        os.chmod(tmp, mode & 0o7777)
+        os.replace(tmp, target)
+    except OSError as e:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise ValueError(str(e))
+    return {"ok": True, "sha": hashlib.sha256(data).hexdigest(), "message": tr("edit_saved", path=path)}
 
 
 @route("/api/tree")
@@ -335,5 +443,5 @@ def api_file_copy(body):
 
 __all__ = [
     "FILE_CONTENT_LIMIT", "api_file", "api_file_copy", "api_tree", "decode_text", "api_blame",
-    "validate_file_path", "WIP_HASH",
+    "validate_file_path", "WIP_HASH", "api_file_save", "SAVE_BODY_LIMIT",
 ]

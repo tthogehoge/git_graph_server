@@ -30,7 +30,7 @@ from .remote import (  # noqa: F401
     api_fetch, api_pull, api_push, api_push_tag, api_remote_add, api_remote_remove, api_remotes,
 )
 from .routing import route, ROUTES
-from .files import api_blame, api_file, api_file_copy, api_tree, WIP_HASH  # noqa: F401
+from .files import api_blame, api_file, api_file_copy, api_file_save, api_tree, SAVE_BODY_LIMIT, WIP_HASH  # noqa: F401
 from .history import (  # noqa: F401
     api_branches, api_branches_containing, api_commit, api_compare, api_log, api_merge_base,
     api_reflog, api_stash_list, api_tags,
@@ -125,7 +125,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._check_post(shutdown=path == "/api/shutdown")
             n = int(self.headers.get("Content-Length") or 0)
-            if n > 100000:
+            if n > (SAVE_BODY_LIMIT if path == "/api/file-save" else 100000):
                 raise ValueError("body too large")
             body = json.loads(self.rfile.read(n) or b"{}")
             if not isinstance(body, dict):

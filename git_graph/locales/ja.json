@@ -518,5 +518,21 @@
   "working_tree_files": "作業ツリー",
   "not_committed_yet": "未コミット",
   "wip_dir_changed": "このディレクトリの中に変更があります",
-  "file_diff": "このファイルの差分"
+  "file_diff": "このファイルの差分",
+  "file_edit": "このファイルを編集",
+  "file_edit_title": "{path} を編集",
+  "edit_format": "文字コード {encoding}・改行 {eol} のファイルです。保存するときは同じ形式に戻します。",
+  "edit_eol_mixed": "改行コードが混在しています。保存すると {eol} に統一されます。",
+  "edit_eol_none": "なし (保存時に改行を入れると LF)",
+  "edit_save": "保存 (Ctrl+S)",
+  "edit_cancel": "キャンセル",
+  "edit_discard_confirm": "編集中の変更を破棄しますか？",
+  "edit_saved": "{path} を保存しました",
+  "edit_unchanged": "変更がないため保存しませんでした",
+  "edit_changed_on_disk": "{path} は開いた後に別の場所で変更されています。開き直してから編集してください",
+  "edit_encode_failed": "文字コード {encoding} で表せない文字があるため保存できません: {char}",
+  "edit_binary": "バイナリファイルは編集できません",
+  "edit_too_large": "ファイルが大きすぎるため編集できません",
+  "edit_bad_encoding": "文字コードを判別できないか、元の形式に戻せないため編集できません",
+  "edit_symlink": "シンボリックリンクは編集できません"
 }

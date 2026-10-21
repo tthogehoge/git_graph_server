@@ -1,3 +1,4 @@
+import codecs
 import json
 import os
 import shutil
@@ -413,6 +414,86 @@ class WorkingTreeFilesTests(unittest.TestCase):
         with self.assertRaises(HTTPError) as cm:
             urlopen(base + "/files?hash=bad")
         self.assertEqual(cm.exception.code, 400)
+        cm.exception.close()
+
+    def write_bytes(self, path, data):
+        with open(os.path.join(self.repo, path), "wb") as f:
+            f.write(data)
+
+    def read_bytes(self, path):
+        with open(os.path.join(self.repo, path), "rb") as f:
+            return f.read()
+
+    def edit(self, path, change):
+        """画面と同じ流れ: 読み込み → 編集欄 (改行は LF) で編集 → 保存。"""
+        data = app.api_file({"hash": ["WIP"], "path": [path]})
+        self.assertTrue(data["editable"], data.get("edit_reason"))
+        text = data["content"].replace("\r\n", "\n").replace("\r", "\n")
+        return app.api_file_save({"path": path, "content": change(text), "sha": data["sha"]})
+
+    def test_edit_restores_encoding_bom_and_line_endings(self):
+        cases = [
+            ("utf8.txt", "あ\nい\n".encode("utf-8"), "う\n".encode("utf-8")),
+            ("sjis.txt", "あ\r\nい\r\n".encode("cp932"), "う\r\n".encode("cp932")),
+            ("euc.txt", "あ\nい\n".encode("euc_jp"), "う\n".encode("euc_jp")),
+            ("bom.txt", codecs.BOM_UTF8 + "あ\r\nい\r\n".encode("utf-8"), "う\r\n".encode("utf-8")),
+            ("u16.txt", codecs.BOM_UTF16_LE + "あ\r\nい\r\n".encode("utf-16-le"), "う\r\n".encode("utf-16-le")),
+            ("cr.txt", b"a\rb\r", b"c\r"),
+        ]
+        for name, original, added in cases:
+            with self.subTest(name=name):
+                self.write_bytes(name, original)
+                r = self.edit(name, lambda text: text + ("う" if name != "cr.txt" else "c") + "\n")
+                self.assertTrue(r["ok"])
+                self.assertEqual(self.read_bytes(name), original + added)
+
+    def test_edit_unchanged_and_mixed_line_endings(self):
+        self.write_bytes("mixed.txt", b"a\r\nb\r\nc\n")
+        data = app.api_file({"hash": ["WIP"], "path": ["mixed.txt"]})
+        self.assertEqual((data["eol"], data["eol_mixed"]), ("crlf", True))
+        self.edit("mixed.txt", lambda text: text)
+        self.assertEqual(self.read_bytes("mixed.txt"), b"a\r\nb\r\nc\r\n")
+        self.assertTrue(self.edit("mixed.txt", lambda text: text)["unchanged"])
+
+    def test_edit_rejects_changed_file_and_unencodable_characters(self):
+        self.write_bytes("sjis.txt", "あ\n".encode("cp932"))
+        data = app.api_file({"hash": ["WIP"], "path": ["sjis.txt"]})
+        with self.assertRaises(app.UserError):
+            app.api_file_save({"path": "sjis.txt", "content": "あ\U0001F600\n", "sha": data["sha"]})
+        self.write_bytes("sjis.txt", "い\n".encode("cp932"))
+        with self.assertRaises(app.UserError):
+            app.api_file_save({"path": "sjis.txt", "content": "う\n", "sha": data["sha"]})
+        self.assertEqual(self.read_bytes("sjis.txt"), "い\n".encode("cp932"))
+
+    def test_edit_keeps_file_mode_and_refuses_non_text(self):
+        path = os.path.join(self.repo, "run.sh")
+        self.write_bytes("run.sh", b"echo 1\n")
+        os.chmod(path, 0o755)
+        self.edit("run.sh", lambda text: text + "echo 2\n")
+        self.assertEqual(os.stat(path).st_mode & 0o777, 0o755)
+        self.write_bytes("bin.dat", b"\0\1\2")
+        self.assertEqual(app.api_file({"hash": ["WIP"], "path": ["bin.dat"]})["editable"], False)
+        os.symlink("README.md", os.path.join(self.repo, "link.md"))
+        self.assertEqual(app.api_file({"hash": ["WIP"], "path": ["link.md"]})["edit_reason"], "edit_symlink")
+        with self.assertRaises(app.UserError):
+            app.api_file_save({"path": "link.md", "content": "x", "sha": ""})
+
+    def test_edit_large_body_over_http(self):
+        previous = (state.WRITABLE, state.OPTS)
+        state.WRITABLE, state.OPTS = True, SimpleNamespace(host="127.0.0.1")
+        self.addCleanup(lambda: (setattr(state, "WRITABLE", previous[0]), setattr(state, "OPTS", previous[1])))
+        server = app.QuietServer(("127.0.0.1", 0), app.Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        sha = app.api_file({"hash": ["WIP"], "path": ["README.md"]})["sha"]
+        body = json.dumps({"path": "README.md", "content": "x" * 300000 + "\n", "sha": sha}).encode()
+        req = Request(f"http://127.0.0.1:{server.server_address[1]}/api/file-save", data=body,
+                      headers={"Content-Type": "application/json"}, method="POST")
+        with urlopen(req) as response:
+            self.assertTrue(json.loads(response.read())["ok"])
+        self.assertEqual(len(self.read_bytes("README.md")), 300001)
 
     def test_requires_worktree(self):
         state.HAS_WORKTREE = False
