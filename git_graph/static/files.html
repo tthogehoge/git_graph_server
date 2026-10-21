@@ -79,11 +79,17 @@ function logHash() { return isWip ? wipHead : hash; }  // ファイルのログ�
 function esc(s) { return String(s).replace(/[&<>\"]/g, c => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", "\"":"&quot;"}[c])); }
 function api(path, params) { return fetch(path + "?" + new URLSearchParams(params)).then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); })); }
 function showError(e) { list.innerHTML = '<p class="hint">' + t("error") + esc(e.message) + '</p>'; }
+function pageUrl(path, file) {  // 表示中のディレクトリとファイルを URL に残す (戻る/進む・再読み込みで復元する)
+  const p = new URLSearchParams({hash: hash});
+  if (path) p.set("path", path);
+  if (file) p.set("file", file);
+  if (fileViewTab) p.set("file_view", "1");
+  return "?" + p;
+}
 function loadTree(path, push) {
   current = path;
-  fileActions.hidden = true;
-  if (push) history.pushState({path: path}, "", "?hash=" + encodeURIComponent(hash) + (path ? "&path=" + encodeURIComponent(path) : ""));
-  api("/api/tree", {hash: hash, path: path}).then(r => {
+  if (push) history.pushState({path: path, file: currentFile}, "", pageUrl(path, currentFile));
+  return api("/api/tree", {hash: hash, path: path}).then(r => {
     if (isWip) wipHead = r.head || null;
     document.getElementById("commit").textContent = isWip
       ? t("working_tree_files") + (r.head ? " (HEAD " + r.head.slice(0, 7) + ")" : "") : r.hash.slice(0, 7);
@@ -98,7 +104,7 @@ function loadTree(path, push) {
       return '<div class="entry" data-type="' + e.type + '" data-path="' + esc(p) + '"><span>' + icon + ' ' + esc(e.name) + '</span><span class="size">' + size + '</span></div>';
     }).join("") : '<p class="hint">' + t("empty_directory") + '</p>');
     list.querySelectorAll("[data-dir]").forEach(a => a.onclick = () => loadTree(a.dataset.dir, true));
-    list.querySelectorAll(".entry").forEach(a => a.onclick = () => a.dataset.type === "tree" ? loadTree(a.dataset.path, true) : loadFile(a.dataset.path));
+    list.querySelectorAll(".entry").forEach(a => a.onclick = () => a.dataset.type === "tree" ? loadTree(a.dataset.path, true) : loadFile(a.dataset.path, true));
   }).catch(showError);
 }
 function setFileMsg(text, ok) { fileMsg.textContent = text; fileMsg.className = "msg" + (ok ? "" : " err"); }
@@ -116,7 +122,16 @@ fileCopyBtn.onclick = () => {
     .then(r => setFileMsg(r.message, true))
     .catch(e => setFileMsg(e.message, false));
 };
-function loadFile(path) {
+function clearFile() {  // ファイルを選ぶ前の表示に戻す
+  currentFile = "";
+  setDocumentTitle("");
+  fileActions.hidden = true;
+  title.textContent = t("select_file");
+  content.className = "hint";
+  content.textContent = t("select_file_hint");
+}
+function loadFile(path, push) {
+  if (push && path !== currentFile) history.pushState({path: current, file: path}, "", pageUrl(current, path));
   currentFile = path;
   setDocumentTitle(path);
   setFileMsg("", true);
@@ -262,6 +277,12 @@ function numberedCode(source, lang) {
     lines.map((l, i) => '<div class="ln" id="L' + (i + 1) + '"><span class="no">' + (i + 1) + '</span><span class="tx">' + l + '</span></div>').join("") +
     '</code></pre>';
 }
-window.onpopstate = () => loadTree(new URLSearchParams(location.search).get("path") || "", false);
-if (!hash) showError(new Error(t("commit_required"))); else loadTree(qs.get("path") || "", false);
+function restoreFromUrl(first) {  // URL の path / file の状態を画面に反映する
+  const p = new URLSearchParams(location.search), dir = p.get("path") || "", file = p.get("file") || "";
+  const tree = first || dir !== current ? loadTree(dir, false) : Promise.resolve();
+  // WIP ではツリーの読み込みで HEAD が分かってから開く (ログ / blame ボタンの表示に使う)
+  tree.then(() => { if (file) { if (file !== currentFile || first) loadFile(file, false); } else if (currentFile) clearFile(); });
+}
+window.onpopstate = () => restoreFromUrl(false);
+if (!hash) showError(new Error(t("commit_required"))); else restoreFromUrl(true);
 </script></body></html>
