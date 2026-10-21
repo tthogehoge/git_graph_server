@@ -382,6 +382,19 @@ class WorkingTreeFilesTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 app.api_file({"hash": ["WIP"], "path": [path]})
 
+    def test_files_page_accepts_wip_hash_over_http(self):
+        server = app.QuietServer(("127.0.0.1", 0), app.Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        base = f"http://127.0.0.1:{server.server_address[1]}"
+        with urlopen(base + "/files?hash=WIP") as response:
+            self.assertEqual(response.status, 200)
+        with self.assertRaises(HTTPError) as cm:
+            urlopen(base + "/files?hash=bad")
+        self.assertEqual(cm.exception.code, 400)
+
     def test_requires_worktree(self):
         state.HAS_WORKTREE = False
         with self.assertRaises(app.UserError):
