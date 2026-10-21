@@ -136,6 +136,8 @@ async function showContainingBranchLog(hash, selectedRef, replaceHistory = false
   }
 }
 
+// table-layout: fixed は先頭行で列幅を決める。先頭が colspan=2 の空行 (log-gap) だと左右で列幅が食い違うので、<col> で固定する
+const COMPARE_COLS = '<colgroup><col class="c-hash"><col></colgroup>';
 function showCompareLogs(a, b, fromHistory, restoreScroll) {
   document.body.classList.add("compare-logs-mode");
   if (!fromHistory) pushScreen({screen: "compare-logs", a: a, b: b});
@@ -145,9 +147,9 @@ function showCompareLogs(a, b, fromHistory, restoreScroll) {
   curRow = null;
   listView.innerHTML = '<h2>' + esc(t("compare_logs_heading", {from: a.slice(0, 7), to: b.slice(0, 7)})) + '</h2>' +
     '<div class="compare-logs"><section class="compare-log-col"><h3>A: ' + esc(a.slice(0, 7)) + '</h3>' +
-    '<table class="log"><tbody id="compareRowsA"></tbody></table></section>' +
+    '<table class="log">' + COMPARE_COLS + '<tbody id="compareRowsA"></tbody></table></section>' +
     '<section class="compare-log-col"><h3>B: ' + esc(b.slice(0, 7)) + '</h3>' +
-    '<table class="log"><tbody id="compareRowsB"></tbody></table></section></div>' +
+    '<table class="log">' + COMPARE_COLS + '<tbody id="compareRowsB"></tbody></table></section></div>' +
     '<div id="compareLogSentinel" class="hint">' + esc(t("loading")) + '</div>';
   showView("list");
   listView.dataset.src = "";
