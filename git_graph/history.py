@@ -22,12 +22,27 @@ def api_log(q):
     if "\0" in path:
         raise ValueError("bad path")
     skip, limit = paging(q)
-    args = ["log", "--date=short", f"--skip={skip}", "-n", str(limit),
-            "--format=%H%x1f%h%x1f%an%x1f%ad%x1f%s", rev, "--"]
+    # 各行の末尾に親コミット (--parents で path 指定時は書き換え後の親) を付ける。
+    # graph=1 のときはマージグラフを描けるよう、git log --graph と同じく --topo-order で並べる。
+    args = ["log", "--parents", "--date=short", f"--skip={skip}", "-n", str(limit),
+            "--format=%H%x1f%h%x1f%an%x1f%ad%x1f%P%x1f%s"]
+    if q.get("graph", [""])[0] == "1":
+        args.append("--topo-order")
+    args += [rev, "--"]
     if path:
         args.append(path)
     out = git(*args, literal=bool(path))
-    commits = [l.split("\x1f") for l in out.splitlines() if l]
+    commits = []
+    for l in out.splitlines():
+        if not l:
+            continue
+        h, short, author, date, parents, subj = (l.split("\x1f", 5) + [""] * 6)[:6]
+        commits.append([h, short, author, date, subj, parents.split()])
+    if q.get("graph", [""])[0] == "1" and ".." in rev and commits:
+        # 範囲指定 (A..B) では範囲外の親へ線を伸ばさない (ログに現れず、線が最後まで残るため)
+        listed = set(git("rev-list", rev, "--").split())
+        for c in commits:
+            c[5] = [p for p in c[5] if p in listed]
     res = {"commits": commits, "has_more": len(commits) == limit}
     if skip == 0:
         count_args = ["rev-list", "--count", rev, "--"]

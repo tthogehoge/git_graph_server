@@ -120,6 +120,10 @@ html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-s
   table.log tr.cur td { background: #ffe9a0; }
   table.log tr.clickable.cmpA td { background: #cfe3ff; }
   table.log tr.clickable.cmpB td { background: #ffdcb0; }
+  table.log td.graph { position: relative; padding: 0; }
+  table.log td.graph svg { position: absolute; top: 0; left: 0; height: calc(100% + 1px); overflow: visible; }
+  table.log td.graph line { stroke-width: 2; stroke-linecap: round; }
+  table.log td.graph circle { stroke-width: 2; }
   table.log td.h { width: 1%; font-family: monospace; white-space: nowrap; color: #b60; }
   table.log .cmp-pick { display: flex; gap: 3px; margin-top: 3px; opacity: 0; }
   table.log tr:hover .cmp-pick, table.log tr:focus-within .cmp-pick { opacity: 1; }
