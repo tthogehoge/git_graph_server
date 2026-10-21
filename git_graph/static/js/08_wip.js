@@ -192,7 +192,8 @@ function showWip(fromHistory, okMsg) {
         (!wipAmendOn && !opCmd ? '<button class="wbtn danger" id="wipDiscard">' + t("wip_discard") + '</button>' : "") +
         '<span class="hint">' + hint + '</span></div>' +
         '<div class="amsg" id="wipMsgOut"></div></div>' : "";
-    detailView.innerHTML = btns + "<h2>" + t("wip_title") + "</h2>" + opBannerHtml(opCmd, canCommit) +
+    detailView.innerHTML = btns + "<h2>" + t("wip_title") +
+      ' <a class="detail-files" href="/files?hash=WIP" title="' + esc(t("tip_wip_files")) + '">' + esc(t("files")) + "</a></h2>" + opBannerHtml(opCmd, canCommit) +
       '<div class="meta">HEAD: ' + (s.head ? chips(s.head) + esc(s.head.slice(0, 7)) : t("no_commits_yet")) + "</div>" +
       (body || '<p class="hint">' + t("no_changes") + '</p>') + box +
       (s.truncated ? '<p class="hint">' + t("truncated_files") + '</p>' : "");

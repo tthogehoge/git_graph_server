@@ -1,15 +1,19 @@
 # ファイルの一覧・内容・blame・作業ディレクトリへのコピーと、文字コードの判別。
 import codecs
+import hashlib
 import os
+import tempfile
 import subprocess
 from datetime import datetime, timedelta, timezone
 from . import app_state as state
 from .gitrun import git, resolve_commit
+from .gitstate import CONFLICT_CODES
 from .i18n import tr, UserError
 from .routing import route
 
 
 FILE_CONTENT_LIMIT = 2_000_000
+WIP_HASH = "WIP"  # /files?hash=WIP で作業ツリーのファイルを表示する
 
 
 def validate_file_path(path, allow_empty=True):
@@ -22,8 +26,236 @@ def validate_file_path(path, allow_empty=True):
     return path
 
 
+def is_wip(q):
+    return q.get("hash", [""])[0] == WIP_HASH
+
+
+def wip_head():
+    """作業ツリー表示でファイルのログに使う HEAD のハッシュ。コミットがまだなければ None。"""
+    r = subprocess.run(["git", "-C", state.REPO, "rev-parse", "--verify", "--quiet", "HEAD^{commit}"],
+                       capture_output=True, text=True)
+    return r.stdout.strip() or None
+
+
+def worktree_target(path):
+    """作業ツリー内のパスを絶対パスにする。シンボリックリンクなどでリポジトリの外に出るものは拒否する。"""
+    if not state.HAS_WORKTREE:
+        raise UserError("wip_files_no_worktree")
+    if "\\" in path or path.split("/")[0].lower() == ".git":
+        raise ValueError("bad path")
+    root = os.path.realpath(state.REPO)
+    target = os.path.join(root, *path.split("/")) if path else root
+    parent = os.path.realpath(os.path.dirname(target)) if path else root
+    try:
+        inside = os.path.commonpath([root, parent]) == root
+    except ValueError:  # 別ドライブなど
+        inside = False
+    if not inside:
+        raise ValueError("bad path")
+    return target
+
+
+def status_mark(xy):
+    """git status の XY を、一覧に出す1文字の印にする (競合 U / 未追跡 ? / 追加 A / 削除 D / リネーム R / 変更 M)。"""
+    if xy == "??":
+        return "?"
+    if xy in CONFLICT_CODES:
+        return "U"
+    for mark in "ARDC":
+        if mark in xy:
+            return "R" if mark == "C" else mark
+    return "M"
+
+
+def wip_status_marks(prefix):
+    """prefix 以下の変更を {パス: (印, XY)} で返す。"""
+    raw = git("status", "--porcelain=v1", "-z", "--untracked-files=all", "--", prefix or ".", literal=True)
+    toks, out, i = raw.split("\0"), {}, 0
+    while i < len(toks):
+        t = toks[i]
+        i += 1
+        if len(t) < 4 or t[2] != " ":
+            continue
+        xy, p = t[:2], t[3:]
+        if "R" in xy or "C" in xy:  # リネーム/コピーは続くトークンが元のパス
+            i += 1
+        if xy != "!!":
+            out[p] = (status_mark(xy), xy)
+    return out
+
+
+def wip_tree(path):
+    """作業ツリーのディレクトリ一覧。git に管理されているファイルと、無視されていない未追跡ファイルを出す。"""
+    target = worktree_target(path)
+    if path and (os.path.islink(target) or not os.path.isdir(target)):
+        raise UserError("dir_not_found")
+    prefix = path + "/" if path else ""
+    args = ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--full-name"]
+    raw = git(*args, "--", prefix or ".", literal=True)
+    names = {}
+    for item in raw.split("\0"):
+        if not item or not item.startswith(prefix):
+            continue
+        rest = item[len(prefix):]
+        name, sep, _ = rest.partition("/")
+        if sep:
+            names[name] = "tree"
+        else:
+            names.setdefault(name, "blob")
+    marks, dir_marks = wip_status_marks(prefix), {}
+    for p, (mark, _) in marks.items():
+        if not p.startswith(prefix) or "/" not in p[len(prefix):]:
+            continue
+        dir_marks.setdefault(p[len(prefix):].split("/", 1)[0], set()).add(mark)
+    entries = []
+    for name, kind in names.items():
+        full = os.path.join(target, name)
+        if not os.path.lexists(full):  # 削除済み (まだコミットしていない) のファイル
+            continue
+        size = None
+        if kind == "blob":
+            if os.path.isdir(full) and not os.path.islink(full):
+                kind = "commit"  # サブモジュール
+            else:
+                size = os.lstat(full).st_size
+        entry = {"name": name, "type": kind, "size": size, "mode": ""}
+        if kind == "tree" and name in dir_marks:  # 中に変更があるディレクトリ: 競合 > 未追跡のみ > 変更 の順
+            m = dir_marks[name]
+            entry["st"] = "U" if "U" in m else "?" if m == {"?"} else "M"
+        elif (prefix + name) in marks:
+            entry["st"], entry["xy"] = marks[prefix + name]
+        entries.append(entry)
+    return {"hash": WIP_HASH, "head": wip_head(), "path": path,
+            "entries": sorted(entries, key=lambda x: (x["type"] != "tree", x["name"]))}
+
+
+# decode_text の文字コード名 → 保存し直すときのコーデック。BOM 付きのものは BOM を見て決める
+_SAVE_CODECS = {"ASCII": "utf-8", "UTF-8": "utf-8", "ISO-2022-JP": "iso2022_jp",
+                "Shift_JIS (CP932)": "cp932", "EUC-JP": "euc_jp"}
+_BOM_CODECS = ((codecs.BOM_UTF8, "utf-8"), (codecs.BOM_UTF32_LE, "utf-32-le"), (codecs.BOM_UTF32_BE, "utf-32-be"),
+               (codecs.BOM_UTF16_LE, "utf-16-le"), (codecs.BOM_UTF16_BE, "utf-16-be"))
+EOLS = {"crlf": "\r\n", "lf": "\n", "cr": "\r"}
+
+
+def save_codec(raw, label):
+    """元のバイト列と文字コード名から (コーデック, BOM) を返す。保存し直せない文字コードなら None。"""
+    for bom, codec in _BOM_CODECS:
+        if raw.startswith(bom):
+            return codec, bom
+    codec = _SAVE_CODECS.get(label)
+    return (codec, b"") if codec else None
+
+
+def detect_eol(text):
+    """改行コード ("crlf" / "lf" / "cr" / 改行なしは None) と、混在しているかどうか。多いものを選ぶ。"""
+    crlf = text.count("\r\n")
+    counts = {"crlf": crlf, "lf": text.count("\n") - crlf, "cr": text.count("\r") - crlf}
+    used = [k for k, n in counts.items() if n]
+    if not used:
+        return None, False
+    return max(used, key=lambda k: counts[k]), len(used) > 1
+
+
+def encode_for_save(text, codec, bom, eol):
+    """編集した文字列を、元の改行コード・文字コード (BOM も) のバイト列に戻す。"""
+    text = text.replace("\r\n", "\n").replace("\r", "\n")  # ブラウザの編集欄は LF になっている
+    if eol and eol != "lf":
+        text = text.replace("\n", EOLS[eol])
+    return bom + text.encode(codec)
+
+
+def edit_info(raw, text, label, truncated):
+    """作業ツリーのファイルを画面で編集できるか調べる。できなければ理由 (翻訳キー) を返す。"""
+    if text is None:
+        return {"editable": False, "edit_reason": "edit_binary"}
+    if truncated:
+        return {"editable": False, "edit_reason": "edit_too_large"}
+    sc = save_codec(raw, label)
+    if not sc:
+        return {"editable": False, "edit_reason": "edit_bad_encoding"}
+    try:  # 元の文字コードに戻して、まったく同じバイト列になるときだけ編集できる (CP932 の一部の文字など)
+        same = sc[1] + text.encode(sc[0]) == raw
+    except UnicodeEncodeError:
+        same = False
+    if not same:
+        return {"editable": False, "edit_reason": "edit_bad_encoding"}
+    eol, mixed = detect_eol(text)  # 混在しているときは、保存すると多い方に統一される
+    return {"editable": True, "eol": eol, "eol_mixed": mixed, "save_encoding": sc[0] + (" (BOM)" if sc[1] else "")}
+
+
+def wip_file(path):
+    target = worktree_target(path)
+    if os.path.islink(target):  # git と同じく、リンク先のパスを内容として扱う
+        raw = os.fsencode(os.readlink(target))
+    elif os.path.isfile(target):
+        with open(target, "rb") as f:
+            raw = f.read(FILE_CONTENT_LIMIT + 1)
+    else:
+        raise UserError("not_a_file")
+    truncated = len(raw) > FILE_CONTENT_LIMIT
+    data = raw[:FILE_CONTENT_LIMIT]
+    text, encoding = decode_text(data, truncated)
+    size = len(raw) if os.path.islink(target) else os.path.getsize(target)
+    res = {"hash": WIP_HASH, "path": path, "content": text or "", "encoding": encoding,
+           "binary": text is None, "truncated": truncated, "size": size,
+           "sha": hashlib.sha256(raw).hexdigest()}
+    if os.path.islink(target):
+        res.update(editable=False, edit_reason="edit_symlink")
+    else:
+        res.update(edit_info(raw, text, encoding, truncated))
+    return res
+
+
+SAVE_BODY_LIMIT = 16_000_000  # /api/file-save の JSON の上限 (FILE_CONTENT_LIMIT の文字列をエスケープしても収まる大きさ)
+
+
+@route("/api/file-save", method="POST")
+def api_file_save(body):
+    """作業ツリーのファイルを、画面で編集した内容で上書きする。
+    文字コード・BOM・改行コードは保存前のファイルに合わせて戻す。開いてから別の場所で変更されていたら保存しない。"""
+    path = body.get("path", "")
+    content, base = body.get("content"), body.get("sha", "")
+    if not isinstance(path, str) or not isinstance(content, str) or not isinstance(base, str):
+        raise ValueError("bad body")
+    path = validate_file_path(path, allow_empty=False)
+    target = worktree_target(path)
+    if os.path.islink(target) or not os.path.isfile(target):
+        raise UserError("not_a_file")
+    with open(target, "rb") as f:
+        raw = f.read()
+    if hashlib.sha256(raw).hexdigest() != base:
+        raise UserError("edit_changed_on_disk", path=path)
+    text, label = decode_text(raw[:FILE_CONTENT_LIMIT], len(raw) > FILE_CONTENT_LIMIT)
+    info = edit_info(raw, text, label, len(raw) > FILE_CONTENT_LIMIT)
+    if not info["editable"]:
+        raise UserError(info["edit_reason"])
+    codec, bom = save_codec(raw, label)
+    try:
+        data = encode_for_save(content, codec, bom, info["eol"] or "lf")
+    except UnicodeEncodeError as e:
+        raise UserError("edit_encode_failed", encoding=label, char=e.object[e.start:e.end])
+    if data == raw:
+        return {"ok": True, "unchanged": True, "sha": base, "message": tr("edit_unchanged")}
+    mode = os.stat(target).st_mode
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(target), prefix=".git_graph_edit_")
+    try:  # 書きかけのファイルが残らないよう、一時ファイルに書いてから置き換える
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        os.chmod(tmp, mode & 0o7777)
+        os.replace(tmp, target)
+    except OSError as e:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise ValueError(str(e))
+    return {"ok": True, "sha": hashlib.sha256(data).hexdigest(), "message": tr("edit_saved", path=path)}
+
+
 @route("/api/tree")
 def api_tree(q):
+    if is_wip(q):
+        return wip_tree(validate_file_path(q.get("path", [""])[0]))
     h = resolve_commit(q.get("hash", [""])[0])
     path = validate_file_path(q.get("path", [""])[0])
     treeish = h if not path else h + ":" + path
@@ -101,6 +333,8 @@ def decode_text(data, truncated=False):
 
 @route("/api/file")
 def api_file(q):
+    if is_wip(q):
+        return wip_file(validate_file_path(q.get("path", [""])[0], allow_empty=False))
     h = resolve_commit(q.get("hash", [""])[0])
     path = validate_file_path(q.get("path", [""])[0], allow_empty=False)
     spec = h + ":" + path
@@ -117,9 +351,19 @@ def api_file(q):
 
 @route("/api/blame")
 def api_blame(q):
-    h = resolve_commit(q.get("hash", [""])[0])
     path = validate_file_path(q.get("path", [""])[0], allow_empty=False)
-    out = git("blame", "--line-porcelain", h, "--", path, literal=True)
+    if is_wip(q):  # 作業ツリーの内容を blame する。未コミットの行はハッシュが 0000000 になる
+        worktree_target(path)
+        h = WIP_HASH
+        r = subprocess.run(["git", "-C", state.REPO, "blame", "--line-porcelain", "--", path],
+                           capture_output=True, text=True, encoding="utf-8", errors="replace",
+                           env=dict(os.environ, GIT_LITERAL_PATHSPECS="1"))
+        if r.returncode != 0:
+            raise UserError("wip_blame_untracked", path=path)
+        out = r.stdout
+    else:
+        h = resolve_commit(q.get("hash", [""])[0])
+        out = git("blame", "--line-porcelain", h, "--", path, literal=True)
     raw_lines = out.splitlines()
     lines, i = [], 0
     while i < len(raw_lines):
@@ -199,5 +443,5 @@ def api_file_copy(body):
 
 __all__ = [
     "FILE_CONTENT_LIMIT", "api_file", "api_file_copy", "api_tree", "decode_text", "api_blame",
-    "validate_file_path",
+    "validate_file_path", "WIP_HASH", "api_file_save", "SAVE_BODY_LIMIT",
 ]

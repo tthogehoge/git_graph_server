@@ -1,3 +1,4 @@
+import codecs
 import json
 import os
 import shutil
@@ -317,6 +318,203 @@ class GitApiIntegrationTests(unittest.TestCase):
         self.assertNotIn('[label="+1", style=dashed]', dot)
 
 
+class WorkingTreeFilesTests(unittest.TestCase):
+    """/files?hash=WIP: 作業ツリーのファイル一覧・内容・blame。"""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.repo = self.temp_dir.name
+        self.previous = (state.REPO, state.HAS_WORKTREE)
+        state.REPO, state.HAS_WORKTREE = self.repo, True
+        self.git("init", "-q")
+        self.git("config", "user.name", "Test User")
+        self.git("config", "user.email", "test@example.com")
+        os.makedirs(os.path.join(self.repo, "src"))
+        self.write("README.md", "first\n")
+        self.write("src/app.py", "print(1)\n")
+        self.write("gone.txt", "x\n")
+        self.write(".gitignore", "*.log\n")
+        self.git("add", ".")
+        self.git("commit", "-q", "-m", "initial")
+        self.head = self.git("rev-parse", "HEAD").strip()
+        self.write("README.md", "first\nsecond\n")
+        self.write("new.txt", "untracked\n")
+        self.write("debug.log", "ignored\n")
+        os.remove(os.path.join(self.repo, "gone.txt"))
+
+    def tearDown(self):
+        state.REPO, state.HAS_WORKTREE = self.previous
+        self.temp_dir.cleanup()
+
+    def git(self, *args):
+        return subprocess.check_output(["git", "-C", self.repo, *args], text=True, encoding="utf-8")
+
+    def write(self, path, content):
+        with open(os.path.join(self.repo, path), "w", encoding="utf-8") as f:
+            f.write(content)
+
+    def test_tree_lists_working_tree_without_ignored_or_deleted(self):
+        tree = app.api_tree({"hash": ["WIP"]})
+        self.assertEqual(tree["head"], self.head)
+        self.assertEqual([e["name"] for e in tree["entries"]], ["src", ".gitignore", "README.md", "new.txt"])
+        self.assertEqual(tree["entries"][0]["type"], "tree")
+        sub = app.api_tree({"hash": ["WIP"], "path": ["src"]})
+        self.assertEqual([e["name"] for e in sub["entries"]], ["app.py"])
+
+    def test_tree_marks_changed_entries(self):
+        self.write("src/app.py", "print(2)\n")
+        self.git("add", "src/app.py")
+        os.makedirs(os.path.join(self.repo, "docs"))
+        self.write("docs/a.md", "new\n")
+        tree = {e["name"]: e for e in app.api_tree({"hash": ["WIP"]})["entries"]}
+        self.assertEqual((tree["README.md"]["st"], tree["README.md"]["xy"]), ("M", " M"))
+        self.assertEqual(tree["new.txt"]["st"], "?")
+        self.assertEqual(tree["src"]["st"], "M")
+        self.assertEqual(tree["docs"]["st"], "?")
+        self.assertNotIn("st", tree[".gitignore"])
+        sub = app.api_tree({"hash": ["WIP"], "path": ["src"]})["entries"]
+        self.assertEqual((sub[0]["st"], sub[0]["xy"]), ("M", "M "))
+
+    def test_status_mark(self):
+        from git_graph.files import status_mark
+        self.assertEqual([status_mark(x) for x in ("??", "UU", "A ", "AM", " D", "R ", "MM", " T")],
+                         ["?", "U", "A", "A", "D", "R", "M", "M"])
+
+    def test_file_reads_uncommitted_content(self):
+        self.assertEqual(app.api_file({"hash": ["WIP"], "path": ["README.md"]})["content"], "first\nsecond\n")
+        self.assertEqual(app.api_file({"hash": ["WIP"], "path": ["new.txt"]})["content"], "untracked\n")
+
+    def test_blame_marks_uncommitted_lines(self):
+        lines = app.api_blame({"hash": ["WIP"], "path": ["README.md"]})["lines"]
+        self.assertEqual(lines[0]["hash"], self.head)
+        self.assertRegex(lines[1]["hash"], r"^0+$")
+        self.assertEqual(lines[1]["content"], "second")
+        with self.assertRaises(app.UserError):
+            app.api_blame({"hash": ["WIP"], "path": ["new.txt"]})
+
+    def test_rejects_paths_outside_repository(self):
+        outside = tempfile.TemporaryDirectory()
+        self.addCleanup(outside.cleanup)
+        os.symlink(outside.name, os.path.join(self.repo, "link"))
+        with open(os.path.join(outside.name, "secret.txt"), "w") as f:
+            f.write("secret")
+        for path in ("../x", ".git/config", "link/secret.txt"):
+            with self.assertRaises(ValueError):
+                app.api_file({"hash": ["WIP"], "path": [path]})
+
+    def test_files_page_accepts_wip_hash_over_http(self):
+        server = app.QuietServer(("127.0.0.1", 0), app.Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        base = f"http://127.0.0.1:{server.server_address[1]}"
+        with urlopen(base + "/files?hash=WIP") as response:
+            self.assertEqual(response.status, 200)
+        with self.assertRaises(HTTPError) as cm:
+            urlopen(base + "/files?hash=bad")
+        self.assertEqual(cm.exception.code, 400)
+        cm.exception.close()
+
+    def write_bytes(self, path, data):
+        with open(os.path.join(self.repo, path), "wb") as f:
+            f.write(data)
+
+    def read_bytes(self, path):
+        with open(os.path.join(self.repo, path), "rb") as f:
+            return f.read()
+
+    def edit(self, path, change):
+        """画面と同じ流れ: 読み込み → 編集欄 (改行は LF) で編集 → 保存。"""
+        data = app.api_file({"hash": ["WIP"], "path": [path]})
+        self.assertTrue(data["editable"], data.get("edit_reason"))
+        text = data["content"].replace("\r\n", "\n").replace("\r", "\n")
+        return app.api_file_save({"path": path, "content": change(text), "sha": data["sha"]})
+
+    def test_edit_restores_encoding_bom_and_line_endings(self):
+        cases = [
+            ("utf8.txt", "あ\nい\n".encode("utf-8"), "う\n".encode("utf-8")),
+            ("sjis.txt", "あ\r\nい\r\n".encode("cp932"), "う\r\n".encode("cp932")),
+            ("euc.txt", "あ\nい\n".encode("euc_jp"), "う\n".encode("euc_jp")),
+            ("bom.txt", codecs.BOM_UTF8 + "あ\r\nい\r\n".encode("utf-8"), "う\r\n".encode("utf-8")),
+            ("u16.txt", codecs.BOM_UTF16_LE + "あ\r\nい\r\n".encode("utf-16-le"), "う\r\n".encode("utf-16-le")),
+            ("cr.txt", b"a\rb\r", b"c\r"),
+        ]
+        for name, original, added in cases:
+            with self.subTest(name=name):
+                self.write_bytes(name, original)
+                r = self.edit(name, lambda text: text + ("う" if name != "cr.txt" else "c") + "\n")
+                self.assertTrue(r["ok"])
+                self.assertEqual(self.read_bytes(name), original + added)
+
+    def test_edit_unchanged_and_mixed_line_endings(self):
+        self.write_bytes("mixed.txt", b"a\r\nb\r\nc\n")
+        data = app.api_file({"hash": ["WIP"], "path": ["mixed.txt"]})
+        self.assertEqual((data["eol"], data["eol_mixed"]), ("crlf", True))
+        self.edit("mixed.txt", lambda text: text)
+        self.assertEqual(self.read_bytes("mixed.txt"), b"a\r\nb\r\nc\r\n")
+        self.assertTrue(self.edit("mixed.txt", lambda text: text)["unchanged"])
+
+    def test_edit_rejects_changed_file_and_unencodable_characters(self):
+        self.write_bytes("sjis.txt", "あ\n".encode("cp932"))
+        data = app.api_file({"hash": ["WIP"], "path": ["sjis.txt"]})
+        with self.assertRaises(app.UserError):
+            app.api_file_save({"path": "sjis.txt", "content": "あ\U0001F600\n", "sha": data["sha"]})
+        self.write_bytes("sjis.txt", "い\n".encode("cp932"))
+        with self.assertRaises(app.UserError):
+            app.api_file_save({"path": "sjis.txt", "content": "う\n", "sha": data["sha"]})
+        self.assertEqual(self.read_bytes("sjis.txt"), "い\n".encode("cp932"))
+
+    def test_edit_keeps_file_mode_and_refuses_non_text(self):
+        path = os.path.join(self.repo, "run.sh")
+        self.write_bytes("run.sh", b"echo 1\n")
+        os.chmod(path, 0o755)
+        self.edit("run.sh", lambda text: text + "echo 2\n")
+        self.assertEqual(os.stat(path).st_mode & 0o777, 0o755)
+        self.write_bytes("bin.dat", b"\0\1\2")
+        self.assertEqual(app.api_file({"hash": ["WIP"], "path": ["bin.dat"]})["editable"], False)
+        os.symlink("README.md", os.path.join(self.repo, "link.md"))
+        self.assertEqual(app.api_file({"hash": ["WIP"], "path": ["link.md"]})["edit_reason"], "edit_symlink")
+        with self.assertRaises(app.UserError):
+            app.api_file_save({"path": "link.md", "content": "x", "sha": ""})
+
+    def test_edit_large_body_over_http(self):
+        previous = (state.WRITABLE, state.OPTS)
+        state.WRITABLE, state.OPTS = True, SimpleNamespace(host="127.0.0.1")
+        self.addCleanup(lambda: (setattr(state, "WRITABLE", previous[0]), setattr(state, "OPTS", previous[1])))
+        server = app.QuietServer(("127.0.0.1", 0), app.Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        sha = app.api_file({"hash": ["WIP"], "path": ["README.md"]})["sha"]
+        body = json.dumps({"path": "README.md", "content": "x" * 300000 + "\n", "sha": sha}).encode()
+        req = Request(f"http://127.0.0.1:{server.server_address[1]}/api/file-save", data=body,
+                      headers={"Content-Type": "application/json"}, method="POST")
+        with urlopen(req) as response:
+            self.assertTrue(json.loads(response.read())["ok"])
+        self.assertEqual(len(self.read_bytes("README.md")), 300001)
+
+    def test_diff_page_links_to_editor_for_working_tree_files(self):
+        previous = (state.WRITABLE, state.WIP_ENABLED)
+        self.addCleanup(setattr, state, "WRITABLE", previous[0])
+        self.addCleanup(setattr, state, "WIP_ENABLED", previous[1])
+        state.WRITABLE = state.WIP_ENABLED = True
+        page = viewer.render_diff_page({"path": ["README.md"], "wip": ["unstaged"]})
+        self.assertIn('href="/files?hash=WIP&amp;path=&amp;file=README.md&amp;view=edit"', page)
+        page = viewer.render_diff_page({"path": ["src/app.py"], "wip": ["unstaged"]})
+        self.assertIn("path=src&amp;file=src%2Fapp.py&amp;view=edit", page)
+        self.assertNotIn('class="ebtn"', viewer.render_diff_page({"path": ["gone.txt"], "wip": ["unstaged"]}))
+        self.assertNotIn('class="ebtn"', viewer.render_diff_page({"hash": [self.head], "path": ["README.md"]}))
+        state.WRITABLE = False
+        self.assertNotIn('class="ebtn"', viewer.render_diff_page({"path": ["README.md"], "wip": ["unstaged"]}))
+
+    def test_requires_worktree(self):
+        state.HAS_WORKTREE = False
+        with self.assertRaises(app.UserError):
+            app.api_tree({"hash": ["WIP"]})
+
+
 class GitWriteApiIntegrationTests(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -464,11 +662,18 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
             self.assertEqual(payload["total"], 1)
             self.assertEqual(payload["commits"][0][0], self.head)
 
-            with urlopen(f"{base_url}/api/graph") as response:
-                graph = json.loads(response.read())
-            self.assertIsInstance(graph["nodes"], dict)
-            self.assertIsInstance(graph["edges"], dict)
-            self.assertTrue(graph["svg"].startswith("<svg"))
+            if shutil.which("dot"):
+                with urlopen(f"{base_url}/api/graph") as response:
+                    graph = json.loads(response.read())
+                self.assertIsInstance(graph["nodes"], dict)
+                self.assertIsInstance(graph["edges"], dict)
+                self.assertTrue(graph["svg"].startswith("<svg"))
+            else:  # Graphviz がない環境: グラフ API はその旨のエラーを返す (他のルートの確認は続ける)
+                with self.assertRaises(HTTPError) as error:
+                    urlopen(f"{base_url}/api/graph")
+                self.assertEqual(error.exception.code, 500)
+                self.assertEqual(error.exception.read().decode("utf-8"), app.tr("dot_missing"))
+                error.exception.close()
 
             with urlopen(f"{base_url}/api/head") as response:
                 head = json.loads(response.read())

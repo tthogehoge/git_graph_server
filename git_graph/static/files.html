@@ -15,6 +15,8 @@ __FAVICON__
   .crumb a:hover, .entry:hover { text-decoration: underline; }
   .entry { display: flex; gap: 8px; padding: 4px 6px; border-radius: 3px; font-family: monospace; }
   .entry:hover { background: #eef; }
+  .st { display: inline-block; min-width: 1.3em; text-align: center; font-weight: bold; color: #fff; border-radius: 2px; margin-right: 4px; font-family: system-ui, sans-serif; }
+  .stM { background: #d29922; } .stA { background: #1a7f37; } .stD { background: #cf222e; } .stR { background: #6f42c1; } .stU { background: #cf222e; } .stN { background: #888; }
   .entry .size { margin-left: auto; color: #777; white-space: nowrap; }
   pre { white-space: pre-wrap; word-break: break-word; background: #fff; border: 1px solid #ddd; padding: 10px; font: 12px monospace; }
   pre.code { color: #24292f; tab-size: 4; }
@@ -50,10 +52,18 @@ __FAVICON__
   .blame-meta a { color: inherit; text-decoration: none; }
   .blame-meta a:hover { text-decoration: underline; }
   .blame-code { min-width: 0; }
+  .edit-info { color: #666; margin: 4px 0; }
+  .edit-info.warn { color: #b35900; }
+  textarea.editor { width: 100%; height: calc(100vh - 190px); min-height: 200px; box-sizing: border-box; font: 12px monospace; tab-size: 4; padding: 8px; border: 1px solid #bbb; resize: vertical; white-space: pre; overflow-wrap: normal; }
+  .edit-bar { display: flex; gap: 6px; margin: 6px 0; }
+  .edit-bar button { background: #e8eefc; border: 1px solid #b8c7ee; padding: 4px 10px; border-radius: 3px; cursor: pointer; }
+  .edit-bar button.primary { background: #1a7f37; border-color: #1a7f37; color: #fff; }
+  .edit-bar button:disabled { opacity: .5; cursor: default; }
+  .file-actions button:disabled { opacity: .5; cursor: default; }
 </style><script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script></head>
 <body><aside id="tree"><h1>{{file_view}}</h1><div class="meta" id="commit"></div><div id="list"></div></aside>
 <main id="main"><h2 id="title">{{select_file}}</h2>
-<div id="fileActions" class="file-actions" hidden><button id="fileLogBtn">{{file_log}}</button><button id="fileBlameBtn">{{file_blame}}</button><button id="fileContentBtn" hidden>{{file_content}}</button><button id="fileCopyBtn" hidden>{{copy_to_work}}</button><span id="fileMsg" class="msg"></span></div>
+<div id="fileActions" class="file-actions" hidden><button id="fileLogBtn">{{file_log}}</button><button id="fileBlameBtn">{{file_blame}}</button><button id="fileDiffBtn" hidden>{{file_diff}}</button><button id="fileEditBtn" hidden>{{file_edit}}</button><button id="fileContentBtn" hidden>{{file_content}}</button><button id="fileCopyBtn" hidden>{{copy_to_work}}</button><span id="fileMsg" class="msg"></span></div>
 <div id="content" class="hint">{{select_file_hint}}</div></main>
 <script>
 /*__FILE_I18N__*/
@@ -72,29 +82,78 @@ const qs = new URLSearchParams(location.search), hash = qs.get("hash"), fileView
 const list = document.getElementById("list"), content = document.getElementById("content"), title = document.getElementById("title");
 const fileActions = document.getElementById("fileActions"), fileLogBtn = document.getElementById("fileLogBtn"), fileBlameBtn = document.getElementById("fileBlameBtn"), fileContentBtn = document.getElementById("fileContentBtn");
 const fileCopyBtn = document.getElementById("fileCopyBtn"), fileMsg = document.getElementById("fileMsg");
-fileCopyBtn.hidden = !CAN_COPY;
-let current = "", currentFile = "";
+const fileDiffBtn = document.getElementById("fileDiffBtn"), fileEditBtn = document.getElementById("fileEditBtn");
+const CAN_EDIT = CAN_COPY && hash === "WIP";  // 作業ツリーのファイルだけ編集できる (書き込みが有効なとき)
+const isWip = hash === "WIP";  // 作業ツリーのファイルを表示する
+fileCopyBtn.hidden = !CAN_COPY || isWip;
+let current = "", currentFile = "", wipHead = null;
+let entryInfo = {}, commitChanges = null;  // entryInfo: パス → 一覧の項目 (WIP の変更の種類 xy), commitChanges: パス → コミットでの変更
+function diffParams(path) {  // このファイルの差分ページの引数。変更がなければ null
+  if (isWip) {
+    const xy = (entryInfo[path] || {}).xy;
+    if (!xy) return null;
+    const st = entryInfo[path].st;
+    const kind = xy === "??" ? "untracked" : st === "U" ? "conflict" : xy[1] !== " " ? "unstaged" : "staged";
+    return {path: path, wip: kind};
+  }
+  const f = commitChanges && commitChanges[path];
+  if (!f) return null;
+  const p = {hash: hash, path: path};
+  if (f.old_path) p.old = f.old_path;
+  return p;
+}
+function updateDiffBtn() { fileDiffBtn.hidden = !currentFile || !diffParams(currentFile); }
+function loadCommitChanges() {  // このコミットで変更されたファイル (差分ボタンを出すかどうかに使う)
+  if (isWip || !hash) return;
+  api("/api/commit", {hash: hash}).then(c => {
+    commitChanges = {};
+    c.files.forEach(f => { commitChanges[f.path] = f; });
+    updateDiffBtn();
+  }).catch(() => {});
+}
+fileDiffBtn.onclick = () => {
+  const p = currentFile && diffParams(currentFile);
+  if (p) location.href = "/diff?" + new URLSearchParams(p);
+};
+function logHash() { return isWip ? wipHead : hash; }  // ファイルのログの起点 (作業ツリーなら HEAD)
 function esc(s) { return String(s).replace(/[&<>\"]/g, c => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", "\"":"&quot;"}[c])); }
 function api(path, params) { return fetch(path + "?" + new URLSearchParams(params)).then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); })); }
 function showError(e) { list.innerHTML = '<p class="hint">' + t("error") + esc(e.message) + '</p>'; }
+function pageUrl(path, file, view) {  // 表示中のディレクトリ・ファイル・表示 (edit / blame / log) を URL に残す (戻る/進む・再読み込みで復元する)
+  const p = new URLSearchParams({hash: hash});
+  if (path) p.set("path", path);
+  if (file) p.set("file", file);
+  if (file && view) p.set("view", view);
+  if (fileViewTab) p.set("file_view", "1");
+  return "?" + p;
+}
+const ST_CLASS = {M: "stM", A: "stA", D: "stD", R: "stR", U: "stU", "?": "stN"};
+function statusBadge(e) {  // 作業ツリー表示での変更の印 (ディレクトリは中に変更があるとき)
+  if (!e.st) return "";
+  const tip = e.type === "tree" ? t("wip_dir_changed") : e.xy === "??" ? t("untracked") : e.st === "U" ? t("conflict")
+    : [e.xy[0] !== " " ? t("staged") : "", e.xy[1] !== " " ? t("unstaged") : ""].filter(Boolean).join(" / ");
+  return '<span class="st ' + (ST_CLASS[e.st] || "stM") + '" title="' + esc(tip) + '">' + esc(e.st) + '</span>';
+}
 function loadTree(path, push) {
   current = path;
-  fileActions.hidden = true;
-  if (push) history.pushState({path: path}, "", "?hash=" + encodeURIComponent(hash) + (path ? "&path=" + encodeURIComponent(path) : ""));
-  api("/api/tree", {hash: hash, path: path}).then(r => {
-    document.getElementById("commit").textContent = r.hash.slice(0, 7);
+  if (push) history.pushState({path: path, file: currentFile, view: currentView}, "", pageUrl(path, currentFile, currentView));
+  return api("/api/tree", {hash: hash, path: path}).then(r => {
+    if (isWip) wipHead = r.head || null;
+    document.getElementById("commit").textContent = isWip
+      ? t("working_tree_files") + (r.head ? " (HEAD " + r.head.slice(0, 7) + ")" : "") : r.hash.slice(0, 7);
     const parts = path ? path.split("/") : [];
     let crumb = '<div class="crumb"><a data-dir="">📁 ' + t("root") + '</a>';
     parts.forEach((p, i) => { const d = parts.slice(0, i + 1).join("/"); crumb += ' / <a data-dir="' + esc(d) + '">' + esc(p) + '</a>'; });
     crumb += '</div>';
     list.innerHTML = crumb + (r.entries.length ? r.entries.map(e => {
       const p = path ? path + "/" + e.name : e.name;
+      entryInfo[p] = e;
       const icon = e.type === "tree" ? "📁" : "📄";
       const size = e.size === null ? "" : e.size.toLocaleString() + " B";
-      return '<div class="entry" data-type="' + e.type + '" data-path="' + esc(p) + '"><span>' + icon + ' ' + esc(e.name) + '</span><span class="size">' + size + '</span></div>';
+      return '<div class="entry" data-type="' + e.type + '" data-path="' + esc(p) + '"><span>' + icon + ' ' + statusBadge(e) + esc(e.name) + '</span><span class="size">' + size + '</span></div>';
     }).join("") : '<p class="hint">' + t("empty_directory") + '</p>');
     list.querySelectorAll("[data-dir]").forEach(a => a.onclick = () => loadTree(a.dataset.dir, true));
-    list.querySelectorAll(".entry").forEach(a => a.onclick = () => a.dataset.type === "tree" ? loadTree(a.dataset.path, true) : loadFile(a.dataset.path));
+    list.querySelectorAll(".entry").forEach(a => a.onclick = () => a.dataset.type === "tree" ? loadTree(a.dataset.path, true) : loadFile(a.dataset.path, true));
   }).catch(showError);
 }
 function setFileMsg(text, ok) { fileMsg.textContent = text; fileMsg.className = "msg" + (ok ? "" : " err"); }
@@ -112,22 +171,119 @@ fileCopyBtn.onclick = () => {
     .then(r => setFileMsg(r.message, true))
     .catch(e => setFileMsg(e.message, false));
 };
-function loadFile(path) {
-  currentFile = path;
+function clearFile() {  // ファイルを選ぶ前の表示に戻す
+  currentFile = ""; currentView = "";
+  setDocumentTitle("");
+  fileActions.hidden = true;
+  title.textContent = t("select_file");
+  content.className = "hint";
+  content.textContent = t("select_file_hint");
+}
+function loadFile(path, push) {
+  if (!leaveEdit()) return;
+  if (push && (path !== currentFile || currentView)) history.pushState({path: current, file: path}, "", pageUrl(current, path));
+  currentFile = path; currentView = "";
   setDocumentTitle(path);
   setFileMsg("", true);
   fileActions.hidden = false;
-  fileLogBtn.hidden = false;
-  fileBlameBtn.hidden = false;
+  fileLogBtn.hidden = !logHash();
+  fileBlameBtn.hidden = isWip && !wipHead;
   fileContentBtn.hidden = true;
-  api("/api/file", {hash: hash, path: path}).then(r => {
+  updateDiffBtn();
+  fileEditBtn.hidden = true; fileData = null;
+  return api("/api/file", {hash: hash, path: path}).then(r => {
+    if (path !== currentFile) return;
+    fileData = r;
+    fileEditBtn.hidden = !CAN_EDIT || r.binary;
+    fileEditBtn.disabled = !r.editable;
+    fileEditBtn.title = r.editable ? "" : t(r.edit_reason || "edit_bad_encoding");
     const lang = languageFor(r.path);
     title.textContent = r.path + (lang ? " (" + lang + ")" : "") + (r.encoding ? " [" + r.encoding + "]" : "");
     content.className = r.binary ? "binary" : "";
     content.innerHTML = r.binary ? t("binary_file") : numberedCode(r.content, lang) + (r.truncated ? '<p class="hint">' + t("large_file_head") + '</p>' : '');
-    fileBlameBtn.hidden = r.binary;
+    fileBlameBtn.hidden = r.binary || (isWip && !wipHead);
   }).catch(e => { title.textContent = path; content.className = "hint"; content.textContent = t("error") + e.message; });
 }
+// ---- ファイルごとの表示 (内容 / 編集 / blame / ログ) ----
+// 表示を切り替えるたびに履歴に積む。viaPush: 同じファイルの前の表示から来た (「ファイル内容」などは履歴を戻る)
+let currentView = "", afterRestore = null;
+function logInTab() { return fileViewTab || (window.opener && !window.opener.closed); }
+function renderView(view) {
+  currentView = view;
+  if (view === "edit") {
+    if (!CAN_EDIT) setFileMsg(t("write_disabled"), false);
+    else if (fileData && fileData.editable) startEdit();
+    else if (fileData) setFileMsg(t(fileData.edit_reason || "edit_bad_encoding"), false);
+  } else if (view === "blame") loadFileBlame(currentFile);
+  else if (view === "log" && logInTab()) loadFileLog(currentFile);
+}
+function openView(view) {
+  if (!currentFile || view === currentView) return;
+  if (!leaveEdit()) return;
+  history.pushState({path: current, file: currentFile, view: view, viaPush: true}, "", pageUrl(current, currentFile, view));
+  if (currentView === "edit" || !fileData) loadFile(currentFile, false).then(() => renderView(view));  // 編集欄を閉じて内容を出し直す
+  else renderView(view);
+}
+function backToContent(after) {  // ファイル内容の表示に戻る。前の履歴が同じファイルならそこへ戻る
+  if (history.state && history.state.viaPush) { afterRestore = after || null; history.back(); return; }
+  history.replaceState({path: current, file: currentFile}, "", pageUrl(current, currentFile));
+  const done = loadFile(currentFile, false);
+  if (after && done) done.then(after);
+}
+// ---- 編集 (作業ツリーのみ) ----
+// 編集欄では改行が LF になるので、保存時にサーバー側で元の改行コード・文字コード・BOM に戻す
+let fileData = null, editing = false, editDirty = false;
+const EOL_LABEL = {crlf: "CRLF", lf: "LF", cr: "CR"};
+function leaveEdit() {  // 編集中なら、変更を捨ててよいか確認して編集をやめる
+  if (editing && editDirty && !confirm(t("edit_discard_confirm"))) return false;
+  editing = editDirty = false;
+  return true;
+}
+window.addEventListener("beforeunload", ev => { if (editing && editDirty) { ev.preventDefault(); ev.returnValue = ""; } });
+function startEdit() {
+  if (!fileData || !fileData.editable || !currentFile) return;
+  editing = true; editDirty = false;
+  setFileMsg("", true);
+  [fileLogBtn, fileBlameBtn, fileDiffBtn, fileEditBtn, fileContentBtn, fileCopyBtn].forEach(b => { b.hidden = true; });
+  const eol = EOL_LABEL[fileData.eol] || t("edit_eol_none");
+  title.textContent = t("file_edit_title", {path: currentFile});
+  content.className = "";
+  content.innerHTML = '<div class="edit-info">' + esc(t("edit_format", {encoding: fileData.encoding, eol: eol})) + '</div>' +
+    (fileData.eol_mixed ? '<div class="edit-info warn">' + esc(t("edit_eol_mixed", {eol: eol})) + '</div>' : "") +
+    '<div class="edit-bar"><button class="primary" id="editSave">' + esc(t("edit_save")) + '</button><button id="editCancel">' +
+    esc(t("edit_cancel")) + '</button></div><textarea class="editor" id="editor" spellcheck="false"></textarea>';
+  const ta = document.getElementById("editor");
+  ta.value = fileData.content;
+  ta.focus();
+  ta.addEventListener("input", () => { editDirty = true; });
+  ta.addEventListener("keydown", ev => {
+    if ((ev.ctrlKey || ev.metaKey) && ev.key === "s") { ev.preventDefault(); saveEdit(); }
+    else if (ev.key === "Tab" && !ev.shiftKey && !ev.ctrlKey && !ev.altKey) {  // Tab でフォーカスを移さず、タブ文字を入れる
+      ev.preventDefault();
+      ta.setRangeText("\t", ta.selectionStart, ta.selectionEnd, "end");
+      editDirty = true;
+    }
+  });
+  document.getElementById("editSave").onclick = saveEdit;
+  document.getElementById("editCancel").onclick = () => { if (leaveEdit()) backToContent(); };
+}
+function saveEdit() {
+  const ta = document.getElementById("editor"), btn = document.getElementById("editSave");
+  if (!editing || !ta || btn.disabled) return;
+  btn.disabled = true;
+  const path = currentFile;
+  fetch("/api/file-save", {method: "POST", headers: {"Content-Type": "application/json"},
+                           body: JSON.stringify({path: path, content: ta.value, sha: fileData.sha})})
+    .then(r => r.ok ? r.json() : r.text().then(m => { throw new Error(m || r.status); }))
+    .then(r => {
+      editing = editDirty = false;
+      fileData = null;  // 保存後の内容は読み込み直す
+      backToContent(() => loadTree(current, false)  // 変更の印と差分ボタンを更新する
+        .then(() => { updateDiffBtn(); setFileMsg(r.message, true); }));
+    })
+    .catch(e => { btn.disabled = false; setFileMsg(e.message, false); fileActions.hidden = false; });
+}
+fileEditBtn.onclick = () => openView("edit");
 function loadFileBlame(path) {
   fileLogBtn.hidden = true;
   fileBlameBtn.hidden = true;
@@ -138,8 +294,9 @@ function loadFileBlame(path) {
   content.textContent = t("loading");
   api("/api/blame", {hash: hash, path: path}).then(r => {
     content.innerHTML = '<div class="meta">' + esc(t("n_lines", {n: r.lines.length})) + '</div><div class="blame">' +
-      r.lines.map(line => '<div class="blame-line"><span class="blame-no">' + line.line + '</span><span class="blame-meta"><a class="blame-commit" href="/?commit_hash=' +
-        encodeURIComponent(line.hash) + '">' + esc(line.hash.slice(0, 7)) + '</a> ' + esc(line.author + " " + line.date) +
+      r.lines.map(line => '<div class="blame-line"><span class="blame-no">' + line.line + '</span><span class="blame-meta">' +
+        (/^0+$/.test(line.hash) ? esc(t("not_committed_yet")) : '<a class="blame-commit" href="/?commit_hash=' +  // 未コミットの行
+        encodeURIComponent(line.hash) + '">' + esc(line.hash.slice(0, 7)) + '</a> ' + esc(line.author + " " + line.date)) +
         '</span><span class="blame-code">' + esc(line.content) + '</span></div>').join("") + '</div>';
   }).catch(e => { content.className = "hint"; content.textContent = t("error") + e.message; });
 }
@@ -150,7 +307,9 @@ content.addEventListener("click", ev => {
   window.opener.postMessage({type: "git-graph-commit", hash: new URL(link.href).searchParams.get("commit_hash")}, location.origin);
 });
 function loadFileLog(path) {
-  if (fileViewTab || (window.opener && !window.opener.closed)) {
+  const hash = logHash();
+  if (!hash) return;
+  if (logInTab()) {
     // 別タブでは親のグラフへ通知せず、このファイル画面にログを表示する。
     fileLogBtn.hidden = true;
     fileBlameBtn.hidden = true;
@@ -171,9 +330,9 @@ function loadFileLog(path) {
   // 同一タブではファイル画面にログを描画せず、グラフ画面へ戻して表示する。
   location.href = "/?file_log_hash=" + encodeURIComponent(hash) + "&file_log_path=" + encodeURIComponent(path);
 }
-fileLogBtn.onclick = () => { if (currentFile) loadFileLog(currentFile); };
-fileBlameBtn.onclick = () => { if (currentFile) loadFileBlame(currentFile); };
-fileContentBtn.onclick = () => { if (currentFile) loadFile(currentFile); };
+fileLogBtn.onclick = () => { if (currentFile) { if (logInTab()) openView("log"); else if (leaveEdit()) loadFileLog(currentFile); } };
+fileBlameBtn.onclick = () => openView("blame");
+fileContentBtn.onclick = () => { if (currentFile) backToContent(); };
 const KEYWORDS = {
   python: "and as assert async await break case class continue def del elif else except finally for from global if import in is lambda match nonlocal not or pass raise return try while with yield None True False self",
   javascript: "as async await break case catch class const continue debugger default delete do else export extends false finally for from function get if import in instanceof let new null of return set static super switch this throw true try typeof undefined var void while with yield",
@@ -255,6 +414,25 @@ function numberedCode(source, lang) {
     lines.map((l, i) => '<div class="ln" id="L' + (i + 1) + '"><span class="no">' + (i + 1) + '</span><span class="tx">' + l + '</span></div>').join("") +
     '</code></pre>';
 }
-window.onpopstate = () => loadTree(new URLSearchParams(location.search).get("path") || "", false);
-if (!hash) showError(new Error(t("commit_required"))); else loadTree(qs.get("path") || "", false);
+function restoreFromUrl(first) {  // URL の path / file / view の状態を画面に反映する
+  const p = new URLSearchParams(location.search), dir = p.get("path") || "", file = p.get("file") || "";
+  const view = file ? (p.get("view") || (p.get("edit") === "1" ? "edit" : "")) : "";
+  if (!first && editing && (file !== currentFile || view !== "edit")) {  // 編集中に戻る/進む: 破棄しないなら編集画面にとどまる
+    if (!leaveEdit()) {
+      // 戻ろうとした先が同じファイルの別の表示なら、保存/キャンセルでそこへ戻れるようにする
+      history.pushState({path: current, file: currentFile, view: "edit", viaPush: file === currentFile},
+                        "", pageUrl(current, currentFile, "edit"));
+      return;
+    }
+  }
+  const tree = first || dir !== current ? loadTree(dir, false) : Promise.resolve();
+  // WIP ではツリーの読み込みで HEAD が分かってから開く (ログ / blame ボタンの表示に使う)
+  tree.then(() => {
+    if (!file) { if (currentFile) clearFile(); return; }
+    const reload = first || file !== currentFile || !view || currentView === "edit" || !fileData;
+    return (reload ? loadFile(file, false) : Promise.resolve()).then(() => { if (view) renderView(view); });
+  }).then(() => { const f = afterRestore; afterRestore = null; if (f) f(); });
+}
+window.onpopstate = () => restoreFromUrl(false);
+if (!hash) showError(new Error(t("commit_required"))); else { loadCommitChanges(); restoreFromUrl(true); }
 </script></body></html>
