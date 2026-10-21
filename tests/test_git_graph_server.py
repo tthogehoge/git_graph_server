@@ -567,11 +567,18 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
             self.assertEqual(payload["total"], 1)
             self.assertEqual(payload["commits"][0][0], self.head)
 
-            with urlopen(f"{base_url}/api/graph") as response:
-                graph = json.loads(response.read())
-            self.assertIsInstance(graph["nodes"], dict)
-            self.assertIsInstance(graph["edges"], dict)
-            self.assertTrue(graph["svg"].startswith("<svg"))
+            if shutil.which("dot"):
+                with urlopen(f"{base_url}/api/graph") as response:
+                    graph = json.loads(response.read())
+                self.assertIsInstance(graph["nodes"], dict)
+                self.assertIsInstance(graph["edges"], dict)
+                self.assertTrue(graph["svg"].startswith("<svg"))
+            else:  # Graphviz がない環境: グラフ API はその旨のエラーを返す (他のルートの確認は続ける)
+                with self.assertRaises(HTTPError) as error:
+                    urlopen(f"{base_url}/api/graph")
+                self.assertEqual(error.exception.code, 500)
+                self.assertEqual(error.exception.read().decode("utf-8"), app.tr("dot_missing"))
+                error.exception.close()
 
             with urlopen(f"{base_url}/api/head") as response:
                 head = json.loads(response.read())
