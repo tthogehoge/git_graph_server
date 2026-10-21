@@ -516,5 +516,6 @@
   "wip_blame_untracked": "{path} はまだコミットされていないため blame できません",
   "tip_wip_files": "作業ツリーのファイル一覧を別タブで開く",
   "working_tree_files": "作業ツリー",
-  "not_committed_yet": "未コミット"
+  "not_committed_yet": "未コミット",
+  "wip_dir_changed": "このディレクトリの中に変更があります"
 }

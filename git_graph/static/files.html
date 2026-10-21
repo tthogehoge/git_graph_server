@@ -15,6 +15,8 @@ __FAVICON__
   .crumb a:hover, .entry:hover { text-decoration: underline; }
   .entry { display: flex; gap: 8px; padding: 4px 6px; border-radius: 3px; font-family: monospace; }
   .entry:hover { background: #eef; }
+  .st { display: inline-block; min-width: 1.3em; text-align: center; font-weight: bold; color: #fff; border-radius: 2px; margin-right: 4px; font-family: system-ui, sans-serif; }
+  .stM { background: #d29922; } .stA { background: #1a7f37; } .stD { background: #cf222e; } .stR { background: #6f42c1; } .stU { background: #cf222e; } .stN { background: #888; }
   .entry .size { margin-left: auto; color: #777; white-space: nowrap; }
   pre { white-space: pre-wrap; word-break: break-word; background: #fff; border: 1px solid #ddd; padding: 10px; font: 12px monospace; }
   pre.code { color: #24292f; tab-size: 4; }
@@ -86,6 +88,13 @@ function pageUrl(path, file) {  // 表示中のディレクトリとファイル
   if (fileViewTab) p.set("file_view", "1");
   return "?" + p;
 }
+const ST_CLASS = {M: "stM", A: "stA", D: "stD", R: "stR", U: "stU", "?": "stN"};
+function statusBadge(e) {  // 作業ツリー表示での変更の印 (ディレクトリは中に変更があるとき)
+  if (!e.st) return "";
+  const tip = e.type === "tree" ? t("wip_dir_changed") : e.xy === "??" ? t("untracked") : e.st === "U" ? t("conflict")
+    : [e.xy[0] !== " " ? t("staged") : "", e.xy[1] !== " " ? t("unstaged") : ""].filter(Boolean).join(" / ");
+  return '<span class="st ' + (ST_CLASS[e.st] || "stM") + '" title="' + esc(tip) + '">' + esc(e.st) + '</span>';
+}
 function loadTree(path, push) {
   current = path;
   if (push) history.pushState({path: path, file: currentFile}, "", pageUrl(path, currentFile));
@@ -101,7 +110,7 @@ function loadTree(path, push) {
       const p = path ? path + "/" + e.name : e.name;
       const icon = e.type === "tree" ? "📁" : "📄";
       const size = e.size === null ? "" : e.size.toLocaleString() + " B";
-      return '<div class="entry" data-type="' + e.type + '" data-path="' + esc(p) + '"><span>' + icon + ' ' + esc(e.name) + '</span><span class="size">' + size + '</span></div>';
+      return '<div class="entry" data-type="' + e.type + '" data-path="' + esc(p) + '"><span>' + icon + ' ' + statusBadge(e) + esc(e.name) + '</span><span class="size">' + size + '</span></div>';
     }).join("") : '<p class="hint">' + t("empty_directory") + '</p>');
     list.querySelectorAll("[data-dir]").forEach(a => a.onclick = () => loadTree(a.dataset.dir, true));
     list.querySelectorAll(".entry").forEach(a => a.onclick = () => a.dataset.type === "tree" ? loadTree(a.dataset.path, true) : loadFile(a.dataset.path, true));

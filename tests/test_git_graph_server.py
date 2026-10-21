@@ -360,6 +360,25 @@ class WorkingTreeFilesTests(unittest.TestCase):
         sub = app.api_tree({"hash": ["WIP"], "path": ["src"]})
         self.assertEqual([e["name"] for e in sub["entries"]], ["app.py"])
 
+    def test_tree_marks_changed_entries(self):
+        self.write("src/app.py", "print(2)\n")
+        self.git("add", "src/app.py")
+        os.makedirs(os.path.join(self.repo, "docs"))
+        self.write("docs/a.md", "new\n")
+        tree = {e["name"]: e for e in app.api_tree({"hash": ["WIP"]})["entries"]}
+        self.assertEqual((tree["README.md"]["st"], tree["README.md"]["xy"]), ("M", " M"))
+        self.assertEqual(tree["new.txt"]["st"], "?")
+        self.assertEqual(tree["src"]["st"], "M")
+        self.assertEqual(tree["docs"]["st"], "?")
+        self.assertNotIn("st", tree[".gitignore"])
+        sub = app.api_tree({"hash": ["WIP"], "path": ["src"]})["entries"]
+        self.assertEqual((sub[0]["st"], sub[0]["xy"]), ("M", "M "))
+
+    def test_status_mark(self):
+        from git_graph.files import status_mark
+        self.assertEqual([status_mark(x) for x in ("??", "UU", "A ", "AM", " D", "R ", "MM", " T")],
+                         ["?", "U", "A", "A", "D", "R", "M", "M"])
+
     def test_file_reads_uncommitted_content(self):
         self.assertEqual(app.api_file({"hash": ["WIP"], "path": ["README.md"]})["content"], "first\nsecond\n")
         self.assertEqual(app.api_file({"hash": ["WIP"], "path": ["new.txt"]})["content"], "untracked\n")

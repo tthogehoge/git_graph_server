@@ -5,6 +5,7 @@ import subprocess
 from datetime import datetime, timedelta, timezone
 from . import app_state as state
 from .gitrun import git, resolve_commit
+from .gitstate import CONFLICT_CODES
 from .i18n import tr, UserError
 from .routing import route
 
@@ -52,6 +53,35 @@ def worktree_target(path):
     return target
 
 
+def status_mark(xy):
+    """git status の XY を、一覧に出す1文字の印にする (競合 U / 未追跡 ? / 追加 A / 削除 D / リネーム R / 変更 M)。"""
+    if xy == "??":
+        return "?"
+    if xy in CONFLICT_CODES:
+        return "U"
+    for mark in "ARDC":
+        if mark in xy:
+            return "R" if mark == "C" else mark
+    return "M"
+
+
+def wip_status_marks(prefix):
+    """prefix 以下の変更を {パス: (印, XY)} で返す。"""
+    raw = git("status", "--porcelain=v1", "-z", "--untracked-files=all", "--", prefix or ".", literal=True)
+    toks, out, i = raw.split("\0"), {}, 0
+    while i < len(toks):
+        t = toks[i]
+        i += 1
+        if len(t) < 4 or t[2] != " ":
+            continue
+        xy, p = t[:2], t[3:]
+        if "R" in xy or "C" in xy:  # リネーム/コピーは続くトークンが元のパス
+            i += 1
+        if xy != "!!":
+            out[p] = (status_mark(xy), xy)
+    return out
+
+
 def wip_tree(path):
     """作業ツリーのディレクトリ一覧。git に管理されているファイルと、無視されていない未追跡ファイルを出す。"""
     target = worktree_target(path)
@@ -70,6 +100,11 @@ def wip_tree(path):
             names[name] = "tree"
         else:
             names.setdefault(name, "blob")
+    marks, dir_marks = wip_status_marks(prefix), {}
+    for p, (mark, _) in marks.items():
+        if not p.startswith(prefix) or "/" not in p[len(prefix):]:
+            continue
+        dir_marks.setdefault(p[len(prefix):].split("/", 1)[0], set()).add(mark)
     entries = []
     for name, kind in names.items():
         full = os.path.join(target, name)
@@ -81,7 +116,13 @@ def wip_tree(path):
                 kind = "commit"  # サブモジュール
             else:
                 size = os.lstat(full).st_size
-        entries.append({"name": name, "type": kind, "size": size, "mode": ""})
+        entry = {"name": name, "type": kind, "size": size, "mode": ""}
+        if kind == "tree" and name in dir_marks:  # 中に変更があるディレクトリ: 競合 > 未追跡のみ > 変更 の順
+            m = dir_marks[name]
+            entry["st"] = "U" if "U" in m else "?" if m == {"?"} else "M"
+        elif (prefix + name) in marks:
+            entry["st"], entry["xy"] = marks[prefix + name]
+        entries.append(entry)
     return {"hash": WIP_HASH, "head": wip_head(), "path": path,
             "entries": sorted(entries, key=lambda x: (x["type"] != "tree", x["name"]))}
 

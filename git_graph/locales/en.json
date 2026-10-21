@@ -516,5 +516,6 @@
   "wip_blame_untracked": "{path} has not been committed yet, so it cannot be blamed",
   "tip_wip_files": "Open the working-tree file list in a new tab",
   "working_tree_files": "Working tree",
-  "not_committed_yet": "Not committed"
+  "not_committed_yet": "Not committed",
+  "wip_dir_changed": "This directory contains changes"
 }
