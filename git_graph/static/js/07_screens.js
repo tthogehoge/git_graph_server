@@ -47,13 +47,6 @@ listView.addEventListener("click", ev => {
   if (ev.detail > 1) return;
   const tr = ev.target.closest("tr.clickable");
   if (!tr) return;
-  const cmpButton = ev.target.closest("[data-cmp]");
-  if (cmpButton) {
-    ev.preventDefault();
-    ev.stopPropagation();
-    selectCompareHash(cmpButton.dataset.cmp, tr.dataset.h);
-    return;
-  }
   if (ev.target.closest(".copy")) return;
   selectActionTarget(tr.dataset.h);
   if (curRow) curRow.classList.remove("cur");
@@ -62,6 +55,23 @@ listView.addEventListener("click", ev => {
   cmpActOpen = true; abActOpen = false; setOtherMenu(false);
   updateCmpClasses();
   showDetail(tr.dataset.h);
+});
+listView.addEventListener("contextmenu", ev => {  // ログ一覧の右クリック (比較ログの行も対象): 右ペインは動かさず、その行を操作対象にしてメニューを開く
+  const tr = ev.target.closest("tr.clickable");
+  if (!tr || ev.target.closest("a, input, select, textarea")) return;
+  ev.preventDefault();
+  const h = tr.dataset.h;
+  if (compareAHash && compareBHash && (h === compareAHash || h === compareBHash)) {  // A/B の行は AB操作メニュー (グラフのノードと同じ)
+    cmpActOpen = false; abActOpen = true; setOtherMenu(false);
+    updateCmpClasses();
+    positionMenuNearPointer(document.getElementById("abActions"), ev);
+  } else {
+    selectActionTarget(h);
+    cmpActOpen = true; abActOpen = false; setOtherMenu(false);
+    updateCmpClasses();
+    positionMenuNearPointer(document.getElementById("cmpActions"), ev);
+  }
+  saveUiState();
 });
 detailView.addEventListener("click", ev => {
   if (ev.target.closest("#wipReload")) { showWip(true); refreshGraph().catch(() => {}); return; }
@@ -105,6 +115,26 @@ function openFilesInNewTab(ev) {
 document.addEventListener("auxclick", openFilesInNewTab);
 document.addEventListener("click", openFilesInNewTab);
 document.getElementById("compareToolbar").addEventListener("click", ev => {  // メニューバー (操作 / push / pull / fetch / その他)
+  const unsetBtn = ev.target.closest("[data-unset-cmp]");
+  if (unsetBtn) {  // AB操作メニューの「Aのセット解除 / Bのセット解除」
+    if (unsetBtn.dataset.unsetCmp === "A") compareAHash = null; else compareBHash = null;
+    closeMenus(); updateCmpClasses(); saveUiState();
+    return;
+  }
+  const setBtn = ev.target.closest("[data-set-cmp]");
+  if (setBtn && actionHash) {  // 操作メニューの「Aにセット / Bにセット」(セット済みなら解除)
+    const slot = setBtn.dataset.setCmp;
+    if (actionHash === (slot === "A" ? compareAHash : compareBHash)) {
+      if (slot === "A") compareAHash = null; else compareBHash = null;
+      closeMenus(); updateCmpClasses(); saveUiState();
+      return;
+    }
+    const near = document.getElementById("cmpActions").classList.contains("near-pointer");  // 右クリックで開いたメニューか
+    selectCompareHash(setBtn.dataset.setCmp, actionHash);  // A/B が揃うと操作メニューは閉じて AB操作メニューが開く
+    if (abActOpen && near) positionMenuNearPointer(document.getElementById("abActions"), ev);
+    else if (!abActOpen) closeMenus();
+    return;
+  }
   if (ev.target.closest("#actionTarget") && actionHash) {
     showContainingBranchLog(actionHash);
     return;
@@ -190,7 +220,7 @@ document.getElementById("compareToolbar").addEventListener("click", ev => {
   }
 });
 document.getElementById("compareToolbar").addEventListener("click", ev => {  // メニューの項目を選んだら閉じる
-  if (ev.target.closest(".dropdown .abtn")) closeMenus();  // 無効なボタンはクリック自体が発火しない
+  if (ev.target.closest(".dropdown .abtn:not([data-set-cmp])")) closeMenus();  // 無効なボタンはクリック自体が発火しない
 });
 document.addEventListener("click", ev => {  // メニューの外をクリックしたら閉じる
   if (ev.target.closest(".menu-wrap") || ev.target.closest("svg g.node") || ev.target.closest("#panel")) return;  // 右ペインのクリックでは閉じない  // ノードのクリックは onNodeClick が扱う
@@ -206,7 +236,7 @@ function select(g) {
 
 function onNodeClick(g, n, ev) {
   const openMenu = ev && ev.type === "contextmenu";
-  if (openMenu && (n.hash === compareAHash || n.hash === compareBHash)) {
+  if (openMenu && compareAHash && compareBHash && (n.hash === compareAHash || n.hash === compareBHash)) {
     cmpActOpen = false; abActOpen = true; setOtherMenu(false);
     select(g);
     updateCmpClasses();

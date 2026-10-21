@@ -27,6 +27,8 @@ __FAVICON__
       <div class="dropdown" id="cmpActions" hidden>
         <div class="hint" id="actionsEmpty">{{menu_select_commit}}</div>
         <div class="menu-section" id="aActions" hidden>
+          <button class="abtn" id="setABtn" data-set-cmp="A">{{set_as_a}}</button>
+          <button class="abtn" id="setBBtn" data-set-cmp="B">{{set_as_b}}</button>
           <button class="abtn" id="compareWipBtn">{{compare_wip}}</button>
           <button class="abtn" id="pushSelBtn" data-cact="push" data-push-sel="1" title="{{tip_push_selected}}">{{push}}</button>
           <button class="abtn" id="mergeBtn" title="{{tip_merge}}">{{merge}}</button>
@@ -58,6 +60,8 @@ __FAVICON__
     <span class="menu-wrap" id="abActionsWrap">
       <button class="abtn mbtn" id="abActToggle" aria-haspopup="true" aria-expanded="false" aria-controls="abActions">{{ab_actions}}</button>
       <div class="dropdown" id="abActions" hidden>
+        <button class="abtn" id="unsetABtn" data-unset-cmp="A" hidden>{{unset_a}}</button>
+        <button class="abtn" id="unsetBBtn" data-unset-cmp="B" hidden>{{unset_b}}</button>
         <button class="abtn" id="compareBtn" hidden>{{compare_ab}}</button>
         <button class="abtn" id="compareLogsBtn" hidden>{{compare_logs_ab}}</button>
         <button class="abtn" id="rebaseRangeBtn" hidden title="{{tip_rebase_range}}">{{rebase_range}}</button>

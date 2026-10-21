@@ -199,9 +199,9 @@ function saveUiState() {
   }), "");
 }
 function rowHtml(c, extraClass, graphTd) {  // c = [hash, short, author, date, subject, parents?]; graphTd = マージグラフの列
-  return '<tr class="clickable' + (extraClass ? ' ' + extraClass : '') + '" data-h="' + c[0] + '">' + (graphTd || "") + '<td class="h">' + esc(c[1]) + copyLink(c[0]) +
-    '<div class="cmp-pick"><button type="button" class="sbtn" data-cmp="A" title="' + esc(t("set_compare", {slot: "A"})) + '">A</button>' +
-    '<button type="button" class="sbtn" data-cmp="B" title="' + esc(t("set_compare", {slot: "B"})) + '">B</button></div></td><td>' +
-    '<span class="rc">' + chips(c[0]) + "</span>" + esc(c[4]) + '<div class="meta">' + esc(c[2]) + " / " + esc(c[3]) + "</div></td></tr>";
+  return '<tr class="clickable' + (extraClass ? ' ' + extraClass : '') + '" data-h="' + c[0] + '">' + (graphTd || "") +
+    '<td class="h">' + esc(c[1]) + copyLink(c[0]) + '</td><td class="log-cell">' +
+    '<div class="log-main"><div class="log-subj" title="' + esc(c[4]) + '"><span class="rc">' + chips(c[0]) + "</span>" + esc(c[4]) + "</div>" +
+    '<div class="meta">' + esc(c[2]) + " / " + esc(c[3]) + "</div></div></td></tr>";
 }
 

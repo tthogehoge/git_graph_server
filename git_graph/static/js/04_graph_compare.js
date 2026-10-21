@@ -177,9 +177,16 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
   const canWrite = !!DATA.writable;
   document.querySelectorAll("#aActions button")
     .forEach(el => {
-      if (el.id === "compareWipBtn") return;
+      if (el.id === "compareWipBtn" || el.dataset.setCmp) return;
       el.disabled = !canWrite || (["mergeBtn", "rebaseBtn", "irebaseBtn", "cherryBtn", "revertBtn", "resetBtn"].includes(el.id) && !DATA.merge);
     });
+  // すでにそのスロットにセットされているコミットなら、ボタンは「セット解除」になる
+  const setA = document.getElementById("setABtn"), setB = document.getElementById("setBBtn");
+  setA.disabled = setB.disabled = !actionHash;
+  setA.textContent = t(actionHash && actionHash === compareAHash ? "unset_a" : "set_as_a");
+  setB.textContent = t(actionHash && actionHash === compareBHash ? "unset_b" : "set_as_b");
+  document.getElementById("unsetABtn").hidden = !compareAHash || !compareBHash;
+  document.getElementById("unsetBBtn").hidden = !compareAHash || !compareBHash;
   document.querySelectorAll("#remoteActions button")
     .forEach(el => { el.disabled = !canWrite || (el.dataset.cact === "pull" && !DATA.merge); });
   document.querySelectorAll("#remoteConfigActions button").forEach(el => { el.disabled = !canWrite; });
