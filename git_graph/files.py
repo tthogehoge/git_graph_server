@@ -349,6 +349,28 @@ def api_file(q):
             "binary": text is None, "truncated": truncated, "size": len(raw)}
 
 
+def file_download(q):
+    """ダウンロードするファイルを (ファイル名, バイト列) で返す。コミットのファイルは変換せず、そのままの blob を返す。"""
+    if is_wip(q):
+        path = validate_file_path(q.get("path", [""])[0], allow_empty=False)
+        target = worktree_target(path)
+        if os.path.islink(target):  # 表示と同じく、リンク先のパスを内容として扱う
+            raw = os.fsencode(os.readlink(target))
+        elif os.path.isfile(target):
+            with open(target, "rb") as f:
+                raw = f.read()
+        else:
+            raise UserError("not_a_file")
+    else:
+        h = resolve_commit(q.get("hash", [""])[0])
+        path = validate_file_path(q.get("path", [""])[0], allow_empty=False)
+        spec = h + ":" + path
+        if git("cat-file", "-t", spec).strip() != "blob":
+            raise UserError("not_a_file")
+        raw = subprocess.check_output(["git", "-C", state.REPO, "cat-file", "blob", spec])
+    return path.rsplit("/", 1)[-1], raw
+
+
 @route("/api/blame")
 def api_blame(q):
     path = validate_file_path(q.get("path", [""])[0], allow_empty=False)
@@ -443,5 +465,5 @@ def api_file_copy(body):
 
 __all__ = [
     "FILE_CONTENT_LIMIT", "api_file", "api_file_copy", "api_tree", "decode_text", "api_blame",
-    "validate_file_path", "WIP_HASH", "api_file_save", "SAVE_BODY_LIMIT",
+    "validate_file_path", "WIP_HASH", "api_file_save", "SAVE_BODY_LIMIT", "file_download",
 ]

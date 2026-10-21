@@ -7,7 +7,7 @@ import sys
 import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 from . import app_state as state
 from .gitrun import git, is_loopback, resolve_commit
 # 次の import のうち、api_* などは名前を直接使わない。各モジュールの @route 登録を実行させるための import なので、
@@ -30,7 +30,9 @@ from .remote import (  # noqa: F401
     api_fetch, api_pull, api_push, api_push_tag, api_remote_add, api_remote_remove, api_remotes,
 )
 from .routing import route, ROUTES
-from .files import api_blame, api_file, api_file_copy, api_file_save, api_tree, SAVE_BODY_LIMIT, WIP_HASH  # noqa: F401
+from .files import (  # noqa: F401
+    api_blame, api_file, api_file_copy, api_file_save, api_tree, file_download, SAVE_BODY_LIMIT, WIP_HASH,
+)
 from .history import (  # noqa: F401
     api_branches, api_branches_containing, api_commit, api_compare, api_log, api_merge_base,
     api_reflog, api_stash_list, api_tags,
@@ -68,6 +70,18 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _send_download(self, name, data):
+        """ファイルをダウンロードとして返す。日本語などのファイル名は RFC 5987 (filename*) で渡す。"""
+        fallback = "".join(c if c.isascii() and c.isprintable() and c not in '"\\/;' else "_" for c in name) or "download"
+        self.send_response(200)
+        self.send_header("Content-Type", "application/octet-stream")
+        self.send_header("Content-Disposition", f"attachment; filename=\"{fallback}\"; filename*=UTF-8''{quote(name, safe='')}")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+        self.wfile.write(data)
+
     def do_GET(self):
         u = urlparse(self.path)
         q = parse_qs(u.query)
@@ -86,6 +100,8 @@ class Handler(BaseHTTPRequestHandler):
                 if h != WIP_HASH:  # WIP は作業ツリーのファイル表示 (作業ツリーの有無は API 側で確認する)
                     h = resolve_commit(h)
                 self._send(200, "text/html", render_files_page().replace("__HASH__", html.escape(h)))
+            elif u.path == "/download":
+                self._send_download(*file_download(q))
             elif u.path == "/diff":
                 self._send(200, "text/html", render_diff_page(q))
             else:

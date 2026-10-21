@@ -35,6 +35,7 @@ __FAVICON__
   .tok-regex { color: #cf222e; }
   .binary { color: #777; padding: 10px; border: 1px solid #ddd; }
   .file-actions { display: flex; gap: 6px; margin: 8px 0; }
+  .file-actions[hidden] { display: none; }
   .file-actions button { background: #e8eefc; border: 1px solid #b8c7ee; padding: 4px 8px; border-radius: 3px; cursor: pointer; }
   .file-actions button:hover { background: #d6e2fb; }
   .file-actions .msg { margin-left: 8px; color: #0a7b35; white-space: pre-wrap; }
@@ -63,7 +64,7 @@ __FAVICON__
 </style><script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script></head>
 <body><aside id="tree"><h1>{{file_view}}</h1><div class="meta" id="commit"></div><div id="list"></div></aside>
 <main id="main"><h2 id="title">{{select_file}}</h2>
-<div id="fileActions" class="file-actions" hidden><button id="fileLogBtn">{{file_log}}</button><button id="fileBlameBtn">{{file_blame}}</button><button id="fileDiffBtn" hidden>{{file_diff}}</button><button id="fileEditBtn" hidden>{{file_edit}}</button><button id="fileContentBtn" hidden>{{file_content}}</button><button id="fileCopyBtn" hidden>{{copy_to_work}}</button><span id="fileMsg" class="msg"></span></div>
+<div id="fileActions" class="file-actions" hidden><button id="fileLogBtn">{{file_log}}</button><button id="fileBlameBtn">{{file_blame}}</button><button id="fileDiffBtn" hidden>{{file_diff}}</button><button id="fileEditBtn" hidden>{{file_edit}}</button><button id="fileContentBtn" hidden>{{file_content}}</button><button id="fileCopyBtn" hidden>{{copy_to_work}}</button><button id="fileDownloadBtn" hidden>{{file_download}}</button><span id="fileMsg" class="msg"></span></div>
 <div id="content" class="hint">{{select_file_hint}}</div></main>
 <script>
 /*__FILE_I18N__*/
@@ -81,6 +82,7 @@ function setDocumentTitle(label) {
 const qs = new URLSearchParams(location.search), hash = qs.get("hash"), fileViewTab = qs.get("file_view") === "1";
 const list = document.getElementById("list"), content = document.getElementById("content"), title = document.getElementById("title");
 const fileActions = document.getElementById("fileActions"), fileLogBtn = document.getElementById("fileLogBtn"), fileBlameBtn = document.getElementById("fileBlameBtn"), fileContentBtn = document.getElementById("fileContentBtn");
+const fileDownloadBtn = document.getElementById("fileDownloadBtn");
 const fileCopyBtn = document.getElementById("fileCopyBtn"), fileMsg = document.getElementById("fileMsg");
 const fileDiffBtn = document.getElementById("fileDiffBtn"), fileEditBtn = document.getElementById("fileEditBtn");
 const CAN_EDIT = CAN_COPY && hash === "WIP";  // 作業ツリーのファイルだけ編集できる (書き込みが有効なとき)
@@ -156,6 +158,9 @@ function loadTree(path, push) {
     list.querySelectorAll(".entry").forEach(a => a.onclick = () => a.dataset.type === "tree" ? loadTree(a.dataset.path, true) : loadFile(a.dataset.path, true));
   }).catch(showError);
 }
+fileDownloadBtn.onclick = () => {  // Content-Disposition: attachment なので、画面は移動せず保存される
+  if (currentFile) location.href = "/download?" + new URLSearchParams({hash: hash, path: currentFile});
+};
 function setFileMsg(text, ok) { fileMsg.textContent = text; fileMsg.className = "msg" + (ok ? "" : " err"); }
 function defaultCopyName(path) {  // 例: src/a.py → src/a_1234567.py
   const i = path.lastIndexOf("/"), dir = path.slice(0, i + 1), name = path.slice(i + 1), dot = name.lastIndexOf(".");
@@ -189,6 +194,7 @@ function loadFile(path, push) {
   fileLogBtn.hidden = !logHash();
   fileBlameBtn.hidden = isWip && !wipHead;
   fileContentBtn.hidden = true;
+  fileDownloadBtn.hidden = false;
   updateDiffBtn();
   fileEditBtn.hidden = true; fileData = null;
   return api("/api/file", {hash: hash, path: path}).then(r => {
@@ -244,7 +250,7 @@ function startEdit() {
   if (!fileData || !fileData.editable || !currentFile) return;
   editing = true; editDirty = false;
   setFileMsg("", true);
-  [fileLogBtn, fileBlameBtn, fileDiffBtn, fileEditBtn, fileContentBtn, fileCopyBtn].forEach(b => { b.hidden = true; });
+  [fileLogBtn, fileBlameBtn, fileDiffBtn, fileEditBtn, fileContentBtn, fileCopyBtn, fileDownloadBtn].forEach(b => { b.hidden = true; });
   const eol = EOL_LABEL[fileData.eol] || t("edit_eol_none");
   title.textContent = t("file_edit_title", {path: currentFile});
   content.className = "";
