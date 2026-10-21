@@ -138,7 +138,7 @@ def render_diff_page(q):
     name = f"{old} => {path}" if old else path
     edit_link = ""
     if wip and state.WRITABLE and state.HAS_WORKTREE and wip_file_exists(path):  # 作業ツリーにあるファイルは編集画面へ
-        edit_url = "/files?" + urlencode({"hash": WIP_HASH, "path": dir_of(path), "file": path, "edit": "1"})
+        edit_url = "/files?" + urlencode({"hash": WIP_HASH, "path": dir_of(path), "file": path, "view": "edit"})
         edit_link = (f'<a class="ebtn" href="{html.escape(edit_url)}">{html.escape(tr("file_edit"))}</a>')
 
     can_commit = bool(wip_status is not None and state.WRITABLE and state.WIP_ENABLED)  # amend の差分ページには出さない

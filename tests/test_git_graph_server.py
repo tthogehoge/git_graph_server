@@ -501,9 +501,9 @@ class WorkingTreeFilesTests(unittest.TestCase):
         self.addCleanup(setattr, state, "WIP_ENABLED", previous[1])
         state.WRITABLE = state.WIP_ENABLED = True
         page = viewer.render_diff_page({"path": ["README.md"], "wip": ["unstaged"]})
-        self.assertIn('href="/files?hash=WIP&amp;path=&amp;file=README.md&amp;edit=1"', page)
+        self.assertIn('href="/files?hash=WIP&amp;path=&amp;file=README.md&amp;view=edit"', page)
         page = viewer.render_diff_page({"path": ["src/app.py"], "wip": ["unstaged"]})
-        self.assertIn("path=src&amp;file=src%2Fapp.py&amp;edit=1", page)
+        self.assertIn("path=src&amp;file=src%2Fapp.py&amp;view=edit", page)
         self.assertNotIn('class="ebtn"', viewer.render_diff_page({"path": ["gone.txt"], "wip": ["unstaged"]}))
         self.assertNotIn('class="ebtn"', viewer.render_diff_page({"hash": [self.head], "path": ["README.md"]}))
         state.WRITABLE = False

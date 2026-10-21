@@ -119,10 +119,11 @@ function logHash() { return isWip ? wipHead : hash; }  // ファイルのログ�
 function esc(s) { return String(s).replace(/[&<>\"]/g, c => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", "\"":"&quot;"}[c])); }
 function api(path, params) { return fetch(path + "?" + new URLSearchParams(params)).then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); })); }
 function showError(e) { list.innerHTML = '<p class="hint">' + t("error") + esc(e.message) + '</p>'; }
-function pageUrl(path, file) {  // 表示中のディレクトリとファイルを URL に残す (戻る/進む・再読み込みで復元する)
+function pageUrl(path, file, view) {  // 表示中のディレクトリ・ファイル・表示 (edit / blame / log) を URL に残す (戻る/進む・再読み込みで復元する)
   const p = new URLSearchParams({hash: hash});
   if (path) p.set("path", path);
   if (file) p.set("file", file);
+  if (file && view) p.set("view", view);
   if (fileViewTab) p.set("file_view", "1");
   return "?" + p;
 }
@@ -135,7 +136,7 @@ function statusBadge(e) {  // 作業ツリー表示での変更の印 (ディレ
 }
 function loadTree(path, push) {
   current = path;
-  if (push) history.pushState({path: path, file: currentFile}, "", pageUrl(path, currentFile));
+  if (push) history.pushState({path: path, file: currentFile, view: currentView}, "", pageUrl(path, currentFile, currentView));
   return api("/api/tree", {hash: hash, path: path}).then(r => {
     if (isWip) wipHead = r.head || null;
     document.getElementById("commit").textContent = isWip
@@ -171,7 +172,7 @@ fileCopyBtn.onclick = () => {
     .catch(e => setFileMsg(e.message, false));
 };
 function clearFile() {  // ファイルを選ぶ前の表示に戻す
-  currentFile = "";
+  currentFile = ""; currentView = "";
   setDocumentTitle("");
   fileActions.hidden = true;
   title.textContent = t("select_file");
@@ -180,8 +181,8 @@ function clearFile() {  // ファイルを選ぶ前の表示に戻す
 }
 function loadFile(path, push) {
   if (!leaveEdit()) return;
-  if (push && path !== currentFile) history.pushState({path: current, file: path}, "", pageUrl(current, path));
-  currentFile = path;
+  if (push && (path !== currentFile || currentView)) history.pushState({path: current, file: path}, "", pageUrl(current, path));
+  currentFile = path; currentView = "";
   setDocumentTitle(path);
   setFileMsg("", true);
   fileActions.hidden = false;
@@ -202,6 +203,32 @@ function loadFile(path, push) {
     content.innerHTML = r.binary ? t("binary_file") : numberedCode(r.content, lang) + (r.truncated ? '<p class="hint">' + t("large_file_head") + '</p>' : '');
     fileBlameBtn.hidden = r.binary || (isWip && !wipHead);
   }).catch(e => { title.textContent = path; content.className = "hint"; content.textContent = t("error") + e.message; });
+}
+// ---- ファイルごとの表示 (内容 / 編集 / blame / ログ) ----
+// 表示を切り替えるたびに履歴に積む。viaPush: 同じファイルの前の表示から来た (「ファイル内容」などは履歴を戻る)
+let currentView = "", afterRestore = null;
+function logInTab() { return fileViewTab || (window.opener && !window.opener.closed); }
+function renderView(view) {
+  currentView = view;
+  if (view === "edit") {
+    if (!CAN_EDIT) setFileMsg(t("write_disabled"), false);
+    else if (fileData && fileData.editable) startEdit();
+    else if (fileData) setFileMsg(t(fileData.edit_reason || "edit_bad_encoding"), false);
+  } else if (view === "blame") loadFileBlame(currentFile);
+  else if (view === "log" && logInTab()) loadFileLog(currentFile);
+}
+function openView(view) {
+  if (!currentFile || view === currentView) return;
+  if (!leaveEdit()) return;
+  history.pushState({path: current, file: currentFile, view: view, viaPush: true}, "", pageUrl(current, currentFile, view));
+  if (currentView === "edit" || !fileData) loadFile(currentFile, false).then(() => renderView(view));  // 編集欄を閉じて内容を出し直す
+  else renderView(view);
+}
+function backToContent(after) {  // ファイル内容の表示に戻る。前の履歴が同じファイルならそこへ戻る
+  if (history.state && history.state.viaPush) { afterRestore = after || null; history.back(); return; }
+  history.replaceState({path: current, file: currentFile}, "", pageUrl(current, currentFile));
+  const done = loadFile(currentFile, false);
+  if (after && done) done.then(after);
 }
 // ---- 編集 (作業ツリーのみ) ----
 // 編集欄では改行が LF になるので、保存時にサーバー側で元の改行コード・文字コード・BOM に戻す
@@ -238,7 +265,7 @@ function startEdit() {
     }
   });
   document.getElementById("editSave").onclick = saveEdit;
-  document.getElementById("editCancel").onclick = () => { if (leaveEdit()) loadFile(currentFile, false); };
+  document.getElementById("editCancel").onclick = () => { if (leaveEdit()) backToContent(); };
 }
 function saveEdit() {
   const ta = document.getElementById("editor"), btn = document.getElementById("editSave");
@@ -250,13 +277,13 @@ function saveEdit() {
     .then(r => r.ok ? r.json() : r.text().then(m => { throw new Error(m || r.status); }))
     .then(r => {
       editing = editDirty = false;
-      return loadTree(current, false)  // 変更の印と差分ボタンを更新する
-        .then(() => loadFile(path, false))
-        .then(() => setFileMsg(r.message, true));
+      fileData = null;  // 保存後の内容は読み込み直す
+      backToContent(() => loadTree(current, false)  // 変更の印と差分ボタンを更新する
+        .then(() => { updateDiffBtn(); setFileMsg(r.message, true); }));
     })
     .catch(e => { btn.disabled = false; setFileMsg(e.message, false); fileActions.hidden = false; });
 }
-fileEditBtn.onclick = startEdit;
+fileEditBtn.onclick = () => openView("edit");
 function loadFileBlame(path) {
   fileLogBtn.hidden = true;
   fileBlameBtn.hidden = true;
@@ -282,7 +309,7 @@ content.addEventListener("click", ev => {
 function loadFileLog(path) {
   const hash = logHash();
   if (!hash) return;
-  if (fileViewTab || (window.opener && !window.opener.closed)) {
+  if (logInTab()) {
     // 別タブでは親のグラフへ通知せず、このファイル画面にログを表示する。
     fileLogBtn.hidden = true;
     fileBlameBtn.hidden = true;
@@ -303,9 +330,9 @@ function loadFileLog(path) {
   // 同一タブではファイル画面にログを描画せず、グラフ画面へ戻して表示する。
   location.href = "/?file_log_hash=" + encodeURIComponent(hash) + "&file_log_path=" + encodeURIComponent(path);
 }
-fileLogBtn.onclick = () => { if (currentFile) loadFileLog(currentFile); };
-fileBlameBtn.onclick = () => { if (currentFile) loadFileBlame(currentFile); };
-fileContentBtn.onclick = () => { if (currentFile) loadFile(currentFile, false); };
+fileLogBtn.onclick = () => { if (currentFile) { if (logInTab()) openView("log"); else if (leaveEdit()) loadFileLog(currentFile); } };
+fileBlameBtn.onclick = () => openView("blame");
+fileContentBtn.onclick = () => { if (currentFile) backToContent(); };
 const KEYWORDS = {
   python: "and as assert async await break case class continue def del elif else except finally for from global if import in is lambda match nonlocal not or pass raise return try while with yield None True False self",
   javascript: "as async await break case catch class const continue debugger default delete do else export extends false finally for from function get if import in instanceof let new null of return set static super switch this throw true try typeof undefined var void while with yield",
@@ -387,23 +414,24 @@ function numberedCode(source, lang) {
     lines.map((l, i) => '<div class="ln" id="L' + (i + 1) + '"><span class="no">' + (i + 1) + '</span><span class="tx">' + l + '</span></div>').join("") +
     '</code></pre>';
 }
-function restoreFromUrl(first) {  // URL の path / file の状態を画面に反映する
+function restoreFromUrl(first) {  // URL の path / file / view の状態を画面に反映する
   const p = new URLSearchParams(location.search), dir = p.get("path") || "", file = p.get("file") || "";
-  if (!first && editing && file !== currentFile) {
-    if (!leaveEdit()) { history.pushState({path: current, file: currentFile}, "", pageUrl(current, currentFile)); return; }
+  const view = file ? (p.get("view") || (p.get("edit") === "1" ? "edit" : "")) : "";
+  if (!first && editing && (file !== currentFile || view !== "edit")) {  // 編集中に戻る/進む: 破棄しないなら編集画面にとどまる
+    if (!leaveEdit()) {
+      // 戻ろうとした先が同じファイルの別の表示なら、保存/キャンセルでそこへ戻れるようにする
+      history.pushState({path: current, file: currentFile, view: "edit", viaPush: file === currentFile},
+                        "", pageUrl(current, currentFile, "edit"));
+      return;
+    }
   }
   const tree = first || dir !== current ? loadTree(dir, false) : Promise.resolve();
   // WIP ではツリーの読み込みで HEAD が分かってから開く (ログ / blame ボタンの表示に使う)
-  const wantEdit = first && file && p.get("edit") === "1";  // 差分ページの「このファイルを編集」から来たとき
   tree.then(() => {
-    if (file) { if (file !== currentFile || first) return loadFile(file, false); } else if (currentFile) clearFile();
-  }).then(() => {
-    if (!wantEdit) return;
-    history.replaceState({path: current, file: currentFile}, "", pageUrl(current, currentFile));  // 再読み込みで編集を開き直さない
-    if (!CAN_EDIT) setFileMsg(t("write_disabled"), false);
-    else if (fileData && fileData.editable) startEdit();
-    else if (fileData) setFileMsg(t(fileData.edit_reason || "edit_bad_encoding"), false);
-  });
+    if (!file) { if (currentFile) clearFile(); return; }
+    const reload = first || file !== currentFile || !view || currentView === "edit" || !fileData;
+    return (reload ? loadFile(file, false) : Promise.resolve()).then(() => { if (view) renderView(view); });
+  }).then(() => { const f = afterRestore; afterRestore = null; if (f) f(); });
 }
 window.onpopstate = () => restoreFromUrl(false);
 if (!hash) showError(new Error(t("commit_required"))); else { loadCommitChanges(); restoreFromUrl(true); }
