@@ -511,5 +511,10 @@
   "stash_pushed": "変更を {sel} に退避しました",
   "stash_nothing": "退避する変更がありません",
   "stash_push_blocked": "マージ・リベース・チェリーピック・リバートの途中では stash できません。先に完了するか中断してください",
-  "stash_no_commits": "まだコミットがないので stash できません"
+  "stash_no_commits": "まだコミットがないので stash できません",
+  "wip_files_no_worktree": "作業ツリーがないため、作業ツリーのファイルは表示できません",
+  "wip_blame_untracked": "{path} はまだコミットされていないため blame できません",
+  "tip_wip_files": "作業ツリーのファイル一覧を別タブで開く",
+  "working_tree_files": "作業ツリー",
+  "not_committed_yet": "未コミット"
 }

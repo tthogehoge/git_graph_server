@@ -72,8 +72,10 @@ const qs = new URLSearchParams(location.search), hash = qs.get("hash"), fileView
 const list = document.getElementById("list"), content = document.getElementById("content"), title = document.getElementById("title");
 const fileActions = document.getElementById("fileActions"), fileLogBtn = document.getElementById("fileLogBtn"), fileBlameBtn = document.getElementById("fileBlameBtn"), fileContentBtn = document.getElementById("fileContentBtn");
 const fileCopyBtn = document.getElementById("fileCopyBtn"), fileMsg = document.getElementById("fileMsg");
-fileCopyBtn.hidden = !CAN_COPY;
-let current = "", currentFile = "";
+const isWip = hash === "WIP";  // 作業ツリーのファイルを表示する
+fileCopyBtn.hidden = !CAN_COPY || isWip;
+let current = "", currentFile = "", wipHead = null;
+function logHash() { return isWip ? wipHead : hash; }  // ファイルのログの起点 (作業ツリーなら HEAD)
 function esc(s) { return String(s).replace(/[&<>\"]/g, c => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", "\"":"&quot;"}[c])); }
 function api(path, params) { return fetch(path + "?" + new URLSearchParams(params)).then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); })); }
 function showError(e) { list.innerHTML = '<p class="hint">' + t("error") + esc(e.message) + '</p>'; }
@@ -82,7 +84,9 @@ function loadTree(path, push) {
   fileActions.hidden = true;
   if (push) history.pushState({path: path}, "", "?hash=" + encodeURIComponent(hash) + (path ? "&path=" + encodeURIComponent(path) : ""));
   api("/api/tree", {hash: hash, path: path}).then(r => {
-    document.getElementById("commit").textContent = r.hash.slice(0, 7);
+    if (isWip) wipHead = r.head || null;
+    document.getElementById("commit").textContent = isWip
+      ? t("working_tree_files") + (r.head ? " (HEAD " + r.head.slice(0, 7) + ")" : "") : r.hash.slice(0, 7);
     const parts = path ? path.split("/") : [];
     let crumb = '<div class="crumb"><a data-dir="">📁 ' + t("root") + '</a>';
     parts.forEach((p, i) => { const d = parts.slice(0, i + 1).join("/"); crumb += ' / <a data-dir="' + esc(d) + '">' + esc(p) + '</a>'; });
@@ -117,15 +121,15 @@ function loadFile(path) {
   setDocumentTitle(path);
   setFileMsg("", true);
   fileActions.hidden = false;
-  fileLogBtn.hidden = false;
-  fileBlameBtn.hidden = false;
+  fileLogBtn.hidden = !logHash();
+  fileBlameBtn.hidden = isWip && !wipHead;
   fileContentBtn.hidden = true;
   api("/api/file", {hash: hash, path: path}).then(r => {
     const lang = languageFor(r.path);
     title.textContent = r.path + (lang ? " (" + lang + ")" : "") + (r.encoding ? " [" + r.encoding + "]" : "");
     content.className = r.binary ? "binary" : "";
     content.innerHTML = r.binary ? t("binary_file") : numberedCode(r.content, lang) + (r.truncated ? '<p class="hint">' + t("large_file_head") + '</p>' : '');
-    fileBlameBtn.hidden = r.binary;
+    fileBlameBtn.hidden = r.binary || (isWip && !wipHead);
   }).catch(e => { title.textContent = path; content.className = "hint"; content.textContent = t("error") + e.message; });
 }
 function loadFileBlame(path) {
@@ -138,8 +142,9 @@ function loadFileBlame(path) {
   content.textContent = t("loading");
   api("/api/blame", {hash: hash, path: path}).then(r => {
     content.innerHTML = '<div class="meta">' + esc(t("n_lines", {n: r.lines.length})) + '</div><div class="blame">' +
-      r.lines.map(line => '<div class="blame-line"><span class="blame-no">' + line.line + '</span><span class="blame-meta"><a class="blame-commit" href="/?commit_hash=' +
-        encodeURIComponent(line.hash) + '">' + esc(line.hash.slice(0, 7)) + '</a> ' + esc(line.author + " " + line.date) +
+      r.lines.map(line => '<div class="blame-line"><span class="blame-no">' + line.line + '</span><span class="blame-meta">' +
+        (/^0+$/.test(line.hash) ? esc(t("not_committed_yet")) : '<a class="blame-commit" href="/?commit_hash=' +  // 未コミットの行
+        encodeURIComponent(line.hash) + '">' + esc(line.hash.slice(0, 7)) + '</a> ' + esc(line.author + " " + line.date)) +
         '</span><span class="blame-code">' + esc(line.content) + '</span></div>').join("") + '</div>';
   }).catch(e => { content.className = "hint"; content.textContent = t("error") + e.message; });
 }
@@ -150,6 +155,8 @@ content.addEventListener("click", ev => {
   window.opener.postMessage({type: "git-graph-commit", hash: new URL(link.href).searchParams.get("commit_hash")}, location.origin);
 });
 function loadFileLog(path) {
+  const hash = logHash();
+  if (!hash) return;
   if (fileViewTab || (window.opener && !window.opener.closed)) {
     // 別タブでは親のグラフへ通知せず、このファイル画面にログを表示する。
     fileLogBtn.hidden = true;

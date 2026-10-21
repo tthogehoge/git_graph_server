@@ -10,6 +10,7 @@ from .routing import route
 
 
 FILE_CONTENT_LIMIT = 2_000_000
+WIP_HASH = "WIP"  # /files?hash=WIP で作業ツリーのファイルを表示する
 
 
 def validate_file_path(path, allow_empty=True):
@@ -22,8 +23,90 @@ def validate_file_path(path, allow_empty=True):
     return path
 
 
+def is_wip(q):
+    return q.get("hash", [""])[0] == WIP_HASH
+
+
+def wip_head():
+    """作業ツリー表示でファイルのログに使う HEAD のハッシュ。コミットがまだなければ None。"""
+    r = subprocess.run(["git", "-C", state.REPO, "rev-parse", "--verify", "--quiet", "HEAD^{commit}"],
+                       capture_output=True, text=True)
+    return r.stdout.strip() or None
+
+
+def worktree_target(path):
+    """作業ツリー内のパスを絶対パスにする。シンボリックリンクなどでリポジトリの外に出るものは拒否する。"""
+    if not state.HAS_WORKTREE:
+        raise UserError("wip_files_no_worktree")
+    if "\\" in path or path.split("/")[0].lower() == ".git":
+        raise ValueError("bad path")
+    root = os.path.realpath(state.REPO)
+    target = os.path.join(root, *path.split("/")) if path else root
+    parent = os.path.realpath(os.path.dirname(target)) if path else root
+    try:
+        inside = os.path.commonpath([root, parent]) == root
+    except ValueError:  # 別ドライブなど
+        inside = False
+    if not inside:
+        raise ValueError("bad path")
+    return target
+
+
+def wip_tree(path):
+    """作業ツリーのディレクトリ一覧。git に管理されているファイルと、無視されていない未追跡ファイルを出す。"""
+    target = worktree_target(path)
+    if path and (os.path.islink(target) or not os.path.isdir(target)):
+        raise UserError("dir_not_found")
+    prefix = path + "/" if path else ""
+    args = ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--full-name"]
+    raw = git(*args, "--", prefix or ".", literal=True)
+    names = {}
+    for item in raw.split("\0"):
+        if not item or not item.startswith(prefix):
+            continue
+        rest = item[len(prefix):]
+        name, sep, _ = rest.partition("/")
+        if sep:
+            names[name] = "tree"
+        else:
+            names.setdefault(name, "blob")
+    entries = []
+    for name, kind in names.items():
+        full = os.path.join(target, name)
+        if not os.path.lexists(full):  # 削除済み (まだコミットしていない) のファイル
+            continue
+        size = None
+        if kind == "blob":
+            if os.path.isdir(full) and not os.path.islink(full):
+                kind = "commit"  # サブモジュール
+            else:
+                size = os.lstat(full).st_size
+        entries.append({"name": name, "type": kind, "size": size, "mode": ""})
+    return {"hash": WIP_HASH, "head": wip_head(), "path": path,
+            "entries": sorted(entries, key=lambda x: (x["type"] != "tree", x["name"]))}
+
+
+def wip_file(path):
+    target = worktree_target(path)
+    if os.path.islink(target):  # git と同じく、リンク先のパスを内容として扱う
+        raw = os.fsencode(os.readlink(target))
+    elif os.path.isfile(target):
+        with open(target, "rb") as f:
+            raw = f.read(FILE_CONTENT_LIMIT + 1)
+    else:
+        raise UserError("not_a_file")
+    truncated = len(raw) > FILE_CONTENT_LIMIT
+    data = raw[:FILE_CONTENT_LIMIT]
+    text, encoding = decode_text(data, truncated)
+    size = len(raw) if os.path.islink(target) else os.path.getsize(target)
+    return {"hash": WIP_HASH, "path": path, "content": text or "", "encoding": encoding,
+            "binary": text is None, "truncated": truncated, "size": size}
+
+
 @route("/api/tree")
 def api_tree(q):
+    if is_wip(q):
+        return wip_tree(validate_file_path(q.get("path", [""])[0]))
     h = resolve_commit(q.get("hash", [""])[0])
     path = validate_file_path(q.get("path", [""])[0])
     treeish = h if not path else h + ":" + path
@@ -101,6 +184,8 @@ def decode_text(data, truncated=False):
 
 @route("/api/file")
 def api_file(q):
+    if is_wip(q):
+        return wip_file(validate_file_path(q.get("path", [""])[0], allow_empty=False))
     h = resolve_commit(q.get("hash", [""])[0])
     path = validate_file_path(q.get("path", [""])[0], allow_empty=False)
     spec = h + ":" + path
@@ -117,9 +202,19 @@ def api_file(q):
 
 @route("/api/blame")
 def api_blame(q):
-    h = resolve_commit(q.get("hash", [""])[0])
     path = validate_file_path(q.get("path", [""])[0], allow_empty=False)
-    out = git("blame", "--line-porcelain", h, "--", path, literal=True)
+    if is_wip(q):  # 作業ツリーの内容を blame する。未コミットの行はハッシュが 0000000 になる
+        worktree_target(path)
+        h = WIP_HASH
+        r = subprocess.run(["git", "-C", state.REPO, "blame", "--line-porcelain", "--", path],
+                           capture_output=True, text=True, encoding="utf-8", errors="replace",
+                           env=dict(os.environ, GIT_LITERAL_PATHSPECS="1"))
+        if r.returncode != 0:
+            raise UserError("wip_blame_untracked", path=path)
+        out = r.stdout
+    else:
+        h = resolve_commit(q.get("hash", [""])[0])
+        out = git("blame", "--line-porcelain", h, "--", path, literal=True)
     raw_lines = out.splitlines()
     lines, i = [], 0
     while i < len(raw_lines):
@@ -199,5 +294,5 @@ def api_file_copy(body):
 
 __all__ = [
     "FILE_CONTENT_LIMIT", "api_file", "api_file_copy", "api_tree", "decode_text", "api_blame",
-    "validate_file_path",
+    "validate_file_path", "WIP_HASH",
 ]

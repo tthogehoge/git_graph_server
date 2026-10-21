@@ -317,6 +317,77 @@ class GitApiIntegrationTests(unittest.TestCase):
         self.assertNotIn('[label="+1", style=dashed]', dot)
 
 
+class WorkingTreeFilesTests(unittest.TestCase):
+    """/files?hash=WIP: 作業ツリーのファイル一覧・内容・blame。"""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.repo = self.temp_dir.name
+        self.previous = (state.REPO, state.HAS_WORKTREE)
+        state.REPO, state.HAS_WORKTREE = self.repo, True
+        self.git("init", "-q")
+        self.git("config", "user.name", "Test User")
+        self.git("config", "user.email", "test@example.com")
+        os.makedirs(os.path.join(self.repo, "src"))
+        self.write("README.md", "first\n")
+        self.write("src/app.py", "print(1)\n")
+        self.write("gone.txt", "x\n")
+        self.write(".gitignore", "*.log\n")
+        self.git("add", ".")
+        self.git("commit", "-q", "-m", "initial")
+        self.head = self.git("rev-parse", "HEAD").strip()
+        self.write("README.md", "first\nsecond\n")
+        self.write("new.txt", "untracked\n")
+        self.write("debug.log", "ignored\n")
+        os.remove(os.path.join(self.repo, "gone.txt"))
+
+    def tearDown(self):
+        state.REPO, state.HAS_WORKTREE = self.previous
+        self.temp_dir.cleanup()
+
+    def git(self, *args):
+        return subprocess.check_output(["git", "-C", self.repo, *args], text=True, encoding="utf-8")
+
+    def write(self, path, content):
+        with open(os.path.join(self.repo, path), "w", encoding="utf-8") as f:
+            f.write(content)
+
+    def test_tree_lists_working_tree_without_ignored_or_deleted(self):
+        tree = app.api_tree({"hash": ["WIP"]})
+        self.assertEqual(tree["head"], self.head)
+        self.assertEqual([e["name"] for e in tree["entries"]], ["src", ".gitignore", "README.md", "new.txt"])
+        self.assertEqual(tree["entries"][0]["type"], "tree")
+        sub = app.api_tree({"hash": ["WIP"], "path": ["src"]})
+        self.assertEqual([e["name"] for e in sub["entries"]], ["app.py"])
+
+    def test_file_reads_uncommitted_content(self):
+        self.assertEqual(app.api_file({"hash": ["WIP"], "path": ["README.md"]})["content"], "first\nsecond\n")
+        self.assertEqual(app.api_file({"hash": ["WIP"], "path": ["new.txt"]})["content"], "untracked\n")
+
+    def test_blame_marks_uncommitted_lines(self):
+        lines = app.api_blame({"hash": ["WIP"], "path": ["README.md"]})["lines"]
+        self.assertEqual(lines[0]["hash"], self.head)
+        self.assertRegex(lines[1]["hash"], r"^0+$")
+        self.assertEqual(lines[1]["content"], "second")
+        with self.assertRaises(app.UserError):
+            app.api_blame({"hash": ["WIP"], "path": ["new.txt"]})
+
+    def test_rejects_paths_outside_repository(self):
+        outside = tempfile.TemporaryDirectory()
+        self.addCleanup(outside.cleanup)
+        os.symlink(outside.name, os.path.join(self.repo, "link"))
+        with open(os.path.join(outside.name, "secret.txt"), "w") as f:
+            f.write("secret")
+        for path in ("../x", ".git/config", "link/secret.txt"):
+            with self.assertRaises(ValueError):
+                app.api_file({"hash": ["WIP"], "path": [path]})
+
+    def test_requires_worktree(self):
+        state.HAS_WORKTREE = False
+        with self.assertRaises(app.UserError):
+            app.api_tree({"hash": ["WIP"]})
+
+
 class GitWriteApiIntegrationTests(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()

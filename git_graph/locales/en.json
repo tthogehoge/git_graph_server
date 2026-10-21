@@ -511,5 +511,10 @@
   "stash_pushed": "Stashed the changes as {sel}",
   "stash_nothing": "There are no changes to stash",
   "stash_push_blocked": "Cannot stash during a merge, rebase, cherry-pick or revert. Finish or abort it first",
-  "stash_no_commits": "Cannot stash because there are no commits yet"
+  "stash_no_commits": "Cannot stash because there are no commits yet",
+  "wip_files_no_worktree": "There is no working tree, so working-tree files cannot be shown",
+  "wip_blame_untracked": "{path} has not been committed yet, so it cannot be blamed",
+  "tip_wip_files": "Open the working-tree file list in a new tab",
+  "working_tree_files": "Working tree",
+  "not_committed_yet": "Not committed"
 }
