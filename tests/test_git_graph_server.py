@@ -195,6 +195,23 @@ class GitApiIntegrationTests(unittest.TestCase):
         self.assertEqual(filtered["total"], 1)
         self.assertEqual(filtered["commits"][0][0], self.first_commit)
 
+    def test_api_log_includes_parents_for_merge_graph(self):
+        result = app.api_log({"rev": [self.third_commit], "graph": ["1"]})
+        self.assertEqual([row[5] for row in result["commits"]], [
+            [self.second_commit],
+            [self.first_commit],
+            [],
+        ])
+
+        # path 指定時は、そのパスを変更したコミットへ書き換えた親を返す
+        filtered = app.api_log({"rev": [self.third_commit], "path": ["src/app.py"], "graph": ["1"]})
+        self.assertEqual([row[0] for row in filtered["commits"]], [self.third_commit, self.first_commit])
+        self.assertEqual(filtered["commits"][0][5], [self.first_commit])
+
+        # 範囲指定では範囲外の親を含めない
+        ranged = app.api_log({"rev": [self.first_commit + ".." + self.third_commit], "graph": ["1"]})
+        self.assertEqual([row[5] for row in ranged["commits"]], [[self.second_commit], []])
+
     def test_api_commit_includes_parent_and_changed_files(self):
         result = app.api_commit({"hash": [self.second_commit]})
 
