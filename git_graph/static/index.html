@@ -91,12 +91,12 @@ __FAVICON__
   </form>
 </div>
 <div id="coModal" hidden><div class="comodal" role="dialog" aria-modal="true">
-  <div><b>{{checkout_blocked}}</b> — <span>{{checkout_blocked_hint}}</span></div>
+  <div><b id="coTitle">{{checkout_blocked}}</b> — <span id="coSub">{{checkout_blocked_hint}}</span></div>
   <div id="coFiles"></div>
-  <div class="hint">{{co_hint_stash}}<br>
+  <div class="hint" id="coHint">{{co_hint_stash}}<br>
   {{co_hint_discard}}</div>
-  <div class="arow"><button class="abtn" data-co="stash">{{stash_checkout}}</button>
-    <button class="abtn danger" data-co="discard">{{discard_checkout}}</button>
+  <div class="arow"><button class="abtn" id="coStashBtn" data-co="stash">{{stash_checkout}}</button>
+    <button class="abtn danger" id="coDiscardBtn" data-co="discard">{{discard_checkout}}</button>
     <button class="abtn" data-co="cancel">{{cancel}}</button></div>
 </div></div>
 <div id="graph">

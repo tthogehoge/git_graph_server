@@ -8,6 +8,7 @@ from .gitrun import (
 from .gitstate import branch_config, has_head, is_merging, is_rebasing
 from .i18n import tr, UserError
 from .rebase import api_head
+from .refops import run_resolving, with_stash_note
 from .routing import route
 
 
@@ -104,7 +105,9 @@ def api_remote_remove(body):
 @route("/api/pull", method="POST")
 def api_pull(body):
     """現在のブランチに upstream の変更を取り込む。
-    merge で競合したときはマージ途中で止める (WIP で解決)。rebase で競合したときは中止して元に戻す。"""
+    merge で競合したときはマージ途中で止める (WIP で解決)。rebase で競合したときは中止して元に戻す。
+    編集中のファイルや同名の管理外ファイルに邪魔されて取り込めないときは、止めているファイルを返す ({blocked, modified, untracked})。
+    on_conflict="stash" で再実行すると全変更を stash してから、"discard" で再実行すると止めているファイルだけ破棄してから取り込む。"""
     if not state.HAS_WORKTREE:
         raise UserError("pull_no_worktree")
     mode = body.get("mode", "ff-only")
@@ -124,7 +127,14 @@ def api_pull(body):
     remote = branch_config(branch, "remote")
     before = git("rev-parse", "HEAD").strip()
     auth = auth_for_remote(remote, body) if remote and remote != "." else None
-    r = run_git_net("pull", *flags, auth=auth)
+    r, blocked, stashed = run_resolving(
+        lambda c_locale: run_git_net("pull", *flags, auth=auth, c_locale=c_locale),
+        body.get("on_conflict"), rebase_dirty=(mode == "rebase"))
+    stash = {"stashed": stashed}
+    if blocked:  # 手元の変更に邪魔された (通信までは成功している)
+        if remote and remote != ".":
+            remember_auth(remote, auth)
+        return blocked
     if r.returncode != 0:
         if is_http_auth_error(r) and (not body.get("auth_retry") or body.get("auth_remote") != remote):
             return {"auth_required": True, "auth_remote": remote}
@@ -132,16 +142,16 @@ def api_pull(body):
             HTTP_AUTH_CACHE.pop(remote, None)
         if is_merging():  # 競合 (自動マージできなかった)
             return {"ok": True, "conflict": True,
-                    "message": tr("merge_conflict", target=up)}
+                    "message": with_stash_note(stash, tr("merge_conflict", target=up))}
         if is_rebasing():  # 競合 → 元に戻す
             subprocess.run(["git", "-C", state.REPO, "rebase", "--abort"], capture_output=True)
-            raise UserError("rebase_conflict", target=up, cmd="git pull --rebase")
-        raise ValueError(net_error(r, tr("pull_failed")) + (tr("pull_diverged_hint") if mode == "ff-only" else ""))
+            raise ValueError(with_stash_note(stash, tr("rebase_conflict", target=up, cmd="git pull --rebase")))
+        raise ValueError(with_stash_note(stash, net_error(r, tr("pull_failed")) + (tr("pull_diverged_hint") if mode == "ff-only" else "")))
     if remote and remote != ".":
         remember_auth(remote, auth)
     if git("rev-parse", "HEAD").strip() == before:
-        return {"ok": True, "message": tr("pull_uptodate", branch=branch)}
-    return {"ok": True, "message": tr("pull_done", branch=branch, up=up)}
+        return {"ok": True, "message": with_stash_note(stash, tr("pull_uptodate", branch=branch))}
+    return {"ok": True, "message": with_stash_note(stash, tr("pull_done", branch=branch, up=up))}
 
 def git_config(key):
     r = subprocess.run(["git", "-C", state.REPO, "config", "--get", key],

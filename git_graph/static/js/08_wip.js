@@ -122,6 +122,24 @@ function doWipDiscard() {
     .then(r => { wipSel = {}; showWip(true, r.message); refreshGraph().catch(() => {}); })
     .catch(e => { wipSay(e.message, false); wipSync(); });
 }
+async function doWipStash() {  // 作業ツリーの変更を stash に退避する (チェックしたファイルだけ / すべて)
+  const paths = wipPaths(), n = paths.length;
+  const fields = '<label>' + esc(t("stash_message")) + '<input type="text" name="message" autofocus></label>' +
+    (n ? '<label>' + esc(t("stash_scope")) + '<select name="scope">' +
+      '<option value="all" selected>' + esc(t("stash_scope_all")) + '</option>' +
+      '<option value="selected">' + esc(t("stash_scope_selected", {n: n})) + '</option></select></label>' : "") +
+    '<label class="check"><input type="checkbox" name="untracked" checked> ' + esc(t("stash_include_untracked")) + '</label>';
+  const values = await openActionDialog(t("wip_stash"), fields, t("wip_stash"));
+  if (!values) return;
+  const body = {message: values.message.trim(), untracked: !!values.untracked};
+  if (n && values.scope === "selected") body.paths = paths;
+  const btn = detailView.querySelector("#wipStash");
+  if (btn) btn.disabled = true;
+  wipSay(t("wip_execute"), true);
+  post("/api/stash-push", body)
+    .then(r => { wipSel = {}; showWip(true, r.message); loadStashes(); refreshGraph().catch(() => {}); })
+    .catch(e => { wipSay(e.message, false); if (btn) btn.disabled = false; });
+}
 function doWipAbort() {
   const b = detailView.querySelector("#wipAbort");
   if (!b) return;
@@ -170,6 +188,7 @@ function showWip(fromHistory, okMsg) {
         (canAmend ? '<label class="amendrow"><input type="checkbox" id="wipAmendCk"' + (wipAmendOn ? " checked" : "") +
           '>' + t("amend_checkbox") + '</label>' : "") +
         '<div class="arow"><button class="wbtn" id="wipCommit">' + t("wip_commit") + '</button>' +
+        (!wipAmendOn && !opCmd ? '<button class="wbtn" id="wipStash" title="' + esc(t("tip_wip_stash")) + '">' + t("wip_stash") + '</button>' : "") +
         (!wipAmendOn && !opCmd ? '<button class="wbtn danger" id="wipDiscard">' + t("wip_discard") + '</button>' : "") +
         '<span class="hint">' + hint + '</span></div>' +
         '<div class="amsg" id="wipMsgOut"></div></div>' : "";

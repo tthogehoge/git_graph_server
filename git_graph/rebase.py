@@ -13,6 +13,7 @@ from .gitstate import (
     read_status_raw,
 )
 from .i18n import tr, UserError
+from .refops import run_resolving, with_stash_note
 from .routing import route
 
 
@@ -25,7 +26,9 @@ def api_head(q=None):
 @route("/api/merge", method="POST")
 def api_merge(body):
     """選んだコミットを、いまチェックアウトしている HEAD にマージする。
-    競合したときはマージ途中の状態で止める (WIP の一覧に競合ファイルが出るので、解決してコミットする)。"""
+    競合したときはマージ途中の状態で止める (WIP の一覧に競合ファイルが出るので、解決してコミットする)。
+    編集中のファイルや同名の管理外ファイルに邪魔されてマージできないときは、止めているファイルを返す ({blocked, modified, untracked})。
+    on_conflict="stash" で再実行すると全変更を stash してから、"discard" で再実行すると止めているファイルだけ破棄してからマージする。"""
     if not state.HAS_WORKTREE:
         raise UserError("merge_no_worktree")
     h = resolve_commit(body.get("hash", ""))
@@ -37,17 +40,24 @@ def api_merge(body):
     args = ["merge", "--no-edit"]
     if body.get("no_ff"):
         args.append("--no-ff")
-    r = subprocess.run(["git", "-C", state.REPO, *args, h], capture_output=True, text=True,
-                       encoding="utf-8", errors="replace")
+    def run(c_locale):
+        env = dict(os.environ, LC_ALL="C", LANGUAGE="C") if c_locale else None
+        return subprocess.run(["git", "-C", state.REPO, *args, h], capture_output=True, text=True,
+                              encoding="utf-8", errors="replace", env=env)
+
+    r, blocked, stashed = run_resolving(run, body.get("on_conflict"))
+    if blocked:
+        return blocked
+    stash = {"stashed": stashed}
     out = (r.stdout + r.stderr).strip()
     if r.returncode != 0:
         if is_merging():  # 競合 (自動マージできなかった)
             return {"ok": True, "conflict": True,
-                    "message": tr("merge_conflict", target=h[:7])}
-        raise ValueError(out or tr("merge_failed"))
+                    "message": with_stash_note(stash, tr("merge_conflict", target=h[:7]))}
+        raise ValueError(with_stash_note(stash, out or tr("merge_failed")))
     if git("rev-parse", "HEAD").strip() == before:  # git の出力文言 (ロケールで変わる) ではなく、HEAD が動いたかで判定する
-        return {"ok": True, "message": tr("merge_uptodate", hash=h[:7])}
-    return {"ok": True, "message": tr("merge_done", hash=h[:7])}
+        return {"ok": True, "message": with_stash_note(stash, tr("merge_uptodate", hash=h[:7]))}
+    return {"ok": True, "message": with_stash_note(stash, tr("merge_done", hash=h[:7]))}
 
 @route("/api/rebase", method="POST")
 def api_rebase(body):

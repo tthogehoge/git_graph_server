@@ -42,13 +42,32 @@ function loadStashes() {
     updateCmpClasses();
   }).catch(() => {});
 }
-function askCheckoutConflict(r) {  // チェックアウトを止めているファイルを見せて、stash / 削除 / キャンセルを選んでもらう
+// 編集中のファイルや同名の管理外ファイルに操作を止められたとき、止めているファイルを見せて、stash / 破棄 / キャンセルを選んでもらう。
+// kind: "checkout" (既定) / "pull" / "merge" / "stash" (stash の適用: stash は選べず、破棄して上書きして適用するだけ)
+function askCheckoutConflict(r, kind) {
+  kind = kind || "checkout";
   return new Promise(resolve => {
     const m = document.getElementById("coModal");
+    if (kind === "checkout") {
+      document.getElementById("coTitle").textContent = t("checkout_blocked");
+      document.getElementById("coSub").textContent = t("checkout_blocked_hint");
+      document.getElementById("coHint").innerHTML = esc(t("co_hint_stash")) + "<br>" + esc(t("co_hint_discard"));
+      document.getElementById("coStashBtn").textContent = t("stash_checkout");
+      document.getElementById("coDiscardBtn").textContent = t("discard_checkout");
+    } else {
+      const op = {pull: "pull", merge: t("merge"), stash: t("stash_apply")}[kind];
+      document.getElementById("coTitle").textContent = t("co_blocked_op", {op: op});
+      document.getElementById("coSub").textContent = t("co_blocked_hint_op");
+      document.getElementById("coHint").innerHTML = kind === "stash" ? esc(t("co_hint_force_apply"))
+        : esc(t("co_hint_stash")) + "<br>" + esc(t("co_hint_discard"));
+      document.getElementById("coStashBtn").textContent = t("co_stash_retry");
+      document.getElementById("coDiscardBtn").textContent = kind === "stash" ? t("co_force_apply") : t("co_discard_retry");
+    }
+    document.getElementById("coStashBtn").hidden = kind === "stash";  // stash の適用では、さらに stash を積んでも解決しない
     const list = fs => "<ul>" + fs.map(f => "<li>" + esc(f) + "</li>").join("") + "</ul>";
     let html = "";
     if (r.modified.length) html += "<h3>" + esc(t("co_modified")) + "</h3>" + list(r.modified);
-    if (r.untracked.length) html += "<h3>" + esc(t("co_untracked")) + "</h3>" + list(r.untracked);
+    if (r.untracked.length) html += "<h3>" + esc(t(kind === "checkout" ? "co_untracked" : "co_untracked_op")) + "</h3>" + list(r.untracked);
     document.getElementById("coFiles").innerHTML = html;
     const done = v => { m.hidden = true; m.onclick = null; resolve(v); };
     m.hidden = false;
@@ -318,6 +337,16 @@ async function doRemoteAction(btn) {  // fetch / pull / push
     setRemoteMsg(t("running_remote"), "progress");
     return post(url, Object.assign({}, body, {auth: auth, auth_remote: r.auth_remote, auth_retry: true}));
   });
+  if (act === "pull") {  // 編集中のファイルや管理外ファイルに邪魔されたら、stash / 破棄を選ばせて再実行する
+    p = p.then(async r => {
+      if (!r.blocked) return r;
+      setRemoteMsg("", true);
+      const mode = await askCheckoutConflict(r, "pull");
+      if (!mode) return {cancelled: true, message: t("operation_cancelled")};
+      setRemoteMsg(t("running_remote"), "progress");
+      return post(url, Object.assign({}, body, {on_conflict: mode}));
+    });
+  }
   if (act === "push-tag") {
     p = p.then(r => {
       if (!r.needs_remote) return r;

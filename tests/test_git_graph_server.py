@@ -840,6 +840,220 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertEqual(self.git("rev-parse", "HEAD~2").strip(), self.head)
         self.assertEqual(self.git("status", "--porcelain"), "")
 
+    def make_branch_changing_tracked_file(self, name="other", content="other version\n"):
+        """main を動かさずに、tracked.txt を変えたブランチを作る (main へのマージは fast-forward になる)。"""
+        self.git("checkout", "-q", "-b", name)
+        self.write_file("tracked.txt", content)
+        self.git("commit", "-a", "-q", "-m", "other version")
+        tip = self.git("rev-parse", "HEAD").strip()
+        self.git("checkout", "-q", "main")
+        return tip
+
+    def test_merge_reports_blocking_file_and_resolves_with_stash_or_discard(self):
+        tip = self.make_branch_changing_tracked_file()
+        self.write_file("tracked.txt", "local change\n")
+
+        blocked = app.api_merge({"hash": tip})
+
+        self.assertTrue(blocked["blocked"])
+        self.assertEqual(blocked["modified"], ["tracked.txt"])
+        self.assertEqual(self.git("rev-parse", "HEAD").strip(), self.head)
+        self.assertEqual(self.read_file("tracked.txt"), "local change\n")
+
+        stashed = app.api_merge({"hash": tip, "on_conflict": "stash"})
+
+        self.assertTrue(stashed["ok"])
+        self.assertIn("stash@{0}", stashed["message"])
+        self.assertEqual(self.git("rev-parse", "HEAD").strip(), tip)
+        self.assertEqual(self.read_file("tracked.txt"), "other version\n")
+        self.assertEqual(app.api_stash_list({})["total"], 1)
+
+    def test_merge_discard_drops_only_blocking_files(self):
+        tip = self.make_branch_changing_tracked_file()
+        self.write_file("tracked.txt", "local change\n")
+        self.write_file("unrelated.txt", "keep me\n")
+
+        result = app.api_merge({"hash": tip, "on_conflict": "discard"})
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(self.git("rev-parse", "HEAD").strip(), tip)
+        self.assertEqual(self.read_file("tracked.txt"), "other version\n")
+        self.assertEqual(self.read_file("unrelated.txt"), "keep me\n")  # 邪魔していないファイルは触らない
+        self.assertEqual(app.api_stash_list({})["total"], 0)
+
+    def test_merge_reports_blocking_untracked_file(self):
+        self.git("checkout", "-q", "-b", "adds-file")
+        self.write_file("new.txt", "from branch\n")
+        self.git("add", "new.txt")
+        self.git("commit", "-q", "-m", "add new.txt")
+        tip = self.git("rev-parse", "HEAD").strip()
+        self.git("checkout", "-q", "main")
+        self.write_file("new.txt", "untracked local\n")
+
+        blocked = app.api_merge({"hash": tip})
+        self.assertTrue(blocked["blocked"])
+        self.assertEqual(blocked["untracked"], ["new.txt"])
+
+        result = app.api_merge({"hash": tip, "on_conflict": "discard"})
+        self.assertTrue(result["ok"])
+        self.assertEqual(self.read_file("new.txt"), "from branch\n")
+
+    def test_merge_rejects_unknown_on_conflict(self):
+        tip = self.make_branch_changing_tracked_file()
+        with self.assertRaises(ValueError):
+            app.api_merge({"hash": tip, "on_conflict": "bogus"})
+
+    def test_pull_reports_blocking_file_and_resolves_with_stash_or_discard(self):
+        origin = tempfile.TemporaryDirectory()
+        self.addCleanup(origin.cleanup)
+        subprocess.check_call(["git", "clone", "-q", self.repo, os.path.join(origin.name, "up")])
+        up = os.path.join(origin.name, "up")
+        for key, value in (("user.name", "Test User"), ("user.email", "test@example.com")):
+            subprocess.check_call(["git", "-C", up, "config", key, value])
+        with open(os.path.join(up, "tracked.txt"), "w", encoding="utf-8") as f:
+            f.write("upstream version\n")
+        subprocess.check_call(["git", "-C", up, "commit", "-a", "-q", "-m", "upstream change"])
+        up_tip = subprocess.check_output(["git", "-C", up, "rev-parse", "HEAD"], text=True).strip()
+        self.git("remote", "add", "origin", up)
+        self.git("fetch", "-q", "origin")
+        self.git("branch", "-u", "origin/main")
+
+        for mode in ("ff-only", "merge", "rebase"):
+            self.git("reset", "-q", "--hard", self.head)
+            self.write_file("tracked.txt", "local change\n")
+
+            blocked = app.api_pull({"mode": mode})
+            self.assertTrue(blocked.get("blocked"), mode)
+            self.assertEqual(blocked["modified"], ["tracked.txt"], mode)
+            self.assertEqual(self.read_file("tracked.txt"), "local change\n")
+
+            result = app.api_pull({"mode": mode, "on_conflict": "stash"})
+            self.assertTrue(result["ok"], mode)
+            self.assertEqual(self.git("rev-parse", "HEAD").strip(), up_tip, mode)
+            self.assertEqual(self.read_file("tracked.txt"), "upstream version\n", mode)
+            self.git("stash", "drop", "-q")
+
+            self.git("reset", "-q", "--hard", self.head)
+            self.write_file("tracked.txt", "local change\n")
+            result = app.api_pull({"mode": mode, "on_conflict": "discard"})
+            self.assertTrue(result["ok"], mode)
+            self.assertEqual(self.git("rev-parse", "HEAD").strip(), up_tip, mode)
+            self.assertEqual(self.read_file("tracked.txt"), "upstream version\n", mode)
+            self.assertEqual(app.api_stash_list({})["total"], 0)
+
+    def test_stash_push_stashes_everything_including_untracked_by_default(self):
+        self.write_file("tracked.txt", "edited\n")
+        self.write_file("new.txt", "untracked\n")
+
+        result = app.api_stash_push({"message": "wip save"})
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(self.git("status", "--porcelain"), "")
+        listed = app.api_stash_list({})
+        self.assertEqual(listed["total"], 1)
+        self.assertIn("wip save", listed["commits"][0][4])
+        self.assertEqual(self.git("show", "--format=", "--name-only", "stash@{0}^3").strip(), "new.txt")
+
+    def test_stash_push_can_leave_untracked_files_and_unselected_files(self):
+        self.write_file("tracked.txt", "edited\n")
+        self.write_file("other.txt", "other\n")
+        self.git("add", "other.txt")
+        self.git("commit", "-q", "-m", "add other")
+        self.write_file("other.txt", "other edited\n")
+        self.write_file("new.txt", "untracked\n")
+
+        app.api_stash_push({"untracked": False, "paths": ["tracked.txt"]})
+
+        self.assertEqual(self.read_file("tracked.txt"), "initial\n")
+        self.assertEqual(self.read_file("other.txt"), "other edited\n")  # チェックしていないファイルは残る
+        self.assertEqual(self.read_file("new.txt"), "untracked\n")
+        self.assertEqual(app.api_stash_list({})["total"], 1)
+
+    def test_stash_push_rejects_nothing_to_stash_and_unknown_paths(self):
+        with self.assertRaises(ValueError) as nothing:
+            app.api_stash_push({})
+        self.assertEqual(str(nothing.exception), app.tr("stash_nothing"))
+        self.write_file("tracked.txt", "edited\n")
+        with self.assertRaises(ValueError) as unknown:
+            app.api_stash_push({"paths": ["../outside.txt"]})
+        self.assertIn("outside.txt", str(unknown.exception))
+        self.assertEqual(app.api_stash_list({})["total"], 0)
+
+    def test_stash_push_is_refused_during_merge(self):
+        tip = self.make_branch_changing_tracked_file(content="their version\n")
+        self.write_file("tracked.txt", "main version\n")
+        self.git("commit", "-a", "-q", "-m", "main version")
+        self.assertTrue(app.api_merge({"hash": tip})["conflict"])
+        with self.assertRaises(ValueError) as refused:
+            app.api_stash_push({})
+        self.assertEqual(str(refused.exception), app.tr("stash_push_blocked"))
+
+    def test_stash_apply_reports_blocking_file_and_force_overwrites_it(self):
+        self.write_file("tracked.txt", "stashed content\n")
+        self.git("stash", "push", "-q", "-m", "test stash")
+        stash_hash = self.git("rev-parse", "refs/stash").strip()
+        self.write_file("tracked.txt", "local change\n")
+
+        blocked = app.api_stash({"hash": stash_hash, "op": "apply"})
+
+        self.assertTrue(blocked["blocked"])
+        self.assertEqual(blocked["modified"], ["tracked.txt"])
+        self.assertEqual(self.read_file("tracked.txt"), "local change\n")
+
+        result = app.api_stash({"hash": stash_hash, "op": "pop", "on_conflict": "discard"})
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(self.read_file("tracked.txt"), "stashed content\n")
+        self.assertEqual(app.api_stash_list({})["total"], 0)  # pop なので stash は消える
+
+    def test_stash_apply_force_overwrites_blocking_untracked_file(self):
+        self.write_file("new.txt", "from stash\n")
+        self.git("stash", "push", "-q", "-u", "-m", "with untracked")
+        stash_hash = self.git("rev-parse", "refs/stash").strip()
+        self.write_file("new.txt", "local untracked\n")
+
+        blocked = app.api_stash({"hash": stash_hash, "op": "apply"})
+
+        self.assertTrue(blocked["blocked"])
+        self.assertEqual(blocked["untracked"], ["new.txt"])
+        self.assertEqual(self.read_file("new.txt"), "local untracked\n")
+
+        result = app.api_stash({"hash": stash_hash, "op": "apply", "on_conflict": "discard"})
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(self.read_file("new.txt"), "from stash\n")
+
+    def test_stash_apply_rejects_stash_mode(self):
+        self.write_file("tracked.txt", "stashed content\n")
+        self.git("stash", "push", "-q")
+        stash_hash = self.git("rev-parse", "refs/stash").strip()
+        with self.assertRaises(ValueError):
+            app.api_stash({"hash": stash_hash, "op": "apply", "on_conflict": "stash"})
+
+    @unittest.skipUnless(shutil.which("dot"), "Graphviz dot is not installed")
+    def test_build_graph_shows_stashes_as_children_of_their_base_commit(self):
+        self.write_file("second.txt", "second\n")
+        self.git("add", "second.txt")
+        self.git("commit", "-q", "-m", "second")
+        self.write_file("tracked.txt", "edited\n")
+        self.write_file("new.txt", "untracked\n")
+        self.git("stash", "push", "-q", "-u", "-m", "my stash")  # 親に index 用・管理外ファイル用のコミットを持つ
+        stash_hash = self.git("rev-parse", "refs/stash").strip()
+        second = self.git("rev-parse", "HEAD").strip()
+        opts = SimpleNamespace(revs=[], no_remotes=False, no_tags=False, include_tips=True, rankdir="BT",
+                               font="Helvetica", no_count=False, full_layout=False)
+
+        dot, nodes, edges = app.build_graph(opts)
+
+        self.assertIn(stash_hash, nodes)
+        self.assertEqual(nodes[stash_hash]["refs"], [{"name": "stash@{0}", "kind": "stash"}])
+        self.assertIn(f"{second}->{stash_hash}", edges)
+        self.assertEqual(set(nodes), {self.head, second, stash_hash})  # stash の index / untracked 用コミットは出さない
+
+        opts.no_stash = True
+        _, nodes_without, _ = app.build_graph(opts)
+        self.assertNotIn(stash_hash, nodes_without)
+
     def read_file(self, path):
         with open(os.path.join(self.repo, path), encoding="utf-8") as file:
             return file.read()

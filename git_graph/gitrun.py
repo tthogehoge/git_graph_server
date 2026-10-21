@@ -59,13 +59,15 @@ NET_TIMEOUT = 300
 
 HTTP_AUTH_CACHE = {}
 
-def run_git_net(*args, timeout=None, auth=None):
+def run_git_net(*args, timeout=None, auth=None, c_locale=False):
     """リモートと通信する git を実行する。
     SSH の未知ホストは初回だけ known_hosts に登録し、登録済みホストの
     鍵が変わった場合は SSH に拒否させる。必要なら一時的な HTTP 認証用
-    askpass を使う。
+    askpass を使う。c_locale=True なら、メッセージを解析できるよう C ロケールで実行する。
     """
     env = dict(os.environ, GIT_TERMINAL_PROMPT="0")
+    if c_locale:  # 失敗時のメッセージを解析するための再実行用
+        env.update(LC_ALL="C", LANGUAGE="C")
     # stdin は閉じて実行するため、SSH の yes/no 確認プロンプトは表示できない。
     # accept-new なら未知ホストだけを自動登録し、鍵が変わったホストは拒否する。
     # ユーザーが独自の SSH 設定を指定している場合はそれを優先する。

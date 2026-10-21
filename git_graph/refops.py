@@ -1,4 +1,5 @@
 import os
+import re
 import subprocess
 import time
 from . import app_state as state
@@ -17,10 +18,15 @@ from .routing import route
 @route("/api/stash", method="POST")
 def api_stash(body):
     """stash の apply / pop / drop。stash の位置 (stash@{n}) は変わるので、コミットのハッシュから毎回引き直す。
-    apply / pop で競合したときは、git の通常の動作どおり作業ツリーに競合を残す (pop は stash も残る)。"""
+    apply / pop で競合したときは、git の通常の動作どおり作業ツリーに競合を残す (pop は stash も残る)。
+    編集中のファイルや同名の管理外ファイルに邪魔されて戻せないときは、止めているファイルを返す ({blocked, modified, untracked})。
+    on_conflict="discard" で再実行すると、止めているファイルだけを破棄して (stash の内容で上書きして) 戻す。"""
     op = body.get("op")
     if op not in ("apply", "pop", "drop"):
         raise ValueError("bad op")
+    on_conflict = body.get("on_conflict")
+    if on_conflict not in (None, "discard"):
+        raise UserError("on_conflict_invalid")
     h = resolve_commit(body.get("hash", ""))
     sel = None
     for l in git("stash", "list", "--format=%H %gd").splitlines():
@@ -37,22 +43,70 @@ def api_stash(body):
         raise UserError("stash_no_worktree")
     if is_merging() or is_rebasing() or is_cherry_picking() or is_reverting():
         raise UserError("op_in_progress")
-    r = subprocess.run(["git", "-C", state.REPO, "stash", op, sel], capture_output=True, text=True,
-                       encoding="utf-8", errors="replace")
-    if r.returncode != 0:
+    for _ in range(3):  # 止めているファイルを破棄して再実行する (1回で済むはずだが、念のため数回まで)
+        r = git_c_locale("stash", op, sel)  # 止めているファイルを解析するため、C ロケールで実行する
+        if r.returncode == 0:
+            return {"ok": True, "message": tr("stash_applied" if op == "apply" else "stash_popped", sel=sel)}
         unmerged = subprocess.run(["git", "-C", state.REPO, "-c", "core.quotepath=false", "diff", "--name-only", "--diff-filter=U"],
                                   capture_output=True, text=True, encoding="utf-8", errors="replace").stdout.strip()
         if unmerged:
             raise ValueError(tr("stash_conflict_pop" if op == "pop" else "stash_conflict", sel=sel) + "\n" + unmerged)
-        raise ValueError((r.stderr or r.stdout).strip() or tr("stash_apply_failed"))
-    return {"ok": True, "message": tr("stash_applied" if op == "apply" else "stash_popped", sel=sel)}
+        text = (r.stderr + r.stdout).strip()
+        blockers = parse_checkout_blockers(text)
+        if not (blockers["modified"] or blockers["untracked"]):
+            raise ValueError(text or tr("stash_apply_failed"))
+        if on_conflict is None:
+            return {"blocked": True, **blockers}
+        discard_blockers(blockers)
+    raise UserError("stash_apply_failed")
+
+@route("/api/stash-push", method="POST")
+def api_stash_push(body):
+    """作業ツリーの変更を stash に退避する (WIP から)。paths があればそのファイルだけ、なければすべて。
+    untracked が false でなければ、未追跡ファイルも含める。message は任意。"""
+    if not state.WIP_ENABLED or not state.HAS_WORKTREE:
+        raise UserError("wip_disabled")
+    if is_merging() or is_rebasing() or is_cherry_picking() or is_reverting():
+        raise UserError("stash_push_blocked")
+    if not has_head():
+        raise UserError("stash_no_commits")
+    message = body.get("message")
+    message = message.strip() if isinstance(message, str) else ""
+    if "\0" in message:
+        raise ValueError("bad message")
+    untracked = body.get("untracked") is not False
+    paths = body.get("paths")
+    pathspec = None
+    if paths is not None:
+        if not isinstance(paths, list) or not paths or not all(isinstance(p, str) and p and "\0" not in p for p in paths):
+            raise UserError("select_files")
+        s = parse_status(read_status_raw(), limit=10 ** 9)
+        untracked_paths = {f["path"] for f in s["untracked"]}
+        known = untracked_paths | {f["path"] for k in ("staged", "unstaged") for f in s[k]}
+        bad = set(paths) - known  # 任意のパスを指定させない。いま変更ありと報告されているものだけ
+        if bad:
+            raise UserError("files_unchanged", files=", ".join(sorted(bad)[:3]))
+        if set(paths) & untracked_paths:
+            untracked = True  # 未追跡ファイルを選んだなら、含めないと退避できない
+        old_of = {f["path"]: f.get("old_path") for f in s["staged"]}
+        pathspec = sorted(set(paths) | {old_of[p] for p in paths if old_of.get(p)})  # リネームは元のパスも一緒に退避する
+    if not stash_push(message, pathspec, untracked):
+        raise UserError("stash_nothing")
+    return {"ok": True, "message": tr("stash_pushed", sel="stash@{0}")}
+
+ALREADY_EXISTS_RE = re.compile(r"(.+) already exists, no checkout$")
 
 def parse_checkout_blockers(text):
-    """checkout が止まったときのエラーから、止めているファイルを取り出す。
+    """checkout / merge / pull / stash apply が止まったときのエラーから、止めているファイルを取り出す。
     modified: 編集中 (ステージ済み含む) で上書きされてしまうファイル / untracked: 同名の管理外ファイル"""
     res = {"modified": [], "untracked": []}
     kind = None
     for line in text.splitlines():
+        m = ALREADY_EXISTS_RE.match(line)
+        if m:  # stash apply が、同名の管理外ファイルに邪魔されたとき
+            res["untracked"].append(m.group(1))
+            kind = None
+            continue
         if "would be overwritten by" in line:
             if "local changes" in line:
                 kind = "modified"
@@ -67,16 +121,29 @@ def parse_checkout_blockers(text):
             kind = None
     return res
 
+def stash_top():
+    r = subprocess.run(["git", "-C", state.REPO, "rev-parse", "-q", "--verify", "refs/stash"],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    return r.stdout.strip()
+
+def stash_push(message, paths=None, untracked=True):
+    """git stash push を実行する。paths があればそのファイルだけ。stash が作られたら True (変更がなければ False)。"""
+    before = stash_top()
+    args = ["stash", "push"]
+    if untracked:
+        args.append("--include-untracked")
+    if message:
+        args += ["-m", message]
+    if paths:
+        run_git_write(*args, "--", *paths, literal=True)
+    else:
+        run_git_write(*args)
+    return stash_top() != before
+
 def stash_all_changes():
     """未コミットの変更 (未追跡ファイルも) を stash に退避する。作った stash の名前を返す (変更がなければ None)。"""
-    def top():
-        r = subprocess.run(["git", "-C", state.REPO, "rev-parse", "-q", "--verify", "refs/stash"],
-                           capture_output=True, text=True, encoding="utf-8", errors="replace")
-        return r.stdout.strip()
-    before = top()
-    run_git_write("stash", "push", "--include-untracked", "-m",
-                  tr("stash_commit_msg", time=time.strftime("%Y-%m-%d %H:%M:%S")))
-    return "stash@{0}" if top() != before else None
+    created = stash_push(tr("stash_commit_msg", time=time.strftime("%Y-%m-%d %H:%M:%S")))
+    return "stash@{0}" if created else None
 
 def discard_blockers(blockers):
     """チェックアウトを止めているファイルだけを破棄する (編集中の変更は HEAD の状態に戻し、管理外ファイルは削除)。"""
@@ -121,6 +188,47 @@ def checkout_resolving(args, mode):
             raise ValueError(tr("checkout_still_blocked") + "\n" + text)
         discard_blockers(blockers)
     raise UserError("checkout_failed")
+
+DIRTY_RE = re.compile(r"You have unstaged changes|Your index contains uncommitted changes")  # git pull --rebase が止まるとき
+
+def dirty_tracked_files():
+    """HEAD から変わっている追跡中のファイル (ステージ済み・未ステージ)。ファイル名が出ない止まり方 (pull --rebase) のときの対象。"""
+    r = git_c_locale("diff", "--name-only", "-z", "HEAD")
+    return [p for p in r.stdout.split("\0") if p] if r.returncode == 0 else []
+
+def run_resolving(run, mode, rebase_dirty=False):
+    """編集中のファイルや同名の管理外ファイルに邪魔されて止まる git コマンド (pull / merge) を、チェックアウトと同じ方法で実行する。
+    run(c_locale) は git を実行して CompletedProcess を返す (c_locale=True は、メッセージを解析できるよう C ロケールで)。
+    mode: None=止まったら止めているファイルを返す / "stash"=最初に全変更を stash する / "discard"=止めているファイルだけ破棄して再実行する。
+    戻り値は (最後の実行結果, blocked, stash の名前)。blocked は {blocked, modified, untracked} (mode が None で止まったときだけ)。
+    止まった原因がそれ以外 (競合・通信エラーなど) なら blocked は None で、呼び出し側が実行結果を見て処理する。
+    rebase_dirty: pull --rebase は「変更があるので実行できない」とだけ言いファイル名を出さないので、変更中の全ファイルを対象にする。"""
+    if mode not in (None, "stash", "discard"):
+        raise UserError("on_conflict_invalid")
+    stashed = stash_all_changes() if mode == "stash" else None
+    r = run(False)
+    for _ in range(3):
+        if r.returncode == 0 or is_merging() or is_rebasing():
+            return r, None, stashed
+        text = (r.stderr + r.stdout)
+        if is_http_auth_error(r) or not (rebase_dirty or any(l.startswith("\t") for l in text.splitlines())):
+            return r, None, stashed  # 止めているファイルの一覧 (タブ字下げ) がない失敗は、再実行して調べるまでもない
+        c = run(True)  # 止めているファイルを解析するため、C ロケールで再実行する (止まる失敗は何も変更していない)
+        if c.returncode == 0:
+            return c, None, stashed
+        text = c.stderr + c.stdout
+        blockers = parse_checkout_blockers(text)
+        if rebase_dirty and not (blockers["modified"] or blockers["untracked"]) and DIRTY_RE.search(text):
+            blockers["modified"] = dirty_tracked_files()
+        if not (blockers["modified"] or blockers["untracked"]):
+            return r, None, stashed
+        if mode is None:
+            return r, {"blocked": True, **blockers}, None
+        if mode == "stash":
+            raise ValueError(with_stash_note({"stashed": stashed}, tr("op_still_blocked") + "\n" + text.strip()))
+        discard_blockers(blockers)
+        r = run(False)
+    return r, None, stashed
 
 def with_stash_note(res, msg):
     if res and res.get("stashed"):
@@ -303,5 +411,6 @@ def api_branch_rename(body):
 __all__ = [
     "api_branch", "api_branch_rename", "api_checkout", "api_delete_ref", "api_discard", "api_reset",
     "api_stash", "api_tag", "checkout_resolving", "discard_blockers", "parse_checkout_blockers",
-    "stash_all_changes", "with_stash_note",
+    "ALREADY_EXISTS_RE", "DIRTY_RE", "api_stash_push", "dirty_tracked_files", "run_resolving",
+    "stash_all_changes", "stash_push", "stash_top", "with_stash_note",
 ]

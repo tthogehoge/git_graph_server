@@ -289,6 +289,15 @@ async function doMerge() {
       setGraphStatus(t("merging"), "progress");
       return post("/api/merge", {hash: h, no_ff: noFf});
     })
+    .then(r => {  // 編集中のファイルや管理外ファイルに邪魔されたら、stash / 破棄を選ばせて再実行する
+      if (!r || !r.blocked) return r;
+      setGraphStatus("");
+      return askCheckoutConflict(r, "merge").then(mode => {
+        if (!mode) return null;
+        setGraphStatus(t("merging"), "progress");
+        return post("/api/merge", {hash: h, no_ff: noFf, on_conflict: mode});
+      });
+    })
     .then(r => {
       if (r === null) { setGraphStatus(""); return; }
       clearCmp();

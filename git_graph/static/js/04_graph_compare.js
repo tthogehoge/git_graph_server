@@ -151,7 +151,7 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
   document.getElementById("rebaseEquivalentBtn").hidden = !compareAHash || !compareBHash;
   document.getElementById("findEquivalentParentsBtn").hidden = !compareAHash || !compareBHash;
   document.getElementById("findEquivalentBranchBtn").hidden = !compareAHash || !compareBHash;
-  const isStash = !!actionHash && !!stashByHash[actionHash];
+  const isStash = !!actionHash && (!!stashByHash[actionHash] || !!stashNameOf(actionHash));
   document.getElementById("aActions").hidden = !actionHash || isStash;
   document.getElementById("stashActions").hidden = !isStash;
   document.getElementById("actionsEmpty").hidden = !!actionHash || (!!compareAHash && !!compareBHash);

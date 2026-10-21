@@ -15,7 +15,7 @@ from .wip import wip_count
 
 FAST_LAYOUT_NODES = 300
 
-COLORS = {"branch": "#b7e4a7", "current": "#b7e4a7", "remote": "#a7c8f0", "tag": "#ffe9a0", "head": "#f4a7a7"}
+COLORS = {"branch": "#b7e4a7", "current": "#b7e4a7", "remote": "#a7c8f0", "tag": "#ffe9a0", "head": "#f4a7a7", "stash": "#d9c7f2"}
 
 SUBJECT_WIDTH = 30
 
@@ -50,6 +50,29 @@ def center_node_text(svg):
 
     return _SVG_TOKEN.sub(fix, svg)
 
+def stash_key():
+    """stash の一覧が変わったか調べるための文字列。refs/stash は先頭の stash しか指さないので、一覧全体を見る。"""
+    try:
+        return git("stash", "list", "--format=%H")
+    except subprocess.CalledProcessError:
+        return ""
+
+def list_stashes(shown):
+    """グラフに出す stash を [(stash のハッシュ, 基点コミット, "stash@{n}", 件名)] で返す (新しい順)。
+    stash のコミットは、親に index 用 (と --include-untracked の管理外ファイル用) のコミットを持つ。
+    それらは出さず、stash を第1親 (stash した時点の HEAD) の子として表示する。基点がグラフに無い stash は出さない。"""
+    try:
+        out = git("stash", "list", "--format=%H%x09%P%x09%gd%x09%s")
+    except subprocess.CalledProcessError:
+        return []
+    res = []
+    for line in out.splitlines():
+        h, p, name, subject = (line.split("\t", 3) + ["", "", ""])[:4]
+        ps = p.split()
+        if ps and ps[0] in shown and h not in shown:
+            res.append((h, ps[0], name, subject))
+    return res
+
 def build_graph(opts):
     """残すコミットとエッジを決め、dot / ノード情報 / エッジ情報を返す。"""
     sys.setrecursionlimit(100000)
@@ -59,6 +82,7 @@ def build_graph(opts):
         revs = [
             ref for ref in refs
             if not ref.endswith("/HEAD")
+            and ref != "refs/stash"  # stash は下で別扱いにする (親の index / untracked 用コミットまで出さない)
             and (getattr(opts, "include_tips", False)
                  or ref.startswith(("refs/heads/", "refs/remotes/", "refs/tags/")))
             and (not opts.no_remotes or not ref.startswith("refs/remotes/"))
@@ -81,6 +105,13 @@ def build_graph(opts):
         order.append(h)
         for x in ps:
             children[x].append(h)
+
+    stashes = list_stashes(parents) if not getattr(opts, "no_stash", False) else []
+    for h, base_commit, name, subject in stashes:  # 子は親より先の順なので、先頭に足す (stash は誰の親にもならない)
+        parents[h] = [base_commit]
+        subjects[h] = subject
+        order.insert(0, h)
+        children[base_commit].append(h)
 
     labels = defaultdict(list)  # commit -> [(name, kind)]
     try:
@@ -113,6 +144,8 @@ def build_graph(opts):
             labels[head].append(("HEAD", "head"))
     except subprocess.CalledProcessError:
         pass
+    for h, _, name, _ in stashes:
+        labels[h].append((name, "stash"))
 
     # ブランチ / タグ / HEAD の指す先 + ルート + それらの merge-base。
     # --include-tips では、名前のない末端コミットも対象に加える。
@@ -121,7 +154,7 @@ def build_graph(opts):
     # x が (a, b) の merge-base <=> a, b が desc[x] に入り、どの子の desc にも a, b が揃って入っていない。
     # 参照も子孫もないルートコミットも、履歴の始点として必ず表示する。
     named_tips = {h for h, refs in labels.items()
-                  if any(kind in ("branch", "current", "remote", "tag", "head") for _, kind in refs)}
+                  if any(kind in ("branch", "current", "remote", "tag", "head", "stash") for _, kind in refs)}
     base = named_tips | {h for h, ps in parents.items() if not ps}
     if getattr(opts, "include_tips", False):
         base.update(h for h in parents if not children[h])
@@ -260,7 +293,7 @@ def graph_payload(q=None):
             current_branch = git("symbolic-ref", "--short", "-q", "HEAD").strip()
         except subprocess.CalledProcessError:
             current_branch = ""
-        key = git("for-each-ref") + "\0" + head + "\0" + current_branch
+        key = git("for-each-ref") + "\0" + head + "\0" + current_branch + "\0" + stash_key()
         if _cache["base_key"] != key:
             _cache.update(base_key=key, base=build_graph(state.OPTS), payload_key=None, payload=None)
         raw = ""
@@ -290,5 +323,5 @@ def graph_payload(q=None):
 
 __all__ = [
     "COLORS", "FAST_LAYOUT_NODES", "SUBJECT_WIDTH", "add_wip", "build_graph",
-    "center_node_text", "graph_payload", "truncate_width",
+    "center_node_text", "graph_payload", "list_stashes", "stash_key", "truncate_width",
 ]

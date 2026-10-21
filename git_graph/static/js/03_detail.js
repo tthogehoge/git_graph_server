@@ -69,6 +69,10 @@ function defaultNewBranchName(h) {
   const slash = remote.indexOf("/");
   return slash >= 0 ? remote.slice(slash + 1) : remote;
 }
+function stashNameOf(h) {  // グラフ上の stash ノードの名前 (stash@{n})
+  const n = DATA.nodes[h], r = n && n.refs.find(x => x.kind === "stash");
+  return r ? r.name : null;
+}
 function localTags(h) {
   const n = DATA.nodes[h];
   return n ? n.refs.filter(r => r.kind === "tag").map(r => r.name) : [];
@@ -85,7 +89,7 @@ function showStashList(fromHistory) {
 }
 function doStash(op) {
   if (!actionHash) return;
-  const h = actionHash, sel = stashByHash[h];
+  const h = actionHash, sel = stashByHash[h] || stashNameOf(h);
   if (!sel) return;
   const label = {apply: t("op_apply"), pop: t("op_pop"), drop: t("op_drop")}[op];
   const msg = {
@@ -100,7 +104,19 @@ function doStash(op) {
     if (curView === "list" && listView.dataset.src === "/api/stash-list") showStashList(true);
   });
   post("/api/stash", {hash: h, op: op})
-    .then(r => { clearCmp(); setGraphStatus(r.message, "success"); return reload(); })
+    .then(r => {  // 編集中のファイルや管理外ファイルに邪魔されたら、破棄して上書きするか選ばせる
+      if (!r.blocked) return r;
+      setGraphStatus("");
+      return askCheckoutConflict(r, "stash").then(mode => {
+        if (!mode) return {cancelled: true, message: t("operation_cancelled")};
+        setGraphStatus(t("stash_busy"), "progress");
+        return post("/api/stash", {hash: h, op: op, on_conflict: mode});
+      });
+    })
+    .then(r => {
+      if (r.cancelled) { setGraphStatus(r.message, "error"); return reload(); }
+      clearCmp(); setGraphStatus(r.message, "success"); return reload();
+    })
     .catch(e => { setGraphStatus(t("stash_op_failed", {op: label, error: e.message}), "error"); return reload(); })
     .finally(() => updateCmpClasses());
 }
