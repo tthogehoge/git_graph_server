@@ -55,7 +55,7 @@ __FAVICON__
 </style><script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script></head>
 <body><aside id="tree"><h1>{{file_view}}</h1><div class="meta" id="commit"></div><div id="list"></div></aside>
 <main id="main"><h2 id="title">{{select_file}}</h2>
-<div id="fileActions" class="file-actions" hidden><button id="fileLogBtn">{{file_log}}</button><button id="fileBlameBtn">{{file_blame}}</button><button id="fileContentBtn" hidden>{{file_content}}</button><button id="fileCopyBtn" hidden>{{copy_to_work}}</button><span id="fileMsg" class="msg"></span></div>
+<div id="fileActions" class="file-actions" hidden><button id="fileLogBtn">{{file_log}}</button><button id="fileBlameBtn">{{file_blame}}</button><button id="fileDiffBtn" hidden>{{file_diff}}</button><button id="fileContentBtn" hidden>{{file_content}}</button><button id="fileCopyBtn" hidden>{{copy_to_work}}</button><span id="fileMsg" class="msg"></span></div>
 <div id="content" class="hint">{{select_file_hint}}</div></main>
 <script>
 /*__FILE_I18N__*/
@@ -74,9 +74,38 @@ const qs = new URLSearchParams(location.search), hash = qs.get("hash"), fileView
 const list = document.getElementById("list"), content = document.getElementById("content"), title = document.getElementById("title");
 const fileActions = document.getElementById("fileActions"), fileLogBtn = document.getElementById("fileLogBtn"), fileBlameBtn = document.getElementById("fileBlameBtn"), fileContentBtn = document.getElementById("fileContentBtn");
 const fileCopyBtn = document.getElementById("fileCopyBtn"), fileMsg = document.getElementById("fileMsg");
+const fileDiffBtn = document.getElementById("fileDiffBtn");
 const isWip = hash === "WIP";  // 作業ツリーのファイルを表示する
 fileCopyBtn.hidden = !CAN_COPY || isWip;
 let current = "", currentFile = "", wipHead = null;
+let entryInfo = {}, commitChanges = null;  // entryInfo: パス → 一覧の項目 (WIP の変更の種類 xy), commitChanges: パス → コミットでの変更
+function diffParams(path) {  // このファイルの差分ページの引数。変更がなければ null
+  if (isWip) {
+    const xy = (entryInfo[path] || {}).xy;
+    if (!xy) return null;
+    const st = entryInfo[path].st;
+    const kind = xy === "??" ? "untracked" : st === "U" ? "conflict" : xy[1] !== " " ? "unstaged" : "staged";
+    return {path: path, wip: kind};
+  }
+  const f = commitChanges && commitChanges[path];
+  if (!f) return null;
+  const p = {hash: hash, path: path};
+  if (f.old_path) p.old = f.old_path;
+  return p;
+}
+function updateDiffBtn() { fileDiffBtn.hidden = !currentFile || !diffParams(currentFile); }
+function loadCommitChanges() {  // このコミットで変更されたファイル (差分ボタンを出すかどうかに使う)
+  if (isWip || !hash) return;
+  api("/api/commit", {hash: hash}).then(c => {
+    commitChanges = {};
+    c.files.forEach(f => { commitChanges[f.path] = f; });
+    updateDiffBtn();
+  }).catch(() => {});
+}
+fileDiffBtn.onclick = () => {
+  const p = currentFile && diffParams(currentFile);
+  if (p) location.href = "/diff?" + new URLSearchParams(p);
+};
 function logHash() { return isWip ? wipHead : hash; }  // ファイルのログの起点 (作業ツリーなら HEAD)
 function esc(s) { return String(s).replace(/[&<>\"]/g, c => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", "\"":"&quot;"}[c])); }
 function api(path, params) { return fetch(path + "?" + new URLSearchParams(params)).then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); })); }
@@ -108,6 +137,7 @@ function loadTree(path, push) {
     crumb += '</div>';
     list.innerHTML = crumb + (r.entries.length ? r.entries.map(e => {
       const p = path ? path + "/" + e.name : e.name;
+      entryInfo[p] = e;
       const icon = e.type === "tree" ? "📁" : "📄";
       const size = e.size === null ? "" : e.size.toLocaleString() + " B";
       return '<div class="entry" data-type="' + e.type + '" data-path="' + esc(p) + '"><span>' + icon + ' ' + statusBadge(e) + esc(e.name) + '</span><span class="size">' + size + '</span></div>';
@@ -148,6 +178,7 @@ function loadFile(path, push) {
   fileLogBtn.hidden = !logHash();
   fileBlameBtn.hidden = isWip && !wipHead;
   fileContentBtn.hidden = true;
+  updateDiffBtn();
   api("/api/file", {hash: hash, path: path}).then(r => {
     const lang = languageFor(r.path);
     title.textContent = r.path + (lang ? " (" + lang + ")" : "") + (r.encoding ? " [" + r.encoding + "]" : "");
@@ -293,5 +324,5 @@ function restoreFromUrl(first) {  // URL の path / file の状態を画面に�
   tree.then(() => { if (file) { if (file !== currentFile || first) loadFile(file, false); } else if (currentFile) clearFile(); });
 }
 window.onpopstate = () => restoreFromUrl(false);
-if (!hash) showError(new Error(t("commit_required"))); else restoreFromUrl(true);
+if (!hash) showError(new Error(t("commit_required"))); else { loadCommitChanges(); restoreFromUrl(true); }
 </script></body></html>
