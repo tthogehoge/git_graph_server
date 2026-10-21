@@ -14,7 +14,7 @@ Linux is the supported platform.
 - Git
 - Graphviz `dot`
 
-Keep `git_graph_server.py`, the Python modules (`app_state.py`, `gitrun.py`, `graph.py`, `wip.py`, `viewer.py`, `refops.py`, `rebase.py`, `remote.py`, `i18n.py`, `routing.py`, and `server.py`), `static/`, and `i18n/` together when copying or deploying the application. API endpoints are registered next to their handlers with the `@route` decorator.
+Keep `git_graph_server.py` and the `git_graph/` package (Python modules, `static/`, and `locales/`) together when copying or deploying the application. `git_graph_server.py` adds its own directory to `sys.path`, so it also works with the Windows embeddable Python. You can also run `python -m git_graph` from the repository root. API endpoints are registered next to their handlers with the `@route` decorator.
 
 ## Usage
 

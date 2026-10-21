@@ -1,7 +1,7 @@
 import re
 import subprocess
-import app_state as state
-from routing import route
+from . import app_state as state
+from .routing import route
 
 
 def refs_snapshot():
@@ -19,8 +19,8 @@ def upstream_of_head():
 
 @route("/api/fetch", method="POST")
 def api_fetch(body):
-    from gitrun import HTTP_AUTH_CACHE, auth_for_remote, git, is_http_auth_error, net_error, remember_auth, run_git_net
-    from i18n import tr
+    from .gitrun import HTTP_AUTH_CACHE, auth_for_remote, git, is_http_auth_error, net_error, remember_auth, run_git_net
+    from .i18n import tr
     remotes = git("remote").split()
     before = refs_snapshot()
     errors = []
@@ -45,7 +45,7 @@ def api_fetch(body):
 
 def list_remotes():
     """登録済みのリモート [{name, url}] (url は fetch 用)。"""
-    from gitrun import git
+    from .gitrun import git
     out = {}
     for line in git("remote", "-v").splitlines():
         m = re.fullmatch(r"(\S+)\t(.*) \((fetch|push)\)", line)
@@ -60,7 +60,7 @@ def api_remotes(q):
     return {"remotes": list_remotes()}
 
 def check_remote_name(name):
-    from i18n import UserError
+    from .i18n import UserError
     if not isinstance(name, str) or not name or name.startswith("-") or "\0" in name or name != name.strip():
         raise UserError("remote_name_invalid")
     r = subprocess.run(["git", "-C", state.REPO, "check-ref-format", "refs/remotes/" + name + "/HEAD"], capture_output=True)
@@ -70,8 +70,8 @@ def check_remote_name(name):
 @route("/api/remote-add", method="POST")
 def api_remote_add(body):
     """リモートを追加する。fetch:true なら続けて fetch する (fetch に失敗してもリモートは追加済み)。"""
-    from gitrun import net_error, run_git_net, run_git_write
-    from i18n import UserError, tr
+    from .gitrun import net_error, run_git_net, run_git_write
+    from .i18n import UserError, tr
     name, url = body.get("name"), body.get("url")
     check_remote_name(name)
     if not isinstance(url, str) or not url.strip() or "\0" in url or "\n" in url:
@@ -94,8 +94,8 @@ def api_remote_add(body):
 @route("/api/remote-remove", method="POST")
 def api_remote_remove(body):
     """リモートを削除する (リモート追跡ブランチと設定も消える。リモート側は変わらない)。"""
-    from gitrun import run_git_write
-    from i18n import UserError, tr
+    from .gitrun import run_git_write
+    from .i18n import UserError, tr
     name = body.get("name")
     if not isinstance(name, str) or name not in {r["name"] for r in list_remotes()}:  # 登録済みの名前だけ許可
         raise UserError("remote_not_found")
@@ -106,10 +106,10 @@ def api_remote_remove(body):
 def api_pull(body):
     """現在のブランチに upstream の変更を取り込む。
     merge で競合したときはマージ途中で止める (WIP で解決)。rebase で競合したときは中止して元に戻す。"""
-    from gitrun import HTTP_AUTH_CACHE, auth_for_remote, git, is_http_auth_error, net_error, remember_auth, run_git_net
-    from i18n import UserError, tr
-    from rebase import api_head, is_merging, is_rebasing
-    from refops import has_head
+    from .gitrun import HTTP_AUTH_CACHE, auth_for_remote, git, is_http_auth_error, net_error, remember_auth, run_git_net
+    from .i18n import UserError, tr
+    from .rebase import api_head, is_merging, is_rebasing
+    from .refops import has_head
     if not state.HAS_WORKTREE:
         raise UserError("pull_no_worktree")
     mode = body.get("mode", "ff-only")
@@ -162,10 +162,10 @@ def git_config(key):
 def api_push(body):
     """ブランチを push する。body.branch があればそのローカルブランチ (チェックアウト中でなくてもよい)、
     なければ現在のブランチ。body.remote が指定された場合は、その remote の同名ブランチへ push する。"""
-    from gitrun import HTTP_AUTH_CACHE, auth_for_remote, check_ref_name, git, is_http_auth_error, net_error, remember_auth, run_git_net
-    from i18n import UserError, tr
-    from rebase import api_head
-    from refops import has_head
+    from .gitrun import HTTP_AUTH_CACHE, auth_for_remote, check_ref_name, git, is_http_auth_error, net_error, remember_auth, run_git_net
+    from .i18n import UserError, tr
+    from .rebase import api_head
+    from .refops import has_head
     if not has_head():
         raise UserError("push_no_commits")
     branch = body.get("branch")
@@ -240,8 +240,8 @@ def api_push(body):
 @route("/api/push-tag", method="POST")
 def api_push_tag(body):
     """タグを push する。push 先のリモートが決まらない (複数あって pushDefault も無い) ときは、選択肢を返す。"""
-    from gitrun import HTTP_AUTH_CACHE, auth_for_remote, git, is_http_auth_error, net_error, remember_auth, run_git_net
-    from i18n import UserError, tr
+    from .gitrun import HTTP_AUTH_CACHE, auth_for_remote, git, is_http_auth_error, net_error, remember_auth, run_git_net
+    from .i18n import UserError, tr
     tag = body.get("tag")
     if not isinstance(tag, str) or not tag or tag.startswith("-"):
         raise UserError("tag_name_invalid")

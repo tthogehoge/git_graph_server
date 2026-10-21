@@ -7,9 +7,9 @@ import subprocess
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
-import app_state as state
-from i18n import FAVICON_LINK
-from routing import route
+from . import app_state as state
+from .i18n import FAVICON_LINK
+from .routing import route
 
 
 COPY_JS = """
@@ -60,7 +60,7 @@ REV_RE = re.compile(r"[0-9a-f]{40}(\.\.[0-9a-f]{40})?")
 
 @route("/api/log")
 def api_log(q):
-    from gitrun import git
+    from .gitrun import git
     rev = q.get("rev", [""])[0]
     if not REV_RE.fullmatch(rev):
         raise ValueError("bad rev")
@@ -92,7 +92,7 @@ def paging(q):
 @route("/api/stash-list")
 def api_stash_list(q):
     """stash の一覧 (新しい順)。api_log と同じ [hash, short, 選択子, 日時, 件名] の形で返す。"""
-    from gitrun import git
+    from .gitrun import git
     try:
         out = git("stash", "list", "--format=%H%x1f%h%x1f%gd%x1f%ci%x1f%gs")
     except subprocess.CalledProcessError:
@@ -105,7 +105,7 @@ def api_stash_list(q):
 
 def _ref_list(refs, fmt, kinds):
     """for-each-ref の結果を api_log と同じ [hash, short, 名前, 日付, 件名] の形にする。"""
-    from gitrun import git
+    from .gitrun import git
     out = git("for-each-ref", "--format=" + fmt, *refs)
     rows = []
     for l in out.splitlines():
@@ -116,7 +116,7 @@ def _ref_list(refs, fmt, kinds):
 @route("/api/branches")
 def api_branches(q):
     """ローカルブランチ → リモート追跡ブランチの順の一覧。現在のブランチには ★ を付ける。"""
-    from gitrun import git
+    from .gitrun import git
     fmt = "%(refname)%1f%(objectname)%1f%(HEAD)%1f%(committerdate:short)%1f%(subject)"
     commits = []
     for ref, name_, head, date, subj in (r[:5] for r in _ref_list(["refs/heads"], fmt, None)):
@@ -133,7 +133,7 @@ def api_branches(q):
 @route("/api/branches-containing")
 def api_branches_containing(q):
     """指定コミットを含むローカル / リモート追跡ブランチと各 tip を返す。"""
-    from gitrun import git, resolve_commit
+    from .gitrun import git, resolve_commit
     h = resolve_commit(q.get("hash", [""])[0])
     refs = ["refs/heads"]
     if not state.OPTS.no_remotes:
@@ -152,7 +152,7 @@ def api_branches_containing(q):
 @route("/api/tags")
 def api_tags(q):
     """タグの一覧 (新しい順)。注釈付きタグは指しているコミットを使う。"""
-    from gitrun import git
+    from .gitrun import git
     fmt = "%(refname)%1f%(creatordate:short)%1f%(*subject)%1f%(subject)"
     out = git("for-each-ref", "--sort=-creatordate", "--format=" + fmt, "refs/tags")
     commits = []
@@ -168,8 +168,8 @@ def api_tags(q):
 @route("/api/reflog")
 def api_reflog(q):
     """reflog (新しい順)。branch 省略で HEAD、指定でそのローカルブランチ。"""
-    from gitrun import check_ref_name, git
-    from i18n import UserError
+    from .gitrun import check_ref_name, git
+    from .i18n import UserError
     branch = q.get("branch", [""])[0]
     if branch:
         check_ref_name("branch", branch)
@@ -196,7 +196,7 @@ def api_reflog(q):
     return res
 
 def commit_info(h):
-    from gitrun import HASH_RE, git
+    from .gitrun import HASH_RE, git
     if not HASH_RE.fullmatch(h):
         raise ValueError("bad hash")
     o = git("show", "-s", "--date=iso", "--format=%H%x1f%an <%ae>%x1f%ad%x1f%P%x1f%B", h, "--")
@@ -206,7 +206,7 @@ def commit_info(h):
 
 @route("/api/commit")
 def api_commit(q):
-    from gitrun import git
+    from .gitrun import git
     info = commit_info(q.get("hash", [""])[0])
     raw = git("show", "--numstat", "-z", "-M", "--first-parent", "--format=", info["hash"], "--")
     info["files"] = parse_numstat(raw)
@@ -225,8 +225,8 @@ def validate_file_path(path, allow_empty=True):
 
 @route("/api/tree")
 def api_tree(q):
-    from gitrun import git, resolve_commit
-    from i18n import UserError
+    from .gitrun import git, resolve_commit
+    from .i18n import UserError
     h = resolve_commit(q.get("hash", [""])[0])
     path = validate_file_path(q.get("path", [""])[0])
     treeish = h if not path else h + ":" + path
@@ -299,8 +299,8 @@ def decode_text(data, truncated=False):
 
 @route("/api/file")
 def api_file(q):
-    from gitrun import git, resolve_commit
-    from i18n import UserError
+    from .gitrun import git, resolve_commit
+    from .i18n import UserError
     h = resolve_commit(q.get("hash", [""])[0])
     path = validate_file_path(q.get("path", [""])[0], allow_empty=False)
     spec = h + ":" + path
@@ -316,7 +316,7 @@ def api_file(q):
 
 @route("/api/blame")
 def api_blame(q):
-    from gitrun import git, resolve_commit
+    from .gitrun import git, resolve_commit
     h = resolve_commit(q.get("hash", [""])[0])
     path = validate_file_path(q.get("path", [""])[0], allow_empty=False)
     out = git("blame", "--line-porcelain", h, "--", path, literal=True)
@@ -354,8 +354,8 @@ def api_blame(q):
 @route("/api/file-copy", method="POST")
 def api_file_copy(body):
     """コミット内のファイルを、作業ツリーの別のパスにコピーする。既存のファイルは上書きしない。"""
-    from gitrun import git, resolve_commit
-    from i18n import UserError, tr
+    from .gitrun import git, resolve_commit
+    from .i18n import UserError, tr
     if not state.HAS_WORKTREE:
         raise UserError("copy_no_worktree")
     h = resolve_commit(body.get("hash", ""))
@@ -400,7 +400,7 @@ def api_file_copy(body):
 @route("/api/compare")
 def api_compare(q):
     """2つのコミット間の差分 (from → to) のファイル一覧。"""
-    from gitrun import git
+    from .gitrun import git
     a = commit_info(q.get("from", [""])[0])
     b = commit_info(q.get("to", [""])[0])
     raw = git("diff", "--numstat", "-z", "-M", a["hash"], b["hash"], "--")
@@ -409,7 +409,7 @@ def api_compare(q):
 @route("/api/merge-base")
 def api_merge_base(q):
     """2つのコミットの共通祖先 (最も新しいもの)。"""
-    from gitrun import git, resolve_commit
+    from .gitrun import git, resolve_commit
     a = resolve_commit(q.get("from", [""])[0])
     b = resolve_commit(q.get("to", [""])[0])
     try:
@@ -443,8 +443,8 @@ DIFF_LIMIT = 400000
 
 def api_diff(q):
     """1ファイルの差分。hash=... (1コミット) か from=...&to=... (2コミット間) を指定する。"""
-    from gitrun import HASH_RE, git_bytes
-    from wip import wip_diff
+    from .gitrun import HASH_RE, git_bytes
+    from .wip import wip_diff
     path = q.get("path", [""])[0]
     old = q.get("old", [""])[0]
     if not path or "\0" in path or "\0" in old:
@@ -543,7 +543,7 @@ def diff_lines_html(text):
     return "".join(out)
 
 def localized_wip_title(kind):
-    from i18n import tr
+    from .i18n import tr
     return {
         "amend": tr("amend_content"),
         "conflict": tr("conflict"),
@@ -561,7 +561,7 @@ def diff_url(ctx, f):
     return "/diff?" + urlencode(params)
 
 def commit_line_html(label, c):
-    from i18n import tr
+    from .i18n import tr
     subject = c["message"].split("\n", 1)[0]
     return (f'<div class="meta"><span class="tag tag{label}">{label}</span>{c["hash"][:7]}'
             f'<a class="copy" data-copy="{c["hash"]}" title="{html.escape(tr("copy_hash_title"))}">📋</a> — '
@@ -571,8 +571,8 @@ def commit_line_html(label, c):
 def wip_files(kind="", status=None):
     """WIP の全ファイルを 競合 → ステージ済み → 未ステージ → 未追跡 の順に、種別(wip)つきで返す。
     kind が amend のときは、amend 後のコミットの内容 (直前のコミットの親との差分) を返す。"""
-    from i18n import UserError
-    from wip import api_status
+    from .i18n import UserError
+    from .wip import api_status
     if kind == "amend":
         s = api_status({"amend": ["1"]})
         if "amend_files" not in s:
@@ -587,8 +587,8 @@ def wip_files(kind="", status=None):
 
 def render_diff_page(q):
     """1ファイルの差分ページ。左にそのコミット(比較 / WIP)の変更ファイル一覧を出す。"""
-    from i18n import tr
-    from wip import api_status
+    from .i18n import tr
+    from .wip import api_status
     path = q.get("path", [""])[0]
     old = q.get("old", [""])[0]
     wip = q.get("wip", [""])[0]
@@ -1084,7 +1084,7 @@ if (!hash) showError(new Error(t("commit_required"))); else loadTree(qs.get("pat
 </script></body></html>""".replace("__CSS__", FILES_CSS)
 
 def render_files_page():
-    from i18n import client_translations, fill_template, with_project
+    from .i18n import client_translations, fill_template, with_project
     return with_project(fill_template(FILES_PAGE)
             .replace('<html lang="ja">', f'<html lang="{state.UI_LANG}">')
             .replace("/*__FILE_I18N__*/", "const I18N = " + client_translations() + ";\n"

@@ -1,17 +1,17 @@
 import os
 import subprocess
 import time
-import app_state as state
-from routing import route
+from . import app_state as state
+from .routing import route
 
 
 @route("/api/stash", method="POST")
 def api_stash(body):
     """stash の apply / pop / drop。stash の位置 (stash@{n}) は変わるので、コミットのハッシュから毎回引き直す。
     apply / pop で競合したときは、git の通常の動作どおり作業ツリーに競合を残す (pop は stash も残る)。"""
-    from gitrun import git, resolve_commit, run_git_write
-    from i18n import UserError, tr
-    from rebase import is_cherry_picking, is_merging, is_rebasing, is_reverting
+    from .gitrun import git, resolve_commit, run_git_write
+    from .i18n import UserError, tr
+    from .rebase import is_cherry_picking, is_merging, is_rebasing, is_reverting
     op = body.get("op")
     if op not in ("apply", "pop", "drop"):
         raise ValueError("bad op")
@@ -63,8 +63,8 @@ def parse_checkout_blockers(text):
 
 def stash_all_changes():
     """未コミットの変更 (未追跡ファイルも) を stash に退避する。作った stash の名前を返す (変更がなければ None)。"""
-    from gitrun import run_git_write
-    from i18n import tr
+    from .gitrun import run_git_write
+    from .i18n import tr
     def top():
         r = subprocess.run(["git", "-C", state.REPO, "rev-parse", "-q", "--verify", "refs/stash"],
                            capture_output=True, text=True, encoding="utf-8", errors="replace")
@@ -76,8 +76,8 @@ def stash_all_changes():
 
 def discard_blockers(blockers):
     """チェックアウトを止めているファイルだけを破棄する (編集中の変更は HEAD の状態に戻し、管理外ファイルは削除)。"""
-    from gitrun import git, git_c_locale, run_git_write
-    from i18n import UserError
+    from .gitrun import git, git_c_locale, run_git_write
+    from .i18n import UserError
     top = git("rev-parse", "--show-toplevel").strip()
     top_real = os.path.realpath(top)
     for path in blockers["modified"]:
@@ -100,8 +100,8 @@ def checkout_resolving(args, mode):
     """git checkout <args> を実行する。成功なら None を返す。
     編集中のファイル/同名の管理外ファイルで止まったとき、mode が None なら {blocked, modified, untracked} を返し、
     "stash" なら全変更を退避してから、"discard" なら止めているファイルだけ破棄してから再実行する。"""
-    from gitrun import git_c_locale
-    from i18n import UserError, tr
+    from .gitrun import git_c_locale
+    from .i18n import UserError, tr
     if mode not in (None, "stash", "discard"):
         raise UserError("on_conflict_invalid")
     stashed = None
@@ -123,15 +123,15 @@ def checkout_resolving(args, mode):
     raise UserError("checkout_failed")
 
 def with_stash_note(res, msg):
-    from i18n import tr
+    from .i18n import tr
     if res and res.get("stashed"):
         msg += tr("stash_note", stash=res["stashed"])
     return msg
 
 @route("/api/branch", method="POST")
 def api_branch(body):
-    from gitrun import check_ref_name, resolve_commit, run_git_write
-    from i18n import UserError, tr
+    from .gitrun import check_ref_name, resolve_commit, run_git_write
+    from .i18n import UserError, tr
     h = resolve_commit(body.get("hash", ""))
     name = str(body.get("name", "")).strip()
     check_ref_name("branch", name)
@@ -157,8 +157,8 @@ def api_branch(body):
 
 @route("/api/tag", method="POST")
 def api_tag(body):
-    from gitrun import check_ref_name, resolve_commit, run_git_write
-    from i18n import tr
+    from .gitrun import check_ref_name, resolve_commit, run_git_write
+    from .i18n import tr
     h = resolve_commit(body.get("hash", ""))
     name = str(body.get("name", "")).strip()
     msg = str(body.get("message", "")).strip()
@@ -171,8 +171,8 @@ def api_tag(body):
 
 @route("/api/ref-delete", method="POST")
 def api_delete_ref(body):
-    from gitrun import HTTP_AUTH_CACHE, auth_for_remote, check_ref_name, git, is_http_auth_error, net_error, remember_auth, run_git_net, run_git_write
-    from i18n import UserError, tr
+    from .gitrun import HTTP_AUTH_CACHE, auth_for_remote, check_ref_name, git, is_http_auth_error, net_error, remember_auth, run_git_net, run_git_write
+    from .i18n import UserError, tr
     kind = body.get("kind")
     if kind == "remote-branch":
         name = str(body.get("name", "")).strip()
@@ -217,8 +217,8 @@ def api_delete_ref(body):
 
 @route("/api/checkout", method="POST")
 def api_checkout(body):
-    from gitrun import check_ref_name, resolve_commit
-    from i18n import tr
+    from .gitrun import check_ref_name, resolve_commit
+    from .i18n import tr
     branch = body.get("branch")
     if branch:
         branch = str(branch)
@@ -236,9 +236,9 @@ def api_checkout(body):
 @route("/api/reset", method="POST")
 def api_reset(body):
     """現在の HEAD を選択したコミットへ移動する。"""
-    from gitrun import git, resolve_commit, run_git_write
-    from i18n import UserError, tr
-    from rebase import is_cherry_picking, is_merging, is_rebasing, is_reverting
+    from .gitrun import git, resolve_commit, run_git_write
+    from .i18n import UserError, tr
+    from .rebase import is_cherry_picking, is_merging, is_rebasing, is_reverting
     mode = body.get("mode", "mixed")
     if mode not in ("soft", "mixed", "hard"):
         raise UserError("reset_mode_invalid")
@@ -263,10 +263,10 @@ def has_parent():
 def api_discard(body):
     """選んだファイルの変更を破棄する (取り消せない)。追跡中のファイルはステージ済み・未ステージとも HEAD の状態に戻し、
     HEAD にない新規ファイル (ステージ済み) は削除し、未追跡ファイルは削除する。競合中のファイルと、マージなどの途中は対象外。"""
-    from gitrun import run_git_write
-    from i18n import UserError, tr
-    from rebase import is_cherry_picking, is_merging, is_rebasing, is_reverting, paths_in_head
-    from wip import parse_status, read_status_raw
+    from .gitrun import run_git_write
+    from .i18n import UserError, tr
+    from .rebase import is_cherry_picking, is_merging, is_rebasing, is_reverting, paths_in_head
+    from .wip import parse_status, read_status_raw
     if not state.WIP_ENABLED:
         raise UserError("wip_disabled")
     if is_merging() or is_rebasing() or is_cherry_picking() or is_reverting():
@@ -306,9 +306,9 @@ def api_discard(body):
 @route("/api/branch-rename", method="POST")
 def api_branch_rename(body):
     """ローカルブランチの名前を変える (git branch -m)。リモートのブランチは変わらない。"""
-    from gitrun import check_ref_name, run_git_write
-    from i18n import UserError, tr
-    from remote import branch_config
+    from .gitrun import check_ref_name, run_git_write
+    from .i18n import UserError, tr
+    from .remote import branch_config
     old = str(body.get("old", "")).strip()
     new = str(body.get("new", "")).strip()
     if not old or "\0" in old:

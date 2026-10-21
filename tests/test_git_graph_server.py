@@ -10,8 +10,8 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 import git_graph_server as app
-import app_state as state
-import viewer
+from git_graph import app_state as state
+from git_graph import viewer
 
 
 class ParseStatusTests(unittest.TestCase):

@@ -1,13 +1,13 @@
 import os
 import subprocess
-import app_state as state
-from routing import route
+from . import app_state as state
+from .routing import route
 
 
 CONFLICT_CODES = {"DD", "AU", "UD", "UA", "DU", "AA", "UU"}
 
 def read_status_raw():
-    from gitrun import git
+    from .gitrun import git
     return git("status", "--porcelain=v1", "-z", "--untracked-files=all")
 
 def parse_status(raw, limit=5000):
@@ -48,7 +48,7 @@ def wip_count(status):
 
 def amend_base():
     """amend 後のコミットの親 (HEAD^)。最初のコミットなら空ツリー。"""
-    from gitrun import git
+    from .gitrun import git
     try:
         return git("rev-parse", "--verify", "--quiet", "HEAD^").strip()
     except subprocess.CalledProcessError:
@@ -77,15 +77,15 @@ def parse_name_status(raw):
 
 def amend_head_changes(base):
     """直前のコミット (HEAD) が変更したファイル {新しいパス: 元のパス or None}。"""
-    from gitrun import git
+    from .gitrun import git
     names = parse_name_status(git("diff", "--name-status", "-z", "-M", base, "HEAD", "--"))
     return {path: old for path, (_, old) in names.items()}
 
 def amend_files(s):
     """amend 後のコミットの内容 = 「直前のコミットの親」と作業ツリーの差分のファイル一覧。
     直前のコミットで変更したファイルは in_head=True (チェックを外すとコミットから外れる)。WIP の変更があるものは tag=WIP。"""
-    from gitrun import git
-    from viewer import parse_numstat
+    from .gitrun import git
+    from .viewer import parse_numstat
     base = amend_base()
     letters = parse_name_status(git("diff", "--name-status", "-z", "-M", base, "--"))
     in_head = amend_head_changes(base)
@@ -106,10 +106,10 @@ def amend_files(s):
 @route("/api/status")
 def api_status(q):
     """作業ツリーの変更 (WIP)。ステージ済み/未ステージには追加・削除行数も付ける。"""
-    from gitrun import git
-    from i18n import UserError
-    from rebase import is_cherry_picking, is_merging, is_rebasing, is_reverting
-    from viewer import commit_info, parse_numstat
+    from .gitrun import git
+    from .i18n import UserError
+    from .rebase import is_cherry_picking, is_merging, is_rebasing, is_reverting
+    from .viewer import commit_info, parse_numstat
     if not state.WIP_ENABLED:
         raise UserError("wip_disabled")
     s = parse_status(read_status_raw())
@@ -136,8 +136,8 @@ def api_status(q):
     return s
 
 def wip_diff(kind, path, specs):
-    from gitrun import git_bytes
-    from i18n import UserError, tr
+    from .gitrun import git_bytes
+    from .i18n import UserError, tr
     if not state.HAS_WORKTREE:
         raise UserError("no_worktree")
     if kind == "staged":
@@ -167,10 +167,10 @@ def wip_diff(kind, path, specs):
 def api_wip_commit(body):
     """チェックされたファイルを add してコミットする (TortoiseGit のコミットダイアログと同じ考え方)。
     ステージ済みでチェックのないファイルは、ステージから外す (作業ツリーの内容はそのまま)。"""
-    from gitrun import check_ref_name, git, run_git_write
-    from i18n import UserError, tr
-    from rebase import api_head, is_merging, is_rebasing
-    from refops import checkout_resolving, has_head, has_parent
+    from .gitrun import check_ref_name, git, run_git_write
+    from .i18n import UserError, tr
+    from .rebase import api_head, is_merging, is_rebasing
+    from .refops import checkout_resolving, has_head, has_parent
     if not state.WIP_ENABLED:
         raise UserError("wip_disabled")
     amend = body.get("amend") is True

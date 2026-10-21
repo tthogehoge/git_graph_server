@@ -6,8 +6,8 @@ import sys
 import tempfile
 import threading
 from collections import Counter, defaultdict
-import app_state as state
-from routing import route
+from . import app_state as state
+from .routing import route
 
 
 def is_merging():
@@ -33,9 +33,9 @@ def api_head(q=None):
 def api_merge(body):
     """選んだコミットを、いまチェックアウトしている HEAD にマージする。
     競合したときはマージ途中の状態で止める (WIP の一覧に競合ファイルが出るので、解決してコミットする)。"""
-    from gitrun import git, resolve_commit
-    from i18n import UserError, tr
-    from refops import has_head
+    from .gitrun import git, resolve_commit
+    from .i18n import UserError, tr
+    from .refops import has_head
     if not state.HAS_WORKTREE:
         raise UserError("merge_no_worktree")
     h = resolve_commit(body.get("hash", ""))
@@ -62,8 +62,8 @@ def api_merge(body):
 @route("/api/rebase", method="POST")
 def api_rebase(body):
     """現在のブランチを、選んだコミットの上にリベースする。競合したら自動で中止して元に戻す。"""
-    from gitrun import git, resolve_commit
-    from i18n import UserError, tr
+    from .gitrun import git, resolve_commit
+    from .i18n import UserError, tr
     if not state.HAS_WORKTREE:
         raise UserError("rebase_no_worktree")
     h = resolve_commit(body.get("hash", ""))
@@ -89,8 +89,8 @@ def api_rebase(body):
 def api_rebase_range(body):
     """A より後の現在のブランチのコミットを B の上にリベースする。
     競合したら自動で中止して元に戻す。"""
-    from gitrun import git, resolve_commit
-    from i18n import UserError, tr
+    from .gitrun import git, resolve_commit
+    from .i18n import UserError, tr
     if not state.HAS_WORKTREE:
         raise UserError("rebase_no_worktree")
     a = resolve_commit(body.get("from", ""))
@@ -122,8 +122,8 @@ def api_rebase_descendants(body):
     ローカルブランチの参照を一括更新するため、途中失敗で履歴が半端に
     書き換わらないようにする。
     """
-    from gitrun import git, resolve_commit, run_git_write
-    from i18n import UserError, tr
+    from .gitrun import git, resolve_commit, run_git_write
+    from .i18n import UserError, tr
     if not state.HAS_WORKTREE:
         raise UserError("rebase_no_worktree")
     a = resolve_commit(body.get("from", ""))
@@ -250,8 +250,8 @@ def api_rebase_descendants(body):
 
 def equivalent_commit_prefix(a, b, allow_merges=False):
     """A/B の共通親から、親相対の差分が連続して一致するコミット数を返す。"""
-    from gitrun import git
-    from i18n import UserError
+    from .gitrun import git
+    from .i18n import UserError
     try:
         base = git("merge-base", a, b).strip()
     except subprocess.CalledProcessError as e:
@@ -285,7 +285,7 @@ def equivalent_commit_prefix(a, b, allow_merges=False):
 
 def first_parent_commits(tip):
     """先端からルートまでの first-parent コミットを新しい順に返す。"""
-    from gitrun import git
+    from .gitrun import git
     out = git("log", "--first-parent", "--format=%H%x1f%P%x1f%s", tip)
     empty_tree = subprocess.check_output(
         ["git", "-C", state.REPO, "hash-object", "-t", "tree", "--stdin"], input=b""
@@ -321,8 +321,8 @@ def nearest_equivalent_parent(a, b):
 @route("/api/find-equivalent-parents", method="POST")
 def api_find_equivalent_parents(body):
     """A/B の先端から親へ探し、件名と親相対差分が一致するコミットを返す。"""
-    from gitrun import resolve_commit
-    from i18n import UserError, tr
+    from .gitrun import resolve_commit
+    from .i18n import UserError, tr
     a = resolve_commit(body.get("from", ""))
     b = resolve_commit(body.get("to", ""))
     try:
@@ -338,8 +338,8 @@ def api_find_equivalent_parents(body):
 @route("/api/rebase-equivalent", method="POST")
 def api_rebase_equivalent(body):
     """A/B の先端から親へ同一差分を探し、A の一致コミット以降を B 側へ寄せる。"""
-    from gitrun import git, resolve_commit, run_git_write
-    from i18n import UserError, tr
+    from .gitrun import git, resolve_commit, run_git_write
+    from .i18n import UserError, tr
     if not state.HAS_WORKTREE:
         raise UserError("rebase_no_worktree")
     a = resolve_commit(body.get("from", ""))
@@ -419,8 +419,8 @@ def api_rebase_equivalent(body):
 @route("/api/find-equivalent-branch", method="POST")
 def api_find_equivalent_branch(body):
     """B の子孫ブランチから、A と最も近い連続同一差分の履歴を探す。"""
-    from gitrun import git, resolve_commit
-    from i18n import tr
+    from .gitrun import git, resolve_commit
+    from .i18n import tr
     a = resolve_commit(body.get("from", ""))
     b = resolve_commit(body.get("to", ""))
     candidates = []
@@ -464,9 +464,9 @@ def is_reverting():
 def api_cherry_pick(body):
     """選んだコミットを、いまチェックアウトしている HEAD にチェリーピックする。
     競合したときと、変更が空になるとき (既に取り込み済み) は、中止して元に戻す。"""
-    from gitrun import git, resolve_commit
-    from i18n import UserError, tr
-    from refops import has_head
+    from .gitrun import git, resolve_commit
+    from .i18n import UserError, tr
+    from .refops import has_head
     if not state.HAS_WORKTREE:
         raise UserError("cherry_no_worktree")
     h = resolve_commit(body.get("hash", ""))
@@ -497,9 +497,9 @@ def api_cherry_pick(body):
 def api_revert(body):
     """選んだコミットの変更を打ち消すコミットを、いまの HEAD の上に作る (git revert)。
     競合したときと、変更が空になるとき (既に打ち消し済み) は、中止して元に戻す。マージコミットは第1親を基準にする。"""
-    from gitrun import git, resolve_commit
-    from i18n import UserError, tr
-    from refops import has_head
+    from .gitrun import git, resolve_commit
+    from .i18n import UserError, tr
+    from .refops import has_head
     if not state.HAS_WORKTREE:
         raise UserError("revert_no_worktree")
     h = resolve_commit(body.get("hash", ""))
@@ -526,8 +526,8 @@ def api_revert(body):
 @route("/api/abort", method="POST")
 def api_abort(body):
     """進行中のマージ / リベース / チェリーピック / リバートを中断して、開始前の状態に戻す。"""
-    from gitrun import run_git_write
-    from i18n import UserError, tr
+    from .gitrun import run_git_write
+    from .i18n import UserError, tr
     if not state.HAS_WORKTREE:
         raise UserError("abort_no_worktree")
     for cmd, active in (("merge", is_merging), ("rebase", is_rebasing),
@@ -539,16 +539,16 @@ def api_abort(body):
 
 def unmerged_stages(path):
     """競合しているファイルが持つインデックスのステージ番号 (2 = ours, 3 = theirs)。片側で削除されていると、その番号がない。"""
-    from gitrun import git
+    from .gitrun import git
     out = git("ls-files", "-u", "-z", "--", path, literal=True)
     return {rec.split("\t", 1)[0].split()[-1] for rec in out.split("\0") if "\t" in rec}
 
 @route("/api/resolve", method="POST")
 def api_resolve(body):
     """競合しているファイルを、ours か theirs の内容で丸ごと置き換えて解決済みにする (片側で削除されていたら削除する)。"""
-    from gitrun import run_git_write
-    from i18n import UserError, tr
-    from wip import parse_status, read_status_raw
+    from .gitrun import run_git_write
+    from .i18n import UserError, tr
+    from .wip import parse_status, read_status_raw
     if not state.WIP_ENABLED:
         raise UserError("wip_disabled")
     side = body.get("side")
@@ -576,8 +576,8 @@ def api_resolve(body):
 
 def paths_in_head(paths):
     """paths のうち HEAD に存在するもの。"""
-    from gitrun import git_bytes
-    from refops import has_head
+    from .gitrun import git_bytes
+    from .refops import has_head
     found = set()
     if not has_head():
         return found
@@ -592,14 +592,14 @@ REBASE_I_ACTIONS = ("pick", "reword", "squash", "fixup", "drop")
 
 def rebase_todo_hashes(base):
     """git rebase -i <base> が最初に作る todo と同じコミット列 (古い順)。"""
-    from gitrun import git
+    from .gitrun import git
     out = git("rev-list", "--reverse", "--topo-order", "--right-only", "--cherry-pick",
               "--no-merges", base + "...HEAD")
     return out.split()
 
 def check_rebase_i_range(base):
     """対話的リベースできる範囲か調べて、対象コミットのハッシュ (古い順) を返す。"""
-    from i18n import UserError
+    from .i18n import UserError
     r = subprocess.run(["git", "-C", state.REPO, "rev-list", "--count", "--merges", base + "..HEAD"],
                        capture_output=True, text=True, encoding="utf-8", errors="replace")
     if r.returncode == 0 and r.stdout.strip() not in ("", "0"):
@@ -614,8 +614,8 @@ def check_rebase_i_range(base):
 @route("/api/rebase-todo")
 def api_rebase_todo(q):
     """対話的リベースの対象コミット一覧 (画面の編集ダイアログに出す)。"""
-    from gitrun import git, resolve_commit
-    from i18n import UserError
+    from .gitrun import git, resolve_commit
+    from .i18n import UserError
     if not state.HAS_WORKTREE:
         raise UserError("rebase_no_worktree")
     base = resolve_commit((q.get("hash") or [""])[0])
@@ -639,9 +639,9 @@ def api_rebase_i(body):
     エディタは起こさず、todo は GIT_SEQUENCE_EDITOR で差し替える。reword は、そのコミット (squash/fixup を
     まとめた後) に exec で commit --amend -F を挟んで新しいメッセージにする。
     競合やエラーで止まったときは自動で rebase --abort して元に戻す。"""
-    from gitrun import git, resolve_commit
-    from i18n import UserError, tr
-    from refops import has_head
+    from .gitrun import git, resolve_commit
+    from .i18n import UserError, tr
+    from .refops import has_head
     if not state.HAS_WORKTREE:
         raise UserError("rebase_no_worktree")
     base = resolve_commit(body.get("hash", ""))

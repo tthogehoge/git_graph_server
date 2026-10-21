@@ -5,13 +5,13 @@ import os
 import re
 from pathlib import Path
 from urllib.parse import quote
-import app_state as state
+from . import app_state as state
 
 
 ASSET_DIR = Path(__file__).resolve().parent
 STATIC_DIR = ASSET_DIR / "static"
-I18N_DIR = ASSET_DIR / "i18n"
-TRANSLATIONS = {lang: json.loads((I18N_DIR / f"{lang}.json").read_text(encoding="utf-8"))
+LOCALES_DIR = ASSET_DIR / "locales"
+TRANSLATIONS = {lang: json.loads((LOCALES_DIR / f"{lang}.json").read_text(encoding="utf-8"))
                 for lang in ("ja", "en")}
 HTML_TEMPLATE = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
 APP_JS = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
@@ -94,7 +94,7 @@ def check_i18n():
     2. コードが使うキーが定義済みか / 使われていないキーがないか
     3. 辞書の外に日本語のリテラルが残っていないか (docstring とコメントは除く)
     4. 日本語以外の言語でテンプレートを展開しても、日本語や未置換のキーが残らないか"""
-    from viewer import FILES_PAGE
+    from .viewer import FILES_PAGE
     problems = []
     base = TRANSLATIONS["en"]
     params_of = lambda s: sorted(set(re.findall(r"\{(\w+)\}", s)))

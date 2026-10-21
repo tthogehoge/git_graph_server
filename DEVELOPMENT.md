@@ -21,10 +21,10 @@ python3 git_graph_server.py --check-i18n
 
 ## アプリケーションの流れ
 
-1. `git_graph_server.py` が `server.py` の `main()` を呼び出します。`main()` は CLI 引数と言語を決定し、指定された Git リポジトリのルートを特定します。
-2. `app_state.py` に対象リポジトリや起動設定を設定します。各機能モジュールはこの状態を参照し、`gitrun.py` のヘルパーを通じて Git を実行します。
-3. `server.py` の HTTP ハンドラーが HTML、静的アセット、API リクエストを処理します。ページの HTML/CSS/JavaScript は `i18n.py` を通じてテンプレート展開されます。
-4. API ハンドラーは機能別モジュールにあり、`@route` で登録されます。グラフ API は Git 履歴を `graph.py` で処理し、画面側の `static/app.js` が API を呼んで画面を更新します。
+1. `git_graph_server.py` が `git_graph/server.py` の `main()` を呼び出します。`main()` は CLI 引数と言語を決定し、指定された Git リポジトリのルートを特定します。
+2. `git_graph/app_state.py` に対象リポジトリや起動設定を設定します。各機能モジュールはこの状態を参照し、`git_graph/gitrun.py` のヘルパーを通じて Git を実行します。
+3. `git_graph/server.py` の HTTP ハンドラーが HTML、静的アセット、API リクエストを処理します。ページの HTML/CSS/JavaScript は `git_graph/i18n.py` を通じてテンプレート展開されます。
+4. API ハンドラーは機能別モジュールにあり、`@route` で登録されます。グラフ API は Git 履歴を `git_graph/graph.py` で処理し、画面側の `git_graph/static/app.js` が API を呼んで画面を更新します。
 
 サーバーは Python の `ThreadingHTTPServer` を使います。POST リクエストのハンドラーは書き込みロック内で実行されるため、書き込み操作同士は直列化されます。状態はプロセス内の共有値であり、複数リポジトリを同じプロセスで同時に操作する構成ではありません。
 
@@ -57,28 +57,28 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.test_git_graph_server.InputV
 | ファイル / ディレクトリ | 役割 |
 | --- | --- |
 | `git_graph_server.py` | 起動用エントリーポイント。各モジュールの互換エクスポートも提供します。新しい機能は原則として機能別モジュールに実装します。 |
-| `server.py` | CLI 引数、共有状態の初期化、HTTP サーバー、ページ/API の GET/POST 処理、書き込み要求の制御。 |
-| `routing.py` | `@route` による API ルート登録。HTTP メソッドとパスの組み合わせで管理し、重複登録を拒否します。 |
-| `app_state.py` | 対象リポジトリ、起動オプション、書き込み可否、worktree 状態、HTTP サーバーなどのプロセス共有状態。 |
-| `gitrun.py` | Git コマンド実行、コミット/ref/ホストの検証、書き込みコマンド、リモート通信と認証情報の処理。 |
-| `graph.py` | Git の履歴・ref を読み込み、表示対象ノードとエッジを決定し、Graphviz の DOT/SVG 情報を生成。 |
-| `viewer.py` | ログ、コミット、ツリー、ファイル、差分、ブランチ、タグ、reflog、stash などの参照 API と HTML ページ。 |
-| `wip.py` | `git status` の解析、作業ツリー差分の表示、未コミット変更を含めた操作。 |
-| `refops.py` | ブランチ・タグの作成/削除/rename、checkout、reset、stash、変更の破棄。 |
-| `rebase.py` | merge、rebase、cherry-pick、revert、rebase 中断、競合解決と履歴上の対応コミット検索。 |
-| `remote.py` | remote の一覧・管理、fetch、pull、push、タグ push。 |
-| `i18n.py` | 翻訳辞書の読み込み、言語選択、HTML/JavaScript テンプレート展開、翻訳整合性の検査。 |
-| `i18n/ja.json`、`i18n/en.json` | 日本語・英語の翻訳辞書。 |
-| `static/index.html` | メイン画面の HTML 骨格。 |
-| `static/app.js` | グラフ、ログ、詳細、アクションなどブラウザー側の動作。翻訳辞書は起動時に埋め込まれます。 |
-| `static/app.css` | メイン画面と各ビューのスタイル。 |
+| `git_graph/server.py` | CLI 引数、共有状態の初期化、HTTP サーバー、ページ/API の GET/POST 処理、書き込み要求の制御。 |
+| `git_graph/routing.py` | `@route` による API ルート登録。HTTP メソッドとパスの組み合わせで管理し、重複登録を拒否します。 |
+| `git_graph/app_state.py` | 対象リポジトリ、起動オプション、書き込み可否、worktree 状態、HTTP サーバーなどのプロセス共有状態。 |
+| `git_graph/gitrun.py` | Git コマンド実行、コミット/ref/ホストの検証、書き込みコマンド、リモート通信と認証情報の処理。 |
+| `git_graph/graph.py` | Git の履歴・ref を読み込み、表示対象ノードとエッジを決定し、Graphviz の DOT/SVG 情報を生成。 |
+| `git_graph/viewer.py` | ログ、コミット、ツリー、ファイル、差分、ブランチ、タグ、reflog、stash などの参照 API と HTML ページ。 |
+| `git_graph/wip.py` | `git status` の解析、作業ツリー差分の表示、未コミット変更を含めた操作。 |
+| `git_graph/refops.py` | ブランチ・タグの作成/削除/rename、checkout、reset、stash、変更の破棄。 |
+| `git_graph/rebase.py` | merge、rebase、cherry-pick、revert、rebase 中断、競合解決と履歴上の対応コミット検索。 |
+| `git_graph/remote.py` | remote の一覧・管理、fetch、pull、push、タグ push。 |
+| `git_graph/i18n.py` | 翻訳辞書の読み込み、言語選択、HTML/JavaScript テンプレート展開、翻訳整合性の検査。 |
+| `git_graph/locales/ja.json`、`git_graph/locales/en.json` | 日本語・英語の翻訳辞書。 |
+| `git_graph/static/index.html` | メイン画面の HTML 骨格。 |
+| `git_graph/static/app.js` | グラフ、ログ、詳細、アクションなどブラウザー側の動作。翻訳辞書は起動時に埋め込まれます。 |
+| `git_graph/static/app.css` | メイン画面と各ビューのスタイル。 |
 | `tests/test_git_graph_server.py` | 単体テスト、API 統合テスト、HTTP/書き込み操作のテスト。 |
 
 ## 変更の進め方
 
 ### API を追加・変更する
 
-各 API のハンドラーは機能に対応するモジュールに置き、`routing.py` の `route` デコレーターで登録します。GET は URL クエリー引数の辞書を、POST は JSON オブジェクトを受け取ります。登録されたハンドラーは `server.py` が呼び出すため、新しいルートを `server.py` に重ねて個別登録する必要はありません。
+各 API のハンドラーは機能に対応するモジュールに置き、`git_graph/routing.py` の `route` デコレーターで登録します。GET は URL クエリー引数の辞書を、POST は JSON オブジェクトを受け取ります。登録されたハンドラーは `git_graph/server.py` が呼び出すため、新しいルートを `git_graph/server.py` に重ねて個別登録する必要はありません。
 
 ```python
 from routing import route
@@ -94,20 +94,20 @@ GET は JSON を返し、POST も JSON オブジェクトを受け取って JSON
 
 ### 画面や翻訳を変更する
 
-- 画面の構造は `static/index.html`、動作は `static/app.js`、見た目は `static/app.css` にあります。
+- 画面の構造は `git_graph/static/index.html`、動作は `git_graph/static/app.js`、見た目は `git_graph/static/app.css` にあります。
 - `{{translation_key}}` は HTML テンプレート用、JavaScript の `t("translation_key")` はブラウザー側の文言用です。
-- ユーザー向け文言を追加・変更したら `i18n/ja.json` と `i18n/en.json` の両方を更新し、`--check-i18n` を実行してください。
+- ユーザー向け文言を追加・変更したら `git_graph/locales/ja.json` と `git_graph/locales/en.json` の両方を更新し、`--check-i18n` を実行してください。
 - API のエラーには既存の `UserError` と翻訳キーを使い、画面に返すメッセージを一貫させてください。
-- `i18n.py` は静的ファイルをモジュール読み込み時に読み込みます。画面テンプレートや翻訳を編集した後は、サーバーを再起動して反映を確認してください。
+- `git_graph/i18n.py` は静的ファイルをモジュール読み込み時に読み込みます。画面テンプレートや翻訳を編集した後は、サーバーを再起動して反映を確認してください。
 - HTML に動的値を挿入するときは、既存の `html.escape` 等のエスケープ方法を使ってください。信頼できない値を `innerHTML` やテンプレートへそのまま連結しないでください。
 
 ### Git 操作と安全性
 
 - Git への入力は引数配列で渡し、シェル文字列として組み立てないでください。Git の引数もオプションとして誤解される可能性があるため、既存処理と同様に ref 名・コミットハッシュ・パスを検証してください。
-- パスを扱う処理では `validate_file_path` や `gitrun.py` の literal path 対応を確認し、リポジトリ外のファイルへアクセスしないようにしてください。
+- パスを扱う処理では `validate_file_path` や `git_graph/gitrun.py` の literal path 対応を確認し、リポジトリ外のファイルへアクセスしないようにしてください。
 - 読み取りには `git()` / `git_bytes()`、エラーをユーザーへ返す書き込みには `run_git_write()`、ロケール依存の出力を解析する場合には `git_c_locale()` を用途に合わせて使ってください。リモート通信には `run_git_net()` のタイムアウト・認証処理を使います。
 - 履歴を書き換える・ref を移動する処理では、対象・副作用・失敗時の状態を明確にし、関連する既存の排他制御やエラー処理に従ってください。履歴操作の画面表示だけでなく、途中失敗・競合・中断の経路も確認してください。
-- POST API は `server.py` の書き込み制御を通します。新しい書き込み API を別経路で呼び出す設計にしないでください。書き込みは localhost でも明示的な共通チェックを経て実行されます。
+- POST API は `git_graph/server.py` の書き込み制御を通します。新しい書き込み API を別経路で呼び出す設計にしないでください。書き込みは localhost でも明示的な共通チェックを経て実行されます。
 - `--lan` や `--allow-write` は認証を提供しません。ネットワーク公開を前提とした機能を追加する場合は、既存の Host/Origin 検査だけで十分とみなさず、設計とアクセス制御を改めて検討してください。
 
 ## 変更後の確認
