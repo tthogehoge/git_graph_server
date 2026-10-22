@@ -132,7 +132,7 @@ html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-s
   table.log .meta { font-size: 12px; color: #888; margin: 0; }
   /* 幅が広いときは、件名と作者/日付を1行に並べる (比較ログは各列の幅で判定する) */
   #listView, .compare-log-col { container: loglist / inline-size; }
-  @container loglist (min-width: 640px) {
+  @container loglist (min-width: 320px) {
     table.log .log-main { display: flex; align-items: baseline; gap: 12px; }
     table.log td.log-cell { max-width: 0; }  /* 列の幅を残りの幅に固定して、長い件名を省略表示にする */
     table.log .log-subj { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
