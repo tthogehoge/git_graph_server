@@ -1468,7 +1468,7 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         dot, nodes, edges = app.build_graph(self.graph_opts(show_merges=True))
 
         self.assertEqual(set(nodes), {self.head, b, m})
-        self.assertEqual(set(edges), {f"{self.head}->{b}", f"{b}->{m}"})
+        self.assertEqual({k for k in edges if "->" in k}, {f"{self.head}->{b}", f"{b}->{m}"})
         lines = [line for line in dot.splitlines() if line.startswith(f'  "{b}" -> "{m}"')]
         self.assertEqual(len(lines), 2)  # 第1親 (C 経由) と第2親 (F 経由) の 2 本
         self.assertTrue(all('label="+1"' in line for line in lines))  # 間に C / F が 1 つずつ
@@ -1493,6 +1493,30 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertIn(b, merged["nodes"])
         self.assertEqual(set(plain_again["nodes"]), set(plain["nodes"]))
         self.assertIn("<svg", merged["svg"])
+
+    @unittest.skipUnless(shutil.which("dot"), "Graphviz dot is not installed")
+    def test_edge_log_excludes_both_endpoints(self):
+        b, m = self.make_merged_and_deleted_branch()
+        c, f = self.git("rev-parse", "HEAD^1").strip(), self.git("rev-parse", "HEAD^2").strip()
+        previous = state.OPTS
+        state.OPTS = self.graph_opts()
+        try:
+            payload = app.graph_payload({"merges": ["1"]})
+        finally:
+            state.OPTS = previous
+
+        # マージの 2 本の線には親ごとの id が付き、どちらの側かが分かる
+        self.assertEqual(payload["edges"][f"m_{b}_{m}_{c}"]["via"], c)
+        self.assertEqual(payload["edges"][f"m_{b}_{m}_{f}"]["via"], f)
+        self.assertIn(f'id="m_{b}_{m}_{f}"', payload["svg"])
+        # 線の間のコミットだけ (B も M も含まない)
+        side = app.api_log({"rev": [f"{b}..{f}"]})
+        self.assertEqual([x[0] for x in side["commits"]], [f])
+        # A..B^@ は B の親たちから A の祖先を除いたもの (B 自身は含まない)
+        between = app.api_log({"rev": [f"{b}..{m}^@"], "graph": ["1"]})
+        self.assertEqual({x[0] for x in between["commits"]}, {c, f})
+        self.assertEqual(between["total"], 2)
+        self.assertEqual(app.api_log({"rev": [f"{b}..{c}^@"]})["commits"], [])  # 間に何もなければ空
 
     def test_merge_bases_returns_best_common_ancestor_only(self):
         parents = {"d": ["b", "c"], "b": ["a"], "c": ["a"], "a": ["r"], "r": []}

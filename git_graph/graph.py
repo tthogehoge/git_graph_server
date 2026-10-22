@@ -341,13 +341,18 @@ def build_graph(opts):
             attrs += [f'label="+{n}"', "style=dashed"]
         if via is not None and via != parents[c][0]:  # 第1親以外 = マージされてきた側の線は色を変える
             attrs += [f'color="{MERGE_EDGE_COLOR}"', f'fontcolor="{MERGE_EDGE_COLOR}"']
+        if via is not None:  # 同じ組の線を区別できるよう id を付ける (クリックしたとき、どの親の側かが分かる)
+            attrs.append(f'id="m_{d}_{c}_{via}"')
         attr = f' [{", ".join(attrs)}]' if attrs else ""
         out.append(f'  "{d}" -> "{c}"{attr};')
     out.append("}")
 
     nodes = {h: {"hash": h, "refs": [{"name": n, "kind": k} for n, k in labels.get(h, [])]}
              for h in keep}
-    edge_data = {f"{d}->{c}": {"from": d, "to": c} for d, c, _ in edges}  # 同じ組の 2 本目以降は同じ項目を指す
+    edge_data = {f"{d}->{c}": {"from": d, "to": c} for d, c, _ in edges}
+    for d, c, via in edges:
+        if via is not None:
+            edge_data[f"m_{d}_{c}_{via}"] = {"from": d, "to": c, "via": via}
     return "\n".join(out), nodes, edge_data
 
 _cache = {}  # マージ表示の on / off ごとのキャッシュ

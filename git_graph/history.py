@@ -10,7 +10,17 @@ from .routing import route
 from .wip import api_status, wip_diff
 
 
-REV_RE = re.compile(r"[0-9a-f]{40}(\.\.[0-9a-f]{40})?")
+# コミット / A..B / A..B^@ (B の親たち。A..B から B 自身を除いた範囲 = グラフの線の間のコミット)
+REV_RE = re.compile(r"[0-9a-f]{40}(\.\.[0-9a-f]{40}(\^@)?)?")
+
+
+def rev_args(rev):
+    """rev を git に渡す引数に直す。A..B^@ は「A から見えない B の親たち」(B 自身は含めない)。"""
+    if not rev.endswith("^@"):
+        return [rev]
+    a, b = rev[:-2].split("..")
+    parents = git("rev-list", "--parents", "-n", "1", b, "--").split()[1:]
+    return [f"^{a}"] + parents
 
 
 @route("/api/log")
@@ -28,7 +38,7 @@ def api_log(q):
             "--format=%H%x1f%h%x1f%an%x1f%ad%x1f%P%x1f%s"]
     if q.get("graph", [""])[0] == "1":
         args.append("--topo-order")
-    args += [rev, "--"]
+    args += rev_args(rev) + ["--"]
     if path:
         args.append(path)
     out = git(*args, literal=bool(path))
@@ -40,12 +50,12 @@ def api_log(q):
         commits.append([h, short, author, date, subj, parents.split()])
     if q.get("graph", [""])[0] == "1" and ".." in rev and commits:
         # 範囲指定 (A..B) では範囲外の親へ線を伸ばさない (ログに現れず、線が最後まで残るため)
-        listed = set(git("rev-list", rev, "--").split())
+        listed = set(git("rev-list", *rev_args(rev), "--").split())
         for c in commits:
             c[5] = [p for p in c[5] if p in listed]
     res = {"commits": commits, "has_more": len(commits) == limit}
     if skip == 0:
-        count_args = ["rev-list", "--count", rev, "--"]
+        count_args = ["rev-list", "--count", *rev_args(rev), "--"]
         if path:
             count_args.append(path)
         res["total"] = int(git(*count_args, literal=bool(path)).strip())

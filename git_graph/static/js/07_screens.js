@@ -285,14 +285,16 @@ function init() {
   });
   document.querySelectorAll("svg g.edge").forEach(g => {
     const t = g.querySelector("title");
-    const e = t && DATA.edges[t.textContent];
+    const e = DATA.edges[g.id] || (t && DATA.edges[t.textContent]);  // マージ表示の線は id で区別する
     if (!e) return;
     const path = g.querySelector("path");
     if (path) { const hit = path.cloneNode(); hit.setAttribute("class", "hit"); g.appendChild(hit); }
     g.addEventListener("click", () => {
       clearCmp(); select(g);
-      const range = e.from.slice(0, 7) + ".." + e.to.slice(0, 7);
-      showLog(esc(e.from.slice(0, 7)) + " → " + esc(e.to.slice(0, 7)), e.from + ".." + e.to,
+      // 線の両端は含めない。マージの線はその親の側 (from..親)、それ以外は from..to^@ (to の親たち)
+      const rev = e.via ? e.from + ".." + e.via : e.from + ".." + e.to + "^@";
+      const range = e.via ? e.from.slice(0, 7) + ".." + e.via.slice(0, 7) : "^" + e.from.slice(0, 7) + " " + e.to.slice(0, 7) + "^@";
+      showLog(esc(e.from.slice(0, 7)) + " → " + esc(e.to.slice(0, 7)), rev,
               '<div class="meta"><code>git log ' + esc(range) + "</code></div>");
     });
   });
