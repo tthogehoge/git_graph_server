@@ -249,7 +249,7 @@ def render_diff_page(q):
         commit_js = "const T = " + json.dumps(texts, ensure_ascii=False).replace("</", "<\\/") + ";\n" + WIP_DIFF_COMMIT_JS
     return f"""<!DOCTYPE html>
 <html lang="{state.UI_LANG}"><head><meta charset="utf-8">
-<title>{html.escape(path)} @ {ref} - {html.escape(state.PROJECT_NAME)}</title>
+<title>{html.escape(state.PROJECT_NAME)} - {html.escape(path)} @ {ref}</title>
 {FAVICON_LINK}
 <style>{DIFF_CSS}</style></head><body>
 <div id="side">

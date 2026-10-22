@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ja"><head><meta charset="utf-8"><title>{{file_view}} - __PROJECT__</title>
+<html lang="ja"><head><meta charset="utf-8"><title>__PROJECT__ - {{file_view}}</title>
 __FAVICON__
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
 <style>
@@ -74,9 +74,9 @@ function t(key, values = {}) {
   return text;
 }
 
-const PROJECT_DOCUMENT_TITLE = document.title.substring(document.title.indexOf(" - ") + 3);
+const PROJECT_DOCUMENT_TITLE = document.title.slice(0, document.title.length - t("file_view").length - 3);  // ウィンドウタイトルは「プロジェクト名 - 表示対象」
 function setDocumentTitle(label) {
-  document.title = label ? label + " - " + PROJECT_DOCUMENT_TITLE : t("file_view") + " - " + PROJECT_DOCUMENT_TITLE;
+  document.title = PROJECT_DOCUMENT_TITLE + " - " + (label || t("file_view"));
 }
 
 const qs = new URLSearchParams(location.search), hash = qs.get("hash"), fileViewTab = qs.get("file_view") === "1";

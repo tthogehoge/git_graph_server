@@ -113,9 +113,9 @@ function esc(s) {
   return String(s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
 }
 const DEFAULT_DOCUMENT_TITLE = document.title;
-const PROJECT_DOCUMENT_TITLE = DEFAULT_DOCUMENT_TITLE.replace(/ - git graph$/, "");
+const PROJECT_DOCUMENT_TITLE = DEFAULT_DOCUMENT_TITLE.replace(/ - git graph$/, "");  // ウィンドウタイトルは「プロジェクト名 - 表示対象」
 function setDocumentTitle(label) {
-  document.title = label ? label + " - " + PROJECT_DOCUMENT_TITLE : DEFAULT_DOCUMENT_TITLE;
+  document.title = label ? PROJECT_DOCUMENT_TITLE + " - " + label : DEFAULT_DOCUMENT_TITLE;
 }
 function setDocumentTitleFromHtml(titleHtml) {
   const el = document.createElement("span");
