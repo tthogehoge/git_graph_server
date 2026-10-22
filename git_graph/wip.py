@@ -68,6 +68,16 @@ def amend_files(s):
         out.append(dict(f, wip="amend", tag="WIP"))
     return out
 
+def addable_paths(paths, step=200):
+    """add -A できるパスだけにする。作業ツリーにもインデックスにも無いパス (直前のコミットで git rm 済みのファイルなど) は、
+    add -A が「pathspec が見つからない」で失敗する。そのパスはインデックスの状態のままコミットに入る。"""
+    paths = sorted(paths)
+    in_index = set()
+    for i in range(0, len(paths), step):
+        out = git("ls-files", "-z", "--", *paths[i:i + step], literal=True)
+        in_index.update(p for p in out.split("\0") if p)
+    return [p for p in paths if p in in_index or os.path.lexists(os.path.join(state.REPO, p))]
+
 @route("/api/status")
 def api_status(q):
     """作業ツリーの変更 (WIP)。ステージ済み/未ステージには追加・削除行数も付ける。"""
@@ -156,11 +166,22 @@ def api_wip_commit(body):
     if not msg:
         raise UserError("message_required")
     paths = body.get("paths")
-    if not isinstance(paths, list) or not all(isinstance(p, str) for p in paths) or (not paths and not amend):
+    if not isinstance(paths, list) or not all(isinstance(p, str) for p in paths):
+        raise UserError("select_files")
+    if not paths and not body.get("staged_paths") and not amend:
         raise UserError("select_files")  # amend はメッセージだけの変更 (paths が空) もできる
-    checked = set(paths)
+    staged_only = body.get("staged_paths") or []  # ステージ済みの内容だけをコミットする (未ステージの変更は add しない)
+    if not isinstance(staged_only, list) or not all(isinstance(p, str) for p in staged_only):
+        raise UserError("select_files")
+    if amend and staged_only:
+        raise UserError("amend_blocked")
+    keep = set(staged_only) - set(paths)  # paths にもあるものは、作業ツリーの内容をコミットする
+    checked = set(paths) | keep  # コミットに入れるファイル
     s = parse_status(read_status_raw(), limit=10 ** 9)
     known = {f["path"] for k in ("staged", "unstaged", "untracked", "conflicts") for f in s[k]}
+    not_staged = keep - {f["path"] for f in s["staged"]}
+    if not_staged:
+        raise UserError("files_unchanged", files=", ".join(sorted(not_staged)[:3]))
     head_changes = amend_head_changes(amend_base()) if amend else {}  # 直前のコミットが変更したファイル (チェックを外すとコミットから外す)
     if amend and head_changes and not checked:  # index を触る前に確認する (空のコミットは git が拒否する)
         raise UserError("amend_would_empty")
@@ -197,9 +218,9 @@ def api_wip_commit(body):
                 run_git_write("reset", "-q", base, "--", *part, literal=True)
             else:  # 最初のコミットには親がないので、インデックスから外す
                 run_git_write("rm", "--cached", "-r", "-q", "-f", "--", *part, literal=True)
-    # すでにステージ済みの削除は add -A できない (パスが見つからず失敗する) が、インデックスにあるのでそのままコミットに入る
-    gone = {f["path"] for f in s["staged"] if f["st"] == "D"} - {f["path"] for k in ("unstaged", "untracked") for f in s[k]}
-    todo = sorted(checked - gone)
+    # ステージ済みの削除や、直前のコミットで git rm 済みのファイルは add -A できない (パスが見つからず失敗する) が、
+    # インデックスにはその状態が入っているのでそのままコミットに入る
+    todo = addable_paths(set(paths))
     for i in range(0, len(todo), step):
         run_git_write("add", "-A", "--", *todo[i:i + step], literal=True)
     run_git_write("commit", *(["--amend"] if amend else []), "-m", msg)
@@ -217,6 +238,6 @@ def api_wip_commit(body):
 
 
 __all__ = [
-    "amend_base", "amend_files", "amend_head_changes", "api_status", "api_wip_commit",
+    "addable_paths", "amend_base", "amend_files", "amend_head_changes", "api_status", "api_wip_commit",
     "parse_name_status", "wip_count", "wip_diff",
 ]

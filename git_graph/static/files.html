@@ -64,7 +64,7 @@ __FAVICON__
 </style><script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script></head>
 <body><aside id="tree"><h1>{{file_view}}</h1><div class="meta" id="commit"></div><div id="list"></div></aside>
 <main id="main"><h2 id="title">{{select_file}}</h2>
-<div id="fileActions" class="file-actions" hidden><button id="fileLogBtn">{{file_log}}</button><button id="fileBlameBtn">{{file_blame}}</button><button id="fileDiffBtn" hidden>{{file_diff}}</button><button id="fileEditBtn" hidden>{{file_edit}}</button><button id="fileContentBtn" hidden>{{file_content}}</button><button id="fileCopyBtn" hidden>{{copy_to_work}}</button><button id="fileDownloadBtn" hidden>{{file_download}}</button><span id="fileMsg" class="msg"></span></div>
+<div id="fileActions" class="file-actions" hidden><button id="fileLogBtn">{{file_log}}</button><button id="fileBlameBtn">{{file_blame}}</button><button id="fileDiffBtn" hidden>{{file_diff}}</button><button id="fileEditBtn" hidden>{{file_edit}}</button><button id="fileContentBtn" hidden>{{file_content}}</button><button id="fileCopyBtn" hidden>{{copy_to_work}}</button><button id="fileDownloadBtn" hidden>{{file_download}}</button><button id="fileRmBtn" hidden title="{{tip_rm_file}}">{{rm_button}}</button><button id="fileRmCachedBtn" hidden title="{{tip_rm_cached_file}}">{{rm_cached_button}}</button><span id="fileMsg" class="msg"></span></div>
 <div id="content" class="hint">{{select_file_hint}}</div></main>
 <script>
 /*__FILE_I18N__*/
@@ -83,6 +83,7 @@ const qs = new URLSearchParams(location.search), hash = qs.get("hash"), fileView
 const list = document.getElementById("list"), content = document.getElementById("content"), title = document.getElementById("title");
 const fileActions = document.getElementById("fileActions"), fileLogBtn = document.getElementById("fileLogBtn"), fileBlameBtn = document.getElementById("fileBlameBtn"), fileContentBtn = document.getElementById("fileContentBtn");
 const fileDownloadBtn = document.getElementById("fileDownloadBtn");
+const fileRmBtn = document.getElementById("fileRmBtn"), fileRmCachedBtn = document.getElementById("fileRmCachedBtn");
 const fileCopyBtn = document.getElementById("fileCopyBtn"), fileMsg = document.getElementById("fileMsg");
 const fileDiffBtn = document.getElementById("fileDiffBtn"), fileEditBtn = document.getElementById("fileEditBtn");
 const CAN_EDIT = CAN_COPY && hash === "WIP";  // 作業ツリーのファイルだけ編集できる (書き込みが有効なとき)
@@ -104,7 +105,11 @@ function diffParams(path) {  // このファイルの差分ページの引数。
   if (f.old_path) p.old = f.old_path;
   return p;
 }
-function updateDiffBtn() { fileDiffBtn.hidden = !currentFile || !diffParams(currentFile); }
+function updateRmBtns() {  // git rm できるのは、作業ツリー表示の追跡中のファイルだけ (書き込みが有効なとき)
+  const tracked = !!currentFile && (entryInfo[currentFile] || {}).xy !== "??";
+  fileRmBtn.hidden = fileRmCachedBtn.hidden = !(CAN_EDIT && tracked);
+}
+function updateDiffBtn() { fileDiffBtn.hidden = !currentFile || !diffParams(currentFile); updateRmBtns(); }
 function loadCommitChanges() {  // このコミットで変更されたファイル (差分ボタンを出すかどうかに使う)
   if (isWip || !hash) return;
   api("/api/commit", {hash: hash}).then(c => {
@@ -161,6 +166,27 @@ function loadTree(path, push) {
 fileDownloadBtn.onclick = () => {  // Content-Disposition: attachment なので、画面は移動せず保存される
   if (currentFile) location.href = "/download?" + new URLSearchParams({hash: hash, path: currentFile});
 };
+function doRm(cached) {  // git rm / git rm --cached。変更のあるファイルは -f で実行する (確認文で変更が失われることを伝える)
+  if (!currentFile || !CAN_EDIT) return;
+  const path = currentFile, changed = !!(entryInfo[path] || {}).xy;
+  const text = cached ? t("confirm_rm_cached_file", {path: path})
+    : changed ? t("confirm_rm_file_changed", {path: path}) : t("confirm_rm_file", {path: path});
+  if (!confirm(text)) return;
+  fileRmBtn.disabled = fileRmCachedBtn.disabled = true;
+  fetch("/api/rm", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({paths: [path], cached: cached, force: changed})})
+    .then(r => r.ok ? r.json() : r.text().then(m => { throw new Error(m || r.status); }))
+    .then(r => {
+      entryInfo = {};  // 一覧を読み直す (ステージされた削除や、未追跡になったことを反映する)
+      return loadTree(current, false).then(() => {
+        if (cached) { updateDiffBtn(); setFileMsg(r.message, true); }
+        else { clearFile(); setFileMsg(r.message, true); }
+      });
+    })
+    .catch(e => setFileMsg(e.message, false))
+    .finally(() => { fileRmBtn.disabled = fileRmCachedBtn.disabled = false; });
+}
+fileRmBtn.onclick = () => doRm(false);
+fileRmCachedBtn.onclick = () => doRm(true);
 function setFileMsg(text, ok) { fileMsg.textContent = text; fileMsg.className = "msg" + (ok ? "" : " err"); }
 function defaultCopyName(path) {  // 例: src/a.py → src/a_1234567.py
   const i = path.lastIndexOf("/"), dir = path.slice(0, i + 1), name = path.slice(i + 1), dot = name.lastIndexOf(".");
@@ -250,7 +276,7 @@ function startEdit() {
   if (!fileData || !fileData.editable || !currentFile) return;
   editing = true; editDirty = false;
   setFileMsg("", true);
-  [fileLogBtn, fileBlameBtn, fileDiffBtn, fileEditBtn, fileContentBtn, fileCopyBtn, fileDownloadBtn].forEach(b => { b.hidden = true; });
+  [fileLogBtn, fileBlameBtn, fileDiffBtn, fileEditBtn, fileContentBtn, fileCopyBtn, fileDownloadBtn, fileRmBtn, fileRmCachedBtn].forEach(b => { b.hidden = true; });
   const eol = EOL_LABEL[fileData.eol] || t("edit_eol_none");
   title.textContent = t("file_edit_title", {path: currentFile});
   content.className = "";

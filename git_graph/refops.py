@@ -411,6 +411,30 @@ def api_discard(body):
         run_git_write("clean", "-f", "-q", "--", *clean[i:i + step], literal=True)
     return {"ok": True, "message": tr("discarded", n=len(checked))}
 
+@route("/api/rm", method="POST")
+def api_rm(body):
+    """追跡中のファイルを git rm する (削除をステージする)。cached=True なら作業ツリーのファイルは残して追跡だけやめる (git rm --cached)。
+    ステージ済みの変更や編集中の変更があるファイルは、git と同じく force=True でないと失敗する。"""
+    if not state.WIP_ENABLED:
+        raise UserError("wip_disabled")
+    paths = body.get("paths")
+    if not isinstance(paths, list) or not paths or not all(isinstance(p, str) and p for p in paths):
+        raise UserError("select_files")
+    paths = sorted(set(paths))
+    step = 200
+    tracked = set()
+    for i in range(0, len(paths), step):
+        out = git("ls-files", "-z", "--", *paths[i:i + step], literal=True)
+        tracked.update(p for p in out.split("\0") if p)
+    bad = [p for p in paths if p not in tracked]  # 追跡中のファイルだけ (ディレクトリや未追跡ファイルは対象外)
+    if bad:
+        raise UserError("rm_not_tracked", files=", ".join(bad[:3]))
+    cached = body.get("cached") is True
+    opts = (["--cached"] if cached else []) + (["-f"] if body.get("force") is True else [])
+    for i in range(0, len(paths), step):
+        run_git_write("rm", "-q", *opts, "--", *paths[i:i + step], literal=True)
+    return {"ok": True, "message": tr("rm_cached_done" if cached else "rm_done", n=len(paths))}
+
 @route("/api/branch-rename", method="POST")
 def api_branch_rename(body):
     """ローカルブランチの名前を変える (git branch -m)。リモートのブランチは変わらない。"""
@@ -433,7 +457,7 @@ def api_branch_rename(body):
 
 
 __all__ = [
-    "api_branch", "api_branch_rename", "api_checkout", "api_delete_ref", "api_discard", "api_reset",
+    "api_branch", "api_branch_rename", "api_checkout", "api_delete_ref", "api_discard", "api_reset", "api_rm",
     "api_stash", "api_tag", "checkout_resolving", "discard_blockers", "parse_checkout_blockers",
     "ALREADY_EXISTS_RE", "DIRTY_RE", "api_stash_push", "dirty_tracked_files",
     "dirty_worktree_blockers", "resolve_dirty_worktree", "run_resolving",

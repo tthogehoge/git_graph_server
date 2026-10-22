@@ -768,6 +768,158 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
 
         self.assertEqual(self.git("rev-parse", "HEAD").strip(), self.head)
 
+    def test_amend_commit_that_git_rm_removed_a_file(self):
+        self.git("rm", "-q", "tracked.txt")
+        self.git("commit", "-q", "-m", "remove tracked")
+        count = self.git("rev-list", "--count", "HEAD").strip()
+
+        result = app.api_wip_commit({"paths": ["tracked.txt"], "message": "remove tracked (amended)", "amend": True})
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(self.git("log", "-1", "--format=%s").strip(), "remove tracked (amended)")
+        self.assertEqual(self.git("ls-tree", "--name-only", "HEAD").strip(), "")
+        self.assertEqual(self.git("rev-list", "--count", "HEAD").strip(), count)  # 新しいコミットは増えない (amend)
+
+    def test_amend_can_bring_back_file_removed_by_git_rm(self):
+        self.write_file("other.txt", "other\n")
+        self.git("add", "other.txt")
+        self.git("rm", "-q", "tracked.txt")
+        self.git("commit", "-q", "-m", "add other and remove tracked")
+
+        # tracked.txt のチェックを外すと、git rm がコミットから外れる (ファイルは HEAD に残る)
+        app.api_wip_commit({"paths": ["other.txt"], "message": "keep tracked", "amend": True})
+
+        self.assertEqual(self.git("show", "HEAD:tracked.txt"), "initial\n")
+        self.assertEqual(self.git("show", "HEAD:other.txt"), "other\n")
+
+    def test_wip_commit_staged_paths_leave_unstaged_changes_alone(self):
+        self.write_file("tracked.txt", "staged version\n")
+        self.git("add", "tracked.txt")
+        self.write_file("tracked.txt", "staged version\nunstaged line\n")
+
+        result = app.api_wip_commit({"paths": [], "staged_paths": ["tracked.txt"], "message": "staged only"})
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(self.git("show", "HEAD:tracked.txt"), "staged version\n")
+        self.assertEqual(self.read_file("tracked.txt"), "staged version\nunstaged line\n")
+        status = app.parse_status(app.read_status_raw())
+        self.assertEqual([f["path"] for f in status["unstaged"]], ["tracked.txt"])
+        self.assertEqual(status["staged"], [])
+
+    def test_wip_commit_paths_take_working_tree_content_even_when_also_staged(self):
+        self.write_file("tracked.txt", "staged version\n")
+        self.git("add", "tracked.txt")
+        self.write_file("tracked.txt", "staged version\nunstaged line\n")
+
+        app.api_wip_commit({"paths": ["tracked.txt"], "staged_paths": ["tracked.txt"], "message": "everything"})
+
+        self.assertEqual(self.git("show", "HEAD:tracked.txt"), "staged version\nunstaged line\n")
+
+    def test_wip_commit_rejects_staged_paths_that_are_not_staged(self):
+        self.write_file("tracked.txt", "unstaged only\n")
+
+        with self.assertRaises(app.UserError):
+            app.api_wip_commit({"paths": [], "staged_paths": ["tracked.txt"], "message": "nope"})
+
+        self.assertEqual(self.git("rev-parse", "HEAD").strip(), self.head)
+
+    def test_wip_commit_without_any_selection_is_rejected(self):
+        with self.assertRaises(app.UserError):
+            app.api_wip_commit({"paths": [], "staged_paths": [], "message": "nothing"})
+
+    def test_rm_removes_tracked_file_and_stages_deletion(self):
+        result = app.api_rm({"paths": ["tracked.txt"]})
+
+        self.assertTrue(result["ok"])
+        self.assertFalse(os.path.exists(os.path.join(self.repo, "tracked.txt")))
+        self.assertEqual(self.git("status", "--porcelain").strip(), "D  tracked.txt")
+
+    def test_rm_cached_keeps_working_tree_file(self):
+        result = app.api_rm({"paths": ["tracked.txt"], "cached": True})
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(self.read_file("tracked.txt"), "initial\n")
+        self.assertEqual(self.git("status", "--porcelain").splitlines(), ["D  tracked.txt", "?? tracked.txt"])
+
+    def test_rm_needs_force_for_modified_file(self):
+        self.write_file("tracked.txt", "edited\n")
+
+        with self.assertRaises(ValueError):
+            app.api_rm({"paths": ["tracked.txt"]})
+        self.assertEqual(self.read_file("tracked.txt"), "edited\n")
+
+        app.api_rm({"paths": ["tracked.txt"], "force": True})
+        self.assertFalse(os.path.exists(os.path.join(self.repo, "tracked.txt")))
+
+    def test_rm_rejects_untracked_files_and_directories(self):
+        self.write_file("untracked.txt", "x\n")
+        os.makedirs(os.path.join(self.repo, "dir"), exist_ok=True)
+        self.write_file("dir/inner.txt", "x\n")
+        self.git("add", "dir/inner.txt")
+
+        for bad in ("untracked.txt", "dir", "missing.txt"):
+            with self.assertRaises(app.UserError):
+                app.api_rm({"paths": [bad]})
+        self.assertEqual(self.read_file("untracked.txt"), "x\n")
+        self.assertEqual(self.read_file("tracked.txt"), "initial\n")
+
+    def test_wip_diff_page_has_same_actions_as_wip_pane(self):
+        self.write_file("tracked.txt", "working tree change\n")
+        previous_writable = state.WRITABLE
+        state.WRITABLE = True
+        try:
+            page = viewer.render_diff_page({"path": ["tracked.txt"], "wip": ["unstaged"]})
+        finally:
+            state.WRITABLE = previous_writable
+
+        for element in ('id="rbtn"', 'id="sbtn"', 'id="dbtn"'):
+            self.assertIn(element, page)
+        self.assertIn('"/api/rm"', page)
+        self.assertIn('"/api/stash-push"', page)
+        self.assertNotIn('id="abtn"', page)
+        self.assertNotIn('data-resolve="ours"', page)
+
+    def test_wip_diff_page_shows_resolve_and_abort_while_merging(self):
+        self.write_file("tracked.txt", "working tree change\n")
+        original = viewer.api_status
+
+        def merging_status(q):
+            st = original(q)
+            st["merging"] = True
+            st["conflicts"] = [{"path": "tracked.txt", "st": "U", "label": "label_conflict"}]
+            return st
+
+        previous_writable = state.WRITABLE
+        state.WRITABLE = True
+        viewer.api_status = merging_status
+        try:
+            page = viewer.render_diff_page({"path": ["tracked.txt"], "wip": ["conflict"]})
+        finally:
+            viewer.api_status = original
+            state.WRITABLE = previous_writable
+
+        self.assertIn('data-resolve="ours"', page)
+        self.assertIn('data-resolve="theirs"', page)
+        self.assertIn('id="abtn" data-cmd="merge"', page)
+        self.assertIn('id="rbtn"', page)  # git rm は途中でも使える
+        self.assertNotIn('id="sbtn"', page)  # stash / discard は途中では出さない
+        self.assertNotIn('id="dbtn"', page)
+
+    def test_wip_diff_page_checks_staged_entry_only_by_default(self):
+        self.write_file("tracked.txt", "staged version\n")
+        self.git("add", "tracked.txt")
+        self.write_file("tracked.txt", "staged version\nunstaged line\n")
+        previous_writable = state.WRITABLE
+        state.WRITABLE = True
+        try:
+            page = viewer.render_diff_page({"path": ["tracked.txt"], "wip": ["staged"]})
+        finally:
+            state.WRITABLE = previous_writable
+
+        self.assertRegex(page, r'class="wck" data-kind="staged"[^>]*data-path="tracked.txt" checked>')
+        self.assertRegex(page, r'class="wck" data-kind="unstaged"[^>]*data-path="tracked.txt">')
+        self.assertIn("staged_paths", page)
+
     def test_wip_diff_page_has_branch_and_discard_controls(self):
         self.write_file("tracked.txt", "working tree change\n")
         previous_writable = state.WRITABLE

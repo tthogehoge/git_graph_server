@@ -151,11 +151,12 @@ def render_diff_page(q):
         edit_link = (f'<a class="ebtn" href="{html.escape(edit_url)}">{html.escape(tr("file_edit"))}</a>')
 
     can_commit = bool(wip_status is not None and state.WRITABLE and state.WIP_ENABLED)  # amend の差分ページには出さない
-    staged_paths = {f["path"] for f in wip_status["staged"]} if can_commit else set()
     merging = bool(wip_status and wip_status.get("merging"))
     op_in_progress = bool(wip_status and any(
         wip_status.get(key) for key in ("merging", "rebasing", "cherry_picking", "reverting")
     ))
+    op_cmd = next((cmd for key, cmd in (("merging", "merge"), ("rebasing", "rebase"), ("cherry_picking", "cherry-pick"),
+                                        ("reverting", "revert")) if wip_status and wip_status.get(key)), None)
 
     # WIP: ディレクトリごとの件数・行数 (右ペインの filesHtml と同じ集計)
     dir_count, dir_stat = Counter(), {}
@@ -177,6 +178,10 @@ def render_diff_page(q):
             gall = (f'<input type="checkbox" class="gall" data-kind="{html.escape(last)}" '
                     f'title="{html.escape(tr("select_all"))}"> ') if can_commit else ""
             side.append(f'<div class="grp">{gall}{html.escape(localized_wip_title(last))}</div>')
+            if last == "conflict" and can_commit:  # 競合ファイルを ours / theirs で解決する (右ペインと同じ)
+                side.append(f'<div class="wipres"><button class="wbtn" data-resolve="ours">{html.escape(tr("resolve_ours"))}</button>'
+                            f'<button class="wbtn" data-resolve="theirs">{html.escape(tr("resolve_theirs"))}</button>'
+                            f'<span class="hint">{html.escape(tr("resolve_hint"))}</span></div>')
         fdir = dir_of(f["path"])
         key = (f.get("wip"), fdir)
         folded = bool(wip and not is_wip_compare) and dir_count[key] >= WIP_DIR_COLLAPSE
@@ -210,7 +215,7 @@ def render_diff_page(q):
         if wip and not is_wip_compare:
             box = ""
             if can_commit:
-                on = " checked" if (merging or f["path"] in staged_paths) else ""
+                on = " checked" if (merging or f.get("wip") == "staged") else ""  # ステージ済みと未ステージは別々にチェックする
                 box = (f'<input type="checkbox" class="wck" data-kind="{attr(f["wip"])}" '
                        f'data-dir="{attr(fdir)}" data-path="{attr(f["path"])}"{on}>')
             hide = " dhide" if folded and not is_cur_dir else ""
@@ -225,12 +230,21 @@ def render_diff_page(q):
                       '<input type="text" id="cbranch" placeholder="' + html.escape(tr("wip_commit_branch_placeholder"), quote=True)
                       + '" aria-label="' + html.escape(tr("wip_commit_branch"), quote=True) + '">'
                       '<div class="arow"><button id="cbtn" class="wbtn">' + html.escape(tr("wip_commit")) + '</button>'
+                      + ('<button id="sbtn" class="wbtn" title="' + html.escape(tr("tip_wip_stash"), quote=True) + '">' + html.escape(tr("wip_stash")) + '</button>' if not op_in_progress else "")
                       + ('<button id="dbtn" class="wbtn danger">' + html.escape(tr("wip_discard")) + '</button>' if not op_in_progress else "")
-                      + '</div>'
+                      + '<button id="rbtn" class="wbtn danger" title="' + html.escape(tr("tip_wip_rm"), quote=True) + '">' + html.escape(tr("wip_rm")) + '</button>'
+                      + '<span class="hint">' + html.escape(tr("wip_hint")) + '</span></div>'
                       '<div id="cout" class="hint"></div></div>')
+        if op_cmd:  # マージなどの途中であることと、中断ボタン (右ペインと同じ)
+            commit_box = (f'<div class="wipop"><span>{html.escape(tr("op_banner", cmd=op_cmd))}</span>'
+                          f'<button class="wbtn danger" id="abtn" data-cmd="{html.escape(op_cmd, quote=True)}">'
+                          f'{html.escape(tr("abort_button", cmd=op_cmd))}</button></div>') + commit_box
         texts = {k: tr(k) for k in (
             "wip_commit", "message_required", "select_files", "wip_execute",
-            "wip_discard", "confirm_discard", "discard_conflict",
+            "wip_discard", "confirm_discard", "discard_conflict", "cancel",
+            "wip_rm", "rm_dialog_note", "rm_cached_label", "rm_force_label", "rm_untracked",
+            "wip_stash", "stash_message", "stash_scope", "stash_scope_all", "stash_scope_selected", "stash_include_untracked",
+            "confirm_resolve", "confirm_abort",
         )}
         commit_js = "const T = " + json.dumps(texts, ensure_ascii=False).replace("</", "<\\/") + ";\n" + WIP_DIFF_COMMIT_JS
     return f"""<!DOCTYPE html>
