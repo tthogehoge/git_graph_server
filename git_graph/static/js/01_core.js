@@ -6,6 +6,14 @@ function t(key, values = {}) {  // {name} を values[name] に置き換える (�
 }
 
 let DATA = {nodes: {}, edges: {}};
+const SHOW_MERGES_KEY = "gitGraphShowMerges";
+function showMergesOn() {  // 「マージ表示」のチェック状態 (ブラウザに保存)
+  try { return localStorage.getItem(SHOW_MERGES_KEY) === "1"; } catch (e) { return false; }
+}
+function setShowMerges(on) {
+  try { localStorage.setItem(SHOW_MERGES_KEY, on ? "1" : "0"); } catch (e) { /* 保存できなくても表示は切り替わる */ }
+}
+function graphUrl() { return "/api/graph" + (showMergesOn() ? "?merges=1" : ""); }
 const COLORS = {branch: "#b7e4a7", current: "#b7e4a7", remote: "#a7c8f0", tag: "#ffe9a0", head: "#f4a7a7", stash: "#d9c7f2"};
 const CHUNK = 500;
 const listView = document.getElementById("listView"), detailView = document.getElementById("detailView");

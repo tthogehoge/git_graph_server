@@ -13,6 +13,7 @@ from urllib.request import Request, urlopen
 import git_graph_server as app
 from git_graph import app_state as state
 from git_graph import pages as viewer
+from git_graph.graph import MERGE_EDGE_COLOR as MERGE_COLOR
 
 
 class ParseStatusTests(unittest.TestCase):
@@ -1275,6 +1276,79 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         stash_hash = self.git("rev-parse", "refs/stash").strip()
         with self.assertRaises(ValueError):
             app.api_stash({"hash": stash_hash, "op": "apply", "on_conflict": "stash"})
+
+    def make_merged_and_deleted_branch(self):
+        """initial - B - C(main) と B - F(feature) を merge し、feature を削除する。(分岐元 B、マージ M)"""
+        self.write_file("b.txt", "b\n")
+        self.git("add", "b.txt")
+        self.git("commit", "-q", "-m", "B")
+        b = self.git("rev-parse", "HEAD").strip()
+        self.git("checkout", "-q", "-b", "feature")
+        self.write_file("f.txt", "f\n")
+        self.git("add", "f.txt")
+        self.git("commit", "-q", "-m", "F")
+        self.git("checkout", "-q", "main")
+        self.write_file("c.txt", "c\n")
+        self.git("add", "c.txt")
+        self.git("commit", "-q", "-m", "C")
+        self.git("merge", "-q", "--no-ff", "-m", "M", "feature")
+        self.git("branch", "-q", "-d", "feature")
+        return b, self.git("rev-parse", "HEAD").strip()
+
+    def graph_opts(self, **extra):
+        return SimpleNamespace(revs=[], no_remotes=False, no_tags=False, include_tips=False, rankdir="BT",
+                               font="Helvetica", no_count=False, full_layout=False, **extra)
+
+    @unittest.skipUnless(shutil.which("dot"), "Graphviz dot is not installed")
+    def test_build_graph_hides_merge_of_deleted_branch_by_default(self):
+        b, m = self.make_merged_and_deleted_branch()
+
+        dot, nodes, edges = app.build_graph(self.graph_opts())
+
+        self.assertEqual(set(nodes), {self.head, m})
+        self.assertEqual(set(edges), {f"{self.head}->{m}"})
+        self.assertEqual(dot.count(f'"{self.head}" -> "{m}"'), 1)
+
+    @unittest.skipUnless(shutil.which("dot"), "Graphviz dot is not installed")
+    def test_build_graph_show_merges_adds_merge_commit_and_fork_point_with_two_lines(self):
+        b, m = self.make_merged_and_deleted_branch()
+
+        dot, nodes, edges = app.build_graph(self.graph_opts(show_merges=True))
+
+        self.assertEqual(set(nodes), {self.head, b, m})
+        self.assertEqual(set(edges), {f"{self.head}->{b}", f"{b}->{m}"})
+        lines = [line for line in dot.splitlines() if line.startswith(f'  "{b}" -> "{m}"')]
+        self.assertEqual(len(lines), 2)  # 第1親 (C 経由) と第2親 (F 経由) の 2 本
+        self.assertTrue(all('label="+1"' in line for line in lines))  # 間に C / F が 1 つずつ
+        self.assertEqual(sum(MERGE_COLOR in line for line in lines), 1)  # マージされてきた側だけ色が変わる
+        self.assertEqual(dot.count('label="", width=0.14'), 1)  # 分岐元 B だけが文字なしの点 (M は main の先端なのでそのまま)
+        svg = subprocess.check_output(["dot", "-Tsvg"], input=dot.encode("utf-8"))
+        self.assertIn(b"<svg", svg)
+
+    @unittest.skipUnless(shutil.which("dot"), "Graphviz dot is not installed")
+    def test_graph_payload_merges_param_switches_between_cached_graphs(self):
+        b, m = self.make_merged_and_deleted_branch()
+        previous = state.OPTS
+        state.OPTS = self.graph_opts()
+        try:
+            plain = app.graph_payload({})
+            merged = app.graph_payload({"merges": ["1"]})
+            plain_again = app.graph_payload(None)
+        finally:
+            state.OPTS = previous
+
+        self.assertNotIn(b, plain["nodes"])
+        self.assertIn(b, merged["nodes"])
+        self.assertEqual(set(plain_again["nodes"]), set(plain["nodes"]))
+        self.assertIn("<svg", merged["svg"])
+
+    def test_merge_bases_returns_best_common_ancestor_only(self):
+        parents = {"d": ["b", "c"], "b": ["a"], "c": ["a"], "a": ["r"], "r": []}
+        pos = {h: i for i, h in enumerate(["d", "c", "b", "a", "r"])}
+
+        self.assertEqual(app.merge_bases(parents, pos, "b", "c"), ["a"])
+        self.assertEqual(app.merge_bases(parents, pos, "b", "d"), ["b"])  # 片方がもう片方の祖先
+        self.assertEqual(app.merge_bases(parents, pos, "c", "c"), ["c"])
 
     @unittest.skipUnless(shutil.which("dot"), "Graphviz dot is not installed")
     def test_build_graph_shows_stashes_as_children_of_their_base_commit(self):

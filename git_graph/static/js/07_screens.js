@@ -273,8 +273,9 @@ function init() {
     if (n) {
       nodeEl[n.hash] = g;
       const box = g.getBBox(), hit = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-      hit.setAttribute("x", box.x); hit.setAttribute("y", box.y);
-      hit.setAttribute("width", box.width); hit.setAttribute("height", box.height);
+      const padX = Math.max(0, (16 - box.width) / 2), padY = Math.max(0, (16 - box.height) / 2);  // 小さな点でもクリックしやすくする
+      hit.setAttribute("x", box.x - padX); hit.setAttribute("y", box.y - padY);
+      hit.setAttribute("width", box.width + padX * 2); hit.setAttribute("height", box.height + padY * 2);
       hit.setAttribute("fill", "transparent"); hit.setAttribute("pointer-events", "all");
       g.insertBefore(hit, g.children[1] || null);
       g.addEventListener("click", ev => { if (ev.detail <= 1) onNodeClick(g, n, ev); });

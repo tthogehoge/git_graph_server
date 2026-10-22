@@ -4,7 +4,8 @@ const timer = setInterval(() => {
   const el = document.getElementById("lsub");
   if (el) el.textContent = t("elapsed_hint", {sec: Math.round((Date.now() - t0) / 1000)});
 }, 1000);
-fetch("/api/graph")
+document.getElementById("showMerges").checked = showMergesOn();
+fetch(graphUrl())
   .then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); }))
   .then(r => {
     clearInterval(timer);
@@ -14,6 +15,7 @@ fetch("/api/graph")
     init();
     updateCmpClasses();
     document.getElementById("reload").disabled = false;
+    document.getElementById("showMerges").disabled = false;
     loadStashes();
     updateCurrentBranch().catch(e => setGraphStatus(t("current_branch_failed", {error: e.message}), "error"));
     restoreScreen(history.state || {screen: "home"});

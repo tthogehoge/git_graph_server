@@ -138,6 +138,8 @@
   "close_notification": "Close notification",
   "resize_panel": "Resize the right pane",
   "reload_title": "Refresh the graph to the latest state",
+  "show_merges": "Show merges",
+  "tip_show_merges": "Also show merge commits and the commits where the merged branches split off, drawing each merge as separate lines (may be slow on large repositories)",
   "tip_files": "Open the file list of the target commit in a new tab",
   "tip_merge": "Merge A into the current HEAD",
   "tip_rebase": "Rebase the current branch onto A",

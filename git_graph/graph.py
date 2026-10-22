@@ -1,3 +1,5 @@
+import copy
+import heapq
 import html
 import re
 import subprocess
@@ -18,6 +20,8 @@ FAST_LAYOUT_NODES = 300
 COLORS = {"branch": "#b7e4a7", "current": "#b7e4a7", "remote": "#a7c8f0", "tag": "#ffe9a0", "head": "#f4a7a7", "stash": "#d9c7f2"}
 
 SUBJECT_WIDTH = 30
+MERGE_EDGE_COLOR = "#d35400"
+DOT_COLOR = "black"
 
 def truncate_width(text, limit):
     """表示幅 (全角・東アジアの広い文字は 2) が limit 以内になるよう切り詰める。"""
@@ -72,6 +76,43 @@ def list_stashes(shown):
         if ps and ps[0] in shown and h not in shown:
             res.append((h, ps[0], name, subject))
     return res
+
+def merge_bases(parents, pos, a, b):
+    """a と b の最良共通祖先 (git merge-base --all 相当) をメモリ上で求める。
+    --topo-order の位置 (pos) が小さい (= 新しい) 方から親へ辿り、a 側と b 側の両方から届いた最初のコミットを返す。
+    見つけたコミットの先祖は stale (4) にして、冗長な共通祖先を出さない。
+    親は必ず子より後ろに並ぶので、コミットを取り出した時点でそのコミットへの印は出そろっている。"""
+    if a == b:
+        return [a]
+    flags = {a: 1, b: 2}  # 1: a から届く, 2: b から届く, 4: stale
+    heap = [(pos[a], a), (pos[b], b)]
+    heapq.heapify(heap)
+    live = 2  # heap の中で stale でないものの数 (0 になったら終わり)
+    found = []
+    while heap and live:
+        _, c = heapq.heappop(heap)
+        f = flags[c]
+        if not f & 4:
+            live -= 1
+            if f & 3 == 3:
+                found.append(c)
+                f |= 4
+        for p in parents[c]:
+            if p not in pos:
+                continue
+            old = flags.get(p)
+            if old is None:
+                flags[p] = f
+                heapq.heappush(heap, (pos[p], p))
+                if not f & 4:
+                    live += 1
+            else:
+                new = old | f
+                if new != old:
+                    flags[p] = new
+                    if not old & 4 and new & 4:
+                        live -= 1
+    return found
 
 def build_graph(opts):
     """残すコミットとエッジを決め、dot / ノード情報 / エッジ情報を返す。"""
@@ -187,12 +228,31 @@ def build_graph(opts):
                 break
     del desc
 
+    # マージ表示: マージコミットと、そのマージされた側の分岐元 (親同士の merge-base) も残す。
+    # ブランチを消したあとのマージは、通常の省略では分岐も合流も見えなくなるため。
+    show_merges = getattr(opts, "show_merges", False)
+    extra = set()
+    if show_merges:
+        pos = {h: i for i, h in enumerate(order)}
+        for h in order:
+            ps = [p for p in parents[h] if p in pos]
+            if len(ps) < 2:
+                continue
+            extra.add(h)
+            for i in range(len(ps)):
+                for j in range(i + 1, len(ps)):
+                    extra.update(merge_bases(parents, pos, ps[i], ps[j]))
+        extra -= keep
+        keep |= extra
+
     # 間に残したコミットを挟まない直接の祖先 (親 -> 子の順に 1 回なめるだけ)
-    up, direct = {}, {}
+    up, direct, pup = {}, {}, {}
     for h in reversed(order):
         ups = [up[p] for p in parents[h] if p in up]
         if h in keep:
             direct[h] = frozenset().union(*ups) if ups else frozenset()
+            if show_merges and len(ups) > 1:  # マージコミットは、親ごとに別の線を引く (同じ祖先へ 2 本の線が出る)
+                pup[h] = [(p, up[p]) for p in parents[h] if p in up]
             up[h] = frozenset((h,))
         elif len(ups) == 1:
             up[h] = ups[0]
@@ -204,15 +264,24 @@ def build_graph(opts):
     keep_order = [h for h in reversed(order) if h in keep]  # 親が先
     kbit = {h: 1 << i for i, h in enumerate(keep_order)}
     reach = {}
-    edges = []
+    edges = []  # (祖先, 子, 経由した親)。経由した親はマージ表示の親ごとの線だけ入り、それ以外は None
     for c in keep_order:
         deep = 0  # 直接の祖先たちのさらに先の祖先
         for e in direct[c]:
             deep |= reach[e]
         reach[c] = deep | sum(kbit[e] for e in direct[c])
+        if c in pup:  # 簡約は親ごとに行う (別の親の側の祖先は消さない)
+            for p, ups in pup[c]:
+                deep_p = 0
+                for e in ups:
+                    deep_p |= reach[e]
+                for d in sorted(ups):
+                    if not deep_p & kbit[d]:
+                        edges.append((d, c, p))
+            continue
         for d in sorted(direct[c]):
             if not deep & kbit[d]:  # d が他の直接祖先の祖先でなければ残す
-                edges.append((d, c))
+                edges.append((d, c, None))
     kbit = {h: 1 << i for i, h in enumerate(keep_order)}
     keep_order.reverse()  # 出力の順序を毎回同じにする (レイアウトが安定する)
 
@@ -226,6 +295,10 @@ def build_graph(opts):
         f'  edge [fontname="{font}", fontsize=9];',
     ]
     for h in keep_order:
+        if h in extra:  # マージ表示のためだけに出したノードは、文字なしの小さな点にする
+            out.append(f'  "{h}" [shape=circle, label="", width=0.14, height=0.14, fixedsize=true, '
+                       f'style=filled, fillcolor="{DOT_COLOR}", color="{DOT_COLOR}"];')
+            continue
         rows = []
         for name, kind in labels.get(h, []):
             marker = "★ " if kind == "current" else ""
@@ -239,30 +312,45 @@ def build_graph(opts):
     # x が c の祖先かつ d の祖先でないもの (c を含み d を含まないマスク) を足し合わせる。
     counts = {}
     if not opts.no_count:
+        # マージの親ごとの線は、(マージ, 親) ごとに仮想ビットを親コミットに付け、
+        # 「その親の祖先で、d の祖先でないコミット」を数える (c は含まないので -1 しない)。
+        vbit, vat = {}, defaultdict(int)
+        for d, c, via in edges:
+            if via is not None and (c, via) not in vbit:
+                vbit[(c, via)] = 1 << (len(kbit) + len(vbit))
+                vat[via] |= vbit[(c, via)]
         groups, dk = Counter(), defaultdict(int)
         for h in order:  # 子 -> 親
-            m = dk.pop(h, 0) | kbit.get(h, 0)
+            m = dk.pop(h, 0) | kbit.get(h, 0) | vat.get(h, 0)
             groups[m] += 1
             for p in parents[h]:
                 if p in parents:
                     dk[p] |= m
-        for d, c in edges:
-            bc, bd = kbit[c], kbit[d]
-            counts[(d, c)] = sum(n for m, n in groups.items() if m & bc and not m & bd) - 1
-    for d, c in edges:
-        attr = ""
-        n = counts.get((d, c), 0)
+        for d, c, via in edges:
+            bd = kbit[d]
+            if via is None:
+                bc = kbit[c]
+                counts[(d, c, via)] = sum(n for m, n in groups.items() if m & bc and not m & bd) - 1
+            else:
+                bv = vbit[(c, via)]
+                counts[(d, c, via)] = sum(n for m, n in groups.items() if m & bv and not m & bd)
+    for d, c, via in edges:
+        attrs = []
+        n = counts.get((d, c, via), 0)
         if n > 0:
-            attr = f' [label="+{n}", style=dashed]'
+            attrs += [f'label="+{n}"', "style=dashed"]
+        if via is not None and via != parents[c][0]:  # 第1親以外 = マージされてきた側の線は色を変える
+            attrs += [f'color="{MERGE_EDGE_COLOR}"', f'fontcolor="{MERGE_EDGE_COLOR}"']
+        attr = f' [{", ".join(attrs)}]' if attrs else ""
         out.append(f'  "{d}" -> "{c}"{attr};')
     out.append("}")
 
     nodes = {h: {"hash": h, "refs": [{"name": n, "kind": k} for n, k in labels.get(h, [])]}
              for h in keep}
-    edge_data = {f"{d}->{c}": {"from": d, "to": c} for d, c in edges}
+    edge_data = {f"{d}->{c}": {"from": d, "to": c} for d, c, _ in edges}  # 同じ組の 2 本目以降は同じ項目を指す
     return "\n".join(out), nodes, edge_data
 
-_cache = {"base_key": None, "base": None, "payload_key": None, "payload": None}
+_cache = {}  # マージ表示の on / off ごとのキャッシュ
 
 _lock = threading.Lock()
 
@@ -281,7 +369,11 @@ def graph_payload(q=None):
     """グラフ(SVG + ノード/エッジ情報)の JSON を返す。
     重い部分 (merge-base の総当たり) は ref と HEAD が変わらない限りキャッシュし、
     作業ツリーの変更 (WIP ノード) だけを毎回付け替える。"""
+    merges = bool(q) and q.get("merges", [""])[0] == "1"  # ?merges=1 でマージ表示
     with _lock:  # 同時に複数回作らない (2つ目以降はキャッシュを使う)
+        cache = _cache.setdefault(merges, {"base_key": None, "base": None, "payload_key": None, "payload": None})
+        opts = copy.copy(state.OPTS)
+        opts.show_merges = merges
         try:
             head = git("rev-parse", "HEAD").strip()
         except subprocess.CalledProcessError:
@@ -294,18 +386,18 @@ def graph_payload(q=None):
         except subprocess.CalledProcessError:
             current_branch = ""
         key = git("for-each-ref") + "\0" + head + "\0" + current_branch + "\0" + stash_key()
-        if _cache["base_key"] != key:
-            _cache.update(base_key=key, base=build_graph(state.OPTS), payload_key=None, payload=None)
+        if cache["base_key"] != key:
+            cache.update(base_key=key, base=build_graph(opts), payload_key=None, payload=None)
         raw = ""
         if state.WIP_ENABLED:
             try:
                 raw = read_status_raw()
             except subprocess.CalledProcessError:
                 raw = ""
-        if _cache["payload_key"] == (key, raw):
-            return _cache["payload"]
+        if cache["payload_key"] == (key, raw):
+            return cache["payload"]
 
-        dot_text, nodes, edges = _cache["base"]
+        dot_text, nodes, edges = cache["base"]
         if raw and head in nodes:
             count = wip_count(parse_status(raw))
             if count:
@@ -317,11 +409,11 @@ def graph_payload(q=None):
         svg = center_node_text(svg[svg.index("<svg"):])
         payload = {"svg": svg, "nodes": nodes, "edges": edges, "writable": state.WRITABLE,
                    "merge": state.WRITABLE and state.HAS_WORKTREE}
-        _cache.update(payload_key=(key, raw), payload=payload)
+        cache.update(payload_key=(key, raw), payload=payload)
         return payload
 
 
 __all__ = [
-    "COLORS", "FAST_LAYOUT_NODES", "SUBJECT_WIDTH", "add_wip", "build_graph",
-    "center_node_text", "graph_payload", "list_stashes", "stash_key", "truncate_width",
+    "COLORS", "FAST_LAYOUT_NODES", "MERGE_EDGE_COLOR", "SUBJECT_WIDTH", "add_wip", "build_graph",
+    "center_node_text", "graph_payload", "list_stashes", "merge_bases", "stash_key", "truncate_width",
 ]

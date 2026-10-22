@@ -20,6 +20,8 @@ html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-s
   #compareToolbar button { white-space: nowrap; }
   #compareToolbar button.cmp-hash-btn { border: 0; padding: 0; background: transparent; color: inherit; cursor: pointer; }
   #compareToolbar button.cmp-hash-btn:hover { text-decoration: underline; }
+  .menu-check { display: inline-flex; align-items: center; gap: 4px; user-select: none; }
+  .menu-check input { margin: 0; cursor: pointer; }
   .sbtn.danger { background: #fde8e8; } .sbtn.danger:hover { background: #fbd3d3; }
   .menubar-left { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; order: 0; min-width: 0; }  /* 幅が狭いときは折り返して、右ペインにはみ出さない */
   .menubar-group { display: flex; align-items: center; gap: 2px; }
@@ -171,6 +173,12 @@ html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-s
   g.node, g.edge { cursor: pointer; }
   g.node:hover polygon { stroke: #e88; } g.edge:hover path { stroke: #e88; }
   g.node.sel polygon { stroke: #d22; stroke-width: 3; }
+  /* マージ表示の点 (ellipse): ホバー・選択・A・B・操作対象の色で塗りつぶす */
+  g.node:hover ellipse { fill: #e88; stroke: #e88; }
+  g.node.actionTarget ellipse { fill: #6f42c1; stroke: #6f42c1; }
+  g.node.sel ellipse { fill: #d22; stroke: #d22; }
+  g.node.cmpA ellipse { fill: #06c; stroke: #06c; }
+  g.node.cmpB ellipse { fill: #e67e00; stroke: #e67e00; }
   g.node.cmpA polygon { stroke: #06c; stroke-width: 3; }
   g.node.cmpB polygon { stroke: #e67e00; stroke-width: 3; }
   g.edge.sel path { stroke: #d22; stroke-width: 2.5; } g.edge.sel polygon { stroke: #d22; fill: #d22; }

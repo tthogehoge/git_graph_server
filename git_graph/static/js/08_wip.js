@@ -214,6 +214,14 @@ document.getElementById("quitBtn").addEventListener("click", () => {  // サー�
     })
     .catch(e => setGraphStatus(t("quit_failed", {error: e.message}), "error"));
 });
+document.getElementById("showMerges").addEventListener("change", ev => {  // マージ表示の on / off
+  const cb = ev.currentTarget;
+  setShowMerges(cb.checked);
+  cb.disabled = true;
+  refreshGraph()
+    .catch(() => { cb.checked = !cb.checked; setShowMerges(cb.checked); })  // 作り直せなかったら、表示中のグラフに合わせて戻す
+    .finally(() => { cb.disabled = false; });
+});
 document.getElementById("reload").addEventListener("click", ev => {  // グラフを最新の状態に更新
   const b = ev.currentTarget;
   b.disabled = true; b.textContent = t("reload_busy");

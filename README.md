@@ -34,6 +34,7 @@ If no revisions are specified, branches, tags, and `HEAD` are shown. Press `Ctrl
 
 - Click a graph commit to show its log; click a log row to open commit details.
 - The log shows a merge graph to the left of each row (like `git log --graph`; commits are listed in topological order). Merge commits are drawn as hollow circles.
+- The "Show merges" checkbox in the toolbar also adds merge commits and the commits where the merged branches split off (small dots without text) to the graph, and draws each merge as two separate lines (the merged-in side is orange). This makes merges of already-deleted branches visible. The setting is remembered in the browser.
 - Right-click a log row (or a graph node), or click it to open the **Actions** menu, and choose **Set as A** / **Set as B** to pick commits to compare. Click A: / B: to open a branch log containing that commit.
 - The regular **Actions** menu operates on the selected commit, for example creating a branch or tag, or checking it out.
 
