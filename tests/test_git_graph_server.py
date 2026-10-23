@@ -1,3 +1,4 @@
+import calendar
 import codecs
 import json
 import os
@@ -5,14 +6,18 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import time
 import unittest
+from unittest import mock
 from types import SimpleNamespace
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 import git_graph_server as app
 from git_graph import app_state as state
+from git_graph import graph as graph_module
 from git_graph import pages as viewer
+from git_graph.i18n import tr
 from git_graph.graph import MERGE_EDGE_COLOR as MERGE_COLOR
 
 
@@ -1541,6 +1546,201 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertEqual({x[0] for x in between["commits"]}, {c, f})
         self.assertEqual(between["total"], 2)
         self.assertEqual(app.api_log({"rev": [f"{b}..{c}^@"]})["commits"], [])  # 間に何もなければ空
+
+    def test_build_graph_show_merges_stops_at_node_cap_newest_first(self):
+        b, m = self.make_merged_and_deleted_branch()
+
+        capped = self.graph_opts(show_merges=True, merge_max_nodes=2)  # 通常でも 2 ノード: B を足すと超える
+        _, nodes, _ = app.build_graph(capped)
+        self.assertEqual(set(nodes), {self.head, m})
+        self.assertTrue(capped.merge_truncated)
+
+        roomy = self.graph_opts(show_merges=True, merge_max_nodes=3)
+        _, nodes, _ = app.build_graph(roomy)
+        self.assertIn(b, nodes)
+        self.assertFalse(roomy.merge_truncated)
+
+        unlimited = self.graph_opts(show_merges=True, merge_max_nodes=0)
+        _, nodes, _ = app.build_graph(unlimited)
+        self.assertIn(b, nodes)
+
+    def test_graph_payload_redraws_with_less_when_dot_fails(self):
+        b, m = self.make_merged_and_deleted_branch()
+        previous = state.OPTS
+        state.OPTS = self.graph_opts()
+        graph_module._cache.clear()
+        calls = []
+
+        def fake_render(dot_text):
+            calls.append(dot_text)
+            if len(calls) == 1:  # マージ表示の描画だけ失敗する
+                raise subprocess.CalledProcessError(-11, "dot")
+            return "<svg></svg>"
+
+        try:
+            with mock.patch.object(graph_module, "render_dot", side_effect=fake_render):
+                payload = app.graph_payload({"merges": ["1"]})
+        finally:
+            state.OPTS = previous
+            graph_module._cache.clear()
+
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(payload["notice"], tr("graph_notice_no_merges"))
+        self.assertNotIn(b, payload["nodes"])  # マージ表示なしで描き直した
+
+    def test_graph_payload_raises_when_even_the_smallest_graph_fails(self):
+        self.make_merged_and_deleted_branch()
+        previous = state.OPTS
+        state.OPTS = self.graph_opts()
+        graph_module._cache.clear()
+        try:
+            with mock.patch.object(graph_module, "render_dot",
+                                   side_effect=subprocess.TimeoutExpired("dot", 1)):
+                with self.assertRaises(subprocess.TimeoutExpired):
+                    app.graph_payload({})
+        finally:
+            state.OPTS = previous
+            graph_module._cache.clear()
+
+    def commit_at(self, name, date, tag=None):
+        """date (committer date) を指定して 1 コミット作る。"""
+        self.write_file(name, name + "\n")
+        self.git("add", name)
+        with mock.patch.dict(os.environ, {"GIT_COMMITTER_DATE": date, "GIT_AUTHOR_DATE": date}):
+            self.git("commit", "-q", "-m", name)
+        if tag:
+            self.git("tag", tag)
+        return self.git("rev-parse", "HEAD").strip()
+
+    def make_dated_chain(self):
+        """initial(今日) - C1(2020, tag v1) - X(2021, タグなし) - C2(2021, tag v2 / main)"""
+        c1 = self.commit_at("c1", "2020-05-01T12:00:00", tag="v1")
+        x = self.commit_at("x", "2021-06-15T12:00:00")
+        c2 = self.commit_at("c2", "2021-07-01T12:00:00", tag="v2")
+        return c1, x, c2
+
+    def test_assign_clusters_splits_year_month_day_until_small_enough(self):
+        keep = [f"h{i}" for i in range(8)]
+        dates = {}
+        for h, day in zip(keep[:2], ["2023-02-01", "2023-09-01"]):
+            dates[h] = calendar.timegm(time.strptime(day, "%Y-%m-%d")) + 43200
+        for h, day in zip(keep[2:], ["2024-03-01", "2024-03-01", "2024-03-02", "2024-06-10", "2024-06-11", "2024-06-11"]):
+            dates[h] = calendar.timegm(time.strptime(day, "%Y-%m-%d")) + 43200
+        model = {"keep_order": keep, "dates": dates}
+
+        with mock.patch.object(graph_module, "CLUSTER_MAX_NODES", 3):
+            clusters, cluster_of = app.assign_clusters(model)
+
+        self.assertEqual(set(clusters), {"c:2023", "c:2024-03", "c:2024-06"})  # 2024 は 6 件なので月に分かれる
+        with mock.patch.object(graph_module, "CLUSTER_MAX_NODES", 1):
+            clusters, _ = app.assign_clusters(model)
+        self.assertIn("c:2024-03-01", clusters)  # 月でも 3 件なので日まで分かれる
+        self.assertEqual(sorted(len(c["members"]) for c in clusters.values() if c["id"].startswith("c:2024-03")), [1, 2])
+        self.assertEqual(cluster_of["h0"], "c:2023")
+
+    def test_resolve_open_defaults_to_head_and_closes_least_recently_used(self):
+        clusters = {c: {"members": list(range(n))} for c, n in {"a": 4, "b": 4, "c": 4}.items()}
+        with mock.patch.object(graph_module, "OPEN_NODE_BUDGET", 9):
+            self.assertEqual(app.resolve_open(clusters, "c", []), ["c"])  # 指定が無ければ HEAD のクラスター
+            self.assertEqual(app.resolve_open(clusters, "c", ["a", "b"]), ["a", "b"])
+            self.assertEqual(app.resolve_open(clusters, "c", ["a", "b", "c"]), ["b", "c"])  # 合計 12 > 9: 古い a を閉じる
+            self.assertEqual(app.resolve_open(clusters, "c", ["a", "b", "c", "a"]), ["c", "a"])  # a を使い直したので b を閉じる
+            self.assertEqual(app.resolve_open(clusters, "c", ["zzz", "b"]), ["b"])  # 知らない id は無視
+        with mock.patch.object(graph_module, "OPEN_NODE_BUDGET", 1):
+            self.assertEqual(app.resolve_open(clusters, "c", ["a", "b"]), ["b"])  # 1 つは必ず開く
+
+    def test_cluster_for_time_prefers_matching_period_then_nearest(self):
+        day = lambda d: calendar.timegm(time.strptime(d, "%Y-%m-%d")) + 43200
+        clusters = {"c:2021": {"start": day("2021-02-01"), "end": day("2021-11-01")},
+                    "c:2023-03": {"start": day("2023-03-02"), "end": day("2023-03-20")}}
+        self.assertEqual(graph_module.cluster_for_time(clusters, day("2021-06-15")), "c:2021")
+        self.assertEqual(graph_module.cluster_for_time(clusters, day("2023-03-25")), "c:2023-03")  # 範囲の外でも同じ月
+        self.assertEqual(graph_module.cluster_for_time(clusters, day("2019-01-01")), "c:2021")  # 一番近い
+
+    @unittest.skipUnless(shutil.which("dot"), "Graphviz dot is not installed")
+    def test_render_clustered_expands_open_cluster_and_links_collapsed_ones(self):
+        c1, x, c2 = self.make_dated_chain()
+        model = app.build_model(self.graph_opts())
+        clusters, cluster_of = app.assign_clusters(model)
+        self.assertEqual({cluster_of[c1], cluster_of[c2]}, {"c:2020", "c:2021"})
+        initial = self.head
+        open_ids = ["c:2021"]
+
+        dot, nodes, edges = app.render_clustered(model, self.graph_opts(), clusters, cluster_of, open_ids)
+
+        self.assertIn('subgraph "cluster_c:2021"', dot)
+        self.assertIn(f'"{c2}" [label=', dot)  # 開いたクラスターの中は、ノードをそのまま描く
+        self.assertIn('"c:2020" [shape=box', dot)  # 閉じたクラスターは 1 つの箱
+        self.assertIn(">v1<", dot)  # 中のタグ名が分かる
+        self.assertNotIn(f'"{c1}" [label=', dot)
+        self.assertIn(f'"{cluster_of[initial]}" -> "c:2020"', dot)  # クラスター同士のつながり
+        self.assertEqual(dot.count('"c:2020" -> "'), 1)
+        self.assertIn(c2, nodes) and self.assertIn(c1, nodes)  # ノード情報は全ノード分 (ログのチップ用)
+        self.assertEqual(edges, {})  # 両端を描いた線だけがクリックできる (ここには無い)
+        svg = subprocess.check_output(["dot", "-Tsvg"], input=dot.encode("utf-8"))
+        self.assertIn(b"cluster_c:2021", svg)
+
+    def test_graph_payload_cluster_mode_opens_head_cluster_then_requested_ones(self):
+        c1, x, c2 = self.make_dated_chain()
+        previous = state.OPTS
+        state.OPTS = self.graph_opts(cluster_min_nodes=1)
+        graph_module._cache.clear()
+        try:
+            with mock.patch.object(graph_module, "render_dot", return_value="<svg></svg>"):
+                first = app.graph_payload({})
+                two = app.graph_payload({"open": ["c:2020,c:2021"]})
+                with mock.patch.object(graph_module, "OPEN_NODE_BUDGET", 1):
+                    trimmed = app.graph_payload({"open": ["c:2021,c:2020"]})
+                off = app.graph_payload({"merges": ["1"]})
+        finally:
+            state.OPTS = previous
+            graph_module._cache.clear()
+
+        self.assertEqual(first["open"], ["c:2021"])  # 最初は HEAD のクラスター
+        self.assertEqual(set(first["clusters"]), {"c:2020", "c:2021", first["clusterOf"][self.head]})
+        self.assertEqual(first["clusterOf"][c1], "c:2020")
+        self.assertEqual(two["open"], ["c:2020", "c:2021"])
+        self.assertEqual(trimmed["open"], ["c:2020"])  # 予算を超えるので、使っていない c:2021 を閉じる
+        self.assertIn("clusters", off)
+
+    def test_graph_focus_finds_cluster_of_non_node_commit(self):
+        c1, x, c2 = self.make_dated_chain()
+        previous = state.OPTS
+        state.OPTS = self.graph_opts(cluster_min_nodes=1)
+        graph_module._cache.clear()
+        try:
+            self.assertEqual(app.graph_focus({"hash": [c1]})["cluster"], "c:2020")  # ノードのコミット
+            self.assertEqual(app.graph_focus({"hash": [x]})["cluster"], "c:2021")  # ノードでないコミットは日時から
+            self.assertIsNone(app.graph_focus({"hash": ["zzz"]})["cluster"])
+            state.OPTS = self.graph_opts(cluster_min_nodes=0)  # クラスター表示でないとき
+            graph_module._cache.clear()
+            self.assertIsNone(app.graph_focus({"hash": [c1]})["cluster"])
+        finally:
+            state.OPTS = previous
+            graph_module._cache.clear()
+
+    def test_graph_payload_cluster_mode_falls_back_to_fewer_open_clusters(self):
+        self.make_dated_chain()
+        previous = state.OPTS
+        state.OPTS = self.graph_opts(cluster_min_nodes=1)
+        graph_module._cache.clear()
+        calls = []
+
+        def fake_render(dot_text):
+            calls.append(dot_text)
+            if len(calls) == 1:
+                raise subprocess.TimeoutExpired("dot", 1)
+            return "<svg></svg>"
+
+        try:
+            with mock.patch.object(graph_module, "render_dot", side_effect=fake_render):
+                payload = app.graph_payload({"open": ["c:2020,c:2021"]})
+        finally:
+            state.OPTS = previous
+            graph_module._cache.clear()
+
+        self.assertEqual(payload["open"], ["c:2021"])  # 開く数を最小 (最近使った 1 つ) にして描き直した
+        self.assertEqual(payload["notice"], tr("graph_notice_fewer_open"))
 
     def test_merge_bases_returns_best_common_ancestor_only(self):
         parents = {"d": ["b", "c"], "b": ["a"], "c": ["a"], "a": ["r"], "r": []}

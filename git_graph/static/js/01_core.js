@@ -13,7 +13,13 @@ function showMergesOn() {  // 「マージ表示」のチェック状態 (ブラ
 function setShowMerges(on) {
   try { localStorage.setItem(SHOW_MERGES_KEY, on ? "1" : "0"); } catch (e) { /* 保存できなくても表示は切り替わる */ }
 }
-function graphUrl() { return "/api/graph" + (showMergesOn() ? "?merges=1" : ""); }
+let openClusters = [];  // クラスター表示で開いているクラスター (古い順)。サーバーが数を絞って返す
+function graphUrl() {
+  const params = [];
+  if (showMergesOn()) params.push("merges=1");
+  if (openClusters.length) params.push("open=" + encodeURIComponent(openClusters.join(",")));
+  return "/api/graph" + (params.length ? "?" + params.join("&") : "");
+}
 const COLORS = {branch: "#b7e4a7", current: "#b7e4a7", remote: "#a7c8f0", tag: "#ffe9a0", head: "#f4a7a7", stash: "#d9c7f2"};
 const CHUNK = 500;
 const listView = document.getElementById("listView"), detailView = document.getElementById("detailView");

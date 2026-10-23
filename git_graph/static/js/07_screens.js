@@ -271,6 +271,12 @@ function init() {
   document.querySelectorAll("svg g.node").forEach(g => {
     const t = g.querySelector("title");
     const n = t && DATA.nodes[t.textContent];
+    const cl = !n && t && DATA.clusters && DATA.clusters[t.textContent];
+    if (cl) {  // 閉じたクラスター: クリックで開く
+      g.classList.add("cluster-node");
+      g.addEventListener("click", ev => { if (ev.detail <= 1) expandCluster(cl.id); });
+      return;
+    }
     if (n) {
       nodeEl[n.hash] = g;
       const box = g.getBBox(), hit = document.createElementNS("http://www.w3.org/2000/svg", "rect");

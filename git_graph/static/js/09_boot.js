@@ -9,7 +9,8 @@ fetch(graphUrl())
   .then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); }))
   .then(r => {
     clearInterval(timer);
-    DATA = {nodes: r.nodes, edges: r.edges, writable: r.writable, merge: r.merge};
+    setGraphData(r);
+    if (r.notice) setGraphStatus(r.notice, "error");  // 大きすぎて表示を減らしたとき
     document.getElementById("graph").innerHTML = r.svg;
     applyGraphZoom();
     init();

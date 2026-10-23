@@ -315,6 +315,7 @@ function selectCmpA(hash) {
   if (compareAHash && compareBHash) { abActOpen = true; cmpActOpen = false; setOtherMenu(false); }
   updateCmpClasses();
   saveUiState();
+  revealHash(hash);
 }
 function selectCompareHash(slot, hash) {
   if (slot === "A") selectCmpA(hash);
@@ -326,4 +327,5 @@ function selectCmpB(hash) {
   if (compareAHash && compareBHash) { abActOpen = true; cmpActOpen = false; setOtherMenu(false); }
   updateCmpClasses();
   saveUiState();
+  revealHash(hash);
 }

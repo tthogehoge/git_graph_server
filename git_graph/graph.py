@@ -5,6 +5,7 @@ import re
 import subprocess
 import sys
 import threading
+import time
 import unicodedata
 from collections import Counter, defaultdict
 from . import app_state as state
@@ -21,6 +22,14 @@ COLORS = {"branch": "#b7e4a7", "current": "#b7e4a7", "remote": "#a7c8f0", "tag":
 
 SUBJECT_WIDTH = 30
 MERGE_EDGE_COLOR = "#d35400"
+DEFAULT_MERGE_MAX_NODES = 2200  # マージ表示でグラフ全体のノード数がこれを超えない範囲で、新しいマージから出す (dot は 2,500 ノード前後から急に遅くなる)
+CLUSTER_MIN_NODES = 1000  # 残すノードがこれを超えたら、年 / 月 / 日のクラスターにまとめて表示する (0 でまとめない)
+CLUSTER_MAX_NODES = 150  # 1 つのクラスターに入れるノード数の目安。超えたら年 -> 月 -> 日と細かく分ける
+OPEN_NODE_BUDGET = 500  # 開いているクラスターのノード数の合計の上限。超えたら使っていない (古い) 方から閉じる
+CLUSTER_REF_ROWS = 8  # 閉じたクラスターに書くブランチ / タグ名の最大数
+_CLUSTER_TIME_FORMATS = ("%Y", "%Y-%m", "%Y-%m-%d")
+_KIND_ORDER = {"head": 0, "current": 1, "branch": 2, "tag": 3, "remote": 4, "stash": 5}
+DOT_TIMEOUT = 60  # dot の最大実行時間 (秒)。超えたら表示を減らして描き直す
 DOT_COLOR = "black"
 
 def truncate_width(text, limit):
@@ -114,8 +123,8 @@ def merge_bases(parents, pos, a, b):
                         live -= 1
     return found
 
-def build_graph(opts):
-    """残すコミットとエッジを決め、dot / ノード情報 / エッジ情報を返す。"""
+def build_model(opts):
+    """残すコミットとエッジを決める (dot にするのは render_plain / render_clustered)。"""
     sys.setrecursionlimit(100000)
     revs = opts.revs
     if not revs:
@@ -135,14 +144,15 @@ def build_graph(opts):
         except subprocess.CalledProcessError:
             pass
 
-    parents, subjects, order = {}, {}, []  # order: 子が親より先 (--topo-order)
+    parents, subjects, order, dates = {}, {}, [], {}  # order: 子が親より先 (--topo-order)
     children = defaultdict(list)
-    log = git("log", *revs, "--topo-order", "--format=%H%x09%P%x09%s") if revs else ""
+    log = git("log", *revs, "--topo-order", "--format=%H%x09%P%x09%ct%x09%s") if revs else ""
     for line in log.splitlines():
-        h, p, s = (line.split("\t", 2) + ["", ""])[:3]
+        h, p, ct, s = (line.split("\t", 3) + ["", "", ""])[:4]
         ps = p.split()
         parents[h] = ps
         subjects[h] = s
+        dates[h] = int(ct) if ct.isdigit() else 0
         order.append(h)
         for x in ps:
             children[x].append(h)
@@ -151,6 +161,7 @@ def build_graph(opts):
     for h, base_commit, name, subject in stashes:  # 子は親より先の順なので、先頭に足す (stash は誰の親にもならない)
         parents[h] = [base_commit]
         subjects[h] = subject
+        dates[h] = dates.get(base_commit, 0)
         order.insert(0, h)
         children[base_commit].append(h)
 
@@ -179,6 +190,7 @@ def build_graph(opts):
             if opts.no_tags:
                 continue
             labels[target].append((ref[len("refs/tags/"):], "tag"))
+    head = ""
     try:
         head = git("rev-parse", "HEAD").strip()
         if head in parents:
@@ -233,15 +245,24 @@ def build_graph(opts):
     show_merges = getattr(opts, "show_merges", False)
     extra = set()
     if show_merges:
+        # 大きなリポジトリではマージが何万もあり、全部出すと分岐元探しも dot も終わらない。
+        # グラフ全体のノード数が max_nodes を超えない範囲で、新しいマージから出す (0 で無制限)。
+        max_nodes = getattr(opts, "merge_max_nodes", DEFAULT_MERGE_MAX_NODES)
         pos = {h: i for i, h in enumerate(order)}
-        for h in order:
+        opts.merge_truncated = False
+        for h in order:  # 新しい順
             ps = [p for p in parents[h] if p in pos]
             if len(ps) < 2:
                 continue
-            extra.add(h)
+            found = {h}
             for i in range(len(ps)):
                 for j in range(i + 1, len(ps)):
-                    extra.update(merge_bases(parents, pos, ps[i], ps[j]))
+                    found.update(merge_bases(parents, pos, ps[i], ps[j]))
+            added = found - keep - extra
+            if max_nodes and len(keep) + len(extra) + len(added) > max_nodes:
+                opts.merge_truncated = True
+                break
+            extra |= added
         extra -= keep
         keep |= extra
 
@@ -309,115 +330,341 @@ def build_graph(opts):
                 counts[(d, c, via)] = sum(n for m, n in groups.items() if m & bc and not m & bd) - 1
     keep_order.reverse()  # 出力の順序を毎回同じにする (レイアウトが安定する)
 
+    return {"keep": keep, "keep_order": keep_order, "extra": extra, "edges": edges, "counts": counts,
+            "labels": labels, "subjects": subjects, "parents": parents, "dates": dates, "head": head,
+            "truncated": show_merges and getattr(opts, "merge_truncated", False)}
+
+
+def _dot_header(opts, n_nodes):
     font = (getattr(opts, "font", None) or "Helvetica").replace("\\", "").replace('"', "")  # dot の文字列に埋めるため引用符は除く
-    out = [
+    return [
         "digraph G {",
         f"  rankdir={opts.rankdir};",
         *(["  nslimit=1; nslimit1=1; mclimit=0.3;"]  # ノードが多いときは dot のレイアウト最適化を軽くして高速化
-          if len(keep) > FAST_LAYOUT_NODES and not getattr(opts, "full_layout", False) else []),
+          if n_nodes > FAST_LAYOUT_NODES and not getattr(opts, "full_layout", False) else []),
         f'  node [shape=plaintext, fontname="{font}", fontsize=10];',
         f'  edge [fontname="{font}", fontsize=9];',
     ]
-    for h in keep_order:
-        if h in extra:  # マージ表示のためだけに出したノードは、文字なしの小さな点にする
-            out.append(f'  "{h}" [shape=circle, label="", width=0.14, height=0.14, fixedsize=true, '
-                       f'style=filled, fillcolor="{DOT_COLOR}", color="{DOT_COLOR}"];')
-            continue
-        rows = []
-        for name, kind in labels.get(h, []):
-            marker = "★ " if kind == "current" else ""
-            rows.append(f'<TR><TD BGCOLOR="{COLORS[kind]}"><B>{marker}{html.escape(name)}</B></TD></TR>')
-        rows.append(f'<TR><TD>{h[:7]}<BR/>{html.escape(truncate_width(subjects[h], SUBJECT_WIDTH))}</TD></TR>')
-        label = ('<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="3">'
-                 + "".join(rows) + "</TABLE>>")
-        out.append(f'  "{h}" [label={label}];')
-    for d, c, via in edges:
-        attrs = []
-        n = counts.get((d, c, via), 0)
-        # 個数のラベルは付けない (線が多いと dot が非常に遅くなる)。間に省略したコミットがなければ破線、あれば実線にする。
-        # --no-count のときは省略数を数えないので、線種の区別はしない。
-        if not opts.no_count and n == 0:
-            attrs.append("style=dashed")
-        if via is not None and via != parents[c][0]:  # 第1親以外 = マージされてきた側の線は色を変える
-            attrs += [f'color="{MERGE_EDGE_COLOR}"', f'fontcolor="{MERGE_EDGE_COLOR}"']
-        if via is not None:  # 同じ組の線を区別できるよう id を付ける (クリックしたとき、どの親の側かが分かる)
-            attrs.append(f'id="m_{d}_{c}_{via}"')
-        attr = f' [{", ".join(attrs)}]' if attrs else ""
-        out.append(f'  "{d}" -> "{c}"{attr};')
-    out.append("}")
 
-    nodes = {h: {"hash": h, "refs": [{"name": n, "kind": k} for n, k in labels.get(h, [])]}
-             for h in keep}
-    edge_data = {f"{d}->{c}": {"from": d, "to": c} for d, c, _ in edges}
+
+def _node_decl(h, model):
+    if h in model["extra"]:  # マージ表示のためだけに出したノードは、文字なしの小さな点にする
+        return (f'  "{h}" [shape=circle, label="", width=0.14, height=0.14, fixedsize=true, '
+                f'style=filled, fillcolor="{DOT_COLOR}", color="{DOT_COLOR}"];')
+    rows = []
+    for name, kind in model["labels"].get(h, []):
+        marker = "★ " if kind == "current" else ""
+        rows.append(f'<TR><TD BGCOLOR="{COLORS[kind]}"><B>{marker}{html.escape(name)}</B></TD></TR>')
+    rows.append(f'<TR><TD>{h[:7]}<BR/>{html.escape(truncate_width(model["subjects"][h], SUBJECT_WIDTH))}</TD></TR>')
+    label = ('<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="3">'
+             + "".join(rows) + "</TABLE>>")
+    return f'  "{h}" [label={label}];'
+
+
+def _edge_line(d, c, via, model, opts):
+    attrs = []
+    n = model["counts"].get((d, c, via), 0)
+    # 個数のラベルは付けない (線が多いと dot が非常に遅くなる)。間に省略したコミットがなければ破線、あれば実線にする。
+    # --no-count のときは省略数を数えないので、線種の区別はしない。
+    if not opts.no_count and n == 0:
+        attrs.append("style=dashed")
+    if via is not None and via != model["parents"][c][0]:  # 第1親以外 = マージされてきた側の線は色を変える
+        attrs += [f'color="{MERGE_EDGE_COLOR}"', f'fontcolor="{MERGE_EDGE_COLOR}"']
+    if via is not None:  # 同じ組の線を区別できるよう id を付ける (クリックしたとき、どの親の側かが分かる)
+        attrs.append(f'id="m_{d}_{c}_{via}"')
+    attr = f' [{", ".join(attrs)}]' if attrs else ""
+    return f'  "{d}" -> "{c}"{attr};'
+
+
+def _node_data(model):
+    labels = model["labels"]
+    return {h: {"hash": h, "refs": [{"name": n, "kind": k} for n, k in labels.get(h, [])]}
+            for h in model["keep"]}
+
+
+def _edge_data(edges):
+    data = {f"{d}->{c}": {"from": d, "to": c} for d, c, _ in edges}
     for d, c, via in edges:
         if via is not None:
-            edge_data[f"m_{d}_{c}_{via}"] = {"from": d, "to": c, "via": via}
-    return "\n".join(out), nodes, edge_data
+            data[f"m_{d}_{c}_{via}"] = {"from": d, "to": c, "via": via}
+    return data
+
+
+def render_plain(model, opts):
+    """全ノードをそのまま描く dot / ノード情報 / エッジ情報を返す。"""
+    out = _dot_header(opts, len(model["keep"]))
+    out += [_node_decl(h, model) for h in model["keep_order"]]
+    out += [_edge_line(d, c, via, model, opts) for d, c, via in model["edges"]]
+    out.append("}")
+    return "\n".join(out), _node_data(model), _edge_data(model["edges"])
+
+
+def build_graph(opts):
+    """残すコミットとエッジを決め、dot / ノード情報 / エッジ情報を返す。"""
+    return render_plain(build_model(opts), opts)
+
+
+# ---- クラスター表示 (ノードが多すぎるとき、時期ごとにまとめて、開いたものだけ個別に描く)
+
+def assign_clusters(model):
+    """残すコミットを、年 -> 月 -> 日の順に、1 つが CLUSTER_MAX_NODES 以下になるまで細かく分ける。
+    返す値: (クラスターの id -> 情報, コミット -> クラスターの id)。"""
+    dates = model["dates"]
+    clusters, cluster_of = {}, {}
+
+    def split(members, level):
+        groups = defaultdict(list)
+        for h in members:
+            groups[time.strftime(_CLUSTER_TIME_FORMATS[level], time.gmtime(dates.get(h, 0)))].append(h)
+        for key in sorted(groups):
+            g = groups[key]
+            if len(g) > CLUSTER_MAX_NODES and level + 1 < len(_CLUSTER_TIME_FORMATS):
+                split(g, level + 1)
+                continue
+            cid = "c:" + key
+            ts = [dates.get(h, 0) for h in g]
+            clusters[cid] = {"id": cid, "label": key, "members": g, "start": min(ts), "end": max(ts)}
+            for h in g:
+                cluster_of[h] = cid
+
+    split(model["keep_order"], 0)
+    return clusters, cluster_of
+
+
+def _clusters_of(model):
+    if "clusters" not in model:
+        model["clusters"] = assign_clusters(model)
+    return model["clusters"]
+
+
+def cluster_for_time(clusters, ts):
+    """日時 ts のコミットが入るクラスターの id (残すコミットが無い時期は、一番近いクラスター)。"""
+    for fmt in reversed(_CLUSTER_TIME_FORMATS):
+        cid = "c:" + time.strftime(fmt, time.gmtime(ts))
+        if cid in clusters:
+            return cid
+    if not clusters:
+        return None
+    return min(clusters, key=lambda c: 0 if clusters[c]["start"] <= ts <= clusters[c]["end"]
+               else min(abs(ts - clusters[c]["start"]), abs(ts - clusters[c]["end"])))
+
+
+def resolve_open(clusters, head_cluster, requested):
+    """開くクラスターを決める。requested は古い順 (最後が最近使ったもの)。
+    何も指定が無ければ HEAD のクラスター。ノード数の合計が OPEN_NODE_BUDGET を超えるときは、
+    新しい方から数えて収まる分だけ残し、使っていない (古い) ものから閉じる。"""
+    want = []
+    for cid in requested:
+        if cid in clusters:
+            if cid in want:
+                want.remove(cid)
+            want.append(cid)
+    if not want and head_cluster:
+        want = [head_cluster]
+    chosen, total = [], 0
+    for cid in reversed(want):
+        n = len(clusters[cid]["members"])
+        if chosen and total + n > OPEN_NODE_BUDGET:
+            break
+        chosen.append(cid)
+        total += n
+    return chosen[::-1]
+
+
+def _cluster_node_decl(cl, model):
+    refs = sorted((_KIND_ORDER.get(kind, 9), -model["dates"].get(h, 0), name, kind)
+                  for h in cl["members"] for name, kind in model["labels"].get(h, []))
+    rows = [f'<TR><TD><B>{html.escape(cl["label"])}</B><BR/>{html.escape(tr("cluster_nodes", n=len(cl["members"])))}</TD></TR>']
+    for _, _, name, kind in refs[:CLUSTER_REF_ROWS]:
+        rows.append(f'<TR><TD BGCOLOR="{COLORS[kind]}">{html.escape(truncate_width(name, SUBJECT_WIDTH))}</TD></TR>')
+    if len(refs) > CLUSTER_REF_ROWS:
+        rows.append(f'<TR><TD>+{len(refs) - CLUSTER_REF_ROWS}</TD></TR>')
+    label = ('<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="3">' + "".join(rows) + "</TABLE>>")
+    return f'  "{cl["id"]}" [shape=box, style=filled, fillcolor="#eef3f8", color="#7a8aa0", label={label}];'
+
+
+def render_clustered(model, opts, clusters, cluster_of, open_ids):
+    """開いたクラスターは中のノードを囲んで描き、閉じたクラスターは 1 つの箱にして、クラスター同士の線だけ引く。
+    返す値: dot, ノード情報 (全ノード), エッジ情報 (両端を描いている線だけ)。"""
+    open_set = set(open_ids)
+    rank = {h: i for i, h in enumerate(model["keep_order"])}
+
+    def rep(h):  # 描くときのノード名 (開いていれば自分、閉じていればクラスター)
+        return h if cluster_of[h] in open_set else cluster_of[h]
+
+    drawn = sum(len(clusters[c]["members"]) for c in open_ids) + len(clusters) - len(open_ids)
+    out = _dot_header(opts, drawn)
+    for cid in open_ids:
+        cl = clusters[cid]
+        out.append(f'  subgraph "cluster_{cid}" {{')
+        out.append(f'    label="{cl["label"]}"; labeljust=l; style="rounded,dashed"; color="#888888"; fontcolor="#555555";')
+        out += ["  " + _node_decl(h, model) for h in sorted(cl["members"], key=rank.get)]
+        out.append("  }")
+    out += [_cluster_node_decl(cl, model) for cid, cl in clusters.items() if cid not in open_set]
+    shown, seen = [], set()
+    for d, c, via in model["edges"]:
+        rd, rc = rep(d), rep(c)
+        if rd == d and rc == c:  # 両端とも描いている線は、そのまま
+            out.append(_edge_line(d, c, via, model, opts))
+            shown.append((d, c, via))
+        elif rd != rc and (rd, rc) not in seen:  # 閉じたクラスターに繋がる線は、クラスター同士 / ノードとクラスターで 1 本にまとめる
+            seen.add((rd, rc))
+            out.append(f'  "{rd}" -> "{rc}";')
+    out.append("}")
+    return "\n".join(out), _node_data(model), _edge_data(shown)
+
 
 _cache = {}  # マージ表示の on / off ごとのキャッシュ
 
 _lock = threading.Lock()
 
-def add_wip(dot_text, nodes, head, count):
-    """HEAD の子として、破線の WIP ノードを dot とノード情報に追加する。"""
+def add_wip(dot_text, nodes, head, count, anchor=None):
+    """HEAD の子として、破線の WIP ノードを dot とノード情報に追加する。
+    anchor は線を引く先のノード名 (HEAD を含むクラスターが閉じているときは、そのクラスター)。"""
     label = ('<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3" STYLE="dashed" BGCOLOR="#fff8dc">'
              f'<TR><TD><B>WIP</B></TD></TR><TR><TD>{html.escape(tr("n_changes", n=count))}</TD></TR></TABLE>>')
-    lines = f'  "WIP" [label={label}];\n  "{head}" -> "WIP" [style=dashed];\n'
+    lines = f'  "WIP" [label={label}];\n  "{anchor or head}" -> "WIP" [style=dashed];\n'
     i = dot_text.rindex("}")
     nodes = dict(nodes)
     nodes["WIP"] = {"hash": "WIP", "refs": [], "wip": True, "count": count}
     return dot_text[:i] + lines + dot_text[i:], nodes
 
+def render_dot(dot_text):
+    """dot で SVG にする。Windows では text=True がロケール(cp932等)で符号化し、★ などが壊れて
+    dot が "not well-formed" になるため、UTF-8 のバイト列で入出力する。"""
+    return subprocess.run(["dot", "-Tsvg"], input=dot_text.encode("utf-8"), capture_output=True,
+                          check=True, timeout=DOT_TIMEOUT).stdout.decode("utf-8", errors="replace")
+
+
+def _model_for(merges):
+    """作業ツリー以外 (ref / HEAD / stash) が変わらない限りキャッシュしたモデルを返す。_lock の中で呼ぶ。
+    返す値: (キャッシュ, opts, HEAD, キャッシュのキー)"""
+    cache = _cache.setdefault(merges, {"base_key": None, "model": None, "payload_key": None, "payload": None})
+    opts = copy.copy(state.OPTS)
+    opts.show_merges = merges
+    try:
+        head = git("rev-parse", "HEAD").strip()
+    except subprocess.CalledProcessError:
+        head = ""
+    # 同じコミットを指すブランチ間で checkout すると、HEAD と refs は
+    # 変わらないため、現在ブランチを含めないと current (★) の表示が
+    # キャッシュされたままになる。
+    try:
+        current_branch = git("symbolic-ref", "--short", "-q", "HEAD").strip()
+    except subprocess.CalledProcessError:
+        current_branch = ""
+    key = git("for-each-ref") + "\0" + head + "\0" + current_branch + "\0" + stash_key()
+    if cache["base_key"] != key:
+        cache.update(base_key=key, model=build_model(opts), payload_key=None, payload=None)
+    return cache, opts, head, key
+
+
+def _is_clustered(model, opts):
+    threshold = getattr(opts, "cluster_min_nodes", CLUSTER_MIN_NODES)
+    return bool(threshold) and len(model["keep"]) > threshold
+
+
+def _render_payload(model, opts, head, raw, requested, minimal=False):
+    """モデルから dot を作り、SVG にして返す (dot が失敗したときは例外)。"""
+    clustered = _is_clustered(model, opts)
+    extra, anchor = {}, head
+    if clustered:
+        clusters, cluster_of = _clusters_of(model)
+        open_ids = resolve_open(clusters, cluster_of.get(head), requested)
+        if minimal:
+            open_ids = open_ids[-1:]
+        dot_text, nodes, edges = render_clustered(model, opts, clusters, cluster_of, open_ids)
+        if cluster_of.get(head) not in open_ids:
+            anchor = cluster_of.get(head)  # HEAD を含むクラスターが閉じているときは、そのクラスターに WIP を繋ぐ
+        extra = {"clusters": {cid: {"id": cid, "label": cl["label"], "count": len(cl["members"])}
+                              for cid, cl in clusters.items()},
+                 "clusterOf": cluster_of, "open": open_ids}
+    else:
+        dot_text, nodes, edges = render_plain(model, opts)
+    if raw and head in model["keep"]:
+        count = wip_count(parse_status(raw))
+        if count:
+            dot_text, nodes = add_wip(dot_text, nodes, head, count, anchor)
+    svg = render_dot(dot_text)
+    return {"svg": center_node_text(svg[svg.index("<svg"):]), "nodes": nodes, "edges": edges,
+            "writable": state.WRITABLE, "merge": state.WRITABLE and state.HAS_WORKTREE, **extra}
+
+
 @route("/api/graph")
 def graph_payload(q=None):
     """グラフ(SVG + ノード/エッジ情報)の JSON を返す。
-    重い部分 (merge-base の総当たり) は ref と HEAD が変わらない限りキャッシュし、
-    作業ツリーの変更 (WIP ノード) だけを毎回付け替える。"""
-    merges = bool(q) and q.get("merges", [""])[0] == "1"  # ?merges=1 でマージ表示
+    重い部分 (残すコミットの決定) は ref と HEAD が変わらない限りキャッシュし、
+    作業ツリーの変更 (WIP ノード) だけを毎回付け替える。
+    ?merges=1 でマージ表示、?open=c:2024-03,c:2023 で開いておくクラスター (古い順) を指定する。"""
+    merges = bool(q) and q.get("merges", [""])[0] == "1"
+    requested = [x for x in (q.get("open", [""])[0].split(",") if q else []) if x]
     with _lock:  # 同時に複数回作らない (2つ目以降はキャッシュを使う)
-        cache = _cache.setdefault(merges, {"base_key": None, "base": None, "payload_key": None, "payload": None})
-        opts = copy.copy(state.OPTS)
-        opts.show_merges = merges
-        try:
-            head = git("rev-parse", "HEAD").strip()
-        except subprocess.CalledProcessError:
-            head = ""
-        # 同じコミットを指すブランチ間で checkout すると、HEAD と refs は
-        # 変わらないため、現在ブランチを含めないと current (★) の表示が
-        # キャッシュされたままになる。
-        try:
-            current_branch = git("symbolic-ref", "--short", "-q", "HEAD").strip()
-        except subprocess.CalledProcessError:
-            current_branch = ""
-        key = git("for-each-ref") + "\0" + head + "\0" + current_branch + "\0" + stash_key()
-        if cache["base_key"] != key:
-            cache.update(base_key=key, base=build_graph(opts), payload_key=None, payload=None)
+        cache, opts, head, key = _model_for(merges)
         raw = ""
         if state.WIP_ENABLED:
             try:
                 raw = read_status_raw()
             except subprocess.CalledProcessError:
                 raw = ""
-        if cache["payload_key"] == (key, raw):
+        if cache["payload_key"] == (key, raw, tuple(requested)):
             return cache["payload"]
 
-        dot_text, nodes, edges = cache["base"]
-        if raw and head in nodes:
-            count = wip_count(parse_status(raw))
-            if count:
-                dot_text, nodes = add_wip(dot_text, nodes, head, count)
-        # Windows では text=True がロケール(cp932等)で符号化し、★ などが壊れて
-        # dot が "not well-formed" になるため、UTF-8 のバイト列で入出力する
-        svg = subprocess.run(["dot", "-Tsvg"], input=dot_text.encode("utf-8"),
-                             capture_output=True, check=True).stdout.decode("utf-8", errors="replace")
-        svg = center_node_text(svg[svg.index("<svg"):])
-        payload = {"svg": svg, "nodes": nodes, "edges": edges, "writable": state.WRITABLE,
-                   "merge": state.WRITABLE and state.HAS_WORKTREE}
-        cache.update(payload_key=(key, raw), payload=payload)
+        # dot が落ちる / 終わらないほど大きいときは、表示を減らして描き直す (通知を付けて返す)
+        steps = [(None, {}, False)]
+        if _is_clustered(cache["model"], opts):
+            steps.append(("graph_notice_fewer_open", {}, True))
+        if merges:
+            steps.append(("graph_notice_no_merges", {"show_merges": False}, False))
+        if not opts.no_tags:
+            steps.append(("graph_notice_no_tags", {"show_merges": False, "no_tags": True}, False))
+        steps.append(("graph_notice_no_remotes", {"show_merges": False, "no_tags": True, "no_remotes": True}, False))
+        error = None
+        for notice_key, overrides, minimal in steps:
+            if overrides:
+                vopts = copy.copy(opts)
+                vopts.__dict__.update(overrides)
+                model = build_model(vopts)
+            else:
+                vopts, model = opts, cache["model"]
+            try:
+                payload = _render_payload(model, vopts, head, raw, requested, minimal)
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+                error = e
+                continue
+            notice = tr(notice_key) if notice_key else (tr("graph_notice_merge_cap") if model["truncated"] else "")
+            if notice:
+                payload["notice"] = notice
+            break
+        else:
+            raise error
+        cache.update(payload_key=(key, raw, tuple(requested)), payload=payload)
         return payload
 
 
+@route("/api/graph_focus")
+def graph_focus(q=None):
+    """コミットを含むクラスターの id を返す (クラスター表示でないときは None)。
+    選んだコミットを含むクラスターを、画面側で開くために使う。"""
+    h = q.get("hash", [""])[0] if q else ""
+    merges = bool(q) and q.get("merges", [""])[0] == "1"
+    if not re.fullmatch(r"[0-9a-f]{40}", h):
+        return {"cluster": None}
+    with _lock:
+        cache, opts, head, key = _model_for(merges)
+        model = cache["model"]
+        if not _is_clustered(model, opts):
+            return {"cluster": None}
+        clusters, cluster_of = _clusters_of(model)
+        if h in cluster_of:
+            return {"cluster": cluster_of[h]}
+        try:
+            ts = int(git("log", "-1", "--format=%ct", h).strip())
+        except (subprocess.CalledProcessError, ValueError):
+            return {"cluster": None}
+        return {"cluster": cluster_for_time(clusters, ts)}
+
+
 __all__ = [
-    "COLORS", "FAST_LAYOUT_NODES", "MERGE_EDGE_COLOR", "SUBJECT_WIDTH", "add_wip", "build_graph",
-    "center_node_text", "graph_payload", "list_stashes", "merge_bases", "stash_key", "truncate_width",
+    "COLORS", "CLUSTER_MIN_NODES", "assign_clusters", "build_model", "render_clustered", "render_plain", "resolve_open", "DEFAULT_MERGE_MAX_NODES", "FAST_LAYOUT_NODES", "MERGE_EDGE_COLOR", "SUBJECT_WIDTH", "add_wip", "build_graph",
+    "center_node_text", "graph_focus", "graph_payload", "render_dot", "list_stashes", "merge_bases", "stash_key", "truncate_width",
 ]

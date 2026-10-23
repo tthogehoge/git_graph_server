@@ -149,6 +149,7 @@ function showDetail(h, fromHistory) {
   showView("detail");
   api("/api/commit", {hash: h}).then(c => {
     curCtx = {hash: c.hash}; curFiles = c.files; curDetailHash = c.hash;
+    revealHash(c.hash);
     const parents = c.parents.map(p => esc(p.slice(0, 7))).join(", ") || t("none");
     detailView.innerHTML = back + "<h2>" + t("commit_label") + " " + esc(c.hash.slice(0, 7)) +
       ' <a class="detail-files" href="/files?hash=' + encodeURIComponent(c.hash) + '" title="' + esc(t("tip_files")) + '">' + esc(t("files")) + "</a></h2>" +

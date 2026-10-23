@@ -175,6 +175,8 @@ html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-s
   g.node.sel polygon { stroke: #d22; stroke-width: 3; }
   /* マージ表示の点 (ellipse): ホバー・選択・A・B・操作対象の色で塗りつぶす */
   g.node:hover ellipse { fill: #e88; stroke: #e88; }
+  g.node.cluster-node { cursor: pointer; }
+  g.node.cluster-node:hover polygon { fill: #dde8f4; }
   g.node.actionTarget ellipse { fill: #6f42c1; stroke: #6f42c1; }
   g.node.sel ellipse { fill: #d22; stroke: #d22; }
   g.node.cmpA ellipse { fill: #06c; stroke: #06c; }

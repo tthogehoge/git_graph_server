@@ -34,6 +34,7 @@ If no revisions are specified, branches, tags, and `HEAD` are shown. Press `Ctrl
 
 - Click a graph commit to show its log; click a log row to open commit details.
 - The log shows a merge graph to the left of each row (like `git log --graph`; commits are listed in topological order). Merge commits are drawn as hollow circles.
+- When there are many nodes (over 1000 by default; see `--cluster-min-nodes`), the graph is grouped into year / month / day clusters (split finer until each holds about 150 nodes). A collapsed cluster shows its period, node count and the branch/tag names inside, and lines show how clusters connect. Click a cluster to expand it; when more than 500 nodes are expanded, the least recently used clusters are collapsed. The cluster containing HEAD starts expanded, and selecting a commit (e.g. from the log) also expands its cluster (periods are split in UTC).
 - The "Show merges" checkbox in the toolbar also adds merge commits and the commits where the merged branches split off (small dots without text) to the graph, and draws each merge as two separate lines (the merged-in side is orange). This makes merges of already-deleted branches visible. The setting is remembered in the browser.
 - Right-click a log row (or a graph node), or click it to open the **Actions** menu, and choose **Set as A** / **Set as B** to pick commits to compare. Click A: / B: to open a branch log containing that commit.
 - The regular **Actions** menu operates on the selected commit, for example creating a branch or tag, or checking it out.
@@ -76,6 +77,8 @@ LANG=en_US.UTF-8 python git_graph_server.py
 | `--include-tips` | Include terminal commits without a branch or tag |
 | `--no-wip` | Hide the WIP node for uncommitted changes |
 | `--no-count` | Do not check for collapsed commits (dashed/solid lines) |
+| `--cluster-min-nodes N` | Group nodes into year/month/day clusters (click to expand) when there are more than N (0 = never, default 1000) |
+| `--merge-max-nodes N` | Cap the total graph nodes when showing merges, newest merges first (0 = unlimited, default 2200) |
 | `--full-layout` | Do not skip Graphviz layout optimization |
 | `--read-only` | Disable write operations |
 | `--lan` | Allow LAN access and write operations |

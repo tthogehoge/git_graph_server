@@ -12,7 +12,7 @@ from . import app_state as state
 from .gitrun import git, is_loopback, resolve_commit
 # 次の import のうち、api_* などは名前を直接使わない。各モジュールの @route 登録を実行させるための import なので、
 # 未使用の警告 (F401) を抑止している。
-from .graph import build_graph, graph_payload  # noqa: F401
+from .graph import CLUSTER_MIN_NODES, DEFAULT_MERGE_MAX_NODES, build_graph, graph_payload  # noqa: F401
 from .i18n import (
     APP_CSS, check_i18n, detect_language, FILES_PAGE, fill_template, HTML_TEMPLATE, render_app_js,
     render_main_page, tr, TRANSLATIONS, UserError,
@@ -174,6 +174,10 @@ def main():
     ap.add_argument("--include-tips", action="store_true", help=tr("cli_help_include_tips"))
     ap.add_argument("--full-layout", action="store_true", help=tr("cli_help_full_layout"))
     ap.add_argument("--no-count", action="store_true", help=tr("cli_help_no_count"))
+    ap.add_argument("--merge-max-nodes", type=int, default=DEFAULT_MERGE_MAX_NODES, metavar="N",
+                    help=tr("cli_help_merge_max_nodes"))
+    ap.add_argument("--cluster-min-nodes", type=int, default=CLUSTER_MIN_NODES, metavar="N",
+                    help=tr("cli_help_cluster_min_nodes"))
     ap.add_argument("--rankdir", default="BT", help=tr("cli_help_rankdir"))
     ap.add_argument("--font", default="Helvetica", help=tr("cli_help_font"))
     ap.add_argument("--dot", action="store_true", help=tr("cli_help_dot"))

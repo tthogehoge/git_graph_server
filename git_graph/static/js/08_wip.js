@@ -246,6 +246,7 @@ document.getElementById("quitBtn").addEventListener("click", () => {  // サー�
 document.getElementById("showMerges").addEventListener("change", ev => {  // マージ表示の on / off
   const cb = ev.currentTarget;
   setShowMerges(cb.checked);
+  openClusters = [];  // マージ表示で残すノードが変わるので、開くクラスターは HEAD の分から始め直す
   cb.disabled = true;
   refreshGraph()
     .catch(() => { cb.checked = !cb.checked; setShowMerges(cb.checked); })  // 作り直せなかったら、表示中のグラフに合わせて戻す

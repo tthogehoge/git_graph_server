@@ -45,7 +45,7 @@ function refreshGraph() {
     .then(r => {
       const keys = new Set(Object.keys(DATA.nodes).concat(Object.keys(r.nodes)));
       const gc = document.getElementById("graph"), top0 = gc.scrollTop, left0 = gc.scrollLeft;
-      DATA = {nodes: r.nodes, edges: r.edges, writable: r.writable, merge: r.merge};
+      setGraphData(r);
       gc.innerHTML = r.svg;
       applyGraphZoom();
       gc.scrollTop = top0; gc.scrollLeft = left0;
@@ -64,7 +64,7 @@ function refreshGraph() {
       keys.forEach(h => listView.querySelectorAll('tr[data-h="' + h + '"] .rc').forEach(el => { el.innerHTML = chips(h); }));
       const c = detailView.querySelector("#dChips");
       if (c && curDetailHash) c.innerHTML = detailChips(curDetailHash);
-      setGraphStatus("");
+      setGraphStatus(r.notice || "", r.notice ? "error" : undefined);  // 大きすぎて表示を減らしたときは通知を出す
     })
     .catch(e => {
       setGraphStatus(t("graph_update_failed", {error: e.message}), "error");
@@ -202,4 +202,36 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
   document.getElementById("deleteTagBtn").disabled = !canWrite || !actionHash || isStash || !localTags(actionHash).length;
   document.getElementById("pushSelBtn").disabled = !canWrite || !actionHash || isStash || !localBranches(actionHash).length;
   document.getElementById("renameBranchBtn").disabled = !canWrite || !actionHash || isStash || !localBranches(actionHash).length;
+}
+
+// ---- クラスター表示 (ノードが多いとき、サーバーが時期ごとにまとめて返す。クリックで展開する) ----
+function setGraphData(r) {
+  DATA = {nodes: r.nodes, edges: r.edges, writable: r.writable, merge: r.merge,
+          clusters: r.clusters, clusterOf: r.clusterOf, open: r.open};
+  openClusters = r.open || [];  // サーバーが数を絞った後の、開いているクラスター
+}
+let clusterBusy = false;
+function expandCluster(id) {  // 開いたものを新しい扱いにして描き直す。多くなったら、サーバーが古い方から閉じる
+  if (clusterBusy) return Promise.resolve();
+  clusterBusy = true;
+  const before = openClusters;
+  openClusters = openClusters.filter(x => x !== id).concat([id]);
+  return refreshGraph()
+    .then(() => revealCluster(id))
+    .catch(() => { openClusters = before; })
+    .finally(() => { clusterBusy = false; });
+}
+function revealCluster(id) {
+  const g = [...document.querySelectorAll("#graph g.cluster")].find(x => {
+    const title = x.querySelector("title"); return title && title.textContent === "cluster_" + id;
+  });
+  if (g) g.scrollIntoView({block: "center", inline: "center"});
+}
+function revealHash(h) {  // 選んだコミットを含むクラスターが閉じていたら開く (ノードに無いコミットは、日時でサーバーに尋ねる)
+  if (!h || !DATA.clusters) return;
+  const known = DATA.clusterOf && DATA.clusterOf[h];
+  const ask = known ? Promise.resolve({cluster: known})
+    : fetch("/api/graph_focus?hash=" + encodeURIComponent(h) + (showMergesOn() ? "&merges=1" : ""))
+        .then(r => r.ok ? r.json() : {}).catch(() => ({}));
+  ask.then(r => { if (r.cluster && !(DATA.open || []).includes(r.cluster)) expandCluster(r.cluster); });
 }

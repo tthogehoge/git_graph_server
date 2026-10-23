@@ -435,4 +435,4 @@ function clearCmp() {
   updateCmpClasses();
   saveUiState();
 }
-function selectActionTarget(hash) { actionHash = hash; updateCmpClasses(); saveUiState(); }
+function selectActionTarget(hash) { actionHash = hash; updateCmpClasses(); saveUiState(); revealHash(hash); }
