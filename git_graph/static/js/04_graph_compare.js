@@ -45,6 +45,7 @@ function refreshGraph() {
     .then(r => {
       const keys = new Set(Object.keys(DATA.nodes).concat(Object.keys(r.nodes)));
       const gc = document.getElementById("graph"), top0 = gc.scrollTop, left0 = gc.scrollLeft;
+      const anchor = captureAnchor(gc);  // 選択中の要素が画面のどこにあるか (作り直したあとも同じ位置に置く)
       setGraphData(r);
       gc.innerHTML = r.svg;
       applyGraphZoom();
@@ -58,6 +59,7 @@ function refreshGraph() {
         });
         if (g) { g.classList.add("sel"); selected = g; }
       }
+      if (anchor) restoreAnchor(gc, anchor);
       updateCmpClasses();
       loadStashes();
       updateCurrentBranch().catch(e => setGraphStatus(t("current_branch_failed", {error: e.message}), "error"));
@@ -225,13 +227,50 @@ function revealCluster(id) {
   const g = [...document.querySelectorAll("#graph g.cluster")].find(x => {
     const title = x.querySelector("title"); return title && title.textContent === "cluster_" + id;
   });
-  if (g) g.scrollIntoView({block: "center", inline: "center"});
+  if (g) ensureGraphVisible(g, true);
 }
-function revealHash(h) {  // 選んだコミットを含むクラスターが閉じていたら開く (ノードに無いコミットは、日時でサーバーに尋ねる)
-  if (!h || !DATA.clusters) return;
+function revealHash(h) {
+  // 選んだコミットをグラフ上で見えるようにする: 描いてあればそこまでスクロールし、
+  // 含むクラスターが閉じていたら開く (ノードに無いコミットは、日時でサーバーに尋ねる)
+  if (!h) return;
+  if (nodeEl[h]) { ensureGraphVisible(nodeEl[h]); return; }
+  if (!DATA.clusters) return;
   const known = DATA.clusterOf && DATA.clusterOf[h];
   const ask = known ? Promise.resolve({cluster: known})
     : fetch("/api/graph_focus?hash=" + encodeURIComponent(h) + (showMergesOn() ? "&merges=1" : ""))
         .then(r => r.ok ? r.json() : {}).catch(() => ({}));
-  ask.then(r => { if (r.cluster && !(DATA.open || []).includes(r.cluster)) expandCluster(r.cluster); });
+  ask.then(r => {
+    if (!r.cluster) return;
+    if (!(DATA.open || []).includes(r.cluster)) expandCluster(r.cluster).then(() => { if (nodeEl[h]) ensureGraphVisible(nodeEl[h], true); });
+    else if (nodeEl[h]) ensureGraphVisible(nodeEl[h]);
+  });
+}
+
+// ---- グラフのスクロール ----
+function ensureGraphVisible(el, center) {  // el が見える位置までグラフをスクロールする (見えているなら動かさない)
+  const gc = document.getElementById("graph");
+  const r = el.getBoundingClientRect(), c = gc.getBoundingClientRect(), m = 24;
+  const inside = r.left >= c.left + m && r.right <= c.right - m && r.top >= c.top + m && r.bottom <= c.bottom - m;
+  if (inside && !center) return;
+  gc.scrollLeft += (r.left + r.right) / 2 - (c.left + c.right) / 2;
+  gc.scrollTop += (r.top + r.bottom) / 2 - (c.top + c.bottom) / 2;
+}
+function findGraphEl(gc, key) {  // key (ノードのハッシュ / 線 / クラスター) の要素。無ければ、それを含むクラスターの箱
+  const all = [...gc.querySelectorAll("g.node, g.edge")];
+  const byTitle = k => all.find(x => { const t = x.querySelector("title"); return t && t.textContent === k; });
+  return byTitle(key) || (DATA.clusterOf && DATA.clusterOf[key] ? byTitle(DATA.clusterOf[key]) : null);
+}
+function captureAnchor(gc) {  // 選択中の要素の、グラフ表示領域の中での位置
+  if (!selectedKey) return null;
+  const el = findGraphEl(gc, selectedKey);
+  if (!el) return null;
+  const r = el.getBoundingClientRect(), c = gc.getBoundingClientRect();
+  return {key: selectedKey, dx: r.left - c.left, dy: r.top - c.top};
+}
+function restoreAnchor(gc, a) {  // グラフを作り直して配置が変わっても、選択中の要素を同じ位置に戻す
+  const el = findGraphEl(gc, a.key);
+  if (!el) return;
+  const r = el.getBoundingClientRect(), c = gc.getBoundingClientRect();
+  gc.scrollLeft += (r.left - c.left) - a.dx;
+  gc.scrollTop += (r.top - c.top) - a.dy;
 }
