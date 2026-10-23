@@ -268,8 +268,6 @@ def build_graph(opts):
                     edges.append((d, c, via))
                     counts[(d, c, via)] = dist[p]
         del nxt, dist
-        if opts.no_count:
-            counts = {}
     else:
         # 間に残したコミットを挟まない直接の祖先 (親 -> 子の順に 1 回なめるだけ)
         up, direct = {}, {}
@@ -336,9 +334,10 @@ def build_graph(opts):
     for d, c, via in edges:
         attrs = []
         n = counts.get((d, c, via), 0)
-        if n > 0:
-            # マージ表示は線が多い。label は dot が辺ごとに仮想ノードを作って非常に遅くなるので、位置だけ付ける xlabel にする
-            attrs += [f'{"xlabel" if show_merges else "label"}="+{n}"', "style=dashed"]
+        # 個数のラベルは付けない (線が多いと dot が非常に遅くなる)。間に省略したコミットがなければ破線、あれば実線にする。
+        # --no-count のときは省略数を数えないので、線種の区別はしない。
+        if not opts.no_count and n == 0:
+            attrs.append("style=dashed")
         if via is not None and via != parents[c][0]:  # 第1親以外 = マージされてきた側の線は色を変える
             attrs += [f'color="{MERGE_EDGE_COLOR}"', f'fontcolor="{MERGE_EDGE_COLOR}"']
         if via is not None:  # 同じ組の線を区別できるよう id を付ける (クリックしたとき、どの親の側かが分かる)

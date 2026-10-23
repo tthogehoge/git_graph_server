@@ -312,7 +312,9 @@ class GitApiIntegrationTests(unittest.TestCase):
                 {"name": "HEAD", "kind": "head"},
             ],
         )
-        self.assertIn('[label="+1", style=dashed]', dot)
+        # 間に省略したコミットがあるので実線 (個数のラベルも付けない)
+        self.assertIn(f'"{self.first_commit}" -> "{self.third_commit}";', dot)
+        self.assertNotIn("label", dot.split("-> ")[1])
 
         svg = subprocess.check_output(["dot", "-Tsvg"], input=dot.encode("utf-8"))
         self.assertIn(b"<svg", svg)
@@ -333,7 +335,7 @@ class GitApiIntegrationTests(unittest.TestCase):
 
         first_refs = nodes[self.first_commit]["refs"]
         self.assertNotIn("v1.0", {ref["name"] for ref in first_refs})
-        self.assertNotIn('[label="+1", style=dashed]', dot)
+        self.assertNotIn("style=dashed", dot)  # 省略数を数えないので線種は区別しない
 
 
 class WorkingTreeFilesTests(unittest.TestCase):
@@ -1447,6 +1449,24 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.git("branch", "-q", "-d", "feature")
         return b, self.git("rev-parse", "HEAD").strip()
 
+    @unittest.skipUnless(shutil.which("dot"), "Graphviz dot is not installed")
+    def test_build_graph_draws_adjacent_commits_dashed_and_omitted_solid(self):
+        self.git("branch", "x")
+        self.write_file("b.txt", "b\n")
+        self.git("add", "b.txt")
+        self.git("commit", "-q", "-m", "B")
+        b = self.git("rev-parse", "HEAD").strip()
+
+        dot, nodes, edges = app.build_graph(self.graph_opts())
+        self.assertIn(f'"{self.head}" -> "{b}" [style=dashed];', dot)  # 間にコミットがない
+
+        self.write_file("c.txt", "c\n")
+        self.git("add", "c.txt")
+        self.git("commit", "-q", "-m", "C")
+        c = self.git("rev-parse", "HEAD").strip()
+        dot, nodes, edges = app.build_graph(self.graph_opts())
+        self.assertIn(f'"{self.head}" -> "{c}";', dot)  # 間に B が省略されるので実線
+
     def graph_opts(self, **extra):
         return SimpleNamespace(revs=[], no_remotes=False, no_tags=False, include_tips=False, rankdir="BT",
                                font="Helvetica", no_count=False, full_layout=False, **extra)
@@ -1471,7 +1491,11 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertEqual({k for k in edges if "->" in k}, {f"{self.head}->{b}", f"{b}->{m}"})
         lines = [line for line in dot.splitlines() if line.startswith(f'  "{b}" -> "{m}"')]
         self.assertEqual(len(lines), 2)  # 第1親 (C 経由) と第2親 (F 経由) の 2 本
-        self.assertTrue(all('xlabel="+1"' in line for line in lines))  # 間に C / F が 1 つずつ
+        # 間に C / F が 1 つずつ省略されているので実線 (個数のラベルは付けない)。省略がなければ破線
+        self.assertTrue(all("label" not in line and "style" not in line for line in lines))
+        adjacent = [line for line in dot.splitlines() if line.startswith(f'  "{self.head}" -> "{b}"')]
+        self.assertEqual(len(adjacent), 1)
+        self.assertIn("style=dashed", adjacent[0])
         self.assertEqual(sum(MERGE_COLOR in line for line in lines), 1)  # マージされてきた側だけ色が変わる
         self.assertEqual(dot.count('label="", width=0.14'), 1)  # 分岐元 B だけが文字なしの点 (M は main の先端なのでそのまま)
         svg = subprocess.check_output(["dot", "-Tsvg"], input=dot.encode("utf-8"))

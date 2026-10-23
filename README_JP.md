@@ -73,7 +73,7 @@ LANG=en_US.UTF-8 python git_graph_server.py
 | `--no-remotes` / `--no-tags` | リモート / タグを非表示 |
 | `--include-tips` | ブランチ・タグのない末端コミットも表示 |
 | `--no-wip` | 未コミット変更の WIP ノードを非表示 |
-| `--no-count` | 省略コミット数を計算しない |
+| `--no-count` | 省略コミットの有無(破線/実線)を判定しない |
 | `--full-layout` | Graphviz のレイアウト最適化を省略しない |
 | `--read-only` | 書き込み操作を無効化 |
 | `--lan` | LAN から接続可能にして書き込みを許可 |

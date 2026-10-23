@@ -75,7 +75,7 @@ LANG=en_US.UTF-8 python git_graph_server.py
 | `--no-remotes` / `--no-tags` | Hide remotes / tags |
 | `--include-tips` | Include terminal commits without a branch or tag |
 | `--no-wip` | Hide the WIP node for uncommitted changes |
-| `--no-count` | Skip collapsed-commit counts |
+| `--no-count` | Do not check for collapsed commits (dashed/solid lines) |
 | `--full-layout` | Do not skip Graphviz layout optimization |
 | `--read-only` | Disable write operations |
 | `--lan` | Allow LAN access and write operations |

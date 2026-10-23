@@ -422,7 +422,7 @@
   "cli_help_no_tags": "タグを除外",
   "cli_help_include_tips": "ブランチ / タグのない末端コミットも表示対象にする",
   "cli_help_full_layout": "ノードが多くても dot のレイアウト最適化を省略しない (遅いが交差が少し減る)",
-  "cli_help_no_count": "省略数 (+N) の計算をしない",
+  "cli_help_no_count": "省略コミットの有無 (破線/実線) の判定をしない",
   "cli_help_rankdir": "BT(下から上) / TB / LR (既定: BT)",
   "cli_help_font": "グラフのフォント名 (既定: Helvetica)。日本語の幅が広く出るときは Meiryo や Yu Gothic などを指定する",
   "cli_help_dot": "dot を標準出力に出して終了",

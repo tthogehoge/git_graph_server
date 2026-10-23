@@ -422,7 +422,7 @@
   "cli_help_no_tags": "exclude tags",
   "cli_help_include_tips": "include terminal commits without a branch or tag",
   "cli_help_full_layout": "do not skip dot layout optimization even with many nodes (slower, slightly fewer crossings)",
-  "cli_help_no_count": "do not compute the omitted-commit counts (+N)",
+  "cli_help_no_count": "do not check for omitted commits (dashed/solid lines)",
   "cli_help_rankdir": "BT (bottom to top) / TB / LR (default: BT)",
   "cli_help_font": "Font name for the graph (default: Helvetica). If CJK text comes out too wide, try e.g. Meiryo or Yu Gothic",
   "cli_help_dot": "print the dot source to stdout and exit",
