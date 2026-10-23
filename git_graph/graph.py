@@ -245,44 +245,70 @@ def build_graph(opts):
         extra -= keep
         keep |= extra
 
-    # 間に残したコミットを挟まない直接の祖先 (親 -> 子の順に 1 回なめるだけ)
-    up, direct, pup = {}, {}, {}
-    for h in reversed(order):
-        ups = [up[p] for p in parents[h] if p in up]
-        if h in keep:
-            direct[h] = frozenset().union(*ups) if ups else frozenset()
-            if show_merges and len(ups) > 1:  # マージコミットは、親ごとに別の線を引く (同じ祖先へ 2 本の線が出る)
-                pup[h] = [(p, up[p]) for p in parents[h] if p in up]
-            up[h] = frozenset((h,))
-        elif len(ups) == 1:
-            up[h] = ups[0]
-        else:
-            up[h] = frozenset().union(*ups) if ups else frozenset()
-    del up
-
-    # 推移簡約 (到達可能性もビットマスクで持つ)
     keep_order = [h for h in reversed(order) if h in keep]  # 親が先
-    kbit = {h: 1 << i for i, h in enumerate(keep_order)}
-    reach = {}
-    edges = []  # (祖先, 子, 経由した親)。経由した親はマージ表示の親ごとの線だけ入り、それ以外は None
-    for c in keep_order:
-        deep = 0  # 直接の祖先たちのさらに先の祖先
-        for e in direct[c]:
-            deep |= reach[e]
-        reach[c] = deep | sum(kbit[e] for e in direct[c])
-        if c in pup:  # 簡約は親ごとに行う (別の親の側の祖先は消さない)
-            for p, ups in pup[c]:
-                deep_p = 0
-                for e in ups:
-                    deep_p |= reach[e]
-                for d in sorted(ups):
-                    if not deep_p & kbit[d]:
-                        edges.append((d, c, p))
-            continue
-        for d in sorted(direct[c]):
-            if not deep & kbit[d]:  # d が他の直接祖先の祖先でなければ残す
-                edges.append((d, c, None))
-    kbit = {h: 1 << i for i, h in enumerate(keep_order)}
+    edges = []  # (祖先, 子, 経由した親)。経由した親はマージコミットの親ごとの線だけ入り、それ以外は None
+    counts = {}  # 線ごとの、間で省略されるコミット数
+    if show_merges:
+        # マージコミットを全て残すので、残したコミットの間は 1 本道になる (省略されるコミットの親は必ず 1 つ)。
+        # 親をたどるだけで、線と省略数が (ビットマスクの集合演算なしで) 求まる。
+        # nxt[h]: h 以前で最も近い残したコミット, dist[h]: そこまでの間にあって省略されるコミット数
+        nxt, dist = {}, {}
+        for h in reversed(order):
+            if h in keep:
+                nxt[h], dist[h] = h, 0
+                continue
+            p = next((p for p in parents[h] if p in nxt), None)
+            nxt[h], dist[h] = (nxt[p], dist[p] + 1) if p is not None else (None, 0)
+        for c in keep_order:
+            ps = [p for p in parents[c] if p in nxt]
+            for p in ps:  # マージコミットは親ごとに別の線を引く (同じ祖先へ 2 本の線が出る)
+                d = nxt[p]
+                if d is not None:
+                    via = p if len(ps) > 1 else None
+                    edges.append((d, c, via))
+                    counts[(d, c, via)] = dist[p]
+        del nxt, dist
+        if opts.no_count:
+            counts = {}
+    else:
+        # 間に残したコミットを挟まない直接の祖先 (親 -> 子の順に 1 回なめるだけ)
+        up, direct = {}, {}
+        for h in reversed(order):
+            ups = [up[p] for p in parents[h] if p in up]
+            if h in keep:
+                direct[h] = frozenset().union(*ups) if ups else frozenset()
+                up[h] = frozenset((h,))
+            elif len(ups) == 1:
+                up[h] = ups[0]
+            else:
+                up[h] = frozenset().union(*ups) if ups else frozenset()
+        del up
+
+        # 推移簡約 (到達可能性もビットマスクで持つ)
+        kbit = {h: 1 << i for i, h in enumerate(keep_order)}
+        reach = {}
+        for c in keep_order:
+            deep = 0  # 直接の祖先たちのさらに先の祖先
+            for e in direct[c]:
+                deep |= reach[e]
+            reach[c] = deep | sum(kbit[e] for e in direct[c])
+            for d in sorted(direct[c]):
+                if not deep & kbit[d]:  # d が他の直接祖先の祖先でなければ残す
+                    edges.append((d, c, None))
+        if not opts.no_count:
+            # 各エッジ d->c の省略数 = git rev-list --count d..c - 1 を、メモリ上で git を呼ばずに求める。
+            # コミット x を「x の子孫である keep ノードの集合」(マスク) で分類して数え、
+            # x が c の祖先かつ d の祖先でないもの (c を含み d を含まないマスク) を足し合わせる。
+            groups, dk = Counter(), defaultdict(int)
+            for h in order:  # 子 -> 親
+                m = dk.pop(h, 0) | kbit.get(h, 0)
+                groups[m] += 1
+                for p in parents[h]:
+                    if p in parents:
+                        dk[p] |= m
+            for d, c, via in edges:
+                bc, bd = kbit[c], kbit[d]
+                counts[(d, c, via)] = sum(n for m, n in groups.items() if m & bc and not m & bd) - 1
     keep_order.reverse()  # 出力の順序を毎回同じにする (レイアウトが安定する)
 
     font = (getattr(opts, "font", None) or "Helvetica").replace("\\", "").replace('"', "")  # dot の文字列に埋めるため引用符は除く
@@ -307,38 +333,12 @@ def build_graph(opts):
         label = ('<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="3">'
                  + "".join(rows) + "</TABLE>>")
         out.append(f'  "{h}" [label={label}];')
-    # 各エッジ d->c の省略数 = git rev-list --count d..c - 1 を、メモリ上で git を呼ばずに求める。
-    # コミット x を「x の子孫である keep ノードの集合」(マスク) で分類して数え、
-    # x が c の祖先かつ d の祖先でないもの (c を含み d を含まないマスク) を足し合わせる。
-    counts = {}
-    if not opts.no_count:
-        # マージの親ごとの線は、(マージ, 親) ごとに仮想ビットを親コミットに付け、
-        # 「その親の祖先で、d の祖先でないコミット」を数える (c は含まないので -1 しない)。
-        vbit, vat = {}, defaultdict(int)
-        for d, c, via in edges:
-            if via is not None and (c, via) not in vbit:
-                vbit[(c, via)] = 1 << (len(kbit) + len(vbit))
-                vat[via] |= vbit[(c, via)]
-        groups, dk = Counter(), defaultdict(int)
-        for h in order:  # 子 -> 親
-            m = dk.pop(h, 0) | kbit.get(h, 0) | vat.get(h, 0)
-            groups[m] += 1
-            for p in parents[h]:
-                if p in parents:
-                    dk[p] |= m
-        for d, c, via in edges:
-            bd = kbit[d]
-            if via is None:
-                bc = kbit[c]
-                counts[(d, c, via)] = sum(n for m, n in groups.items() if m & bc and not m & bd) - 1
-            else:
-                bv = vbit[(c, via)]
-                counts[(d, c, via)] = sum(n for m, n in groups.items() if m & bv and not m & bd)
     for d, c, via in edges:
         attrs = []
         n = counts.get((d, c, via), 0)
         if n > 0:
-            attrs += [f'label="+{n}"', "style=dashed"]
+            # マージ表示は線が多い。label は dot が辺ごとに仮想ノードを作って非常に遅くなるので、位置だけ付ける xlabel にする
+            attrs += [f'{"xlabel" if show_merges else "label"}="+{n}"', "style=dashed"]
         if via is not None and via != parents[c][0]:  # 第1親以外 = マージされてきた側の線は色を変える
             attrs += [f'color="{MERGE_EDGE_COLOR}"', f'fontcolor="{MERGE_EDGE_COLOR}"']
         if via is not None:  # 同じ組の線を区別できるよう id を付ける (クリックしたとき、どの親の側かが分かる)

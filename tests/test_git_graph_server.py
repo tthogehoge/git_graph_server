@@ -1471,7 +1471,7 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertEqual({k for k in edges if "->" in k}, {f"{self.head}->{b}", f"{b}->{m}"})
         lines = [line for line in dot.splitlines() if line.startswith(f'  "{b}" -> "{m}"')]
         self.assertEqual(len(lines), 2)  # 第1親 (C 経由) と第2親 (F 経由) の 2 本
-        self.assertTrue(all('label="+1"' in line for line in lines))  # 間に C / F が 1 つずつ
+        self.assertTrue(all('xlabel="+1"' in line for line in lines))  # 間に C / F が 1 つずつ
         self.assertEqual(sum(MERGE_COLOR in line for line in lines), 1)  # マージされてきた側だけ色が変わる
         self.assertEqual(dot.count('label="", width=0.14'), 1)  # 分岐元 B だけが文字なしの点 (M は main の先端なのでそのまま)
         svg = subprocess.check_output(["dot", "-Tsvg"], input=dot.encode("utf-8"))
