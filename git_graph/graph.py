@@ -536,6 +536,61 @@ def render_dot(dot_text):
                           check=True, timeout=DOT_TIMEOUT).stdout.decode("utf-8", errors="replace")
 
 
+def _children_of(model):
+    if "children" not in model:
+        children = defaultdict(list)
+        for h, ps in model["parents"].items():
+            for p in ps:
+                if p in model["parents"]:
+                    children[p].append(h)
+        model["children"] = children
+    return model["children"]
+
+
+def locate_edge(model, h):
+    """残していないコミット h が省略されている線 (祖先, 子, 経由した親) を返す (無ければ None)。
+    h から祖先側・子孫側へ、それぞれ最も近い残したコミットまでたどり、その組になっている線を選ぶ。
+    子孫側の様子 (子の、h 側の隣のコミット) で、マージコミットの親ごとの線も区別する。
+    もう 1 つ返す値は、線が見つからなかったときの代わり (近い端のノード)。"""
+    parents, keep = model["parents"], model["keep"]
+    if h not in parents or h in keep:
+        return None, None
+    below, seen, stack = set(), {h}, [h]
+    while stack:
+        for p in parents[stack.pop()]:
+            if p in seen or p not in parents:
+                continue
+            seen.add(p)
+            if p in keep:
+                below.add(p)
+            else:
+                stack.append(p)
+    children = _children_of(model)
+    above, seen, stack = {}, {h}, [h]  # 残した子孫 -> その真下 (h 側) の、省略されたコミット
+    while stack:
+        x = stack.pop()
+        for c in children.get(x, ()):
+            if c in seen:
+                continue
+            seen.add(c)
+            if c in keep:
+                above.setdefault(c, set()).add(x)
+            else:
+                stack.append(c)
+    hits = [(d, c, via) for d, c, via in model["edges"] if d in below and c in above]
+    for d, c, via in hits:
+        if via is None or via in above[c]:
+            return (d, c, via), None
+    if hits:
+        return hits[0], None
+    near = sorted(below)[:1] + sorted(above)[:1]
+    return None, near
+
+
+def _edge_key(d, c, via):
+    return f"{d}->{c}" if via is None else f"m_{d}_{c}_{via}"  # グラフの線のキー (_edge_data と同じ)
+
+
 def _model_for(merges):
     """作業ツリー以外 (ref / HEAD / stash) が変わらない限りキャッシュしたモデルを返す。_lock の中で呼ぶ。
     返す値: (キャッシュ, opts, HEAD, キャッシュのキー)"""
@@ -643,28 +698,40 @@ def graph_payload(q=None):
 
 @route("/api/graph_focus")
 def graph_focus(q=None):
-    """コミットを含むクラスターの id を返す (クラスター表示でないときは None)。
-    選んだコミットを含むクラスターを、画面側で開くために使う。"""
+    """コミットがグラフのどこにあるかを返す。ログで選んだコミットまで、画面側でグラフをスクロールするために使う。
+    cluster: 含むクラスターの id (クラスター表示でないときは None)
+    edge / from / to: ノードでないコミットが省略されている線のキーと両端 (ノードのコミットは from = to = そのコミット)"""
     h = q.get("hash", [""])[0] if q else ""
     merges = bool(q) and q.get("merges", [""])[0] == "1"
+    result = {"cluster": None, "edge": None, "from": None, "to": None}
     if not re.fullmatch(r"[0-9a-f]{40}", h):
-        return {"cluster": None}
+        return result
     with _lock:
         cache, opts, head, key = _model_for(merges)
         model = cache["model"]
-        if not _is_clustered(model, opts):
-            return {"cluster": None}
-        clusters, cluster_of = _clusters_of(model)
-        if h in cluster_of:
-            return {"cluster": cluster_of[h]}
-        try:
-            ts = int(git("log", "-1", "--format=%ct", h).strip())
-        except (subprocess.CalledProcessError, ValueError):
-            return {"cluster": None}
-        return {"cluster": cluster_for_time(clusters, ts)}
+        if h in model["keep"]:
+            result.update({"from": h, "to": h})
+        else:
+            edge, near = locate_edge(model, h)
+            if edge:
+                d, c, via = edge
+                result.update({"edge": _edge_key(d, c, via), "from": d, "to": c})
+            elif near:
+                result.update({"from": near[0], "to": near[-1]})
+        if _is_clustered(model, opts):
+            clusters, cluster_of = _clusters_of(model)
+            if h in cluster_of:
+                result["cluster"] = cluster_of[h]
+            else:
+                try:
+                    ts = int(git("log", "-1", "--format=%ct", h).strip())
+                    result["cluster"] = cluster_for_time(clusters, ts)
+                except (subprocess.CalledProcessError, ValueError):
+                    pass
+        return result
 
 
 __all__ = [
     "COLORS", "CLUSTER_MIN_NODES", "assign_clusters", "build_model", "render_clustered", "render_plain", "resolve_open", "DEFAULT_MERGE_MAX_NODES", "FAST_LAYOUT_NODES", "MERGE_EDGE_COLOR", "SUBJECT_WIDTH", "add_wip", "build_graph",
-    "center_node_text", "graph_focus", "graph_payload", "render_dot", "list_stashes", "merge_bases", "stash_key", "truncate_width",
+    "center_node_text", "graph_focus", "graph_payload", "locate_edge", "render_dot", "list_stashes", "merge_bases", "stash_key", "truncate_width",
 ]

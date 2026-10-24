@@ -1742,6 +1742,43 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertEqual(payload["open"], ["c:2021"])  # 開く数を最小 (最近使った 1 つ) にして描き直した
         self.assertEqual(payload["notice"], tr("graph_notice_fewer_open"))
 
+    def test_graph_focus_returns_the_line_that_omits_a_non_node_commit(self):
+        c1, x, c2 = self.make_dated_chain()  # initial - c1(v1) - x - c2(v2, main)
+        previous = state.OPTS
+        state.OPTS = self.graph_opts(cluster_min_nodes=0)
+        state.OPTS.no_tags = True  # タグを外すと c1 / x は省略される
+        graph_module._cache.clear()
+        try:
+            result = app.graph_focus({"hash": [x]})
+            node = app.graph_focus({"hash": [c2]})
+        finally:
+            state.OPTS = previous
+            graph_module._cache.clear()
+
+        self.assertEqual(result["edge"], f"{self.head}->{c2}")  # 両端のノードの間の線
+        self.assertEqual((result["from"], result["to"]), (self.head, c2))
+        self.assertIsNone(node["edge"])  # ノードのコミットは線ではなくそのノード
+        self.assertEqual((node["from"], node["to"]), (c2, c2))
+
+    def test_graph_focus_distinguishes_the_merge_lines_in_merge_display(self):
+        b, m = self.make_merged_and_deleted_branch()
+        c, f = self.git("rev-parse", "HEAD^1").strip(), self.git("rev-parse", "HEAD^2").strip()
+        previous = state.OPTS
+        state.OPTS = self.graph_opts(cluster_min_nodes=0)
+        graph_module._cache.clear()
+        try:
+            main_side = app.graph_focus({"hash": [c], "merges": ["1"]})
+            feature_side = app.graph_focus({"hash": [f], "merges": ["1"]})
+            plain = app.graph_focus({"hash": [f]})
+        finally:
+            state.OPTS = previous
+            graph_module._cache.clear()
+
+        self.assertEqual(main_side["edge"], f"m_{b}_{m}_{c}")  # マージの第 1 親の側の線
+        self.assertEqual(feature_side["edge"], f"m_{b}_{m}_{f}")  # マージされてきた側の線
+        self.assertEqual((feature_side["from"], feature_side["to"]), (b, m))
+        self.assertEqual(plain["edge"], f"{self.head}->{m}")  # マージ表示でなければ 1 本の線
+
     def test_merge_bases_returns_best_common_ancestor_only(self):
         parents = {"d": ["b", "c"], "b": ["a"], "c": ["a"], "a": ["r"], "r": []}
         pos = {h: i for i, h in enumerate(["d", "c", "b", "a", "r"])}

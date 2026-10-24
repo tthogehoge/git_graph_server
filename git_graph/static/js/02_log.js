@@ -1,46 +1,147 @@
 // ログの行の左に描くマージグラフ (git log --graph 相当)。行を上から順に渡すと、各行の <td> を返す。
 // レーン (縦の線) は「次に現れるはずのコミット」を持ち、コミットが来たらそのレーンへ合流させる。
 // 行の高さは件名の折り返しなどで変わるので、縦方向は % 指定の <line> だけで描く。
+// マージが多いと長い線で埋まるので、子から親まで LOG_GRAPH_SHORT 行を超える長い線は途中を描かない。
+// 子の行から下へ、親 (分岐元) の行へ上から、それぞれ短い線を描いて「どこかへ繋がっている」ことを示す。
+// 短い線の先には丸い印を付けて、線の端を下 / 上のコミットから離す (そこに繋がっているように見せない)。
+// 長いかどうかは親に着くまで分からないので、長いと分かった時点で、描き済みの行を描き直す (flush)。
+// アクション対象 (actionHash) のコミットにつながる線 (親への線と、子から着く線) は、長くても全部描く。
+// 線の先 (親) がまだ読み込まれていないときは、読み込んだ範囲の端まで描く。
 const LOG_GRAPH_COLORS = ["#1f77b4", "#d62728", "#2ca02c", "#9467bd", "#ff7f0e", "#17becf", "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22"];
 const LOG_GRAPH_W = 12, LOG_GRAPH_X0 = 8, LOG_GRAPH_NODE_Y = 13;
+const LOG_GRAPH_SHORT = 2;  // 子から親までこの行数以内の線は全部描く
+const LOG_GRAPH_STUB = 8;  // 長い線の両端に描く短い線の長さ (px)
+let logGraphCur = null;  // いま表示しているログのマージグラフ (アクション対象が変わったら sync() で描き直す)
 function logGraph() {
-  let lanes = [], nextColor = 0;
+  let lanes = [], nextColor = 0, n = 0, sel = "";
+  const recs = [];  // 行番号 -> その行の記録 (描き直せるように持つ)
+  const parkedBy = new Map();  // 長くなった線 (親のハッシュ -> 線たち)
+  const edgeLanes = {}, inLanes = {};  // コミット -> 親への線 / そのコミットに着く線
+  const selLanes = new Set();  // 長くても全部描く線
+  const dirty = new Set();  // 描き直す行
   const newColor = () => LOG_GRAPH_COLORS[nextColor++ % LOG_GRAPH_COLORS.length];
   const free = arr => { const i = arr.indexOf(null); return i < 0 ? arr.length : i; };
   const x = i => LOG_GRAPH_X0 + i * LOG_GRAPH_W;
-  const line = (x1, y1, x2, y2, color) =>
-    '<line x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 + '" stroke="' + color + '"/>';
-  return function row(c) {
-    const h = c[0], parents = Array.isArray(c[5]) ? c[5] : [];
+  const line = (x1, y1, x2, y2, color, cls) =>
+    '<line' + (cls ? ' class="' + cls + '"' : '') + ' x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 + '" stroke="' + color + '"/>';
+  const cap = (cx, cy, color) => '<circle cx="' + cx + '" cy="' + cy + '" r="1.6" fill="' + color + '"/>';
+  const want = () => (typeof actionHash === "string" && actionHash) || "";
+  const touch = l => {  // 長い線の描き方が変わるので、その線が通る行を描き直す
+    if (!l.long) return;
+    for (let k = l.start; k <= (l.endRow >= 0 ? l.endRow : n - 1); k++) dirty.add(k);
+  };
+
+  function selectLanes(hash) {
+    selLanes.clear();
+    (edgeLanes[hash] || []).concat(inLanes[hash] || []).forEach(l => selLanes.add(l));
+  }
+  function setSel(hash) {  // アクション対象が変わった
+    const old = [...selLanes];
+    sel = hash;
+    selectLanes(hash);
+    old.forEach(touch);
+    selLanes.forEach(touch);
+  }
+
+  function cell(r) {
+    const rec = recs[r], col = rec.col, cx = x(col), parts = [], under = [];
+    let maxIdx = col;
+    rec.through.forEach(l => {
+      if (l.long && !selLanes.has(l)) return;  // 長い線は途中を描かない
+      parts.push(line(x(l.idx), 0, x(l.idx), "100%", l.color));
+      maxIdx = Math.max(maxIdx, l.idx);
+    });
+    selLanes.forEach(l => {  // 選択中のコミットにつながる長い線: 描かずに通り過ぎる行にも描く
+      if (l.long && r > l.start + LOG_GRAPH_SHORT && (l.endRow < 0 || r < l.endRow)) {
+        under.push(line(x(l.idx), 0, x(l.idx), "100%", l.color, "sel-line"));
+        maxIdx = Math.max(maxIdx, l.idx);
+      }
+    });
+    rec.mine.forEach(l => { parts.push(line(x(l.idx), 0, cx, LOG_GRAPH_NODE_Y, l.color)); maxIdx = Math.max(maxIdx, l.idx); });
+    rec.arrived.forEach((l, k) => {  // 長い線の終わり (分岐元に着く線)
+      if (selLanes.has(l)) {
+        under.push(line(x(l.idx), 0, cx, LOG_GRAPH_NODE_Y, l.color, "sel-line"));
+        maxIdx = Math.max(maxIdx, l.idx);
+      } else {  // 上の行から離して、短い線を扇状に並べる (線が何本着くか分かる)
+        const sx = cx + (k - (rec.arrived.length - 1) / 2) * 5;
+        parts.push(line(sx, 4, cx, LOG_GRAPH_NODE_Y, l.color), cap(sx, 4, l.color));
+      }
+    });
+    rec.made.forEach(m => {  // 親への線
+      const l = m.lane;
+      if (l.long && !selLanes.has(l)) {  // 長い線は、短い線だけ描く
+        const ex = cx + Math.sign(x(m.to) - cx) * 4, ey = LOG_GRAPH_NODE_Y + LOG_GRAPH_STUB;
+        parts.push(line(cx, LOG_GRAPH_NODE_Y, ex, ey, l.color), cap(ex, ey, l.color));
+      } else {
+        parts.push(line(cx, LOG_GRAPH_NODE_Y, x(m.to), "100%", l.color));
+        maxIdx = Math.max(maxIdx, m.to);
+      }
+    });
+    parts.push('<circle cx="' + cx + '" cy="' + LOG_GRAPH_NODE_Y + '" r="' + (rec.merge ? 4 : 3.5) + '" fill="' +
+               (rec.merge ? "#fff" : rec.color) + '" stroke="' + rec.color + '"/>');
+    const width = x(maxIdx) + LOG_GRAPH_X0;
+    return '<td class="graph" style="width:' + width + 'px;min-width:' + width + 'px">' +
+      '<svg width="' + width + '" aria-hidden="true">' + under.join("") + parts.join("") + "</svg></td>";
+  }
+
+  function row(c) {
+    if (sel !== want()) setSel(want());
+    const h = c[0], parents = Array.isArray(c[5]) ? c[5] : [], r = n++;
+    // 長くなった線 (子から LOG_GRAPH_SHORT 行を超えても親に着かない線) は、列を空けて宙に浮かせる
+    lanes.forEach((l, i) => {
+      if (!l || r - l.start <= LOG_GRAPH_SHORT) return;
+      l.long = true;
+      lanes[i] = null;
+      if (!parkedBy.has(l.h)) parkedBy.set(l.h, []);
+      parkedBy.get(l.h).push(l);
+      for (let k = l.start; k < r; k++) dirty.add(k);  // 描き済みの行は、短い線だけに描き直す
+    });
+    while (lanes.length && !lanes[lanes.length - 1]) lanes.pop();
     const before = lanes;
-    const mine = [];
-    before.forEach((l, i) => { if (l && l.h === h) mine.push(i); });
-    const col = mine.length ? mine[0] : free(before);
-    const color = mine.length ? before[col].color : newColor();
+    const arrived = parkedBy.get(h) || [];  // 宙に浮いていた線のうち、このコミットに着くもの
+    parkedBy.delete(h);
+    const mineIdx = [];
+    before.forEach((l, i) => { if (l && l.h === h) mineIdx.push(i); });
+    const col = mineIdx.length ? mineIdx[0] : free(before);
+    const color = mineIdx.length ? before[col].color : (arrived.length ? arrived[0].color : newColor());
     const after = before.slice();
-    mine.forEach(i => { after[i] = null; });
+    mineIdx.forEach(i => { after[i] = null; });
     while (after.length <= col) after.push(null);
-    if (parents.length) after[col] = {h: parents[0], color: color};
-    const targets = [];
+    const newLane = (ph, c2, idx) => ({h: ph, color: c2, idx: idx, start: r, long: false, endRow: -1});
+    const made = [];
+    if (parents.length) { after[col] = newLane(parents[0], color, col); made.push({lane: after[col], to: col}); }
     parents.slice(1).forEach(p => {
       let j = after.findIndex(l => l && l.h === p);
-      if (j < 0) { j = free(after); after[j] = {h: p, color: newColor()}; }
-      targets.push(j);
+      if (j < 0) { j = free(after); after[j] = newLane(p, newColor(), j); }
+      made.push({lane: after[j], to: j});
     });
     while (after.length && !after[after.length - 1]) after.pop();
-    const parts = [];
-    before.forEach((l, i) => { if (l && l.h !== h) parts.push(line(x(i), 0, x(i), "100%", l.color)); });
-    mine.forEach(i => parts.push(line(x(i), 0, x(col), LOG_GRAPH_NODE_Y, before[i].color)));
-    if (parents.length) parts.push(line(x(col), LOG_GRAPH_NODE_Y, x(col), "100%", color));
-    targets.forEach(j => parts.push(line(x(col), LOG_GRAPH_NODE_Y, x(j), "100%", after[j].color)));
-    const merge = parents.length > 1;
-    parts.push('<circle cx="' + x(col) + '" cy="' + LOG_GRAPH_NODE_Y + '" r="' + (merge ? 4 : 3.5) + '" fill="' +
-               (merge ? "#fff" : color) + '" stroke="' + color + '"/>');
+    const mine = mineIdx.map(i => before[i]);
+    mine.forEach(l => { l.endRow = r; });
+    arrived.forEach(l => { l.endRow = r; });
+    recs.push({h: h, col: col, color: color, merge: parents.length > 1, mine: mine, arrived: arrived,
+               made: made, through: before.filter(l => l && l.h !== h)});
+    edgeLanes[h] = made.map(m => m.lane);
+    inLanes[h] = mine.concat(arrived);
     lanes = after;
-    const width = x(Math.max(before.length, after.length, col + 1) - 1) + LOG_GRAPH_X0;
-    return '<td class="graph" style="width:' + width + 'px;min-width:' + width + 'px">' +
-      '<svg width="' + width + '" aria-hidden="true">' + parts.join("") + "</svg></td>";
+    if (h === sel) { selectLanes(h); selLanes.forEach(touch); }  // 選択中のコミットが読み込まれた
+    return cell(r);
+  }
+
+  // 描き直す行を DOM に反映する (行を挿入したあとに呼ぶ)。まだ DOM に無い行は次の機会に回す
+  row.flush = () => {
+    if (!dirty.size) return;
+    const trs = new Map();
+    listView.querySelectorAll("tr[data-h]").forEach(tr => { if (tr.querySelector("td.graph")) trs.set(tr.dataset.h, tr); });
+    dirty.forEach(r => {
+      const tr = trs.get(recs[r].h);
+      if (!tr) return;
+      tr.querySelector("td.graph").outerHTML = cell(r);
+      dirty.delete(r);
+    });
   };
+  row.sync = () => { if (sel !== want()) setSel(want()); row.flush(); };
+  return row;
 }
 
 // git log を CHUNK 件ずつ取得して、末尾が見えたら続きを読み込む (全件読むまで続く)
@@ -62,6 +163,7 @@ function showLog(titleHtml, rev, topHtml, fromHistory, restoreScroll, src, targe
   let skip = 0, done = false, loading = false, total = null;
   // /api/log の一覧 (コミット履歴) だけマージグラフを付ける (stash / reflog / ブランチ一覧などは付けない)
   const graphRow = (!src || src.path === "/api/log") ? logGraph() : null;
+  logGraphCur = graphRow;
 
   async function more() {
     if (loading || done || my !== token) return;

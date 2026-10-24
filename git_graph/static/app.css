@@ -125,6 +125,7 @@ html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-s
   table.log td.graph { position: relative; padding: 0; }
   table.log td.graph svg { position: absolute; top: 0; left: 0; height: calc(100% + 1px); overflow: visible; }
   table.log td.graph line { stroke-width: 2; stroke-linecap: round; }
+  table.log td.graph line.sel-line { opacity: .8; }
   table.log td.graph circle { stroke-width: 2; }
   table.log td.h { width: 1%; font-family: monospace; white-space: nowrap; color: #b60; }
   table.log tr.actionTarget td { box-shadow: inset 0 2px #6f42c1, inset 0 -2px #6f42c1; }

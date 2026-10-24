@@ -108,6 +108,7 @@ function showCompare(a, b, fromHistory) {  // a, b はコミットのハッシ�
   });
 }
 function updateCmpClasses() {  // 選択中のコミットを、グラフのノードとログの行の両方でハイライトする
+  if (logGraphCur) logGraphCur.sync();  // アクション対象がマージコミットなら、ログのマージグラフでその線を全部描く
   document.querySelectorAll(".cmpA, .cmpB, .actionTarget").forEach(el => el.classList.remove("cmpA", "cmpB", "actionTarget"));
   const compareRowsA = listView.querySelector("#compareRowsA");
   const compareRowsB = listView.querySelector("#compareRowsB");
@@ -211,6 +212,7 @@ function setGraphData(r) {
   DATA = {nodes: r.nodes, edges: r.edges, writable: r.writable, merge: r.merge,
           clusters: r.clusters, clusterOf: r.clusterOf, open: r.open};
   openClusters = r.open || [];  // サーバーが数を絞った後の、開いているクラスター
+  locateCache.clear();
 }
 let clusterBusy = false;
 function expandCluster(id) {  // 開いたものを新しい扱いにして描き直す。多くなったら、サーバーが古い方から閉じる
@@ -229,20 +231,40 @@ function revealCluster(id) {
   });
   if (g) ensureGraphVisible(g, true);
 }
+const locateCache = new Map();  // コミット -> グラフのどこにあるか (グラフを作り直したら捨てる)
+function locateCommit(h) {
+  const key = h + (showMergesOn() ? "|m" : "");
+  if (!locateCache.has(key)) {
+    locateCache.set(key, fetch("/api/graph_focus?hash=" + encodeURIComponent(h) + (showMergesOn() ? "&merges=1" : ""))
+      .then(r => r.ok ? r.json() : null).catch(() => null));
+  }
+  return locateCache.get(key);
+}
+function graphElementFor(r) {  // 描いてあるものを、線 -> 両端のノード -> クラスターの順に探す
+  const gc = document.getElementById("graph");
+  const titleOf = g => { const tt = g.querySelector("title"); return tt ? tt.textContent : ""; };
+  if (r.edge) {
+    const e = [...gc.querySelectorAll("g.edge")].find(g => g.id === r.edge || titleOf(g) === r.edge);
+    if (e) return e;
+  }
+  for (const k of [r.from, r.to]) if (k && nodeEl[k]) return nodeEl[k];
+  if (r.cluster) {
+    return [...gc.querySelectorAll("g.node, g.cluster")].find(g => titleOf(g) === r.cluster || titleOf(g) === "cluster_" + r.cluster) || null;
+  }
+  return null;
+}
+let revealTarget = "";
 function revealHash(h) {
-  // 選んだコミットをグラフ上で見えるようにする: 描いてあればそこまでスクロールし、
-  // 含むクラスターが閉じていたら開く (ノードに無いコミットは、日時でサーバーに尋ねる)
+  // 選んだコミットをグラフの真ん中に表示する: ノードならそのノード、ノードでないコミットはそれが省略されている線
+  // (描いていなければ両端のノード / 含むクラスター)。含むクラスターが閉じていたら先に開く
   if (!h) return;
-  if (nodeEl[h]) { ensureGraphVisible(nodeEl[h]); return; }
-  if (!DATA.clusters) return;
-  const known = DATA.clusterOf && DATA.clusterOf[h];
-  const ask = known ? Promise.resolve({cluster: known})
-    : fetch("/api/graph_focus?hash=" + encodeURIComponent(h) + (showMergesOn() ? "&merges=1" : ""))
-        .then(r => r.ok ? r.json() : {}).catch(() => ({}));
-  ask.then(r => {
-    if (!r.cluster) return;
-    if (!(DATA.open || []).includes(r.cluster)) expandCluster(r.cluster).then(() => { if (nodeEl[h]) ensureGraphVisible(nodeEl[h], true); });
-    else if (nodeEl[h]) ensureGraphVisible(nodeEl[h]);
+  revealTarget = h;
+  if (nodeEl[h]) { ensureGraphVisible(nodeEl[h], true); return; }
+  locateCommit(h).then(r => {
+    if (!r || revealTarget !== h) return;
+    const show = () => { const el = graphElementFor(r); if (el && revealTarget === h) ensureGraphVisible(el, true); };
+    if (r.cluster && DATA.clusters && !(DATA.open || []).includes(r.cluster)) expandCluster(r.cluster).then(show);
+    else show();
   });
 }
 

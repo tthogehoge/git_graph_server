@@ -48,13 +48,15 @@ listView.addEventListener("click", ev => {
   const tr = ev.target.closest("tr.clickable");
   if (!tr) return;
   if (ev.target.closest(".copy")) return;
+  // 1 回目のクリックは選択だけ。選択済みのコミットをもう一度クリックしたらログ詳細を開く
+  const already = tr.dataset.h === actionHash;
   selectActionTarget(tr.dataset.h);
   if (curRow) curRow.classList.remove("cur");
   curRow = tr; tr.classList.add("cur");
   restoreMenuPosition(document.getElementById("cmpActions"));
   cmpActOpen = true; abActOpen = false; setOtherMenu(false);
   updateCmpClasses();
-  showDetail(tr.dataset.h);
+  if (already) showDetail(tr.dataset.h);
 });
 listView.addEventListener("contextmenu", ev => {  // ログ一覧の右クリック (比較ログの行も対象): 右ペインは動かさず、その行を操作対象にしてメニューを開く
   const tr = ev.target.closest("tr.clickable");
@@ -260,7 +262,7 @@ function onNodeClick(g, n, ev) {
     clearCmp(); select(g); showWip();
     return;
   }
-  selectActionTarget(n.hash);
+  selectActionTarget(n.hash, false);  // グラフ上のクリックなので、グラフは動かさない
   select(g);
   if (openMenu) positionMenuNearPointer(document.getElementById("cmpActions"), ev);
   showLog("git log --oneline " + esc(n.hash.slice(0, 7)), n.hash,
