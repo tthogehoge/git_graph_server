@@ -86,6 +86,25 @@ def list_stashes(shown):
             res.append((h, ps[0], name, subject))
     return res
 
+def is_ancestor(parents, pos, a, d):
+    """a は d の祖先 (a == d も含む) か。祖先は子より後ろに並ぶので、a より後ろに並ぶコミットへは進まない。"""
+    if a == d:
+        return True
+    limit = pos[a]
+    if limit < pos[d]:
+        return False
+    stack, seen = [d], {d}
+    while stack:
+        for q in parents[stack.pop()]:
+            if q == a:
+                return True
+            if q in seen or q not in pos or pos[q] > limit:
+                continue
+            seen.add(q)
+            stack.append(q)
+    return False
+
+
 def merge_bases(parents, pos, a, b):
     """a と b の最良共通祖先 (git merge-base --all 相当) をメモリ上で求める。
     --topo-order の位置 (pos) が小さい (= 新しい) 方から親へ辿り、a 側と b 側の両方から届いた最初のコミットを返す。
@@ -146,12 +165,11 @@ def build_model(opts):
 
     parents, subjects, order, dates = {}, {}, [], {}  # order: 子が親より先 (--topo-order)
     children = defaultdict(list)
-    log = git("log", *revs, "--topo-order", "--format=%H%x09%P%x09%ct%x09%s") if revs else ""
+    # 件名はグラフに出す少数のコミット分だけ後で取る (全コミットぶん整形・解析すると遅い)
+    log = git("rev-list", *revs, "--topo-order", "--parents", "--timestamp") if revs else ""
     for line in log.splitlines():
-        h, p, ct, s = (line.split("\t", 3) + ["", "", ""])[:4]
-        ps = p.split()
+        ct, h, *ps = line.split()
         parents[h] = ps
-        subjects[h] = s
         dates[h] = int(ct) if ct.isdigit() else 0
         order.append(h)
         for x in ps:
@@ -160,7 +178,7 @@ def build_model(opts):
     stashes = list_stashes(parents) if not getattr(opts, "no_stash", False) else []
     for h, base_commit, name, subject in stashes:  # 子は親より先の順なので、先頭に足す (stash は誰の親にもならない)
         parents[h] = [base_commit]
-        subjects[h] = subject
+        subjects[h] = subject  # stash の件名は stash list から
         dates[h] = dates.get(base_commit, 0)
         order.insert(0, h)
         children[base_commit].append(h)
@@ -266,6 +284,11 @@ def build_model(opts):
         extra -= keep
         keep |= extra
 
+    need = [h for h in keep if h not in subjects]  # 残したコミットの件名だけ取る
+    if need:
+        for line in git("log", "--no-walk=unsorted", "--stdin", "--format=%H%x09%s", input="\n".join(need) + "\n").splitlines():
+            h, _, s = line.partition("\t")
+            subjects[h] = s
     keep_order = [h for h in reversed(order) if h in keep]  # 親が先
     edges = []  # (祖先, 子, 経由した親)。経由した親はマージコミットの親ごとの線だけ入り、それ以外は None
     counts = {}  # 線ごとの、間で省略されるコミット数
@@ -290,44 +313,50 @@ def build_model(opts):
                     counts[(d, c, via)] = dist[p]
         del nxt, dist
     else:
-        # 間に残したコミットを挟まない直接の祖先 (親 -> 子の順に 1 回なめるだけ)
+        # 残したコミットは番号 (keep_order の位置) を持ち、コミットの集合はビットマスクで持つ (集合の和が速い)。
+        # up[h]: h 以前で最も近い残したコミットの集合, direct[c]: c から間に残したコミットを挟まない直接の祖先の集合
+        kbit = {h: 1 << i for i, h in enumerate(keep_order)}
         up, direct = {}, {}
-        for h in reversed(order):
-            ups = [up[p] for p in parents[h] if p in up]
+        for h in reversed(order):  # 親 -> 子 の順に 1 回なめるだけ
+            m = 0
+            for p in parents[h]:
+                m |= up.get(p, 0)
             if h in keep:
-                direct[h] = frozenset().union(*ups) if ups else frozenset()
-                up[h] = frozenset((h,))
-            elif len(ups) == 1:
-                up[h] = ups[0]
+                direct[h] = m
+                up[h] = kbit[h]
             else:
-                up[h] = frozenset().union(*ups) if ups else frozenset()
+                up[h] = m
         del up
 
         # 推移簡約 (到達可能性もビットマスクで持つ)
-        kbit = {h: 1 << i for i, h in enumerate(keep_order)}
         reach = {}
         for c in keep_order:
-            deep = 0  # 直接の祖先たちのさらに先の祖先
-            for e in direct[c]:
+            dm = direct[c]
+            deep, nodes = 0, []  # deep: 直接の祖先たちのさらに先の祖先
+            m = dm
+            while m:
+                low = m & -m
+                e = keep_order[low.bit_length() - 1]
+                nodes.append(e)
                 deep |= reach[e]
-            reach[c] = deep | sum(kbit[e] for e in direct[c])
-            for d in sorted(direct[c]):
+                m ^= low
+            reach[c] = deep | dm
+            for d in sorted(nodes):
                 if not deep & kbit[d]:  # d が他の直接祖先の祖先でなければ残す
                     edges.append((d, c, None))
         if not opts.no_count:
-            # 各エッジ d->c の省略数 = git rev-list --count d..c - 1 を、メモリ上で git を呼ばずに求める。
-            # コミット x を「x の子孫である keep ノードの集合」(マスク) で分類して数え、
-            # x が c の祖先かつ d の祖先でないもの (c を含み d を含まないマスク) を足し合わせる。
-            groups, dk = Counter(), defaultdict(int)
-            for h in order:  # 子 -> 親
-                m = dk.pop(h, 0) | kbit.get(h, 0)
-                groups[m] += 1
-                for p in parents[h]:
-                    if p in parents:
-                        dk[p] |= m
+            # 線の間に省略されるコミットがあるか (破線 / 実線の判定に使うだけで、個数は表示しない)。
+            # 間に省略するコミットが無いのは、子 c の親が d だけのとき、または d 以外の親が全て d の祖先のとき
+            # (他に d の祖先でない親があれば、その先が省略される)。後者は、親が複数あるときだけ調べる。
+            pos = None
             for d, c, via in edges:
-                bc, bd = kbit[c], kbit[d]
-                counts[(d, c, via)] = sum(n for m, n in groups.items() if m & bc and not m & bd) - 1
+                vis = [p for p in parents[c] if p in parents]
+                none_omitted = vis == [d]
+                if not none_omitted and d in vis:
+                    if pos is None:
+                        pos = {h: i for i, h in enumerate(order)}
+                    none_omitted = all(is_ancestor(parents, pos, p, d) for p in vis if p != d)
+                counts[(d, c, via)] = 0 if none_omitted else 1
     keep_order.reverse()  # 出力の順序を毎回同じにする (レイアウトが安定する)
 
     return {"keep": keep, "keep_order": keep_order, "extra": extra, "edges": edges, "counts": counts,
@@ -732,6 +761,6 @@ def graph_focus(q=None):
 
 
 __all__ = [
-    "COLORS", "CLUSTER_MIN_NODES", "assign_clusters", "build_model", "render_clustered", "render_plain", "resolve_open", "DEFAULT_MERGE_MAX_NODES", "FAST_LAYOUT_NODES", "MERGE_EDGE_COLOR", "SUBJECT_WIDTH", "add_wip", "build_graph",
+    "COLORS", "CLUSTER_MIN_NODES", "assign_clusters", "build_model", "is_ancestor", "render_clustered", "render_plain", "resolve_open", "DEFAULT_MERGE_MAX_NODES", "FAST_LAYOUT_NODES", "MERGE_EDGE_COLOR", "SUBJECT_WIDTH", "add_wip", "build_graph",
     "center_node_text", "graph_focus", "graph_payload", "locate_edge", "render_dot", "list_stashes", "merge_bases", "stash_key", "truncate_width",
 ]

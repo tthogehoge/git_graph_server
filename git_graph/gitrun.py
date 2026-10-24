@@ -7,9 +7,9 @@ from . import app_state as state
 from .i18n import tr, UserError
 
 
-def git(*args, literal=False):
+def git(*args, literal=False, input=None):
     env = dict(os.environ, GIT_LITERAL_PATHSPECS="1") if literal else None  # パスをglobとして解釈しない
-    return subprocess.check_output(["git", "-C", state.REPO, *args], text=True,
+    return subprocess.check_output(["git", "-C", state.REPO, *args], text=True, input=input,
                                    encoding="utf-8", errors="replace", env=env)
 
 def git_bytes(*args, literal=False):

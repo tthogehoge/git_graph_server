@@ -2,7 +2,7 @@
 // レーン (縦の線) は「次に現れるはずのコミット」を持ち、コミットが来たらそのレーンへ合流させる。
 // 行の高さは件名の折り返しなどで変わるので、縦方向は % 指定の <line> だけで描く。
 // マージが多いと長い線で埋まるので、子から親まで LOG_GRAPH_SHORT 行を超える長い線は途中を描かない。
-// 子の行から下へ、親 (分岐元) の行へ上から、それぞれ短い線を描いて「どこかへ繋がっている」ことを示す。
+// 子の行から下へ短い線を描き、親 (分岐元) の行ではノードの右横に短い線を並べて、「どこかへ繋がっている」ことを示す。
 // 短い線の先には丸い印を付けて、線の端を下 / 上のコミットから離す (そこに繋がっているように見せない)。
 // 長いかどうかは親に着くまで分からないので、長いと分かった時点で、描き済みの行を描き直す (flush)。
 // アクション対象 (actionHash) のコミットにつながる線 (親への線と、子から着く線) は、長くても全部描く。
@@ -11,6 +11,7 @@ const LOG_GRAPH_COLORS = ["#1f77b4", "#d62728", "#2ca02c", "#9467bd", "#ff7f0e",
 const LOG_GRAPH_W = 12, LOG_GRAPH_X0 = 8, LOG_GRAPH_NODE_Y = 13;
 const LOG_GRAPH_SHORT = 2;  // 子から親までこの行数以内の線は全部描く
 const LOG_GRAPH_STUB = 8;  // 長い線の両端に描く短い線の長さ (px)
+const LOG_GRAPH_SIDE = 5;  // 分岐元に着く短い線の、ノードの右横への長さ (px。隣の列の線 (+12px) に届かない長さ)
 let logGraphCur = null;  // いま表示しているログのマージグラフ (アクション対象が変わったら sync() で描き直す)
 function logGraph() {
   let lanes = [], nextColor = 0, n = 0, sel = "";
@@ -24,7 +25,7 @@ function logGraph() {
   const x = i => LOG_GRAPH_X0 + i * LOG_GRAPH_W;
   const line = (x1, y1, x2, y2, color, cls) =>
     '<line' + (cls ? ' class="' + cls + '"' : '') + ' x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 + '" stroke="' + color + '"/>';
-  const cap = (cx, cy, color) => '<circle cx="' + cx + '" cy="' + cy + '" r="1.6" fill="' + color + '"/>';
+  const cap = (cx, cy, color) => '<circle cx="' + cx + '" cy="' + cy + '" r="1.8" fill="' + color + '"/>';
   const want = () => (typeof actionHash === "string" && actionHash) || "";
   const touch = l => {  // 長い線の描き方が変わるので、その線が通る行を描き直す
     if (!l.long) return;
@@ -45,7 +46,7 @@ function logGraph() {
 
   function cell(r) {
     const rec = recs[r], col = rec.col, cx = x(col), parts = [], under = [];
-    let maxIdx = col;
+    let maxIdx = col, minRight = 0;
     rec.through.forEach(l => {
       if (l.long && !selLanes.has(l)) return;  // 長い線は途中を描かない
       parts.push(line(x(l.idx), 0, x(l.idx), "100%", l.color));
@@ -62,9 +63,11 @@ function logGraph() {
       if (selLanes.has(l)) {
         under.push(line(x(l.idx), 0, cx, LOG_GRAPH_NODE_Y, l.color, "sel-line"));
         maxIdx = Math.max(maxIdx, l.idx);
-      } else {  // 上の行から離して、短い線を扇状に並べる (線が何本着くか分かる)
-        const sx = cx + (k - (rec.arrived.length - 1) / 2) * 5;
-        parts.push(line(sx, 4, cx, LOG_GRAPH_NODE_Y, l.color), cap(sx, 4, l.color));
+      } else {  // 縦の線と重ならないよう、ノードの右横へ短い線を櫛の歯のように並べる (何本着くか、色で分かる)
+        const m = rec.arrived.length, step = Math.min(4, 14 / Math.max(1, m - 1));
+        const y = LOG_GRAPH_NODE_Y + (k - (m - 1) / 2) * step, ex = cx + 4 + LOG_GRAPH_SIDE;
+        parts.push(line(cx + 4, y, ex, y, l.color), cap(ex, y, l.color));
+        minRight = Math.max(minRight, ex + 2);
       }
     });
     rec.made.forEach(m => {  // 親への線
@@ -79,7 +82,7 @@ function logGraph() {
     });
     parts.push('<circle cx="' + cx + '" cy="' + LOG_GRAPH_NODE_Y + '" r="' + (rec.merge ? 4 : 3.5) + '" fill="' +
                (rec.merge ? "#fff" : rec.color) + '" stroke="' + rec.color + '"/>');
-    const width = x(maxIdx) + LOG_GRAPH_X0;
+    const width = Math.max(x(maxIdx) + LOG_GRAPH_X0, minRight);
     return '<td class="graph" style="width:' + width + 'px;min-width:' + width + 'px">' +
       '<svg width="' + width + '" aria-hidden="true">' + under.join("") + parts.join("") + "</svg></td>";
   }
