@@ -10,7 +10,7 @@
 // 線の先 (親) がまだ読み込まれていないときは、読み込んだ範囲の端まで描く。
 const LOG_GRAPH_COLORS = ["#1f77b4", "#d62728", "#2ca02c", "#9467bd", "#ff7f0e", "#17becf", "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22"];
 const LOG_GRAPH_W = 12, LOG_GRAPH_X0 = 8, LOG_GRAPH_NODE_Y = 13;
-const LOG_GRAPH_SHORT = 2;  // 子から親までこの行数以内の線は全部描く
+const LOG_GRAPH_SHORT = 50;  // 子から親までこの行数以内の線は全部描く
 const LOG_GRAPH_STUB = 8;  // 長い線の両端に描く短い線の長さ (px)
 const LOG_GRAPH_SIDE = 5;  // 分岐元に着く短い線の、ノードの右横への長さ (px。隣の列の線 (+12px) に届かない長さ)
 let logGraphCur = null;  // いま表示しているログのマージグラフ (アクション対象が変わったら sync() で描き直す)
