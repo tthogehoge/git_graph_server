@@ -752,11 +752,21 @@ def graph_focus(q=None):
             if h in cluster_of:
                 result["cluster"] = cluster_of[h]
             else:
+                endpoints = [x for x in (result["to"], result["from"]) if x and x in cluster_of]
                 try:
                     ts = int(git("log", "-1", "--format=%ct", h).strip())
-                    result["cluster"] = cluster_for_time(clusters, ts)
+                    if endpoints:
+                        # 線の両端ノードのクラスターの中から、コミット日時に最も近い方を選ぶ
+                        result["cluster"] = min(
+                            (cluster_of[x] for x in endpoints),
+                            key=lambda cid: 0 if clusters[cid]["start"] <= ts <= clusters[cid]["end"]
+                            else min(abs(ts - clusters[cid]["start"]), abs(ts - clusters[cid]["end"]))
+                        )
+                    else:
+                        result["cluster"] = cluster_for_time(clusters, ts)
                 except (subprocess.CalledProcessError, ValueError):
-                    pass
+                    if endpoints:
+                        result["cluster"] = cluster_of[endpoints[0]]
         return result
 
 

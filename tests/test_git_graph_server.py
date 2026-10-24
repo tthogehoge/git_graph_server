@@ -1710,11 +1710,41 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         graph_module._cache.clear()
         try:
             self.assertEqual(app.graph_focus({"hash": [c1]})["cluster"], "c:2020")  # ノードのコミット
-            self.assertEqual(app.graph_focus({"hash": [x]})["cluster"], "c:2021")  # ノードでないコミットは日時から
+            self.assertEqual(app.graph_focus({"hash": [x]})["cluster"], "c:2021")  # ノードでないコミットは両端のクラスターから
             self.assertIsNone(app.graph_focus({"hash": ["zzz"]})["cluster"])
             state.OPTS = self.graph_opts(cluster_min_nodes=0)  # クラスター表示でないとき
             graph_module._cache.clear()
             self.assertIsNone(app.graph_focus({"hash": [c1]})["cluster"])
+        finally:
+            state.OPTS = previous
+            graph_module._cache.clear()
+
+    def test_graph_focus_prefers_endpoint_clusters_over_unrelated_clusters(self):
+        # main 側: initial(2026) -> c1(v1, 2020) -> x(2021) -> c2(v2, 2022)
+        # unrelated 側: c_unrelated(2021)
+        # x の日時は 2021年だが、x は c1(2020) と c2(2022) の間にあるため、
+        # 無関係な別ブランチの c:2021 ではなく、両端の c:2020 または c:2022 が選ばれる。
+        c1, x, c2 = self.make_dated_chain()
+        # c2 の日付を 2022年にする
+        self.git("tag", "-d", "v2")
+        self.git("commit", "--amend", "-q", "--date=2022-01-01T00:00:00Z", "--no-edit")
+        c2 = self.git("rev-parse", "HEAD").strip()
+        self.git("tag", "v2", c2)
+        # 別ブランチで 2021年のノードを作成
+        self.git("checkout", "-q", "-b", "other", self.head)
+        self.write_file("other.txt", "other\n")
+        self.git("add", "other.txt")
+        self.git("commit", "-q", "-m", "other", "--date=2021-06-01T00:00:00Z")
+        self.git("tag", "v_other")
+        self.git("checkout", "-q", "main")
+
+        previous = state.OPTS
+        state.OPTS = self.graph_opts(cluster_min_nodes=1)
+        graph_module._cache.clear()
+        try:
+            focus = app.graph_focus({"hash": [x]})
+            self.assertIn(focus["cluster"], ["c:2020", "c:2022"])
+            self.assertNotEqual(focus["cluster"], "c:2021")
         finally:
             state.OPTS = previous
             graph_module._cache.clear()
