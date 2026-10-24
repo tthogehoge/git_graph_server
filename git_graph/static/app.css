@@ -58,6 +58,8 @@ html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-s
   #panel { flex: 0 0 var(--panel-width, 480px); min-width: 240px; display: flex; flex-direction: column; border-left: 1px solid #ccc; background: #fafafa; box-sizing: border-box; }
   body.compare-logs-mode #panel { flex-basis: min(var(--compare-panel-width, 760px), 68vw); }
   #listView, #detailView { flex: 1; min-height: 0; overflow: auto; padding: 14px; box-sizing: border-box; }
+  #listView { position: relative; }
+  svg.log-sel-overlay { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; z-index: 3; }
   #detailView { display: none; background: #fff; }
   h2 { font-size: 14px; margin: 0 0 8px; }
   pre { white-space: pre-wrap; word-break: break-word; background: #fff; border: 1px solid #ddd; padding: 8px; margin: 6px 0; font-size: 12px; }

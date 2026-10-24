@@ -3,7 +3,14 @@ function restoreScreen(state) {
   if (Object.prototype.hasOwnProperty.call(state, "compareB")) compareBHash = state.compareB;
   if (Object.prototype.hasOwnProperty.call(state, "actionHash")) actionHash = state.actionHash;
   cmpActOpen = false;  // メニューは画面の復元では開かない (グラフを隠さない)
-  if (state.screen === "log") showLog(state.titleHtml, state.rev, state.topHtml, true, state.scroll || 0, state.src, state.targetHash);
+  if (state.screen === "log") {
+    const kept = listView.querySelector("#rows");  // 詳細などから戻ったとき、同じログがそのまま残っていれば読み直さない
+    if (kept && kept.dataset.key === logKey(state.titleHtml, state.rev, state.topHtml, state.src, state.targetHash)) {
+      document.body.classList.remove("compare-logs-mode");
+      setDocumentTitleFromHtml(state.titleHtml);
+      showView("list", true);
+    } else showLog(state.titleHtml, state.rev, state.topHtml, true, state.scroll || 0, state.src, state.targetHash);
+  }
   else if (state.screen === "detail") showDetail(state.hash, true);
   else if (state.screen === "compare") {
     compareAHash = state.a; compareBHash = state.b;
