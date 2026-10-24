@@ -259,13 +259,42 @@ function revealHash(h) {
   // (描いていなければ両端のノード / 含むクラスター)。含むクラスターが閉じていたら先に開く
   if (!h) return;
   revealTarget = h;
+  clearLocate();
   if (nodeEl[h]) { ensureGraphVisible(nodeEl[h], true); return; }
   locateCommit(h).then(r => {
     if (!r || revealTarget !== h) return;
-    const show = () => { const el = graphElementFor(r); if (el && revealTarget === h) ensureGraphVisible(el, true); };
+    const show = () => {
+      const el = graphElementFor(r);
+      if (!el || revealTarget !== h) return;
+      ensureGraphVisible(el, true);
+      markLocated(el, h);
+    };
     if (r.cluster && DATA.clusters && !(DATA.open || []).includes(r.cluster)) expandCluster(r.cluster).then(show);
     else show();
   });
+}
+
+// ---- ノードでないコミットを選んだとき、グラフ上のどの線かを示す ----
+function clearLocate() {
+  document.querySelectorAll("#graph .locate, #graph g.locate-mark").forEach(e => {
+    if (e.classList.contains("locate-mark")) e.remove(); else e.classList.remove("locate");
+  });
+}
+function markLocated(el, h) {  // 線を目立たせ、そのコミットがある位置 (線の真ん中) に印とハッシュを出す
+  clearLocate();
+  el.classList.add("locate");
+  const path = el.classList.contains("edge") ? el.querySelector("path") : null;
+  if (!path || !path.getTotalLength) return;
+  const pt = path.getPointAtLength(path.getTotalLength() / 2), NS = "http://www.w3.org/2000/svg";
+  const mark = document.createElementNS(NS, "g");
+  mark.setAttribute("class", "locate-mark");
+  const dot = document.createElementNS(NS, "circle");
+  dot.setAttribute("cx", pt.x); dot.setAttribute("cy", pt.y); dot.setAttribute("r", 5);
+  const label = document.createElementNS(NS, "text");
+  label.setAttribute("x", pt.x + 9); label.setAttribute("y", pt.y + 4);
+  label.textContent = h.slice(0, 7);
+  mark.append(dot, label);
+  el.parentNode.appendChild(mark);  // 線と同じ座標系 (グラフの <g>) に置く
 }
 
 // ---- グラフのスクロール ----

@@ -16,11 +16,12 @@ const LOG_GRAPH_SIDE = 5;  // 分岐元に着く短い線の、ノードの右�
 let logGraphCur = null;  // いま表示しているログのマージグラフ (アクション対象が変わったら sync() で描き直す)
 window.addEventListener("resize", () => { if (logGraphCur) logGraphCur.sync(); });  // 行の高さが変わるので、選択中の線を描き直す
 function logGraph() {
-  let lanes = [], nextColor = 0, n = 0, sel = "";
+  let lanes = [], nextColor = 0, n = 0, sel = "", selRowsPrev = new Set(), pendingSel = false;
   const recs = [];  // 行番号 -> その行の記録 (描き直せるように持つ)
   const parkedBy = new Map();  // 長くなった線 (親のハッシュ -> 線たち)
   const edgeLanes = {}, inLanes = {}, rowOf = {};  // コミット -> 親への線 / そのコミットに着く線 / 行番号
-  const dirty = new Set();  // 描き直す行 (長い線と分かって、短い線だけに描き直す行)
+  const dirty = new Set();  // 描き直す行 (長い線と分かって、短い線だけに描き直す行 / 選択中の線の目印を消す行)
+  const selLanes = new Set();  // 選択中のコミットにつながる線 (全部描くので、行の短い目印は描かない)
   const newColor = () => LOG_GRAPH_COLORS[nextColor++ % LOG_GRAPH_COLORS.length];
   const free = arr => { const i = arr.indexOf(null); return i < 0 ? arr.length : i; };
   const x = i => LOG_GRAPH_X0 + i * LOG_GRAPH_W;
@@ -37,14 +38,16 @@ function logGraph() {
       maxIdx = Math.max(maxIdx, l.idx);
     });
     rec.mine.forEach(l => { parts.push(line(x(l.idx), 0, cx, LOG_GRAPH_NODE_Y, l.color)); maxIdx = Math.max(maxIdx, l.idx); });
-    rec.arrived.forEach((l, k) => {  // 長い線の終わり (分岐元に着く線): 縦の線と重ならないよう、ノードの右横へ短い線を櫛の歯のように並べる
-      const m = rec.arrived.length, step = Math.min(4, 14 / Math.max(1, m - 1));
+    const ticks = rec.arrived.filter(l => !selLanes.has(l));  // 選択中の線は全部描くので、目印は要らない
+    ticks.forEach((l, k) => {  // 長い線の終わり (分岐元に着く線): 縦の線と重ならないよう、ノードの右横へ短い線を櫛の歯のように並べる
+      const m = ticks.length, step = Math.min(4, 14 / Math.max(1, m - 1));
       const y = LOG_GRAPH_NODE_Y + (k - (m - 1) / 2) * step, ex = cx + 4 + LOG_GRAPH_SIDE;
       parts.push(line(cx + 4, y, ex, y, l.color), cap(ex, y, l.color));
       minRight = Math.max(minRight, ex + 2);
     });
     rec.made.forEach(m => {  // 親への線
       const l = m.lane;
+      if (l.long && selLanes.has(l)) return;  // 選択中: 全部描く線なので、目印は描かない
       if (l.long) {  // 長い線は、短い線だけ描く
         const ex = cx + Math.sign(x(m.to) - cx) * 4, ey = LOG_GRAPH_NODE_Y + LOG_GRAPH_STUB;
         parts.push(line(cx, LOG_GRAPH_NODE_Y, ex, ey, l.color), cap(ex, ey, l.color));
@@ -96,6 +99,7 @@ function logGraph() {
     mine.forEach(l => { l.endRow = r; });
     arrived.forEach(l => { l.endRow = r; });
     rowOf[h] = r;
+    if (h === sel) pendingSel = true;  // 選択中のコミットの行ができた: 線が決まるので、次の sync で目印を消す
     recs.push({h: h, col: col, color: color, merge: parents.length > 1, mine: mine, arrived: arrived,
                made: made, through: before.filter(l => l && l.h !== h)});
     edgeLanes[h] = made.map(m => m.lane);
@@ -130,6 +134,18 @@ function logGraph() {
     return res;
   }
   // ログ全体にかぶせる 1 つの <svg> に、選択中の線を全部描く (他の線の上に、白い縁取り付きで)
+  function applySel() {  // 選択中の線が変わったら、その線の両端の行の短い目印を消す / 戻す (行の描き直し)
+    const edges = selEdges(), now = new Set(edges.map(e => e.lane));
+    const rows = new Set();
+    edges.forEach(e => { if (e.lane.long) { rows.add(e.from); if (e.lane.endRow >= 0) rows.add(e.lane.endRow); } });
+    selLanes.forEach(l => { if (l.long) { rows.add(l.start); if (l.endRow >= 0) rows.add(l.endRow); } });
+    selRowsPrev.forEach(r => rows.add(r));
+    selRowsPrev = new Set();
+    edges.forEach(e => { if (e.lane.long) { selRowsPrev.add(e.from); if (e.lane.endRow >= 0) selRowsPrev.add(e.lane.endRow); } });
+    selLanes.clear();
+    now.forEach(l => selLanes.add(l));
+    rows.forEach(r => dirty.add(r));
+  }
   function drawOverlay() {
     let svg = listView.querySelector(":scope > svg.log-sel-overlay");
     const tbody = listView.querySelector("#rows"), edges = tbody && listView.offsetParent !== null ? selEdges() : [];
@@ -163,7 +179,11 @@ function logGraph() {
     svg.setAttribute("height", listView.scrollHeight);
     svg.innerHTML = paths.join("");
   }
-  row.sync = () => { if (sel !== want()) sel = want(); row.flush(); drawOverlay(); };  // アクション対象が変わった / 行が増えた / 画面が戻った
+  row.sync = () => {
+    if (sel !== want()) { sel = want(); pendingSel = true; }
+    if (pendingSel || selLanes.size) { pendingSel = false; applySel(); }  // 行が増えて、選択中の線の先 (親) が決まったときも
+    row.flush(); drawOverlay();
+  };  // アクション対象が変わった / 行が増えた / 画面が戻った
   return row;
 }
 
