@@ -215,13 +215,17 @@ function setGraphData(r) {
   locateCache.clear();
 }
 let clusterBusy = false;
-function expandCluster(id) {  // 開いたものを新しい扱いにして描き直す。多くなったら、サーバーが古い方から閉じる
-  if (clusterBusy) return Promise.resolve();
+function expandCluster(ids) {  // 開いたものを新しい扱いにして描き直す。多くなったら、サーバーが古い方から閉じる
+  const list = (Array.isArray(ids) ? ids : [ids]).filter(Boolean);
+  if (!list.length || clusterBusy) return Promise.resolve();
   clusterBusy = true;
   const before = openClusters;
-  openClusters = openClusters.filter(x => x !== id).concat([id]);
+  let next = openClusters;
+  for (const id of list) next = next.filter(x => x !== id).concat([id]);
+  openClusters = next;
+  const lastId = list[list.length - 1];
   return refreshGraph()
-    .then(() => revealCluster(id))
+    .then(() => revealCluster(lastId))
     .catch(() => { openClusters = before; })
     .finally(() => { clusterBusy = false; });
 }
@@ -246,6 +250,15 @@ function graphElementFor(r) {  // 描いてあるものを、線 -> 両端のノ
   if (r.edge) {
     const e = [...gc.querySelectorAll("g.edge")].find(g => g.id === r.edge || titleOf(g) === r.edge);
     if (e) return e;
+    // 閉じたクラスターに繋がるまとめ線 (クラスター同士 / ノードとクラスター) を探す
+    if (r.from && r.to) {
+      const rep = k => nodeEl[k] ? k : ((DATA.clusterOf && DATA.clusterOf[k]) || k);
+      const rd = rep(r.from), rc = rep(r.to);
+      if (rd !== r.from || rc !== r.to) {
+        const ce = [...gc.querySelectorAll("g.edge")].find(g => titleOf(g) === rd + "->" + rc);
+        if (ce) return ce;
+      }
+    }
   }
   for (const k of [r.from, r.to]) if (k && nodeEl[k]) return nodeEl[k];
   if (r.cluster) {
@@ -269,8 +282,21 @@ function revealHash(h) {
       ensureGraphVisible(el, true);
       markLocated(el, h);
     };
-    if (r.cluster && DATA.clusters && !(DATA.open || []).includes(r.cluster)) expandCluster(r.cluster).then(show);
-    else show();
+    if (DATA.clusters) {
+      const want = [];
+      const cFrom = DATA.clusterOf && DATA.clusterOf[r.from];
+      const cTo = DATA.clusterOf && DATA.clusterOf[r.to];
+      for (const c of [cFrom, cTo]) {
+        if (c && c !== r.cluster && !want.includes(c)) want.push(c);
+      }
+      if (r.cluster && !want.includes(r.cluster)) want.push(r.cluster);
+      const need = want.filter(c => !(DATA.open || []).includes(c));
+      if (need.length) {
+        expandCluster(need).then(show);
+        return;
+      }
+    }
+    show();
   });
 }
 
