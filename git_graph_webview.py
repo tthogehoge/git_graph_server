@@ -5,7 +5,6 @@ import os
 import platform
 import queue
 import re
-import runpy
 import threading
 import sys
 import urllib.error
@@ -104,12 +103,15 @@ class ServerThread(threading.Thread):
     def run(self):
         try:
             while True:
+                # runpy で git_graph.__main__ を実行すると、PyInstaller は __main__ を同梱しないため exe で動かない。
+                # 直接 import して main() を呼ぶ (関数内の import でも PyInstaller は依存として拾う)
                 from git_graph import app_state
+                from git_graph.server import main as server_main
                 app_state.RESTART_HOOK = self._request_restart
                 self.restart = False
                 sys.argv = list(self.argv)
                 try:
-                    runpy.run_module("git_graph", run_name="__main__", alter_sys=False)
+                    server_main()
                 except SystemExit as e:  # サーバ側の sys.exit(メッセージ) は、スレッドを終わらせるだけにする
                     if e.code not in (None, 0):
                         self.error = e.code
