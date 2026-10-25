@@ -38,6 +38,7 @@ from .history import (  # noqa: F401
     api_branches, api_branches_containing, api_commit, api_compare, api_log, api_merge_base,
     api_reflog, api_stash_list, api_tags,
 )
+from .external import DEFAULT_CONFIG_PATH, load_config
 from .pages import render_diff_page, render_files_page
 from .wip import api_status, api_wip_commit  # noqa: F401
 
@@ -205,6 +206,8 @@ def main():
     ap.add_argument("--allow-write", action="store_true", help=tr("cli_help_allow_write"))
     ap.add_argument("--lan", action="store_true", help=tr("cli_help_lan"))
     ap.add_argument("--lang", choices=sorted(TRANSLATIONS), help=tr("cli_help_lang"))
+    ap.add_argument("--desktop", action="store_true", help=tr("cli_help_desktop"))
+    ap.add_argument("--config", metavar="FILE", help=tr("cli_help_config"))
     ap.add_argument("--check-i18n", action="store_true", help=tr("cli_help_check_i18n"))
     state.OPTS = ap.parse_args()
     if state.OPTS.check_i18n:
@@ -214,6 +217,12 @@ def main():
             state.OPTS.host = "0.0.0.0"
         state.OPTS.allow_write = True
     state.REPO = state.OPTS.repo
+    state.DESKTOP = state.OPTS.desktop and is_loopback(state.OPTS.host)  # 外部アプリの起動は、同じ PC の画面からだけ
+    state.CONFIG_PATH = state.OPTS.config or str(DEFAULT_CONFIG_PATH)
+    try:
+        state.CONFIG = load_config(state.CONFIG_PATH, required=bool(state.OPTS.config))
+    except UserError as e:
+        sys.exit(str(e))
     state.WRITABLE = (not state.OPTS.read_only) and (is_loopback(state.OPTS.host) or state.OPTS.allow_write)
 
     try:

@@ -6,3 +6,6 @@ WRITABLE = False
 WIP_ENABLED = False
 HAS_WORKTREE = False
 SERVER = None
+DESKTOP = False  # pywebview など、サーバーと同じ PC の画面から使っている (--desktop)
+CONFIG = {}
+CONFIG_PATH = ""

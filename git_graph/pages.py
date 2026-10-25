@@ -10,6 +10,7 @@ from .i18n import (
     client_translations, FAVICON_LINK, FILES_PAGE, fill_template, read_asset, tr, UserError,
     with_project,
 )
+from .external import configured
 from .wip import api_status
 from .files import WIP_HASH, worktree_target
 
@@ -26,6 +27,7 @@ DIFF_CSS = read_asset("diff.css")
 DIFF_FOLD_JS = read_asset("diff_fold.js")
 WIP_DIFF_COMMIT_JS = read_asset("wip_diff_commit.js")
 FILES_CSS = read_asset("files.css")
+EXT_DIFF_JS = read_asset("ext_diff.js")
 
 
 WIP_DIR_COLLAPSE = 10
@@ -150,6 +152,11 @@ def render_diff_page(q):
         edit_url = "/files?" + urlencode({"hash": WIP_HASH, "path": dir_of(path), "file": path, "view": "edit"})
         edit_link = (f'<a class="ebtn" href="{html.escape(edit_url)}">{html.escape(tr("file_edit"))}</a>')
 
+    ext_diff = ""
+    if state.DESKTOP and state.WRITABLE:  # pywebview など: 外部の差分ツール (WinMerge など) で開くボタン
+        ext_diff = (f'<button class="ebtn" id="xdiff" title="{html.escape(tr("tip_open_diff_tool"), quote=True)}">'
+                    f'{html.escape(tr("open_diff_tool"))}</button>')
+
     can_commit = bool(wip_status is not None and state.WRITABLE and state.WIP_ENABLED)  # amend の差分ページには出さない
     merging = bool(wip_status and wip_status.get("merging"))
     op_in_progress = bool(wip_status and any(
@@ -259,7 +266,8 @@ def render_diff_page(q):
   {"".join(side)}
 </div>
 <div id="main">
-  <h1>{html.escape(name)}{edit_link}</h1>
+  <h1>{html.escape(name)}{edit_link}{ext_diff}</h1>
+  {'<div class="meta hint" id="xmsg"></div>' if ext_diff else ""}
   {info}
   <div class="meta"><code>{html.escape(cmd)}</code></div>
   <div class="meta">{html.escape(d["encoding"] or "binary")}</div>
@@ -269,6 +277,7 @@ def render_diff_page(q):
 <script>{COPY_JS}</script>
 <script>{fold_js}</script>
 <script>{commit_js}</script>
+<script>{EXT_DIFF_JS if ext_diff else ""}</script>
 </body></html>
 """
 
@@ -277,7 +286,8 @@ def render_files_page():
     return with_project(fill_template(FILES_PAGE)
             .replace('<html lang="ja">', f'<html lang="{state.UI_LANG}">')
             .replace("/*__FILE_I18N__*/", "const I18N = " + client_translations() + ";\n"
-                     + "const CAN_COPY = " + ("true" if state.WRITABLE and state.HAS_WORKTREE else "false") + ";"))
+                     + "const CAN_COPY = " + ("true" if state.WRITABLE and state.HAS_WORKTREE else "false") + ";\n"
+                     + "const DESKTOP = " + ("true" if state.DESKTOP and state.WRITABLE and state.HAS_WORKTREE else "false") + ";"))
 
 
 __all__ = [

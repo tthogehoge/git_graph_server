@@ -65,6 +65,15 @@ LANG=ja_JP.UTF-8 python git_graph_server.py
 LANG=en_US.UTF-8 python git_graph_server.py
 ```
 
+## 外部エディタ・外部差分ツール (pywebview)
+
+`git_graph_webview.py` から起動したとき (`--desktop` が付きます) は、WIP (作業ツリー) のファイル表示に「外部エディタ」ボタン、差分ページに「外部差分ツール」ボタンが出ます。`git_graph_server.json.sample` を `git_graph_server.json` にコピーして (`git_graph_server.py` と同じ場所。`--config FILE` でも指定できます)、使うアプリを書いてください。コマンドは配列で書きます (シェルは通しません)。
+
+- `editor`: `{path}` がファイルに置き換わります。省略すると OS の標準のエディタで開きます (Windows は「編集」の関連付け、無ければメモ帳 / macOS は `open -t` / Linux は `xdg-open`)。
+- `diff_tool`: `{left}` が古い側、`{right}` が新しい側のファイル、`{left_title}` / `{right_title}` が表示名です。コミットやインデックスの内容は読み取り専用の一時ファイルにして渡し、作業ツリーのファイルはそのまま渡すので、ツール上で編集して保存できます。文字列1つ (実行ファイルだけ) で書くと `[実行ファイル, "{left}", "{right}"]` の意味になります。
+
+このボタンは、ループバックアドレスで `--desktop` を付けて起動し、書き込みが有効なときだけ使えます。
+
 ## 主なオプション
 
 | オプション | 説明 |
@@ -81,6 +90,8 @@ LANG=en_US.UTF-8 python git_graph_server.py
 | `--full-layout` | Graphviz のレイアウト最適化を省略しない |
 | `--read-only` | 書き込み操作を無効化 |
 | `--lan` | LAN から接続可能にして書き込みを許可 |
+| `--desktop` | pywebview など、サーバーと同じ PC の画面から使う (外部エディタ / 差分ツールのボタンを出す) |
+| `--config FILE` | 外部アプリの設定ファイル (既定: `git_graph_server.py` と同じ場所の `git_graph_server.json`) |
 | `--dot` | dot を出力して終了 |
 
 ## 注意

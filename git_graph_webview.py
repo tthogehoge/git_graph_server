@@ -11,7 +11,7 @@ url_queue = queue.Queue()
 
 
 def build_command():
-    cmd = [sys.executable, "-u", "git_graph_server.py"]
+    cmd = [sys.executable, "-u", "git_graph_server.py", "--desktop"]  # --desktop: 外部エディタ / 差分ツールのボタンを出す
 
     if platform.system() == "Windows":
         cmd += [

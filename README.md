@@ -67,6 +67,15 @@ LANG=ja_JP.UTF-8 python git_graph_server.py
 LANG=en_US.UTF-8 python git_graph_server.py
 ```
 
+## External editor / diff tool (pywebview)
+
+When started through `git_graph_webview.py` (which passes `--desktop`), the file view of the working tree (WIP) gets an **External editor** button and the diff page gets an **External diff tool** button. Copy `git_graph_server.json.sample` to `git_graph_server.json` (next to `git_graph_server.py`, or pass `--config FILE`) and write the apps to use. Each command is a list (no shell is used):
+
+- `editor`: `{path}` is replaced with the file. If omitted, the OS default editor is used (Windows "edit" association or Notepad, `open -t` on macOS, `xdg-open` on Linux).
+- `diff_tool`: `{left}` / `{right}` are the old / new files, `{left_title}` / `{right_title}` are labels. Content from commits or the index is written to read-only temporary files; the working-tree file is passed as is, so you can edit and save it in the tool. A single string (just the executable) means `[exe, "{left}", "{right}"]`.
+
+These buttons work only with `--desktop` on a loopback address with writing enabled.
+
 ## Main options
 
 | Option | Description |
@@ -83,6 +92,8 @@ LANG=en_US.UTF-8 python git_graph_server.py
 | `--full-layout` | Do not skip Graphviz layout optimization |
 | `--read-only` | Disable write operations |
 | `--lan` | Allow LAN access and write operations |
+| `--desktop` | For use from a screen on the same PC such as pywebview (shows external editor / diff tool buttons) |
+| `--config FILE` | Config file for the external apps (default: `git_graph_server.json` next to the script) |
 | `--dot` | Print dot output and exit |
 
 ## Safety

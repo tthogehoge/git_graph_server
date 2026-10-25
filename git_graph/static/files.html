@@ -67,7 +67,7 @@ __FAVICON__
 </style><script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script></head>
 <body><aside id="tree"><a class="topbtn" href="/">{{back_top}}</a><h1>{{file_view}}</h1><div class="meta" id="commit"></div><div class="file-actions patch-bar"><button id="patchCreateBtn">{{patch_create}}</button><button id="patchApplyBtn" hidden title="{{tip_patch_apply}}">{{patch_apply}}</button><input type="file" id="patchFile" hidden><span id="patchMsg" class="msg"></span></div><div id="list"></div></aside>
 <main id="main"><h2 id="title">{{select_file}}</h2>
-<div id="fileActions" class="file-actions" hidden><button id="fileLogBtn">{{file_log}}</button><button id="fileBlameBtn">{{file_blame}}</button><button id="fileDiffBtn" hidden>{{file_diff}}</button><button id="fileEditBtn" hidden>{{file_edit}}</button><button id="fileContentBtn" hidden>{{file_content}}</button><button id="fileCopyBtn" hidden>{{copy_to_work}}</button><button id="fileDownloadBtn" hidden>{{file_download}}</button><button id="fileRmBtn" hidden title="{{tip_rm_file}}">{{rm_button}}</button><button id="fileRmCachedBtn" hidden title="{{tip_rm_cached_file}}">{{rm_cached_button}}</button><span id="fileMsg" class="msg"></span></div>
+<div id="fileActions" class="file-actions" hidden><button id="fileLogBtn">{{file_log}}</button><button id="fileBlameBtn">{{file_blame}}</button><button id="fileDiffBtn" hidden>{{file_diff}}</button><button id="fileEditBtn" hidden>{{file_edit}}</button><button id="fileContentBtn" hidden>{{file_content}}</button><button id="fileCopyBtn" hidden>{{copy_to_work}}</button><button id="fileDownloadBtn" hidden>{{file_download}}</button><button id="fileExtEditBtn" hidden title="{{tip_open_editor}}">{{open_editor}}</button><button id="fileRmBtn" hidden title="{{tip_rm_file}}">{{rm_button}}</button><button id="fileRmCachedBtn" hidden title="{{tip_rm_cached_file}}">{{rm_cached_button}}</button><span id="fileMsg" class="msg"></span></div>
 <div id="content" class="hint">{{select_file_hint}}</div></main>
 <script>
 /*__FILE_I18N__*/
@@ -85,7 +85,7 @@ function setDocumentTitle(label) {
 const qs = new URLSearchParams(location.search), hash = qs.get("hash"), fileViewTab = qs.get("file_view") === "1";
 const list = document.getElementById("list"), content = document.getElementById("content"), title = document.getElementById("title");
 const fileActions = document.getElementById("fileActions"), fileLogBtn = document.getElementById("fileLogBtn"), fileBlameBtn = document.getElementById("fileBlameBtn"), fileContentBtn = document.getElementById("fileContentBtn");
-const fileDownloadBtn = document.getElementById("fileDownloadBtn");
+const fileDownloadBtn = document.getElementById("fileDownloadBtn"), fileExtEditBtn = document.getElementById("fileExtEditBtn");
 const fileRmBtn = document.getElementById("fileRmBtn"), fileRmCachedBtn = document.getElementById("fileRmCachedBtn");
 const fileCopyBtn = document.getElementById("fileCopyBtn"), fileMsg = document.getElementById("fileMsg");
 const fileDiffBtn = document.getElementById("fileDiffBtn"), fileEditBtn = document.getElementById("fileEditBtn");
@@ -170,6 +170,15 @@ function loadTree(path, push) {
 }
 fileDownloadBtn.onclick = () => {  // Content-Disposition: attachment なので、画面は移動せず保存される
   if (currentFile) location.href = "/download?" + new URLSearchParams({hash: hash, path: currentFile});
+};
+fileExtEditBtn.onclick = () => {  // OS の標準のエディタ、または設定ファイルの editor で開く
+  if (!currentFile) return;
+  fileExtEditBtn.disabled = true;
+  fetch("/api/open-editor", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({path: currentFile})})
+    .then(r => r.ok ? r.json() : r.text().then(m => { throw new Error(m || r.status); }))
+    .then(r => setFileMsg(r.message, true))
+    .catch(e => setFileMsg(e.message, false))
+    .finally(() => { fileExtEditBtn.disabled = false; });
 };
 function doRm(cached) {  // git rm / git rm --cached。変更のあるファイルは -f で実行する (確認文で変更が失われることを伝える)
   if (!currentFile || !CAN_EDIT) return;
@@ -270,6 +279,7 @@ function loadFile(path, push) {
   fileBlameBtn.hidden = isWip && !wipHead;
   fileContentBtn.hidden = true;
   fileDownloadBtn.hidden = false;
+  fileExtEditBtn.hidden = !(DESKTOP && isWip);  // pywebview などでは、作業ツリーのファイルを外部エディタで開ける
   updateDiffBtn();
   fileEditBtn.hidden = true; fileData = null;
   return api("/api/file", {hash: hash, path: path}).then(r => {
@@ -325,7 +335,7 @@ function startEdit() {
   if (!fileData || !fileData.editable || !currentFile) return;
   editing = true; editDirty = false;
   setFileMsg("", true);
-  [fileLogBtn, fileBlameBtn, fileDiffBtn, fileEditBtn, fileContentBtn, fileCopyBtn, fileDownloadBtn, fileRmBtn, fileRmCachedBtn].forEach(b => { b.hidden = true; });
+  [fileLogBtn, fileBlameBtn, fileDiffBtn, fileEditBtn, fileContentBtn, fileCopyBtn, fileDownloadBtn, fileExtEditBtn, fileRmBtn, fileRmCachedBtn].forEach(b => { b.hidden = true; });
   const eol = EOL_LABEL[fileData.eol] || t("edit_eol_none");
   title.textContent = t("file_edit_title", {path: currentFile});
   content.className = "";

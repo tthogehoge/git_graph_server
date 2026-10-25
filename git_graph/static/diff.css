@@ -48,3 +48,6 @@
   #dlg .dbtns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
   #side a.topbtn { display: inline-block; margin: 0 0 8px; padding: 4px 10px; background: #e8eefc; border: 1px solid #b8c7ee; color: #06c; font-family: system-ui, sans-serif; font-size: 13px; }
   #side a.topbtn:hover { background: #d6e2fb; }
+  button.ebtn { font: inherit; font-size: 12px; font-weight: normal; cursor: pointer; }
+  button.ebtn:disabled { opacity: .5; cursor: default; }
+  #xmsg { white-space: pre-wrap; } #xmsg.err { color: #c00; }

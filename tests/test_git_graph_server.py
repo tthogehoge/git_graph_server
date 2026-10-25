@@ -1936,3 +1936,142 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ExternalAppsTests(unittest.TestCase):
+    """外部エディタ / 外部差分ツール (--desktop) の起動。"""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.repo = self.temp_dir.name
+        self.previous = (state.REPO, state.HAS_WORKTREE, state.DESKTOP, state.WRITABLE, state.OPTS, state.CONFIG, state.CONFIG_PATH)
+        state.REPO, state.HAS_WORKTREE = self.repo, True
+        state.DESKTOP, state.WRITABLE = True, True
+        state.OPTS = SimpleNamespace(host="127.0.0.1")
+        state.CONFIG, state.CONFIG_PATH = {}, "cfg.json"
+        self.git("init", "-q")
+        self.git("config", "user.name", "Test User")
+        self.git("config", "user.email", "test@example.com")
+        self.write("a.txt", "one\n")
+        self.git("add", ".")
+        self.git("commit", "-q", "-m", "first")
+        self.first = self.git("rev-parse", "HEAD").strip()
+        self.write("a.txt", "one\ntwo\n")
+        self.git("commit", "-q", "-am", "second")
+        self.second = self.git("rev-parse", "HEAD").strip()
+        self.write("a.txt", "one\ntwo\nthree\n")  # 未ステージの変更
+
+    def tearDown(self):
+        (state.REPO, state.HAS_WORKTREE, state.DESKTOP, state.WRITABLE, state.OPTS, state.CONFIG, state.CONFIG_PATH) = self.previous
+        self.temp_dir.cleanup()
+
+    def git(self, *args):
+        return subprocess.check_output(["git", "-C", self.repo, *args], text=True, encoding="utf-8")
+
+    def write(self, path, content):
+        with open(os.path.join(self.repo, path), "w", encoding="utf-8") as f:
+            f.write(content)
+
+    def test_expand_replaces_known_placeholders_only(self):
+        from git_graph import external
+        self.assertEqual(external.expand(["x", "/dl", "{left_title}", "{unknown}", "a{b}"], {"left_title": "L"}),
+                         ["x", "/dl", "L", "{unknown}", "a{b}"])
+
+    def test_normalize_command_accepts_string_list_and_unset(self):
+        from git_graph import external
+        self.assertEqual(external.normalize_command("diff_tool", "winmerge"), ["winmerge", "{left}", "{right}"])
+        self.assertEqual(external.normalize_command("editor", "ed"), ["ed", "{path}"])
+        self.assertEqual(external.normalize_command("editor", ["ed", "-n", "{path}"]), ["ed", "-n", "{path}"])
+        self.assertIsNone(external.normalize_command("editor", None))
+        with self.assertRaises(ValueError):
+            external.normalize_command("editor", [1])
+
+    def test_load_config_reports_missing_and_invalid_files(self):
+        from git_graph import external
+        missing = os.path.join(self.repo, "none.json")
+        self.assertEqual(external.load_config(missing, required=False), {})
+        with self.assertRaises(app.UserError):
+            external.load_config(missing, required=True)
+        bad = os.path.join(self.repo, "bad.json")
+        with open(bad, "w", encoding="utf-8") as f:
+            f.write('{"editor": 3}')
+        with self.assertRaises(app.UserError):
+            external.load_config(bad, required=False)
+
+    def test_diff_sides_for_each_kind_of_diff_page(self):
+        from git_graph import external
+        sides = lambda **q: external.diff_sides({k: [v] for k, v in q.items()})
+        self.assertEqual(sides(hash=self.second, path="a.txt")[0][1], self.first + ":a.txt")
+        self.assertEqual(sides(hash=self.second, path="a.txt")[1][1], self.second + ":a.txt")
+        self.assertEqual(sides(hash=self.first, path="a.txt")[0][0], "empty")  # 最初のコミットは親がない
+        a, b = sides(**{"from": self.first, "to": self.second, "path": "a.txt"})
+        self.assertEqual((a[1], b[1]), (self.first + ":a.txt", self.second + ":a.txt"))
+        left, right = sides(wip="unstaged", path="a.txt")
+        self.assertEqual((left[1], right[0]), (":a.txt", "file"))
+        left, right = sides(wip="staged", path="a.txt")
+        self.assertEqual((left[1], right[1]), ("HEAD:a.txt", ":a.txt"))
+        left, right = sides(wip="compare", path="a.txt", **{"from": self.first})
+        self.assertEqual((left[1], right[0]), (self.first + ":a.txt", "file"))
+        with self.assertRaises(ValueError):
+            sides(wip="nonsense", path="a.txt")
+        with self.assertRaises(ValueError):
+            sides(hash=self.second, path="../x")
+
+    def test_open_diff_passes_temp_files_and_working_file_to_the_tool(self):
+        from git_graph import external
+        state.CONFIG = {"diff_tool": ["tool", "{left_title}", "{right_title}", "{left}", "{right}"]}
+        with mock.patch.object(external, "launch") as launch:
+            r = external.api_open_diff({"hash": self.second, "path": "a.txt"})
+        self.assertTrue(r["ok"])
+        command = launch.call_args[0][0]
+        self.assertEqual(command[1], self.first[:7] + ":a.txt")
+        with open(command[3], encoding="utf-8") as f:
+            self.assertEqual(f.read(), "one\n")
+        with open(command[4], encoding="utf-8") as f:
+            self.assertEqual(f.read(), "one\ntwo\n")
+        self.assertFalse(os.access(command[3], os.W_OK) and os.name != "nt" and os.geteuid() != 0)  # 読み取り専用
+        with mock.patch.object(external, "launch") as launch:
+            external.api_open_diff({"wip": "unstaged", "path": "a.txt"})
+        self.assertEqual(launch.call_args[0][0][4], os.path.join(os.path.realpath(self.repo), "a.txt"))
+
+    def test_open_diff_requires_configuration_and_desktop(self):
+        from git_graph import external
+        with self.assertRaises(app.UserError):
+            external.api_open_diff({"hash": self.second, "path": "a.txt"})  # diff_tool 未設定
+        state.CONFIG = {"diff_tool": "tool"}
+        for attr, value in (("DESKTOP", False), ("WRITABLE", False)):
+            setattr(state, attr, value)
+            with self.assertRaises(app.UserError):
+                external.api_open_diff({"hash": self.second, "path": "a.txt"})
+            with self.assertRaises(app.UserError):
+                external.api_open_editor({"path": "a.txt"})
+            setattr(state, attr, True)
+        state.OPTS = SimpleNamespace(host="0.0.0.0")
+        with self.assertRaises(app.UserError):
+            external.api_open_editor({"path": "a.txt"})
+
+    def test_open_editor_uses_configured_command_and_rejects_bad_paths(self):
+        from git_graph import external
+        state.CONFIG = {"editor": ["ed", "--", "{path}"]}
+        with mock.patch.object(external, "launch") as launch:
+            external.api_open_editor({"path": "a.txt"})
+        self.assertEqual(launch.call_args[0][0], ["ed", "--", os.path.join(os.path.realpath(self.repo), "a.txt")])
+        for bad in ("../a.txt", "/etc/passwd", ".git/config", "missing.txt"):
+            with self.subTest(path=bad), self.assertRaises(ValueError):  # UserError も ValueError
+                external.api_open_editor({"path": bad})
+        with self.assertRaises(ValueError):
+            external.api_open_editor({"path": 1})
+
+    def test_open_editor_falls_back_to_os_default(self):
+        from git_graph import external
+        with mock.patch.object(external, "open_with_os_editor") as opener:
+            external.api_open_editor({"path": "a.txt"})
+        opener.assert_called_once()
+
+    def test_pages_show_buttons_only_in_desktop_mode(self):
+        state.DESKTOP = False
+        self.assertNotIn('id="xdiff"', viewer.render_diff_page({"hash": [self.second], "path": ["a.txt"]}))
+        self.assertIn("const DESKTOP = false;", viewer.render_files_page())
+        state.DESKTOP = True
+        self.assertIn('id="xdiff"', viewer.render_diff_page({"hash": [self.second], "path": ["a.txt"]}))
+        self.assertIn("const DESKTOP = true;", viewer.render_files_page())
