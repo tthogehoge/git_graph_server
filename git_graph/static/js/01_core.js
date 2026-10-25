@@ -7,11 +7,16 @@ function t(key, values = {}) {  // {name} を values[name] に置き換える (�
 
 let DATA = {nodes: {}, edges: {}};
 const SHOW_MERGES_KEY = "gitGraphShowMerges";
-function showMergesOn() {  // 「マージ表示」のチェック状態 (ブラウザに保存)
-  try { return localStorage.getItem(SHOW_MERGES_KEY) === "1"; } catch (e) { return false; }
+let showMergesState = null;  // 「マージ表示」のチェック状態。保存先 (localStorage) が使えない pywebview などでも切り替わるよう、メモリ上の値を正とする
+function showMergesOn() {
+  if (showMergesState === null) {
+    try { showMergesState = localStorage.getItem(SHOW_MERGES_KEY) === "1"; } catch (e) { showMergesState = false; }
+  }
+  return showMergesState;
 }
 function setShowMerges(on) {
-  try { localStorage.setItem(SHOW_MERGES_KEY, on ? "1" : "0"); } catch (e) { /* 保存できなくても表示は切り替わる */ }
+  showMergesState = !!on;
+  try { localStorage.setItem(SHOW_MERGES_KEY, on ? "1" : "0"); } catch (e) { /* 保存できなくても表示は切り替わる (次回起動時には引き継がれない) */ }
 }
 let openClusters = [];  // クラスター表示で開いているクラスター (古い順)。サーバーが数を絞って返す
 function graphUrl() {
