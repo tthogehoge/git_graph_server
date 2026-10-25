@@ -2,6 +2,7 @@ import argparse
 import html
 import json
 import os
+import signal
 import subprocess
 import sys
 import threading
@@ -251,6 +252,7 @@ def main():
         state.SERVER = QuietServer((state.OPTS.host, 0), Handler)  # OS に空いているポートを選ばせる
         print(tr("cli_port_auto", port=wanted, actual=state.SERVER.server_address[1]))
     server = state.SERVER
+    signal.signal(signal.SIGTERM, lambda *_: threading.Thread(target=server.shutdown, daemon=True).start())
     state.OPTS.port = server.server_address[1]
     url = f"http://{'localhost' if state.OPTS.host == '0.0.0.0' else state.OPTS.host}:{state.OPTS.port}/"  # 0.0.0.0 はブラウザで開く宛先にならない
     print(tr("cli_serving", url=url, state=tr("cli_state_on" if state.WRITABLE else "cli_state_off")))
@@ -264,6 +266,8 @@ def main():
         server.serve_forever()
     except KeyboardInterrupt:
         pass
+    finally:
+        server.server_close()
 
 
 __all__ = ["DEFAULT_PORT", "Forbidden", "Handler", "POST_ROUTES", "QuietServer", "ROUTES",

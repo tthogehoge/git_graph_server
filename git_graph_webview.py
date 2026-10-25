@@ -4,6 +4,8 @@ import re
 import subprocess
 import threading
 import sys
+import urllib.error
+import urllib.request
 import webview
 
 URL_PATTERN = re.compile(r"http://127\.0\.0\.1:\d+/?")
@@ -80,6 +82,37 @@ def _inject_gesture_nav(win):
     win.evaluate_js(_GESTURE_NAV_JS)
 
 
+def _stop_server(proc, url):
+    if proc.poll() is None:
+        request = urllib.request.Request(
+            url.rstrip("/") + "/api/shutdown",
+            data=b"{}",
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=5):
+                pass
+        except (urllib.error.URLError, TimeoutError):
+            if proc.poll() is None:
+                proc.terminate()
+    try:
+        proc.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+
+
+def _close_window_when_server_stops(proc, win, window_closed):
+    proc.wait()
+    if not window_closed.is_set():
+        win.destroy()
+
+
 def main():
     proc = subprocess.Popen(
         build_command(),
@@ -105,11 +138,18 @@ def main():
         height=900,
     )
     win.events.loaded += lambda: _inject_gesture_nav(win)
+    window_closed = threading.Event()
+    win.events.closed += window_closed.set
+    threading.Thread(
+        target=_close_window_when_server_stops,
+        args=(proc, win, window_closed),
+        daemon=True,
+    ).start()
 
     try:
         webview.start()
     finally:
-        proc.terminate()
+        _stop_server(proc, url)
 
 
 if __name__ == "__main__":
