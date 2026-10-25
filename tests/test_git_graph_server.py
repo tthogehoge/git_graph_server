@@ -9,6 +9,7 @@ import tempfile
 import threading
 import time
 import unittest
+from pathlib import Path
 from unittest import mock
 from types import SimpleNamespace
 from urllib.error import HTTPError
@@ -2075,3 +2076,18 @@ class ExternalAppsTests(unittest.TestCase):
         state.DESKTOP = True
         self.assertIn('id="xdiff"', viewer.render_diff_page({"hash": [self.second], "path": ["a.txt"]}))
         self.assertIn("const DESKTOP = true;", viewer.render_files_page())
+
+    def test_navigation_icon_buttons_and_quit_in_other_menu(self):
+        diff = viewer.render_diff_page({"hash": [self.second], "path": ["a.txt"]})
+        self.assertIn('<div class="navbar"><a class="iconbtn" href="/"', diff)
+        self.assertIn('onclick="history.back()"', diff)
+        files = viewer.render_files_page()
+        self.assertIn('class="iconbtn" href="/"', files)
+        self.assertIn('class="iconbtn" onclick="history.back()"', files)
+        index = (Path(viewer.__file__).parent / "static" / "index.html").read_text(encoding="utf-8")
+        other = index[index.index('id="otherActions"'):]
+        other = other[:other.index("</span>")]
+        self.assertIn('id="quitBtn"', other)  # 終了ボタンは「その他」メニューの中
+        self.assertLess(index.index('id="backBtn"'), index.index('id="reload"'))  # 左上は戻るボタン
+        self.assertEqual(index.count('id="quitBtn"'), 1)
+

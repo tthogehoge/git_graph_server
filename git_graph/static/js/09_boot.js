@@ -38,6 +38,7 @@ fetch(graphUrl())
       esc(e.message) + '</pre><button class="sbtn" onclick="location.reload()">' + esc(t("reload_page")) + '</button></div>';
   });
 
+document.getElementById("backBtn").addEventListener("click", () => history.back());  // pywebview にはブラウザの戻るボタンがない
 document.getElementById("quitBtn").addEventListener("click", () => {  // サーバーを終了または再起動する
   document.getElementById("quitModal").hidden = false;
   document.getElementById("quitModalQuit").focus();

@@ -46,8 +46,9 @@
   #dlg { background: #fff; padding: 14px 16px; border-radius: 6px; min-width: 300px; max-width: 90vw; box-shadow: 0 4px 16px rgba(0, 0, 0, .3); }
   #dlg h2 { margin: 0 0 8px; font-size: 15px; } #dlg label { display: block; margin: 6px 0; } #dlg input[type=text], #dlg select { width: 100%; box-sizing: border-box; }
   #dlg .dbtns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
-  #side a.topbtn { display: inline-block; margin: 0 0 8px; padding: 4px 10px; background: #e8eefc; border: 1px solid #b8c7ee; color: #06c; font-family: system-ui, sans-serif; font-size: 13px; }
-  #side a.topbtn:hover { background: #d6e2fb; }
+  .navbar { display: flex; gap: 6px; margin: 0 0 8px; }
+  .navbar .iconbtn { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 28px; padding: 0; box-sizing: border-box; background: #e8eefc; border: 1px solid #b8c7ee; border-radius: 3px; color: #06c; cursor: pointer; text-decoration: none; }
+  .navbar .iconbtn:hover { background: #d6e2fb; }
   button.ebtn { font: inherit; font-size: 12px; font-weight: normal; cursor: pointer; }
   button.ebtn:disabled { opacity: .5; cursor: default; }
   #xmsg { white-space: pre-wrap; } #xmsg.err { color: #c00; }

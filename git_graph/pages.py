@@ -27,6 +27,11 @@ DIFF_CSS = read_asset("diff.css")
 DIFF_FOLD_JS = read_asset("diff_fold.js")
 WIP_DIFF_COMMIT_JS = read_asset("wip_diff_commit.js")
 FILES_CSS = read_asset("files.css")
+# ヘッダーのアイコンボタン (トップへ戻る / 戻る)。files.html と index.html にも同じ絵を直接書いてある
+NAV_TOP_LINK = ('<a class="iconbtn" href="/" title="{label}" aria-label="{label}">'
+                '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M2 8 8 2.5 14 8M3.8 7v6.5h3V10h2.4v3.5h3V7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></a>')
+NAV_BACK_BUTTON = ('<button type="button" class="iconbtn" onclick="history.back()" title="{label}" aria-label="{label}">'
+                   '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M13 8H3M7.5 3.5 3 8l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>')
 EXT_DIFF_JS = read_asset("ext_diff.js")
 
 
@@ -260,7 +265,7 @@ def render_diff_page(q):
 {FAVICON_LINK}
 <style>{DIFF_CSS}</style></head><body>
 <div id="side">
-  <a class="topbtn" href="/">{html.escape(tr("back_top"))}</a>
+  <div class="navbar">{NAV_TOP_LINK.format(label=html.escape(tr("back_top"), quote=True))}{NAV_BACK_BUTTON.format(label=html.escape(tr("back_prev"), quote=True))}</div>
   <div class="meta">{len(files)} {tr("files_changed")}</div>
   {commit_box}
   {"".join(side)}
