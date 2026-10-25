@@ -3,3 +3,4 @@ pyinstaller --noconsole --onefile --name git_graph_webview ^
   --add-data "git_graph\locales;git_graph\locales" ^
   --add-data "git_graph\static;git_graph\static" ^
   git_graph_webview.py
+copy dist\git_graph_webview.exe .\
