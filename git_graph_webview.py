@@ -49,6 +49,21 @@ def build_command():
     return cmd
 
 
+def _add_bundled_graphviz_to_path():
+    """同梱の Graphviz (graphviz/bin) があれば PATH の先頭に足す。サーバは dot を PATH から探すため。
+    探す場所: exe (または このスクリプト) と同じフォルダ → PyInstaller の一時展開先 (--add-data で同梱したとき)。"""
+    bases = [Path(sys.executable).resolve().parent] if FROZEN else [Path(__file__).resolve().parent]
+    if getattr(sys, "_MEIPASS", None):
+        bases.append(Path(sys._MEIPASS))
+    for base in bases:
+        for name in ("graphviz", "Graphviz"):
+            bindir = base / name / "bin"
+            if bindir.is_dir():
+                os.environ["PATH"] = str(bindir) + os.pathsep + os.environ.get("PATH", "")
+                return str(bindir)
+    return None
+
+
 class _StdoutTee(io.TextIOBase):
     """サーバの標準出力から URL を拾う。--noconsole の exe では sys.stdout が None なので、それも吸収する。"""
 
@@ -226,6 +241,7 @@ def _close_window_when_server_stops(th, win, window_closed):
 
 
 def main():
+    _add_bundled_graphviz_to_path()
     sys.stdout = _StdoutTee(sys.stdout)
     if sys.stderr is None:  # --noconsole の exe では None
         sys.stderr = open(os.devnull, "w")
