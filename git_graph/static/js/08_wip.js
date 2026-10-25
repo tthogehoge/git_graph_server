@@ -235,14 +235,31 @@ function showWip(fromHistory, okMsg) {
   });
 }
 
-document.getElementById("quitBtn").addEventListener("click", () => {  // サーバーを終了する
-  if (!confirm(t("confirm_quit"))) return;
-  post("/api/shutdown", {})
+document.getElementById("quitBtn").addEventListener("click", () => {  // サーバーを終了または再起動する
+  document.getElementById("quitModal").hidden = false;
+  document.getElementById("quitModalQuit").focus();
+});
+document.getElementById("quitModalCancel").addEventListener("click", () => {
+  document.getElementById("quitModal").hidden = true;
+});
+function quitModalAction(action) {
+  document.getElementById("quitModal").hidden = true;
+  const endpoint = action === "restart" ? "/api/restart" : "/api/shutdown";
+  post(endpoint, {})
     .then(() => {
-      document.body.innerHTML = '<div style="padding:24px;font-size:14px">' + esc(t("server_stopped")) + "</div>";
+      if (action === "restart") {
+        document.body.innerHTML = '<div style="padding:24px;font-size:14px">' + esc(t("server_restarting")) + "</div>";
+        // サーバーが再起動するまで待ってからリロード
+        const tryReload = () => fetch("/").then(() => location.reload()).catch(() => setTimeout(tryReload, 500));
+        setTimeout(tryReload, 1000);
+      } else {
+        document.body.innerHTML = '<div style="padding:24px;font-size:14px">' + esc(t("server_stopped")) + "</div>";
+      }
     })
     .catch(e => setGraphStatus(t("quit_failed", {error: e.message}), "error"));
-});
+}
+document.getElementById("quitModalQuit").addEventListener("click", () => quitModalAction("quit"));
+document.getElementById("quitModalRestart").addEventListener("click", () => quitModalAction("restart"));
 document.getElementById("showMerges").addEventListener("change", ev => {  // マージ表示の on / off
   const cb = ev.currentTarget;
   setShowMerges(cb.checked);
