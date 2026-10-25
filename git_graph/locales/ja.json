@@ -55,6 +55,7 @@
   "branch_log": "ブランチのログを表示",
   "commit_label": "コミット",
   "back_history": "← 履歴一覧に戻る",
+  "back_top": "← トップへ戻る",
   "all_log_to_root": "最初のコミットまでの全ログ",
   "file_view": "ファイル表示",
   "select_file": "ファイルを選択してください",

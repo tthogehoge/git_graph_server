@@ -55,6 +55,7 @@
   "branch_log": "Show branch log",
   "commit_label": "Commit",
   "back_history": "← Back to history",
+  "back_top": "← Back to top",
   "all_log_to_root": "Full log to the first commit",
   "file_view": "File view",
   "select_file": "Select a file",

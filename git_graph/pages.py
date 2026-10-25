@@ -253,6 +253,7 @@ def render_diff_page(q):
 {FAVICON_LINK}
 <style>{DIFF_CSS}</style></head><body>
 <div id="side">
+  <a class="topbtn" href="/">{html.escape(tr("back_top"))}</a>
   <div class="meta">{len(files)} {tr("files_changed")}</div>
   {commit_box}
   {"".join(side)}

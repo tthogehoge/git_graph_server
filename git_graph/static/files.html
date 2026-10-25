@@ -62,8 +62,10 @@ __FAVICON__
   .edit-bar button.primary { background: #1a7f37; border-color: #1a7f37; color: #fff; }
   .edit-bar button:disabled { opacity: .5; cursor: default; }
   .file-actions button:disabled { opacity: .5; cursor: default; }
+  a.topbtn { display: inline-block; margin: 0 0 8px; padding: 4px 10px; background: #e8eefc; border: 1px solid #b8c7ee; color: #06c; border-radius: 3px; text-decoration: none; }
+  a.topbtn:hover { background: #d6e2fb; }
 </style><script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script></head>
-<body><aside id="tree"><h1>{{file_view}}</h1><div class="meta" id="commit"></div><div class="file-actions patch-bar"><button id="patchCreateBtn">{{patch_create}}</button><button id="patchApplyBtn" hidden title="{{tip_patch_apply}}">{{patch_apply}}</button><input type="file" id="patchFile" hidden><span id="patchMsg" class="msg"></span></div><div id="list"></div></aside>
+<body><aside id="tree"><a class="topbtn" href="/">{{back_top}}</a><h1>{{file_view}}</h1><div class="meta" id="commit"></div><div class="file-actions patch-bar"><button id="patchCreateBtn">{{patch_create}}</button><button id="patchApplyBtn" hidden title="{{tip_patch_apply}}">{{patch_apply}}</button><input type="file" id="patchFile" hidden><span id="patchMsg" class="msg"></span></div><div id="list"></div></aside>
 <main id="main"><h2 id="title">{{select_file}}</h2>
 <div id="fileActions" class="file-actions" hidden><button id="fileLogBtn">{{file_log}}</button><button id="fileBlameBtn">{{file_blame}}</button><button id="fileDiffBtn" hidden>{{file_diff}}</button><button id="fileEditBtn" hidden>{{file_edit}}</button><button id="fileContentBtn" hidden>{{file_content}}</button><button id="fileCopyBtn" hidden>{{copy_to_work}}</button><button id="fileDownloadBtn" hidden>{{file_download}}</button><button id="fileRmBtn" hidden title="{{tip_rm_file}}">{{rm_button}}</button><button id="fileRmCachedBtn" hidden title="{{tip_rm_cached_file}}">{{rm_cached_button}}</button><span id="fileMsg" class="msg"></span></div>
 <div id="content" class="hint">{{select_file_hint}}</div></main>
