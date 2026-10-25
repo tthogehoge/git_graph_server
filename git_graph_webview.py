@@ -1,3 +1,5 @@
+import ctypes
+import inspect
 import platform
 import queue
 import re
@@ -6,9 +8,12 @@ import threading
 import sys
 import urllib.error
 import urllib.request
+from pathlib import Path
 import webview
 
 URL_PATTERN = re.compile(r"http://127\.0\.0\.1:\d+/?")
+APP_ID = "git_graph.webview"
+ICON_DIR = Path(__file__).resolve().parent
 url_queue = queue.Queue()
 
 
@@ -82,6 +87,40 @@ def _inject_gesture_nav(win):
     win.evaluate_js(_GESTURE_NAV_JS)
 
 
+def _sync_title(win):
+    """ウィンドウのタイトルを、表示中のページの <title> に合わせる (トップは「プロジェクト名 - git graph」)。"""
+    try:
+        title = win.evaluate_js("document.title")
+        if title:
+            win.set_title(title)
+    except Exception:  # set_title のない古い pywebview など。タイトルは固定のままにする
+        pass
+
+
+def _on_loaded(win):
+    _inject_gesture_nav(win)
+    _sync_title(win)
+
+
+def find_icon():
+    """アイコンファイルを探す。このスクリプトと同じ場所の git_graph.ico (Windows) / git_graph.png (Linux)。無ければ None。"""
+    names = {"Windows": ["git_graph.ico"], "Linux": ["git_graph.png", "git_graph.ico"]}.get(platform.system(), [])
+    for name in names:
+        path = ICON_DIR / name
+        if path.is_file():
+            return str(path)
+    return None
+
+
+def _set_taskbar_identity():
+    """Windows のタスクバーで python.exe のアイコンにまとめられないよう、このアプリ専用の ID を付ける。"""
+    if platform.system() == "Windows":
+        try:
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_ID)
+        except (AttributeError, OSError):
+            pass
+
+
 def _stop_server(proc, url):
     if proc.poll() is None:
         request = urllib.request.Request(
@@ -137,7 +176,7 @@ def main():
         width=1400,
         height=900,
     )
-    win.events.loaded += lambda: _inject_gesture_nav(win)
+    win.events.loaded += lambda: _on_loaded(win)
     window_closed = threading.Event()
     win.events.closed += window_closed.set
     threading.Thread(
@@ -146,8 +185,13 @@ def main():
         daemon=True,
     ).start()
 
+    start_args = {}
+    icon = find_icon()
+    if icon and "icon" in inspect.signature(webview.start).parameters:  # icon 引数は新しい pywebview のみ
+        start_args["icon"] = icon
+    _set_taskbar_identity()
     try:
-        webview.start()
+        webview.start(**start_args)
     finally:
         _stop_server(proc, url)
 
