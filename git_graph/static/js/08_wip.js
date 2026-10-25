@@ -235,14 +235,6 @@ function showWip(fromHistory, okMsg) {
   });
 }
 
-document.getElementById("quitBtn").addEventListener("click", () => {  // サーバーを終了する
-  if (!confirm(t("confirm_quit"))) return;
-  post("/api/shutdown", {})
-    .then(() => {
-      document.body.innerHTML = '<div style="padding:24px;font-size:14px">' + esc(t("server_stopped")) + "</div>";
-    })
-    .catch(e => setGraphStatus(t("quit_failed", {error: e.message}), "error"));
-});
 document.getElementById("showMerges").addEventListener("change", ev => {  // マージ表示の on / off
   const cb = ev.currentTarget;
   setShowMerges(cb.checked);
@@ -252,9 +244,3 @@ document.getElementById("showMerges").addEventListener("change", ev => {  // マ
     .catch(() => { cb.checked = !cb.checked; setShowMerges(cb.checked); })  // 作り直せなかったら、表示中のグラフに合わせて戻す
     .finally(() => { cb.disabled = false; });
 });
-document.getElementById("reload").addEventListener("click", ev => {  // グラフを最新の状態に更新
-  const b = ev.currentTarget;
-  b.disabled = true; b.textContent = t("reload_busy");
-  refreshGraph().catch(() => {}).finally(() => { b.disabled = false; b.textContent = t("reload"); });
-});
-

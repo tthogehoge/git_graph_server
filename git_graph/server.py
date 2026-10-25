@@ -59,6 +59,11 @@ def api_shutdown(body):
     """終了要求を返す。サーバーの停止は HTTP 応答の送信後に行う。"""
     return {"ok": True}
 
+@route("/api/restart", method="POST")
+def api_restart(body):
+    """再起動要求を返す。サーバーの停止と os.execv による再起動は HTTP 応答の送信後に行う。"""
+    return {"ok": True}
+
 POST_ROUTES = {path: handler for (method, path), handler in ROUTES.items() if method == "POST"}
 
 class Handler(BaseHTTPRequestHandler):
@@ -142,7 +147,7 @@ class Handler(BaseHTTPRequestHandler):
             if handler is None:
                 self._send(404, "text/plain", "not found")
                 return
-            self._check_post(shutdown=path == "/api/shutdown")
+            self._check_post(shutdown=path in ("/api/shutdown", "/api/restart"))
             n = int(self.headers.get("Content-Length") or 0)
             if n > {"/api/file-save": SAVE_BODY_LIMIT, "/api/patch-apply": PATCH_BODY_LIMIT}.get(path, 100000):
                 raise ValueError("body too large")
@@ -152,8 +157,19 @@ class Handler(BaseHTTPRequestHandler):
             with _write_lock:
                 res = handler(body)
             self._send(200, "application/json", json.dumps(res, ensure_ascii=False))
-            if path == "/api/shutdown" and state.SERVER is not None:
-                threading.Thread(target=state.SERVER.shutdown, daemon=True).start()
+            if path in ("/api/shutdown", "/api/restart") and state.SERVER is not None:
+                if path == "/api/restart":
+                    # os.execv はプロセスを丸ごと置き換えるので shutdown() 不要。
+                    # daemon スレッドだとメインスレッド終了後に殺されるため、daemon=False にする。
+                    def _do_restart():
+                        # 実際に使用中のポートを引き継ぐ。--open は再起動のたびにブラウザが開くので除外する。
+                        args = [a for a in sys.argv[1:] if a != "--open"]
+                        if "--port" not in args and "-port" not in args:
+                            args = ["--port", str(state.OPTS.port)] + args
+                        os.execv(sys.executable, [sys.executable] + sys.argv[:1] + args)
+                    threading.Thread(target=_do_restart, daemon=False).start()
+                else:
+                    threading.Thread(target=state.SERVER.shutdown, daemon=True).start()
         except Forbidden as e:
             self._send(403, "text/plain", str(e))
         except ValueError as e:  # JSON の不正も含む
@@ -242,4 +258,4 @@ def main():
 
 
 __all__ = ["DEFAULT_PORT", "Forbidden", "Handler", "POST_ROUTES", "QuietServer", "ROUTES",
-           "api_shutdown", "main", "route"]
+           "api_restart", "api_shutdown", "main", "route"]

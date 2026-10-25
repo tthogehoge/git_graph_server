@@ -75,8 +75,9 @@ listView.addEventListener("click", ev => {
   selectActionTarget(tr.dataset.h);
   if (curRow) curRow.classList.remove("cur");
   curRow = tr; tr.classList.add("cur");
-  restoreMenuPosition(document.getElementById("cmpActions"));
-  cmpActOpen = true; abActOpen = false; setOtherMenu(false);
+  // Prevent opening the operation menu on click; just select the commit.
+  cmpActOpen = false; abActOpen = false;
+  closeMenus();
   updateCmpClasses();
   if (already) showDetail(tr.dataset.h);
 });
