@@ -164,6 +164,10 @@ class Handler(BaseHTTPRequestHandler):
                     # os.execv はプロセスを丸ごと置き換えるので shutdown() 不要。
                     # daemon スレッドだとメインスレッド終了後に殺されるため、daemon=False にする。
                     def _do_restart():
+                        hook = getattr(state, "RESTART_HOOK", None)  # pywebview など、サーバーを同じプロセスで動かしているとき
+                        if hook:
+                            hook()
+                            return
                         # 実際に使用中のポートを引き継ぐ。--open は再起動のたびにブラウザが開くので除外する。
                         args = [a for a in sys.argv[1:] if a != "--open"]
                         if "--port" not in args and "-port" not in args:
@@ -252,7 +256,8 @@ def main():
         state.SERVER = QuietServer((state.OPTS.host, 0), Handler)  # OS に空いているポートを選ばせる
         print(tr("cli_port_auto", port=wanted, actual=state.SERVER.server_address[1]))
     server = state.SERVER
-    signal.signal(signal.SIGTERM, lambda *_: threading.Thread(target=server.shutdown, daemon=True).start())
+    if threading.current_thread() is threading.main_thread():  # signal.signal はメインスレッドからしか呼べない
+        signal.signal(signal.SIGTERM, lambda *_: threading.Thread(target=server.shutdown, daemon=True).start())
     state.OPTS.port = server.server_address[1]
     url = f"http://{'localhost' if state.OPTS.host == '0.0.0.0' else state.OPTS.host}:{state.OPTS.port}/"  # 0.0.0.0 はブラウザで開く宛先にならない
     print(tr("cli_serving", url=url, state=tr("cli_state_on" if state.WRITABLE else "cli_state_off")))

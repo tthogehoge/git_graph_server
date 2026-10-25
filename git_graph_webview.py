@@ -1,24 +1,39 @@
 import ctypes
 import inspect
+import io
+import os
 import platform
 import queue
 import re
-import subprocess
+import runpy
 import threading
 import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
+
+# Windows の embeddable 版 Python などでも git_graph パッケージを import できるようにする
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 import webview
 
 URL_PATTERN = re.compile(r"http://127\.0\.0\.1:\d+/?")
+FROZEN = getattr(sys, "frozen", False)  # PyInstaller で exe 化されている
 APP_ID = "git_graph.webview"
 ICON_DIR = Path(__file__).resolve().parent
 url_queue = queue.Queue()
 
 
 def build_command():
-    cmd = [sys.executable, "-u", "git_graph_server.py", "--desktop"]  # --desktop: 外部エディタ / 差分ツールのボタンを出す
+    # サーバは subprocess ではなく同じプロセスのスレッドで動かす (exe 化すると sys.executable が自分自身になり、
+    # 自分を再起動し続けてしまうため)。そのため先頭はダミーの argv[0]。
+    cmd = ["git_graph_server.py", "--desktop"]  # --desktop: 外部エディタ / 差分ツールのボタンを出す
+
+    # exe 化すると設定ファイルの既定の場所が一時展開先になるので、exe の隣にあるものを使う
+    if FROZEN:
+        conf = Path(sys.executable).resolve().parent / "git_graph_server.json"
+        if conf.is_file():
+            cmd += ["--config", str(conf)]
 
     if platform.system() == "Windows":
         cmd += [
@@ -35,14 +50,79 @@ def build_command():
     return cmd
 
 
-def monitor_stdout(proc):
-    for line in proc.stdout:
-        print(line, end="")
+class _StdoutTee(io.TextIOBase):
+    """サーバの標準出力から URL を拾う。--noconsole の exe では sys.stdout が None なので、それも吸収する。"""
 
-        m = URL_PATTERN.search(line)
-        if m:
-            url_queue.put(m.group(0))
-            break
+    def __init__(self, orig):
+        self.orig = orig
+        self.found = False
+        self.buf = ""
+
+    def writable(self):
+        return True
+
+    def write(self, s):
+        if self.orig is not None:
+            try:
+                self.orig.write(s)
+            except Exception:
+                pass
+        if not self.found:
+            self.buf += s
+            m = URL_PATTERN.search(self.buf)
+            if m:
+                self.found = True
+                url_queue.put(m.group(0))
+        return len(s)
+
+    def flush(self):
+        if self.orig is not None:
+            try:
+                self.orig.flush()
+            except Exception:
+                pass
+
+
+class ServerThread(threading.Thread):
+    """git_graph サーバを同じプロセスのスレッドで動かす。/api/restart されたときは同じポートで起動し直す。"""
+
+    def __init__(self, argv):
+        super().__init__(daemon=True)
+        self.argv = argv
+        self.restart = False
+        self.error = None
+
+    def _request_restart(self):  # サーバの /api/restart から呼ばれる (os.execv ではアプリごと置き換わってしまうため)
+        from git_graph import app_state
+        args = [a for a in self.argv[1:] if a != "--open"]
+        if "--port" not in args:
+            args = ["--port", str(app_state.OPTS.port)] + args  # 実際に使用中のポートを引き継ぐ
+        self.argv = self.argv[:1] + args
+        self.restart = True
+        app_state.SERVER.shutdown()
+
+    def run(self):
+        try:
+            while True:
+                from git_graph import app_state
+                app_state.RESTART_HOOK = self._request_restart
+                self.restart = False
+                sys.argv = list(self.argv)
+                try:
+                    runpy.run_module("git_graph", run_name="__main__", alter_sys=False)
+                except SystemExit as e:  # サーバ側の sys.exit(メッセージ) は、スレッドを終わらせるだけにする
+                    if e.code not in (None, 0):
+                        self.error = e.code
+                        print(e.code, file=sys.stderr)
+                if not self.restart:
+                    break
+                for name in [n for n in sys.modules if n == "git_graph" or n.startswith("git_graph.")]:
+                    del sys.modules[name]  # 再起動では、ソースの更新も反映されるよう読み込み直す
+        except BaseException as e:
+            self.error = e
+            raise
+        finally:
+            url_queue.put(None)  # 起動に失敗したときに、URL の待ち受けを解除する
 
 
 _GESTURE_NAV_JS = """
@@ -121,8 +201,8 @@ def _set_taskbar_identity():
             pass
 
 
-def _stop_server(proc, url):
-    if proc.poll() is None:
+def _stop_server(th, url):
+    if th.is_alive():
         request = urllib.request.Request(
             url.rstrip("/") + "/api/shutdown",
             data=b"{}",
@@ -133,42 +213,27 @@ def _stop_server(proc, url):
             with urllib.request.urlopen(request, timeout=5):
                 pass
         except (urllib.error.URLError, TimeoutError):
-            if proc.poll() is None:
-                proc.terminate()
-    try:
-        proc.wait(timeout=10)
-    except subprocess.TimeoutExpired:
-        proc.terminate()
-        try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait()
+            pass
+        th.join(timeout=10)  # 終わらなくても daemon なので、プロセスの終了と一緒に消える
 
 
-def _close_window_when_server_stops(proc, win, window_closed):
-    proc.wait()
+def _close_window_when_server_stops(th, win, window_closed):
+    th.join()
     if not window_closed.is_set():
         win.destroy()
 
 
 def main():
-    proc = subprocess.Popen(
-        build_command(),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        encoding="utf-8",
-        bufsize=1,
-    )
+    sys.stdout = _StdoutTee(sys.stdout)
+    if sys.stderr is None:  # --noconsole の exe では None
+        sys.stderr = open(os.devnull, "w")
 
-    threading.Thread(
-        target=monitor_stdout,
-        args=(proc,),
-        daemon=True,
-    ).start()
+    proc = ServerThread(build_command())
+    proc.start()
 
     url = url_queue.get()
+    if url is None:
+        raise SystemExit(f"サーバを起動できませんでした: {proc.error}")
 
     win = webview.create_window(
         "Git Graph",
@@ -197,4 +262,6 @@ def main():
 
 
 if __name__ == "__main__":
+    import multiprocessing
+    multiprocessing.freeze_support()  # exe 化したとき multiprocessing が自分自身を再起動しても増殖しないように
     main()
