@@ -11,6 +11,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, quote, urlparse
 from . import app_state as state
 from .gitrun import git, is_loopback, resolve_commit
+from .winproc import hide_console_windows
 # 次の import のうち、api_* などは名前を直接使わない。各モジュールの @route 登録を実行させるための import なので、
 # 未使用の警告 (F401) を抑止している。
 from .graph import CLUSTER_MIN_NODES, DEFAULT_MERGE_MAX_NODES, build_graph, graph_payload  # noqa: F401
@@ -215,6 +216,7 @@ def main():
     ap.add_argument("--config", metavar="FILE", help=tr("cli_help_config"))
     ap.add_argument("--check-i18n", action="store_true", help=tr("cli_help_check_i18n"))
     state.OPTS = ap.parse_args()
+    hide_console_windows()  # Windows: git / dot の起動のたびにコンソール窓が出ないようにする
     if state.OPTS.check_i18n:
         sys.exit(check_i18n())
     if state.OPTS.lan:
