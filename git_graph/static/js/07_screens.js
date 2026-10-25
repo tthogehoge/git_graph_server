@@ -55,6 +55,21 @@ listView.addEventListener("click", ev => {
   const tr = ev.target.closest("tr.clickable");
   if (!tr) return;
   if (ev.target.closest(".copy")) return;
+  // ctrl+クリック: グラフのノードと同じく、選択中のコミットを A、クリックしたコミットを B にして比較できるようにする
+  if ((ev.ctrlKey || ev.metaKey) && actionHash && actionHash !== tr.dataset.h) {
+    const h = tr.dataset.h;
+    compareAHash = actionHash;
+    compareBHash = h;
+    cmpActOpen = false; abActOpen = false; setOtherMenu(false);
+    if (curRow) curRow.classList.remove("cur");
+    curRow = tr; tr.classList.add("cur");
+    if (nodeEl[h]) select(nodeEl[h]);  // グラフにもあれば、そのノードを選択状態にする
+    updateCmpClasses();
+    saveUiState();
+    revealHash(h);
+    return;
+  }
+  if (ev.ctrlKey || ev.metaKey) return;  // 選択中のコミット自身への ctrl+クリックでは、何もしない (詳細を開かない)
   // 1 回目のクリックは選択だけ。選択済みのコミットをもう一度クリックしたらログ詳細を開く
   const already = tr.dataset.h === actionHash;
   selectActionTarget(tr.dataset.h);
