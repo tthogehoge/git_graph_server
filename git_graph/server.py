@@ -31,7 +31,8 @@ from .remote import (  # noqa: F401
 )
 from .routing import route, ROUTES
 from .files import (  # noqa: F401
-    api_blame, api_file, api_file_copy, api_file_save, api_tree, file_download, SAVE_BODY_LIMIT, WIP_HASH,
+    api_blame, api_file, api_file_copy, api_file_save, api_patch_apply, api_tree, file_download, patch_download,
+    PATCH_BODY_LIMIT, SAVE_BODY_LIMIT, WIP_HASH,
 )
 from .history import (  # noqa: F401
     api_branches, api_branches_containing, api_commit, api_compare, api_log, api_merge_base,
@@ -102,6 +103,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, "text/html", render_files_page().replace("__HASH__", html.escape(h)))
             elif u.path == "/download":
                 self._send_download(*file_download(q))
+            elif u.path == "/patch":
+                self._send_download(*patch_download(q))
             elif u.path == "/diff":
                 self._send(200, "text/html", render_diff_page(q))
             else:
@@ -141,7 +144,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._check_post(shutdown=path == "/api/shutdown")
             n = int(self.headers.get("Content-Length") or 0)
-            if n > (SAVE_BODY_LIMIT if path == "/api/file-save" else 100000):
+            if n > {"/api/file-save": SAVE_BODY_LIMIT, "/api/patch-apply": PATCH_BODY_LIMIT}.get(path, 100000):
                 raise ValueError("body too large")
             body = json.loads(self.rfile.read(n) or b"{}")
             if not isinstance(body, dict):

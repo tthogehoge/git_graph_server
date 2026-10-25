@@ -1,12 +1,14 @@
 # ファイルの一覧・内容・blame・作業ディレクトリへのコピーと、文字コードの判別。
+import base64
 import codecs
 import hashlib
 import os
+import shutil
 import tempfile
 import subprocess
 from datetime import datetime, timedelta, timezone
 from . import app_state as state
-from .gitrun import git, resolve_commit
+from .gitrun import git, git_bytes, resolve_commit
 from .gitstate import CONFLICT_CODES
 from .i18n import tr, UserError
 from .routing import route
@@ -206,6 +208,7 @@ def wip_file(path):
     return res
 
 
+PATCH_BODY_LIMIT = 40_000_000  # /api/patch-apply の JSON の上限 (base64 にするので、パッチ本体は約 30MB まで)
 SAVE_BODY_LIMIT = 16_000_000  # /api/file-save の JSON の上限 (FILE_CONTENT_LIMIT の文字列をエスケープしても収まる大きさ)
 
 
@@ -371,6 +374,78 @@ def file_download(q):
     return path.rsplit("/", 1)[-1], raw
 
 
+def _git_raw(*args, env=None):
+    r = subprocess.run(["git", "-C", state.REPO, *args], capture_output=True, env=env)
+    if r.returncode != 0:
+        raise ValueError(r.stderr.decode("utf-8", "replace").strip() or tr("git_command_failed"))
+    return r.stdout
+
+
+def wip_patch():
+    """作業ツリーの変更 (ステージ済み・未ステージ・未追跡) をまとめた、HEAD からのパッチ。
+    本物のインデックスは変えず、そのコピーに add -A して差分を取る。"""
+    try:
+        head = git("rev-parse", "--verify", "--quiet", "HEAD^{commit}").strip()
+    except subprocess.CalledProcessError:
+        raise UserError("patch_no_head")
+    tmp = tempfile.mkdtemp(prefix="git_graph_patch_")
+    try:
+        index = os.path.join(tmp, "index")
+        real = os.path.join(state.REPO, git("rev-parse", "--git-path", "index").strip())
+        env = dict(os.environ, GIT_INDEX_FILE=index)
+        if os.path.isfile(real):
+            shutil.copyfile(real, index)  # 手元のファイルの情報を再利用して速くする
+        else:
+            _git_raw("read-tree", head, env=env)
+        _git_raw("add", "-A", env=env)
+        return _git_raw("diff", "--cached", "--binary", "-M", head, env=env)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def patch_download(q):
+    """作成したパッチを (ファイル名, バイト列) で返す。作業ツリーは HEAD からの全変更、コミットはそのコミットの変更。"""
+    if is_wip(q):
+        name, raw = "wip.patch", wip_patch()
+    else:
+        h = resolve_commit(q.get("hash", [""])[0])
+        parents = git("rev-list", "--parents", "-n", "1", h).split()[1:]
+        if len(parents) > 1:  # マージは format-patch が出力しないので、最初の親との差分にする
+            raw = git_bytes("diff", "--binary", "-M", parents[0], h)
+        else:
+            raw = git_bytes("format-patch", "-1", "--stdout", "--binary", *(["--root"] if not parents else []), h)
+        name = h[:7] + ".patch"
+    if not raw.strip():
+        raise UserError("patch_empty")
+    return name, raw
+
+
+@route("/api/patch-apply", method="POST")
+def api_patch_apply(body):
+    """アップロードされたパッチを作業ツリーに git apply する (ステージ・コミットはしない)。先に解析と適用の確認をして、失敗したら何も変えない。"""
+    if not state.WIP_ENABLED:
+        raise UserError("wip_disabled")
+    try:
+        data = base64.b64decode(body.get("data") or "", validate=True)
+    except (ValueError, TypeError):
+        raise UserError("patch_invalid")
+    if not data.strip():
+        raise UserError("patch_empty")
+
+    def run_apply(*opts):
+        r = subprocess.run(["git", "-C", state.REPO, "apply", "--whitespace=nowarn", *opts, "-"], input=data, capture_output=True)
+        if r.returncode != 0:
+            raise ValueError(r.stderr.decode("utf-8", "replace").strip() or tr("git_command_failed"))
+        return r.stdout.decode("utf-8", "replace")
+
+    n = len([line for line in run_apply("--numstat").splitlines() if line.strip()])  # 壊れたパッチはここで失敗する
+    if n == 0:
+        raise UserError("patch_empty")
+    run_apply("--check")
+    run_apply()
+    return {"ok": True, "message": tr("patch_applied", n=n)}
+
+
 @route("/api/blame")
 def api_blame(q):
     path = validate_file_path(q.get("path", [""])[0], allow_empty=False)
@@ -465,5 +540,5 @@ def api_file_copy(body):
 
 __all__ = [
     "FILE_CONTENT_LIMIT", "api_file", "api_file_copy", "api_tree", "decode_text", "api_blame",
-    "validate_file_path", "WIP_HASH", "api_file_save", "SAVE_BODY_LIMIT", "file_download",
+    "validate_file_path", "WIP_HASH", "api_file_save", "SAVE_BODY_LIMIT", "file_download", "patch_download", "api_patch_apply", "PATCH_BODY_LIMIT", "wip_patch",
 ]

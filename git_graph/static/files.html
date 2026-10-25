@@ -36,6 +36,7 @@ __FAVICON__
   .binary { color: #777; padding: 10px; border: 1px solid #ddd; }
   .file-actions { display: flex; gap: 6px; margin: 8px 0; }
   .file-actions[hidden] { display: none; }
+  .patch-bar { flex-wrap: wrap; align-items: center; }
   .file-actions button { background: #e8eefc; border: 1px solid #b8c7ee; padding: 4px 8px; border-radius: 3px; cursor: pointer; }
   .file-actions button:hover { background: #d6e2fb; }
   .file-actions .msg { margin-left: 8px; color: #0a7b35; white-space: pre-wrap; }
@@ -62,7 +63,7 @@ __FAVICON__
   .edit-bar button:disabled { opacity: .5; cursor: default; }
   .file-actions button:disabled { opacity: .5; cursor: default; }
 </style><script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script></head>
-<body><aside id="tree"><h1>{{file_view}}</h1><div class="meta" id="commit"></div><div id="list"></div></aside>
+<body><aside id="tree"><h1>{{file_view}}</h1><div class="meta" id="commit"></div><div class="file-actions patch-bar"><button id="patchCreateBtn">{{patch_create}}</button><button id="patchApplyBtn" hidden title="{{tip_patch_apply}}">{{patch_apply}}</button><input type="file" id="patchFile" hidden><span id="patchMsg" class="msg"></span></div><div id="list"></div></aside>
 <main id="main"><h2 id="title">{{select_file}}</h2>
 <div id="fileActions" class="file-actions" hidden><button id="fileLogBtn">{{file_log}}</button><button id="fileBlameBtn">{{file_blame}}</button><button id="fileDiffBtn" hidden>{{file_diff}}</button><button id="fileEditBtn" hidden>{{file_edit}}</button><button id="fileContentBtn" hidden>{{file_content}}</button><button id="fileCopyBtn" hidden>{{copy_to_work}}</button><button id="fileDownloadBtn" hidden>{{file_download}}</button><button id="fileRmBtn" hidden title="{{tip_rm_file}}">{{rm_button}}</button><button id="fileRmCachedBtn" hidden title="{{tip_rm_cached_file}}">{{rm_cached_button}}</button><span id="fileMsg" class="msg"></span></div>
 <div id="content" class="hint">{{select_file_hint}}</div></main>
@@ -86,6 +87,8 @@ const fileDownloadBtn = document.getElementById("fileDownloadBtn");
 const fileRmBtn = document.getElementById("fileRmBtn"), fileRmCachedBtn = document.getElementById("fileRmCachedBtn");
 const fileCopyBtn = document.getElementById("fileCopyBtn"), fileMsg = document.getElementById("fileMsg");
 const fileDiffBtn = document.getElementById("fileDiffBtn"), fileEditBtn = document.getElementById("fileEditBtn");
+const patchCreateBtn = document.getElementById("patchCreateBtn"), patchApplyBtn = document.getElementById("patchApplyBtn");
+const patchFile = document.getElementById("patchFile"), patchMsg = document.getElementById("patchMsg");
 const CAN_EDIT = CAN_COPY && hash === "WIP";  // 作業ツリーのファイルだけ編集できる (書き込みが有効なとき)
 const isWip = hash === "WIP";  // 作業ツリーのファイルを表示する
 fileCopyBtn.hidden = !CAN_COPY || isWip;
@@ -187,6 +190,50 @@ function doRm(cached) {  // git rm / git rm --cached。変更のあるファイ�
 }
 fileRmBtn.onclick = () => doRm(false);
 fileRmCachedBtn.onclick = () => doRm(true);
+// ---- パッチの作成 (ダウンロード) と適用 (アップロード) ----
+function setPatchMsg(text, ok) { patchMsg.textContent = text; patchMsg.className = "msg" + (ok ? "" : " err"); }
+patchCreateBtn.title = t(isWip ? "tip_patch_create_wip" : "tip_patch_create_commit");
+patchCreateBtn.onclick = () => {  // 失敗 (変更なしなど) のときにページを移動しないよう、fetch で取得して保存する
+  setPatchMsg("", true);
+  patchCreateBtn.disabled = true;
+  fetch("/patch?" + new URLSearchParams({hash: hash}))
+    .then(r => r.ok ? r.blob() : r.text().then(m => { throw new Error(m || r.status); }))
+    .then(blob => {
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = isWip ? "wip.patch" : hash.slice(0, 7) + ".patch";
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    })
+    .catch(e => setPatchMsg(e.message, false))
+    .finally(() => { patchCreateBtn.disabled = false; });
+};
+patchApplyBtn.hidden = !CAN_EDIT;  // 作業ツリーの表示で、書き込みが有効なときだけ
+patchApplyBtn.onclick = () => { if (leaveEdit()) { patchFile.value = ""; patchFile.click(); } };
+function bytesToBase64(bytes) {
+  let s = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+patchFile.onchange = () => {
+  const f = patchFile.files[0];
+  if (!f) return;
+  const size = f.size < 1024 ? f.size + " B" : Math.ceil(f.size / 1024) + " KB";
+  if (!confirm(t("confirm_patch_apply", {name: f.name, size: size}))) return;
+  setPatchMsg("", true);
+  patchApplyBtn.disabled = true;
+  f.arrayBuffer()
+    .then(buf => fetch("/api/patch-apply", {method: "POST", headers: {"Content-Type": "application/json"},
+                                             body: JSON.stringify({data: bytesToBase64(new Uint8Array(buf))})}))
+    .then(r => r.ok ? r.json() : r.text().then(m => { throw new Error(m || r.status); }))
+    .then(r => {
+      setPatchMsg(r.message, true);
+      entryInfo = {};  // 変更の印と、開いているファイルの内容を読み直す
+      return loadTree(current, false).then(() => { if (currentFile) return loadFile(currentFile, false); });
+    })
+    .catch(e => setPatchMsg(e.message, false))
+    .finally(() => { patchApplyBtn.disabled = false; });
+};
 function setFileMsg(text, ok) { fileMsg.textContent = text; fileMsg.className = "msg" + (ok ? "" : " err"); }
 function defaultCopyName(path) {  // 例: src/a.py → src/a_1234567.py
   const i = path.lastIndexOf("/"), dir = path.slice(0, i + 1), name = path.slice(i + 1), dot = name.lastIndexOf(".");

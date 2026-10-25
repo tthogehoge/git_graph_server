@@ -1,4 +1,5 @@
 import calendar
+import base64
 import codecs
 import json
 import os
@@ -869,6 +870,93 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
                 app.api_rm({"paths": [bad]})
         self.assertEqual(self.read_file("untracked.txt"), "x\n")
         self.assertEqual(self.read_file("tracked.txt"), "initial\n")
+
+    def test_wip_patch_includes_staged_unstaged_and_untracked_without_touching_index(self):
+        self.write_file("tracked.txt", "staged\n")
+        self.git("add", "tracked.txt")
+        self.write_file("tracked.txt", "staged\nunstaged\n")
+        self.write_file("new.txt", "new file\n")
+        index_before = self.git("ls-files", "--stage")
+
+        name, raw = app.patch_download({"hash": ["WIP"]})
+
+        self.assertEqual(name, "wip.patch")
+        text = raw.decode("utf-8")
+        self.assertIn("+unstaged", text)
+        self.assertIn("new file mode", text)
+        self.assertIn("+new file", text)
+        self.assertEqual(self.git("ls-files", "--stage"), index_before)  # 本物のインデックスは変えない
+        self.assertEqual(self.git("status", "--porcelain").splitlines(), ["MM tracked.txt", "?? new.txt"])
+
+    def test_wip_patch_round_trips_through_apply(self):
+        self.write_file("tracked.txt", "changed\n")
+        self.write_file("new.txt", "new file\n")
+        _, raw = app.patch_download({"hash": ["WIP"]})
+        self.git("checkout", "--", "tracked.txt")
+        os.remove(os.path.join(self.repo, "new.txt"))
+
+        result = app.api_patch_apply({"data": base64.b64encode(raw).decode("ascii")})
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(self.read_file("tracked.txt"), "changed\n")
+        self.assertEqual(self.read_file("new.txt"), "new file\n")
+        self.assertEqual(self.git("diff", "--cached", "--name-only").strip(), "")  # ステージはしない
+
+    def test_wip_patch_without_changes_is_rejected(self):
+        with self.assertRaises(app.UserError):
+            app.patch_download({"hash": ["WIP"]})
+
+    def test_commit_patch_is_format_patch_and_applies(self):
+        self.write_file("tracked.txt", "second\n")
+        self.git("commit", "-q", "-am", "second commit")
+        head = self.git("rev-parse", "HEAD").strip()
+
+        name, raw = app.patch_download({"hash": [head]})
+
+        self.assertEqual(name, head[:7] + ".patch")
+        self.assertIn(b"Subject: [PATCH] second commit", raw)
+        self.git("reset", "-q", "--hard", "HEAD~1")
+        app.api_patch_apply({"data": base64.b64encode(raw).decode("ascii")})
+        self.assertEqual(self.read_file("tracked.txt"), "second\n")
+
+    def test_root_commit_patch(self):
+        root = self.git("rev-list", "--max-parents=0", "HEAD").split()[0]
+
+        name, raw = app.patch_download({"hash": [root]})
+
+        self.assertIn(b"new file mode", raw)
+
+    def test_patch_apply_failure_leaves_working_tree_untouched(self):
+        self.write_file("tracked.txt", "changed\n")
+        _, raw = app.patch_download({"hash": ["WIP"]})
+        self.write_file("tracked.txt", "something else entirely\n")  # 当たらない状態にする
+
+        with self.assertRaises(ValueError):
+            app.api_patch_apply({"data": base64.b64encode(raw).decode("ascii")})
+
+        self.assertEqual(self.read_file("tracked.txt"), "something else entirely\n")
+
+    def test_patch_apply_rejects_bad_input(self):
+        for data in ("", base64.b64encode(b"   \n").decode("ascii"), "not base64!!"):
+            with self.assertRaises(app.UserError):
+                app.api_patch_apply({"data": data})
+        with self.assertRaises(ValueError):
+            app.api_patch_apply({"data": base64.b64encode(b"this is not a patch\n").decode("ascii")})
+
+    def test_patch_apply_rejects_paths_outside_repository(self):
+        patch = (b"diff --git a/../evil.txt b/../evil.txt\nnew file mode 100644\n--- /dev/null\n+++ b/../evil.txt\n@@ -0,0 +1 @@\n+x\n")
+
+        with self.assertRaises(ValueError):
+            app.api_patch_apply({"data": base64.b64encode(patch).decode("ascii")})
+
+        self.assertFalse(os.path.exists(os.path.join(os.path.dirname(self.repo), "evil.txt")))
+
+    def test_files_page_has_patch_buttons(self):
+        page = viewer.render_files_page()
+
+        self.assertIn('id="patchCreateBtn"', page)
+        self.assertIn('id="patchApplyBtn"', page)
+        self.assertIn("/api/patch-apply", page)
 
     def test_wip_diff_page_has_same_actions_as_wip_pane(self):
         self.write_file("tracked.txt", "working tree change\n")
