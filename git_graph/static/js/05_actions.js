@@ -317,6 +317,7 @@ async function doRemoteAction(btn) {  // fetch / pull / push
         '<option value="' + esc(r.name) + '"' + (r.name === defaultRemote ? " selected" : "") + '>' + esc(r.name) + "</option>").join("") +
       '</select></label>' +
       '<label>' + esc(t("push_remote_branch")) + '<input name="remoteBranch" value="' + esc(defaultBranch) + '" required></label>' +
+      '<label class="check"><input type="checkbox" name="pushTags"> ' + esc(t("push_tags_label")) + '</label>' +
       '<label class="check"><input type="checkbox" name="force"> ' + esc(t("force_label")) + '</label>', "push", {
         onOpen: form => {
           const branch = form.elements.branch, remoteBranch = form.elements.remoteBranch;
@@ -326,7 +327,7 @@ async function doRemoteAction(btn) {  // fetch / pull / push
         }
       });
     if (!values) return;
-    body = {branch: values.branch, remote: values.remote, remote_branch: values.remoteBranch.trim(), force: values.force};
+    body = {branch: values.branch, remote: values.remote, remote_branch: values.remoteBranch.trim(), force: values.force, push_tags: !!values.pushTags};
     const what = t("what_branch", {name: values.branch}) + " → " + values.remote;
     ask = body.force
       ? t("confirm_push_force", {what: what})

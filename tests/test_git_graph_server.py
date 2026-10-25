@@ -1436,6 +1436,26 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
             self.assertEqual(self.read_file("tracked.txt"), "upstream version\n", mode)
             self.assertEqual(app.api_stash_list({})["total"], 0)
 
+    def test_push_sends_tags_only_when_requested(self):
+        bare = tempfile.TemporaryDirectory()
+        self.addCleanup(bare.cleanup)
+        remote = os.path.join(bare.name, "remote.git")
+        subprocess.check_call(["git", "init", "-q", "--bare", remote])
+        self.git("remote", "add", "origin", remote)
+        self.git("tag", "v1")
+
+        def remote_tags():
+            return subprocess.check_output(["git", "-C", remote, "tag"], text=True).split()
+
+        result = app.api_push({"branch": "main", "remote": "origin"})
+        self.assertTrue(result["ok"])
+        self.assertEqual(remote_tags(), [])  # 既定ではタグは送らない
+
+        result = app.api_push({"branch": "main", "remote": "origin", "push_tags": True})
+        self.assertTrue(result["ok"])
+        self.assertEqual(remote_tags(), ["v1"])
+        self.assertEqual(result["message"], app.tr("pushed_with_tags", branch="main", where=""))
+
     def test_stash_push_stashes_everything_including_untracked_by_default(self):
         self.write_file("tracked.txt", "edited\n")
         self.write_file("new.txt", "untracked\n")

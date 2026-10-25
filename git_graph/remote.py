@@ -178,6 +178,9 @@ def api_push(body):
     args = ["push"]
     if body.get("force") is True:
         args.append("--force-with-lease")
+    push_tags = body.get("push_tags") is True  # ブランチと一緒に全タグも push する (--tags)
+    if push_tags:
+        args.append("--tags")
     remotes = git("remote").split()
     if not remotes:
         raise UserError("no_remotes")
@@ -230,8 +233,11 @@ def api_push(body):
         raise ValueError(net_error(r, tr("push_failed")))
     remember_auth(remote, auth)
     changed = count_changed_refs(before, refs_snapshot()) > 0
+    if push_tags and not changed:  # タグだけが送られた場合はローカルの ref が変わらないので、git の出力で判定する
+        out = (r.stderr + r.stdout).lower()
+        changed = "up-to-date" not in out and "up to date" not in out
     where = f" ({remote})" if len(remotes) > 1 else ""
-    return {"ok": True, "message": tr("pushed" if changed else "pushed_nothing", branch=branch, where=where)}
+    return {"ok": True, "message": tr(("pushed_with_tags" if push_tags else "pushed") if changed else "pushed_nothing", branch=branch, where=where)}
 
 @route("/api/push-tag", method="POST")
 def api_push_tag(body):
