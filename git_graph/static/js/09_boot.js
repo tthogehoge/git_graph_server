@@ -19,7 +19,8 @@ fetch(graphUrl())
     document.getElementById("showMerges").disabled = false;
     loadStashes();
     updateCurrentBranch().catch(e => setGraphStatus(t("current_branch_failed", {error: e.message}), "error"));
-    restoreScreen(history.state || {screen: "home"});
+    const screen = history.state || {screen: "home"};
+    restoreScreen(screen);
     const fileLogHash = new URLSearchParams(location.search).get("file_log_hash");
     const fileLogPath = new URLSearchParams(location.search).get("file_log_path");
     const commitHash = new URLSearchParams(location.search).get("commit_hash");
@@ -30,6 +31,9 @@ fetch(graphUrl())
     } else if (commitHash) {
       history.replaceState({screen: "home"}, "", "/");
       showContainingBranchLog(commitHash);
+    } else if (screen.screen === "home") {
+      const head = Object.values(DATA.nodes).find(n => n.refs.some(ref => ref.kind === "head"));
+      if (head) revealHash(head.hash);
     }
   })
   .catch(e => {
