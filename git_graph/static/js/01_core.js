@@ -40,11 +40,24 @@ let graphZoom = 1;
 const homeHtml = listView.innerHTML;
 if (!history.state || !history.state.screen) history.replaceState({screen: "home"}, "");
 
+function svgAttrPx(v) {  // <svg width="123pt"> の値を px に直す (dot の SVG は pt で出る)
+  const m = /^([\d.]+)\s*(pt|px)?$/.exec(v || "");
+  return m ? parseFloat(m[1]) * (m[2] === "pt" ? 96 / 72 : 1) : 0;
+}
 function applyGraphZoom() {
   const svg = document.querySelector("#graph > svg");
   if (!svg) return;
-  svg.style.transformOrigin = "0 0";
-  svg.style.transform = "scale(" + graphZoom + ")";
+  // transform: scale() は見た目だけを変えて、レイアウト上の大きさは 100% のままなので、縮小するとスクロール範囲が図より広くなる。
+  // SVG 自体の大きさを変えれば (viewBox があるので中身も拡縮する)、スクロール範囲も図に合う。
+  const w = svgAttrPx(svg.getAttribute("width")), h = svgAttrPx(svg.getAttribute("height"));
+  if (w && h) {
+    svg.style.transform = "";
+    svg.style.width = w * graphZoom + "px";
+    svg.style.height = h * graphZoom + "px";
+  } else {  // 大きさが分からない SVG は、従来どおり見た目だけ拡縮する
+    svg.style.transformOrigin = "0 0";
+    svg.style.transform = "scale(" + graphZoom + ")";
+  }
   const reset = document.getElementById("graphZoomReset");
   if (reset) reset.textContent = Math.round(graphZoom * 100) + "%";
 }
