@@ -557,7 +557,7 @@ def add_wip(dot_text, nodes, head, count, anchor=None):
     """HEAD の子として、破線の WIP ノードを dot とノード情報に追加する。
     anchor は線を引く先のノード名 (HEAD を含むクラスターが閉じているときは、そのクラスター)。"""
     label = ('<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3" STYLE="dashed" BGCOLOR="#fff8dc">'
-             f'<TR><TD><B>WIP</B></TD></TR><TR><TD>{html.escape(tr("n_changes", n=count))}</TD></TR></TABLE>>')
+             f'<TR><TD><B>WIP</B></TD></TR><TR><TD>{html.escape(tr("n_changes", n=count) if count else tr("wip_clean"))}</TD></TR></TABLE>>')
     lines = f'  "WIP" [label={label}];\n  "{anchor or head}" -> "WIP" [style=dashed];\n'
     i = dot_text.rindex("}")
     nodes = dict(nodes)
@@ -671,10 +671,8 @@ def _dot_for(model, opts, head, raw, requested, minimal=False):
                  "clusterOf": cluster_of, "open": open_ids}
     else:
         dot_text, nodes, edges = render_plain(model, opts)
-    if raw and head in model["keep"]:
-        count = wip_count(parse_status(raw))
-        if count:
-            dot_text, nodes = add_wip(dot_text, nodes, head, count, anchor)
+    if raw is not None and head in model["keep"]:  # raw が None のときは WIP が無効。"" は変更なし (それでも WIP ノードは出す: パッチ適用などでファイル表示に入れるように)
+        dot_text, nodes = add_wip(dot_text, nodes, head, wip_count(parse_status(raw)), anchor)
     return dot_text, nodes, edges, extra
 
 
@@ -684,7 +682,7 @@ def dot_text_for_cli(opts):
         head = git("rev-parse", "HEAD").strip()
     except subprocess.CalledProcessError:
         head = ""
-    return _dot_for(build_model(opts), opts, head, "", [])[0]
+    return _dot_for(build_model(opts), opts, head, None, [])[0]
 
 
 def _render_payload(model, opts, head, raw, requested, minimal=False):
@@ -705,12 +703,12 @@ def graph_payload(q=None):
     requested = [x for x in (q.get("open", [""])[0].split(",") if q else []) if x]
     with _lock:  # 同時に複数回作らない (2つ目以降はキャッシュを使う)
         cache, opts, head, key = _model_for(merges)
-        raw = ""
+        raw = None  # None: WIP を出さない / "": 変更なしの WIP
         if state.WIP_ENABLED:
             try:
                 raw = read_status_raw()
             except subprocess.CalledProcessError:
-                raw = ""
+                raw = None
         if cache["payload_key"] == (key, raw, tuple(requested)):
             return cache["payload"]
 

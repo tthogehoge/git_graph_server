@@ -135,6 +135,7 @@
   "none": "(none)",
   "n_items": "{n} items",
   "n_changes": "{n} changes",
+  "wip_clean": "No changes",
   "n_loaded": "{skip} / {total} loaded",
   "n_commits": "{n} commits",
   "label_conflict": "Conflict",

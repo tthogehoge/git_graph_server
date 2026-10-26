@@ -1633,6 +1633,26 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertIn("<svg", merged["svg"])
 
     @unittest.skipUnless(shutil.which("dot"), "Graphviz dot is not installed")
+    def test_graph_shows_wip_node_even_when_working_tree_is_clean(self):
+        self.assertEqual(self.git("status", "--porcelain").strip(), "")
+        previous = (state.OPTS, state.WIP_ENABLED)
+        state.OPTS = self.graph_opts()
+        state.WIP_ENABLED = True
+        try:
+            clean = app.graph_payload({})
+            self.write_file("tracked.txt", "changed\n")
+            dirty = app.graph_payload({})
+            state.WIP_ENABLED = False
+            disabled = app.graph_payload({})
+        finally:
+            state.OPTS, state.WIP_ENABLED = previous
+
+        self.assertTrue(clean["nodes"]["WIP"]["wip"])
+        self.assertEqual(clean["nodes"]["WIP"]["count"], 0)
+        self.assertEqual(dirty["nodes"]["WIP"]["count"], 1)
+        self.assertNotIn("WIP", disabled["nodes"])  # WIP が無効 (--no-wip など) のときは出さない
+
+    @unittest.skipUnless(shutil.which("dot"), "Graphviz dot is not installed")
     def test_edge_log_excludes_both_endpoints(self):
         b, m = self.make_merged_and_deleted_branch()
         c, f = self.git("rev-parse", "HEAD^1").strip(), self.git("rev-parse", "HEAD^2").strip()
