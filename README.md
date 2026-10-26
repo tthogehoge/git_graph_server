@@ -94,7 +94,7 @@ These buttons work only with `--desktop` on a loopback address with writing enab
 | `--lan` | Allow LAN access and write operations |
 | `--desktop` | For use from a screen on the same PC such as pywebview (shows external editor / diff tool buttons) |
 | `--config FILE` | Config file for the external apps (default: `git_graph_server.json` next to the script) |
-| `--dot` | Print dot output and exit |
+| `--dot` | Print the dot source the server draws first (clustered when the graph is large) and exit |
 
 ## Safety
 

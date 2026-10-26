@@ -92,7 +92,7 @@ LANG=en_US.UTF-8 python git_graph_server.py
 | `--lan` | LAN から接続可能にして書き込みを許可 |
 | `--desktop` | pywebview など、サーバーと同じ PC の画面から使う (外部エディタ / 差分ツールのボタンを出す) |
 | `--config FILE` | 外部アプリの設定ファイル (既定: `git_graph_server.py` と同じ場所の `git_graph_server.json`) |
-| `--dot` | dot を出力して終了 |
+| `--dot` | サーバーが最初に描く dot(ノードが多いときはクラスター表示のもの)を出力して終了 |
 
 ## 注意
 

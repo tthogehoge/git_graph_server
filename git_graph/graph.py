@@ -146,6 +146,7 @@ def build_model(opts):
     """残すコミットとエッジを決める (dot にするのは render_plain / render_clustered)。"""
     sys.setrecursionlimit(100000)
     revs = opts.revs
+    revs_by_stdin = not revs  # 自動で集めた ref が何千もあると、Windows のコマンドライン長 (約 32,000 文字) を超えるので標準入力で渡す
     if not revs:
         refs = git("for-each-ref", "--format=%(refname)").splitlines()
         revs = [
@@ -166,7 +167,12 @@ def build_model(opts):
     parents, subjects, order, dates = {}, {}, [], {}  # order: 子が親より先 (--topo-order)
     children = defaultdict(list)
     # 件名はグラフに出す少数のコミット分だけ後で取る (全コミットぶん整形・解析すると遅い)
-    log = git("rev-list", *revs, "--topo-order", "--parents", "--timestamp") if revs else ""
+    if not revs:
+        log = ""
+    elif revs_by_stdin:
+        log = git("rev-list", "--stdin", "--topo-order", "--parents", "--timestamp", input="\n".join(revs) + "\n")
+    else:
+        log = git("rev-list", *revs, "--topo-order", "--parents", "--timestamp")
     for line in log.splitlines():
         ct, h, *ps = line.split()
         parents[h] = ps
@@ -648,8 +654,8 @@ def _is_clustered(model, opts):
     return bool(threshold) and len(model["keep"]) > threshold
 
 
-def _render_payload(model, opts, head, raw, requested, minimal=False):
-    """モデルから dot を作り、SVG にして返す (dot が失敗したときは例外)。"""
+def _dot_for(model, opts, head, raw, requested, minimal=False):
+    """サーバーが描くのと同じ dot / ノード情報 / エッジ情報と、クラスター表示のときの追加情報を返す。"""
     clustered = _is_clustered(model, opts)
     extra, anchor = {}, head
     if clustered:
@@ -669,6 +675,21 @@ def _render_payload(model, opts, head, raw, requested, minimal=False):
         count = wip_count(parse_status(raw))
         if count:
             dot_text, nodes = add_wip(dot_text, nodes, head, count, anchor)
+    return dot_text, nodes, edges, extra
+
+
+def dot_text_for_cli(opts):
+    """--dot: 最初にサーバーが dot に渡すのと同じ dot を返す (大きいリポジトリで dot が失敗するとき、手で試すため)。"""
+    try:
+        head = git("rev-parse", "HEAD").strip()
+    except subprocess.CalledProcessError:
+        head = ""
+    return _dot_for(build_model(opts), opts, head, "", [])[0]
+
+
+def _render_payload(model, opts, head, raw, requested, minimal=False):
+    """モデルから dot を作り、SVG にして返す (dot が失敗したときは例外)。"""
+    dot_text, nodes, edges, extra = _dot_for(model, opts, head, raw, requested, minimal)
     svg = render_dot(dot_text)
     return {"svg": center_node_text(svg[svg.index("<svg"):]), "nodes": nodes, "edges": edges,
             "writable": state.WRITABLE, "merge": state.WRITABLE and state.HAS_WORKTREE, **extra}
@@ -697,6 +718,8 @@ def graph_payload(q=None):
         steps = [(None, {}, False)]
         if _is_clustered(cache["model"], opts):
             steps.append(("graph_notice_fewer_open", {}, True))
+        else:  # 描くノードを大きく減らせるクラスター表示にして、開くのは 1 つだけにする
+            steps.append(("graph_notice_clustered", {"cluster_min_nodes": 1}, True))
         if merges:
             steps.append(("graph_notice_no_merges", {"show_merges": False}, False))
         if not opts.no_tags:
@@ -704,12 +727,10 @@ def graph_payload(q=None):
         steps.append(("graph_notice_no_remotes", {"show_merges": False, "no_tags": True, "no_remotes": True}, False))
         error = None
         for notice_key, overrides, minimal in steps:
-            if overrides:
-                vopts = copy.copy(opts)
-                vopts.__dict__.update(overrides)
-                model = build_model(vopts)
-            else:
-                vopts, model = opts, cache["model"]
+            vopts = copy.copy(opts)
+            vopts.__dict__.update(overrides)
+            # 描き方だけ変えるときは、残すコミットの決定 (重い) をやり直さない
+            model = cache["model"] if set(overrides) <= {"cluster_min_nodes"} else build_model(vopts)
             try:
                 payload = _render_payload(model, vopts, head, raw, requested, minimal)
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
@@ -772,5 +793,5 @@ def graph_focus(q=None):
 
 __all__ = [
     "COLORS", "CLUSTER_MIN_NODES", "assign_clusters", "build_model", "is_ancestor", "render_clustered", "render_plain", "resolve_open", "DEFAULT_MERGE_MAX_NODES", "FAST_LAYOUT_NODES", "MERGE_EDGE_COLOR", "SUBJECT_WIDTH", "add_wip", "build_graph",
-    "center_node_text", "graph_focus", "graph_payload", "locate_edge", "render_dot", "list_stashes", "merge_bases", "stash_key", "truncate_width",
+    "center_node_text", "dot_text_for_cli", "graph_focus", "graph_payload", "locate_edge", "render_dot", "list_stashes", "merge_bases", "stash_key", "truncate_width",
 ]

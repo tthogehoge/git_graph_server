@@ -14,7 +14,7 @@ from .gitrun import git, is_loopback, resolve_commit
 from .winproc import hide_console_windows
 # 次の import のうち、api_* などは名前を直接使わない。各モジュールの @route 登録を実行させるための import なので、
 # 未使用の警告 (F401) を抑止している。
-from .graph import CLUSTER_MIN_NODES, DEFAULT_MERGE_MAX_NODES, build_graph, graph_payload  # noqa: F401
+from .graph import CLUSTER_MIN_NODES, DEFAULT_MERGE_MAX_NODES, build_graph, dot_text_for_cli, graph_payload  # noqa: F401
 from .i18n import (
     APP_CSS, check_i18n, detect_language, FILES_PAGE, fill_template, HTML_TEMPLATE, render_app_js,
     render_main_page, tr, TRANSLATIONS, UserError,
@@ -245,7 +245,7 @@ def main():
     state.PROJECT_NAME = os.path.basename(os.path.abspath(state.REPO)) or state.REPO
 
     if state.OPTS.dot:
-        print(build_graph(state.OPTS)[0])
+        print(dot_text_for_cli(state.OPTS))
         return
 
     fill_template(HTML_TEMPLATE), fill_template(FILES_PAGE)  # 未定義の翻訳キーがあれば、起動時に KeyError で気づけるようにする

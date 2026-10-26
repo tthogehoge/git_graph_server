@@ -1673,7 +1673,7 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         _, nodes, _ = app.build_graph(unlimited)
         self.assertIn(b, nodes)
 
-    def test_graph_payload_redraws_with_less_when_dot_fails(self):
+    def test_graph_payload_redraws_as_clusters_when_dot_fails(self):
         b, m = self.make_merged_and_deleted_branch()
         previous = state.OPTS
         state.OPTS = self.graph_opts()
@@ -1682,7 +1682,7 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
 
         def fake_render(dot_text):
             calls.append(dot_text)
-            if len(calls) == 1:  # マージ表示の描画だけ失敗する
+            if len(calls) == 1:  # 最初の (そのままの) 描画だけ失敗する
                 raise subprocess.CalledProcessError(-11, "dot")
             return "<svg></svg>"
 
@@ -1694,8 +1694,67 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
             graph_module._cache.clear()
 
         self.assertEqual(len(calls), 2)
+        self.assertEqual(payload["notice"], tr("graph_notice_clustered"))  # 描くノードを減らせるクラスター表示にした
+        self.assertEqual(len(payload["open"]), 1)
+        self.assertIn(b, payload["nodes"])  # 残すコミットは減らしていない (全ノード分のノード情報がある)
+        self.assertIn("subgraph", calls[1])
+
+    def test_graph_payload_redraws_with_less_when_dot_keeps_failing(self):
+        b, m = self.make_merged_and_deleted_branch()
+        previous = state.OPTS
+        state.OPTS = self.graph_opts()
+        graph_module._cache.clear()
+        calls = []
+
+        def fake_render(dot_text):
+            calls.append(dot_text)
+            if len(calls) <= 2:  # 最初と、クラスター表示でも失敗する
+                raise subprocess.CalledProcessError(-11, "dot")
+            return "<svg></svg>"
+
+        try:
+            with mock.patch.object(graph_module, "render_dot", side_effect=fake_render):
+                payload = app.graph_payload({"merges": ["1"]})
+        finally:
+            state.OPTS = previous
+            graph_module._cache.clear()
+
+        self.assertEqual(len(calls), 3)
         self.assertEqual(payload["notice"], tr("graph_notice_no_merges"))
         self.assertNotIn(b, payload["nodes"])  # マージ表示なしで描き直した
+
+    def test_build_model_passes_collected_refs_by_stdin_not_on_the_command_line(self):
+        names = [f"refs/tags/release-{i:05d}-" + "x" * 40 for i in range(900)]  # 全部並べると Windows の上限 (約 32,000 文字) を超える
+        subprocess.run(["git", "-C", self.repo, "update-ref", "--stdin"], check=True, text=True,
+                       input="".join(f"update {n} {self.head}\n" for n in names))
+        calls = []
+        real_git = graph_module.git
+
+        def spy(*args, **kwargs):
+            calls.append((args, kwargs))
+            return real_git(*args, **kwargs)
+
+        with mock.patch.object(graph_module, "git", side_effect=spy):
+            model = app.build_model(self.graph_opts())
+
+        rev_list = [c for c in calls if c[0][:1] == ("rev-list",)][0]
+        self.assertLess(sum(len(a) + 1 for a in rev_list[0]), 1000)  # コマンドラインは短いまま
+        self.assertIn("refs/tags/release-00000-" + "x" * 40, rev_list[1]["input"])
+        self.assertIn(self.head, model["keep"])
+
+    def test_dot_text_for_cli_matches_what_the_server_draws(self):
+        self.make_dated_chain()
+        previous = state.OPTS
+        state.OPTS = self.graph_opts()
+        try:
+            plain = app.dot_text_for_cli(state.OPTS)
+            clustered = app.dot_text_for_cli(self.graph_opts(cluster_min_nodes=1))
+        finally:
+            state.OPTS = previous
+
+        self.assertTrue(plain.startswith("digraph G {"))
+        self.assertNotIn("subgraph", plain)
+        self.assertIn('subgraph "cluster_', clustered)  # サーバーがクラスター表示にするときは、--dot もそのまま出す
 
     def test_graph_payload_raises_when_even_the_smallest_graph_fails(self):
         self.make_merged_and_deleted_branch()
