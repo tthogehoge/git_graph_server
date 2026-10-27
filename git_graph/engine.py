@@ -13,10 +13,8 @@
 #   退避した blob / tree は .git/objects ではなく一時ディレクトリ (GIT_OBJECT_DIRECTORY) に書き、本物の objects は
 #   GIT_ALTERNATE_OBJECT_DIRECTORIES で読み取り専用に見せる。.git には何も残さない (ref も作らない)。
 #   一時ディレクトリは起動時・終了時に cleanup() で消す。
-#   例外: 作業ツリーが変わっているのを確認のうえ上書きして戻したときだけ、上書きされる状態を
-#   refs/git_graph/rescue/ に退避する (失うと復旧できないため。14日で消える)。
-#
-# 依存の向き: gitstate より上、server より下 (機能モジュールの API を呼ぶのは server)。
+#   作業ツリーが操作後に変わっているのを確認のうえ上書きして戻すときは、上書きされる現在の状態を履歴側の
+#   「反対向きの行き先」にする (元に戻す → やり直しで、上書きされた状態に戻れる)。ref も退避ファイルも作らない。
 import os
 import shutil
 import subprocess
@@ -31,7 +29,6 @@ from .routing import route
 HIST_LIMIT = 30                       # 残す履歴の数 (古いものから捨てる)
 UNTRACKED_NAMES_LIMIT = 5000          # 管理外ファイルの名前をこれ以上記録しない (超えたら、元に戻すときに何も消さない)
 REF_PREFIX = "refs/git_graph/"
-RESCUE_KEEP_SECONDS = 14 * 24 * 3600  # 上書きして元に戻したときの退避 (refs/git_graph/rescue/) を残す期間
 
 # 書き込み API ごとの扱い: パス -> (操作名, 作業ツリーに触れるか)。作業ツリーに触れるかは False / True /
 # "names" (管理外ファイルが追跡対象になりうる操作。管理外ファイルの名前も記録する。コミットなど)。
@@ -160,9 +157,8 @@ def _untracked_names():
     return names
 
 
-def _worktree_snapshot(names=False, real=False):
+def _worktree_snapshot(names=False):
     """作業ツリー上の追跡ファイルの内容を木 (tree) にして退避する。gc されないよう、記録するときに ref で守る。
-    real が真ならオブジェクトを本物の .git/objects に書く (rescue 用)。偽なら一時ディレクトリ。
     names が真なら管理外ファイルの名前も記録する (偽なら「管理外ファイルは追跡対象にならない」とみなして空)。
     本物の index は触らず、コピーした一時 index に add -u して木を作る (書き込まれるのは変更のあるファイルだけ)。"""
     tmp = tempfile.mkdtemp(prefix="git_graph_snap_")
@@ -172,9 +168,9 @@ def _worktree_snapshot(names=False, real=False):
         if os.path.exists(real_index):
             shutil.copyfile(real_index, env["GIT_INDEX_FILE"])
         else:
-            _run(["read-tree", "--empty"], env=env, real=real)
-        incomplete = _run(["add", "-u"], env=env, check=False, real=real).returncode != 0
-        tree = _text(["write-tree"], env=env, real=real).strip()
+            _run(["read-tree", "--empty"], env=env)
+        incomplete = _run(["add", "-u"], env=env, check=False).returncode != 0
+        tree = _text(["write-tree"], env=env).strip()
         return {"tree": tree, "untracked": _untracked_names() if names else [],
                 "problem": "snapshot_incomplete" if incomplete else None}
     finally:
@@ -256,21 +252,12 @@ def _load():
 
 def cleanup():
     """履歴と、退避したオブジェクトの一時ディレクトリを消す。起動時と終了時に呼ぶ。
-    あわせて refs/git_graph/ の古い ref (以前の版が作った undo/ の ref と、期限切れの rescue/) も消す。
-    refs/git_graph/rescue/ は、上書きして元に戻したときに失われる作業ツリーを守るものなので、一定期間は残す。"""
+    あわせて refs/git_graph/ の ref も全部消す (今の版は作らないが、以前の版が作った退避の残り)。"""
     _HISTORY.pop(state.REPO, None)
     scratch = _SCRATCH.pop(state.REPO, None)
     if scratch:
         shutil.rmtree(scratch[0], ignore_errors=True)
-    now, doomed = time.time(), []
-    for ref in _text(["for-each-ref", "--format=%(refname)", REF_PREFIX], real=True).split():
-        if ref.startswith(REF_PREFIX + "rescue/"):
-            try:
-                if now - int(ref.rsplit("/", 1)[1]) < RESCUE_KEEP_SECONDS:
-                    continue
-            except ValueError:
-                pass
-        doomed.append(ref)
+    doomed = _text(["for-each-ref", "--format=%(refname)", REF_PREFIX], real=True).split()
     if doomed:
         _run(["update-ref", "--stdin"], input="".join(f"delete {r}\n" for r in doomed).encode(), check=False, real=True)
 
@@ -491,13 +478,15 @@ def _move(direction, force):
         entry, t, e = h["entries"][h["cursor"]], 1, 0
     cur = take(False)
     _expect(entry, cur, e, force)
-    rescue = None
-    if force and entry["wt"]:  # 作業ツリーの変更を上書きする前に、現在の状態を退避しておく
-        rescue = _worktree_snapshot(real=True)["tree"]  # 本物の .git/objects に書く (終了後も残す)
-        _run(["update-ref", f"{REF_PREFIX}rescue/{int(time.time())}", rescue], check=False, real=True)
+    overwritten = False
+    if force and entry["wt"]:  # 上書きされる作業ツリーは、反対向き (やり直し / 元に戻す) の行き先にして、あとから戻せるようにする
+        now = _worktree_snapshot()
+        overwritten = now["tree"] != entry["wt"][e]["tree"]
     _apply(entry, t, cur)
+    if overwritten:
+        entry["wt"][e] = {"tree": now["tree"], "protect": entry["wt"][e]["protect"]}
     h["cursor"] += direction
-    return entry, rescue
+    return entry, overwritten
 
 
 def _problem_text(problem):
@@ -533,25 +522,25 @@ def api_undo_history(query):
 @route("/api/undo", method="POST")
 def api_undo(body):
     """直前の操作を元に戻す。作業ツリーが操作後から変わっているときは {worktree_changed: true} を返し、
-    force=true で再実行すると上書きして戻す (現在の状態は refs/git_graph/rescue/ に退避される)。"""
+    force=true で再実行すると上書きして戻す (上書きされる状態は「やり直し」で戻せる)。"""
     try:
-        entry, rescue = _move(-1, body.get("force") is True)
+        entry, overwritten = _move(-1, body.get("force") is True)
     except UserError as e:
         if e.key == "undo_worktree_changed":
             return {"worktree_changed": True, "message": str(e)}
         raise
-    return {"ok": True, "message": tr("undo_done", op=_label(entry)) + (" " + tr("undo_rescued", ref=rescue[:7]) if rescue else "")}
+    return {"ok": True, "message": tr("undo_done", op=_label(entry)) + (" " + tr("undo_rescued") if overwritten else "")}
 
 
 @route("/api/redo", method="POST")
 def api_redo(body):
     try:
-        entry, rescue = _move(1, body.get("force") is True)
+        entry, overwritten = _move(1, body.get("force") is True)
     except UserError as e:
         if e.key == "undo_worktree_changed":
             return {"worktree_changed": True, "message": str(e)}
         raise
-    return {"ok": True, "message": tr("redo_done", op=_label(entry)) + (" " + tr("undo_rescued", ref=rescue[:7]) if rescue else "")}
+    return {"ok": True, "message": tr("redo_done", op=_label(entry)) + (" " + tr("redo_rescued") if overwritten else "")}
 
 
 __all__ = ["cleanup", "IGNORED", "WRITE_OPS", "api_redo", "api_undo", "api_undo_history", "in_progress", "run", "take", "write_op_for"]

@@ -276,7 +276,7 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(ctx.exception.key, "undo_state_changed")
         self.assertEqual(self.git("rev-parse", "feature").strip(), second)  # 何も壊していない
 
-    def test_worktree_edit_after_operation_needs_force_and_is_rescued(self):
+    def test_worktree_edit_after_operation_needs_force_and_can_be_redone(self):
         self.write("tracked.txt", "edit1\n")
         self.do("/api/discard", {"paths": ["tracked.txt"]})
         self.write("tracked.txt", "edit2\n")  # discard のあとに、また編集した
@@ -286,8 +286,11 @@ class EngineTests(unittest.TestCase):
         r = self.undo(force=True)
         self.assertTrue(r["ok"])
         self.assertEqual(self.read("tracked.txt"), "edit1\n")
-        rescued = self.git("for-each-ref", "refs/git_graph/rescue/").strip()
-        self.assertTrue(rescued)  # 上書きした edit2 は退避されている
+        self.assertEqual(self.git("for-each-ref", "refs/git_graph/").strip(), "")  # ref は作らない
+        self.assertTrue(self.redo()["ok"])               # 上書きされた edit2 は、やり直しで戻る
+        self.assertEqual(self.read("tracked.txt"), "edit2\n")
+        self.assertTrue(self.undo()["ok"])               # 元に戻す先は、この状態の前 (edit1) のまま
+        self.assertEqual(self.read("tracked.txt"), "edit1\n")
 
     def test_nothing_is_written_to_git_dir(self):
         """退避は一時ディレクトリに書く: .git/objects にも refs にも何も残さない。"""
@@ -363,16 +366,6 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(engine._load()["entries"], [])
         with self.assertRaises(UserError):
             self.undo()
-
-    def test_cleanup_keeps_recent_rescue_refs_and_drops_old_ones(self):
-        import time
-        now = int(time.time())
-        recent, old = f"refs/git_graph/rescue/{now - 3600}", f"refs/git_graph/rescue/{now - engine.RESCUE_KEEP_SECONDS - 3600}"
-        for ref in (recent, old):
-            self.git("update-ref", ref, self.head)
-        engine.cleanup()
-        self.assertTrue(self.ref_exists(recent))   # 上書きして戻したときの退避は、しばらく残す
-        self.assertFalse(self.ref_exists(old))
 
     def test_history_is_limited(self):
         for i in range(engine.HIST_LIMIT + 5):

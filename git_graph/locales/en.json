@@ -644,7 +644,7 @@
   "redo_busy": "Redoing…",
   "undo_done": "Undid \"{op}\".",
   "redo_done": "Redid \"{op}\".",
-  "undo_rescued": "The overwritten working tree was saved as {ref} (refs/git_graph/rescue/).",
+  "undo_rescued": "The overwritten working tree changes can be brought back with Redo.",
   "undo_nothing": "Nothing to undo",
   "redo_nothing": "Nothing to redo",
   "undo_in_progress": "Cannot undo or redo while a merge, rebase, cherry-pick or revert is in progress. Finish or abort it first",
@@ -658,5 +658,6 @@
   "tip_undo_op": "Undo: {op} (Ctrl+Z)",
   "tip_redo_op": "Redo: {op} (Ctrl+Y)",
   "ok": "OK",
-  "dialog_suppressed_note": "Your browser is blocking confirmation dialogs, so the confirmation is shown here."
+  "dialog_suppressed_note": "Your browser is blocking confirmation dialogs, so the confirmation is shown here.",
+  "redo_rescued": "The overwritten working tree changes can be brought back with Undo."
 }

@@ -644,7 +644,7 @@
   "redo_busy": "やり直しています…",
   "undo_done": "「{op}」を元に戻しました。",
   "redo_done": "「{op}」をやり直しました。",
-  "undo_rescued": "上書きした作業ツリーの変更は {ref} に退避しました (refs/git_graph/rescue/)。",
+  "undo_rescued": "上書きした作業ツリーの変更は「やり直し」で戻せます。",
   "undo_nothing": "元に戻せる操作がありません",
   "redo_nothing": "やり直せる操作がありません",
   "undo_in_progress": "マージやリベースなどの途中は元に戻せません。完了するか中断してください",
@@ -658,5 +658,6 @@
   "tip_undo_op": "元に戻す: {op} (Ctrl+Z)",
   "tip_redo_op": "やり直し: {op} (Ctrl+Y)",
   "ok": "OK",
-  "dialog_suppressed_note": "ブラウザの設定で確認ダイアログが表示されないため、ここで確認します。"
+  "dialog_suppressed_note": "ブラウザの設定で確認ダイアログが表示されないため、ここで確認します。",
+  "redo_rescued": "上書きした作業ツリーの変更は「元に戻す」で戻せます。"
 }
