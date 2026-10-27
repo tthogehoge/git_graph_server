@@ -509,7 +509,10 @@ def _label(entry):
 
 @route("/api/undo-history")
 def api_undo_history(query):
+    if getattr(state.OPTS, "no_undo", False):  # 記録していないので、履歴も元に戻す先も無い
+        return {"entries": [], "can_undo": False, "can_redo": False, "next_undo": "", "next_redo": "", "pending": False}
     h = _load()
+    writable = bool(getattr(state, "WRITABLE", True))  # 読み取り専用のときは実行できない
     items = []
     for i, e in enumerate(h["entries"]):
         items.append({"id": e["id"], "label": _label(e), "time": e["ts"], "done": i < h["cursor"],
@@ -517,8 +520,8 @@ def api_undo_history(query):
     cur = h["cursor"]
     return {
         "entries": list(reversed(items)),
-        "can_undo": cur > 0 and h["entries"][cur - 1]["undoable"] and not h["pending"],
-        "can_redo": cur < len(h["entries"]) and not h["pending"],
+        "can_undo": writable and cur > 0 and h["entries"][cur - 1]["undoable"] and not h["pending"],
+        "can_redo": writable and cur < len(h["entries"]) and not h["pending"],
         "next_undo": _label(h["entries"][cur - 1]) if cur > 0 else "",
         "next_redo": _label(h["entries"][cur]) if cur < len(h["entries"]) else "",
         "pending": bool(h["pending"]),

@@ -13,6 +13,8 @@ __FAVICON__
   <div id="compareToolbar" role="menubar">
     <div class="menubar-left">
       <button id="backBtn" class="sbtn iconbtn" title="{{back_prev}}" aria-label="{{back_prev}}"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M13 8H3M7.5 3.5 3 8l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      <button id="undoBtn" class="sbtn iconbtn" disabled title="{{tip_undo}}" aria-label="{{undo}}"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M5.5 3 2.5 6l3 3M2.5 6h6.5a4 4 0 0 1 0 8H6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      <button id="redoBtn" class="sbtn iconbtn" disabled title="{{tip_redo}}" aria-label="{{redo}}"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M10.5 3l3 3-3 3M13.5 6H7a4 4 0 0 0 0 8h3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
       <button id="reload" class="sbtn" disabled title="{{reload_title}}">{{reload}}</button>
       <label class="sbtn menu-check" title="{{tip_show_merges}}"><input type="checkbox" id="showMerges" disabled>{{show_merges}}</label>
       <button id="graphZoomReset" class="sbtn" title="{{graph_zoom_reset}}">100%</button>
@@ -79,8 +81,6 @@ __FAVICON__
         <button class="abtn" id="tagListBtn" title="{{tip_tag_list}}">{{tag_list}}</button>
         <button class="abtn" id="stashListBtn" title="{{tip_stash_list}}">{{stash_list}}</button>
         <button class="abtn" id="reflogBtn" title="{{tip_reflog}}">{{reflog}}</button>
-        <button class="abtn" id="undoBtn" title="{{tip_undo}}">{{undo}}</button>
-        <button class="abtn" id="redoBtn" title="{{tip_redo}}">{{redo}}</button>
         <button class="abtn" id="opHistoryBtn" title="{{tip_op_history}}">{{op_history}}</button>
         <button class="abtn" data-cact="remote-add" title="{{tip_remote_add}}">{{remote_add}}</button>
         <button class="abtn danger" data-cact="remote-remove" title="{{tip_remote_remove}}">{{remote_remove}}</button>

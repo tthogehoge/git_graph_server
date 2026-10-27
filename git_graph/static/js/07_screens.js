@@ -216,8 +216,6 @@ document.getElementById("compareToolbar").addEventListener("click", ev => {  // 
   if (ev.target.closest("#stashPopBtn")) { doStash("pop"); return; }
   if (ev.target.closest("#stashDropBtn")) { doStash("drop"); return; }
   if (ev.target.closest("#reflogBtn")) { showReflog(""); return; }
-  if (ev.target.closest("#undoBtn")) { doUndoRedo("undo"); return; }
-  if (ev.target.closest("#redoBtn")) { doUndoRedo("redo"); return; }
   if (ev.target.closest("#opHistoryBtn")) { showOpHistory(); return; }
   if (ev.target.closest("#deleteBranchBtn")) { doDeleteBranch(ev.target.closest("#deleteBranchBtn")); return; }
   if (ev.target.closest("#deleteRemoteBranchBtn")) { doDeleteRemoteBranch(ev.target.closest("#deleteRemoteBranchBtn")); return; }

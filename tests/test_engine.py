@@ -30,8 +30,8 @@ class EngineTests(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.repo = self.temp_dir.name
-        self.saved = (state.REPO, state.WIP_ENABLED, state.HAS_WORKTREE)
-        state.REPO, state.WIP_ENABLED, state.HAS_WORKTREE = self.repo, True, True
+        self.saved = (state.REPO, state.WIP_ENABLED, state.HAS_WORKTREE, state.WRITABLE)
+        state.REPO, state.WIP_ENABLED, state.HAS_WORKTREE, state.WRITABLE = self.repo, True, True, True
         self.git("init", "-q")
         self.git("config", "user.name", "Test User")
         self.git("config", "user.email", "test@example.com")
@@ -42,7 +42,7 @@ class EngineTests(unittest.TestCase):
         self.head = self.git("rev-parse", "HEAD").strip()
 
     def tearDown(self):
-        state.REPO, state.WIP_ENABLED, state.HAS_WORKTREE = self.saved
+        state.REPO, state.WIP_ENABLED, state.HAS_WORKTREE, state.WRITABLE = self.saved
         self.temp_dir.cleanup()
 
     def git(self, *args):
@@ -306,6 +306,33 @@ class EngineTests(unittest.TestCase):
             state.OPTS = saved
         self.assertTrue(self.ref_exists("refs/heads/plain"))
         self.assertEqual(engine._load()["entries"], [])
+
+    def test_undo_redo_buttons_are_disabled_when_nothing_to_do(self):
+        hist = ROUTES[("GET", "/api/undo-history")]
+        res = hist({})
+        self.assertEqual((res["can_undo"], res["can_redo"]), (False, False))  # 履歴が空
+        self.do("/api/branch", {"hash": self.head, "name": "x"})
+        res = hist({})
+        self.assertEqual((res["can_undo"], res["can_redo"]), (True, False))   # 戻す先だけある
+        self.undo()
+        res = hist({})
+        self.assertEqual((res["can_undo"], res["can_redo"]), (False, True))   # やり直す先だけある
+
+    def test_buttons_disabled_with_no_undo_and_read_only(self):
+        hist = ROUTES[("GET", "/api/undo-history")]
+        self.do("/api/branch", {"hash": self.head, "name": "x"})
+        state.WRITABLE = False
+        self.assertFalse(hist({})["can_undo"])
+        state.WRITABLE = True
+
+        class Opts:
+            no_undo = True
+        saved, state.OPTS = getattr(state, "OPTS", None), Opts()
+        try:
+            res = hist({})
+        finally:
+            state.OPTS = saved
+        self.assertEqual((res["can_undo"], res["can_redo"], res["entries"]), (False, False, []))
 
     def test_history_is_limited(self):
         for i in range(engine.HIST_LIMIT + 5):

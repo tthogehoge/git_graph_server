@@ -352,10 +352,21 @@ function doUndoRedo(dir) {  // dir: "undo" | "redo"
   }).then(r => {
     if (!r) { setGraphStatus("", "info", true); return; }
     setGraphStatus(r.message, "success", true);
+    updateUndoButtons();
     return Promise.all([loadStashes(), refreshGraph().catch(() => {})]).then(() => {
       if (curView === "list" && listView.dataset.src === "/api/stash-list") showStashList(true);
     });
   }).catch(e => setGraphStatus(t("undo_failed", {error: e.message}), "error", true));
+}
+
+function updateUndoButtons() {  // 元に戻す先 / やり直す先が無いときは無効にする (--no-undo や読み取り専用では常に無効)
+  api("/api/undo-history", {}).then(h => {
+    const undo = document.getElementById("undoBtn"), redo = document.getElementById("redoBtn");
+    undo.disabled = !h.can_undo;
+    undo.title = h.can_undo ? t("tip_undo_op", {op: h.next_undo}) : t("tip_undo");
+    redo.disabled = !h.can_redo;
+    redo.title = h.can_redo ? t("tip_redo_op", {op: h.next_redo}) : t("tip_redo");
+  }).catch(() => {});
 }
 
 function showOpHistory() {

@@ -43,6 +43,9 @@ fetch(graphUrl())
   });
 
 document.getElementById("backBtn").addEventListener("click", () => history.back());  // pywebview にはブラウザの戻るボタンがない
+document.getElementById("undoBtn").addEventListener("click", () => doUndoRedo("undo"));
+document.getElementById("redoBtn").addEventListener("click", () => doUndoRedo("redo"));
+updateUndoButtons();
 document.getElementById("quitBtn").addEventListener("click", () => {  // サーバーを終了または再起動する
   document.getElementById("quitModal").hidden = false;
   document.getElementById("quitModalQuit").focus();

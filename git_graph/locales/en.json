@@ -654,5 +654,7 @@
   "undo_irreversible": "This operation cannot be undone ({reason})",
   "undo_reason_snapshot_incomplete": "tracked files could not be saved completely",
   "undo_failed": "Failed: {error}",
-  "cli_help_no_undo": "Do not record operations (disables undo/redo). Makes write operations fastest in repositories with a very large number of tracked files"
+  "cli_help_no_undo": "Do not record operations (disables undo/redo). Makes write operations fastest in repositories with a very large number of tracked files",
+  "tip_undo_op": "Undo: {op}",
+  "tip_redo_op": "Redo: {op}"
 }

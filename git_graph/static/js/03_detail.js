@@ -166,7 +166,8 @@ function showDetail(h, fromHistory) {
 
 function post(path, body) {
   return fetch(path, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)})
-    .then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); }));
+    .then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); }))
+    .then(r => { updateUndoButtons(); return r; });  // 書き込み操作のたびに、元に戻す/やり直しの有効・無効を更新する
 }
 function doAction(btn) {  // ブランチ/タグのチップの × (削除)
   if (btn.dataset.act !== "delete-ref") return;
