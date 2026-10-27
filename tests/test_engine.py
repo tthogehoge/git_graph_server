@@ -286,7 +286,6 @@ class EngineTests(unittest.TestCase):
         r = self.undo(force=True)
         self.assertTrue(r["ok"])
         self.assertEqual(self.read("tracked.txt"), "edit1\n")
-        self.assertEqual(self.git("for-each-ref", "refs/git_graph/").strip(), "")  # ref は作らない
         self.assertTrue(self.redo()["ok"])               # 上書きされた edit2 は、やり直しで戻る
         self.assertEqual(self.read("tracked.txt"), "edit2\n")
         self.assertTrue(self.undo()["ok"])               # 元に戻す先は、この状態の前 (edit1) のまま
@@ -299,7 +298,6 @@ class EngineTests(unittest.TestCase):
         self.do("/api/discard", {"paths": ["tracked.txt"]})
         self.assertEqual(self.read("tracked.txt"), "initial\n")
         self.assertNotEqual(subprocess.run(["git", "-C", self.repo, "cat-file", "-e", blob]).returncode, 0)  # .git には無い
-        self.assertEqual(self.git("for-each-ref", "refs/git_graph/").strip(), "")
         self.assertTrue(self.undo()["ok"])                     # それでも元に戻せる (一時ディレクトリから読む)
         self.assertEqual(self.read("tracked.txt"), "modified content unique 91cf\n")
         self.assertTrue(self.redo()["ok"])
@@ -353,16 +351,14 @@ class EngineTests(unittest.TestCase):
             state.OPTS = saved
         self.assertEqual((res["can_undo"], res["can_redo"], res["entries"]), (False, False, []))
 
-    def test_history_is_memory_only_and_cleanup_removes_everything(self):
+    def test_history_is_memory_only_and_cleanup_removes_scratch_dir(self):
         self.write("tracked.txt", "edit\n")
         self.do("/api/discard", {"paths": ["tracked.txt"]})
         scratch = engine._SCRATCH[self.repo][0]
         self.assertTrue(os.path.isdir(scratch))
         self.assertFalse(os.path.exists(os.path.join(self.repo, ".git", "git_graph_undo.json")))  # ファイルには保存しない
-        self.git("update-ref", "refs/git_graph/undo/legacy-w0", self.head)  # 以前の版が残した ref
         engine.cleanup()  # 起動時・終了時
         self.assertFalse(os.path.exists(scratch))
-        self.assertEqual(self.git("for-each-ref", "refs/git_graph/").strip(), "")
         self.assertEqual(engine._load()["entries"], [])
         with self.assertRaises(UserError):
             self.undo()

@@ -28,7 +28,6 @@ from .routing import route
 
 HIST_LIMIT = 30                       # 残す履歴の数 (古いものから捨てる)
 UNTRACKED_NAMES_LIMIT = 5000          # 管理外ファイルの名前をこれ以上記録しない (超えたら、元に戻すときに何も消さない)
-REF_PREFIX = "refs/git_graph/"
 
 # 書き込み API ごとの扱い: パス -> (操作名, 作業ツリーに触れるか)。作業ツリーに触れるかは False / True /
 # "names" (管理外ファイルが追跡対象になりうる操作。管理外ファイルの名前も記録する。コミットなど)。
@@ -115,10 +114,9 @@ def _object_env():
     return {"GIT_OBJECT_DIRECTORY": scratch, "GIT_ALTERNATE_OBJECT_DIRECTORIES": alternates}
 
 
-def _run(args, *, env=None, input=None, check=True, real=False):
-    """git を実行する。real が偽 (既定) のとき、書き込まれるオブジェクトは一時ディレクトリに入り、.git/objects には入らない。"""
-    if not real:
-        env = dict(os.environ if env is None else env, **_object_env())
+def _run(args, *, env=None, input=None, check=True):
+    """git を実行する。書き込まれるオブジェクトは一時ディレクトリに入り、.git/objects には入らない。"""
+    env = dict(os.environ if env is None else env, **_object_env())
     r = subprocess.run(["git", "-C", state.REPO, *args], capture_output=True, input=input, env=env)
     if check and r.returncode != 0:
         raise RuntimeError((r.stderr or r.stdout).decode("utf-8", errors="replace").strip() or "git failed")
@@ -135,7 +133,9 @@ _GIT_PATHS = {}
 def _git_path(name):
     key = (state.REPO, name)
     if key not in _GIT_PATHS:
-        p = _text(["rev-parse", "--git-path", name], real=True).strip()  # real: _object_env からも呼ばれるので再帰を避ける
+        # _run を通さない: _run は _object_env を呼び、_object_env はこのパスを使うので、通すと再帰する (何も書かないので不要)
+        p = subprocess.run(["git", "-C", state.REPO, "rev-parse", "--git-path", name],
+                           capture_output=True, text=True, check=True).stdout.strip()
         _GIT_PATHS[key] = p if os.path.isabs(p) else os.path.join(state.REPO, p)
     return _GIT_PATHS[key]
 
@@ -182,7 +182,7 @@ def take(with_worktree):  # with_worktree: False / True / "names"
     snap = {"refs": {}, "head": None, "stash": [], "config": {}, "wt": None}
     for line in _text(["for-each-ref", "--format=%(objectname) %(refname)"]).splitlines():
         sha, _, ref = line.partition(" ")
-        if ref.startswith(REF_PREFIX) or ref == "refs/stash":  # stash は一覧 (reflog) で扱う
+        if ref == "refs/stash":  # stash は一覧 (reflog) で扱う
             continue
         snap["refs"][ref] = sha
     r = _run(["symbolic-ref", "-q", "HEAD"], check=False)
@@ -251,15 +251,11 @@ def _load():
 
 
 def cleanup():
-    """履歴と、退避したオブジェクトの一時ディレクトリを消す。起動時と終了時に呼ぶ。
-    あわせて refs/git_graph/ の ref も全部消す (今の版は作らないが、以前の版が作った退避の残り)。"""
+    """履歴と、退避したオブジェクトの一時ディレクトリを消す。起動時と終了時に呼ぶ。"""
     _HISTORY.pop(state.REPO, None)
     scratch = _SCRATCH.pop(state.REPO, None)
     if scratch:
         shutil.rmtree(scratch[0], ignore_errors=True)
-    doomed = _text(["for-each-ref", "--format=%(refname)", REF_PREFIX], real=True).split()
-    if doomed:
-        _run(["update-ref", "--stdin"], input="".join(f"delete {r}\n" for r in doomed).encode(), check=False, real=True)
 
 
 def _push(h, entry):
