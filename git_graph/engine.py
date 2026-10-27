@@ -10,7 +10,11 @@
 # - 履歴はメモリ上だけに持つ (サーバーを再起動すると消える)。
 # - 作業ツリーは「追跡ファイルの内容」だけを退避する (変更のあるファイルの blob と小さなコミット1つ。サイズは変更量に比例)。
 #   管理外ファイルの中身と index は退避しない。管理外ファイルは名前だけ記録し、元に戻すときに消してよいファイルの判定に使う。
-#   退避した tree は refs/git_graph/undo/ 以下の ref で gc から守り、その ref は起動時と終了時に cleanup() で消す。
+#   退避した blob / tree は .git/objects ではなく一時ディレクトリ (GIT_OBJECT_DIRECTORY) に書き、本物の objects は
+#   GIT_ALTERNATE_OBJECT_DIRECTORIES で読み取り専用に見せる。.git には何も残さない (ref も作らない)。
+#   一時ディレクトリは起動時・終了時に cleanup() で消す。
+#   例外: 作業ツリーが変わっているのを確認のうえ上書きして戻したときだけ、上書きされる状態を
+#   refs/git_graph/rescue/ に退避する (失うと復旧できないため。14日で消える)。
 #
 # 依存の向き: gitstate より上、server より下 (機能モジュールの API を呼ぶのは server)。
 import os
@@ -96,7 +100,28 @@ def write_op_for(path, body):
 
 # ---------------------------------------------------------------- git の低レベル呼び出し
 
-def _run(args, *, env=None, input=None, check=True):
+_SCRATCH = {}  # リポジトリのパス -> 退避したオブジェクトを書き込む一時ディレクトリ
+
+
+def _object_env():
+    """エンジンが作るオブジェクトの書き込み先を一時ディレクトリにする環境変数。本物の objects は読み取り専用の代替として見せる。"""
+    if state.REPO not in _SCRATCH:
+        real = _git_path("objects")
+        alternates = [real]
+        try:  # 元のリポジトリ自身が代替 objects (--reference や --shared) を使っているときは、それも見せる
+            with open(os.path.join(real, "info", "alternates"), encoding="utf-8") as f:
+                alternates += [os.path.normpath(os.path.join(real, ln.strip())) for ln in f if ln.strip() and not ln.startswith("#")]
+        except OSError:
+            pass
+        _SCRATCH[state.REPO] = (tempfile.mkdtemp(prefix="git_graph_objects_"), os.pathsep.join(alternates))
+    scratch, alternates = _SCRATCH[state.REPO]
+    return {"GIT_OBJECT_DIRECTORY": scratch, "GIT_ALTERNATE_OBJECT_DIRECTORIES": alternates}
+
+
+def _run(args, *, env=None, input=None, check=True, real=False):
+    """git を実行する。real が偽 (既定) のとき、書き込まれるオブジェクトは一時ディレクトリに入り、.git/objects には入らない。"""
+    if not real:
+        env = dict(os.environ if env is None else env, **_object_env())
     r = subprocess.run(["git", "-C", state.REPO, *args], capture_output=True, input=input, env=env)
     if check and r.returncode != 0:
         raise RuntimeError((r.stderr or r.stdout).decode("utf-8", errors="replace").strip() or "git failed")
@@ -113,7 +138,7 @@ _GIT_PATHS = {}
 def _git_path(name):
     key = (state.REPO, name)
     if key not in _GIT_PATHS:
-        p = _text(["rev-parse", "--git-path", name]).strip()
+        p = _text(["rev-parse", "--git-path", name], real=True).strip()  # real: _object_env からも呼ばれるので再帰を避ける
         _GIT_PATHS[key] = p if os.path.isabs(p) else os.path.join(state.REPO, p)
     return _GIT_PATHS[key]
 
@@ -135,8 +160,9 @@ def _untracked_names():
     return names
 
 
-def _worktree_snapshot(names=False):
+def _worktree_snapshot(names=False, real=False):
     """作業ツリー上の追跡ファイルの内容を木 (tree) にして退避する。gc されないよう、記録するときに ref で守る。
+    real が真ならオブジェクトを本物の .git/objects に書く (rescue 用)。偽なら一時ディレクトリ。
     names が真なら管理外ファイルの名前も記録する (偽なら「管理外ファイルは追跡対象にならない」とみなして空)。
     本物の index は触らず、コピーした一時 index に add -u して木を作る (書き込まれるのは変更のあるファイルだけ)。"""
     tmp = tempfile.mkdtemp(prefix="git_graph_snap_")
@@ -146,9 +172,9 @@ def _worktree_snapshot(names=False):
         if os.path.exists(real_index):
             shutil.copyfile(real_index, env["GIT_INDEX_FILE"])
         else:
-            _run(["read-tree", "--empty"], env=env)
-        incomplete = _run(["add", "-u"], env=env, check=False).returncode != 0
-        tree = _text(["write-tree"], env=env).strip()
+            _run(["read-tree", "--empty"], env=env, real=real)
+        incomplete = _run(["add", "-u"], env=env, check=False, real=real).returncode != 0
+        tree = _text(["write-tree"], env=env, real=real).strip()
         return {"tree": tree, "untracked": _untracked_names() if names else [],
                 "problem": "snapshot_incomplete" if incomplete else None}
     finally:
@@ -229,11 +255,15 @@ def _load():
 
 
 def cleanup():
-    """退避用の ref (refs/git_graph/undo/) と、メモリ上の履歴を消す。起動時と終了時に呼ぶ。
+    """履歴と、退避したオブジェクトの一時ディレクトリを消す。起動時と終了時に呼ぶ。
+    あわせて refs/git_graph/ の古い ref (以前の版が作った undo/ の ref と、期限切れの rescue/) も消す。
     refs/git_graph/rescue/ は、上書きして元に戻したときに失われる作業ツリーを守るものなので、一定期間は残す。"""
     _HISTORY.pop(state.REPO, None)
+    scratch = _SCRATCH.pop(state.REPO, None)
+    if scratch:
+        shutil.rmtree(scratch[0], ignore_errors=True)
     now, doomed = time.time(), []
-    for ref in _text(["for-each-ref", "--format=%(refname)", REF_PREFIX]).split():
+    for ref in _text(["for-each-ref", "--format=%(refname)", REF_PREFIX], real=True).split():
         if ref.startswith(REF_PREFIX + "rescue/"):
             try:
                 if now - int(ref.rsplit("/", 1)[1]) < RESCUE_KEEP_SECONDS:
@@ -242,40 +272,13 @@ def cleanup():
                 pass
         doomed.append(ref)
     if doomed:
-        _run(["update-ref", "--stdin"], input="".join(f"delete {r}\n" for r in doomed).encode(), check=False)
-
-
-def _keep_targets(entry):
-    """gc から守るオブジェクト: 作業ツリーの退避 (tree) と、stash の増減に関わるコミット (管理外ファイルを含みうる)。"""
-    targets = [("w%d" % i, w["tree"]) for i, w in enumerate(entry.get("wt") or [])]
-    if entry["op"] == "stash_push" and entry.get("stash"):
-        shas = sorted({sha for lst in entry["stash"] for sha, _ in lst})
-        targets += [("s%d" % i, sha) for i, sha in enumerate(shas)]
-    return targets
-
-
-def _ref_names(entry):
-    return [f"{REF_PREFIX}undo/{entry['id']}-{key}" for key, _ in _keep_targets(entry)]
-
-
-def _keep(entry):
-    for (key, sha), name in zip(_keep_targets(entry), _ref_names(entry)):
-        _run(["update-ref", name, sha], check=False)
-
-
-def _drop(entry):
-    for name in _ref_names(entry):
-        _run(["update-ref", "-d", name], check=False)
+        _run(["update-ref", "--stdin"], input="".join(f"delete {r}\n" for r in doomed).encode(), check=False, real=True)
 
 
 def _push(h, entry):
-    for old in h["entries"][h["cursor"]:]:  # undo 済みの先 (redo できたもの) は捨てる
-        _drop(old)
-    del h["entries"][h["cursor"]:]
+    del h["entries"][h["cursor"]:]  # undo 済みの先 (redo できたもの) は捨てる
     h["entries"].append(entry)
-    _keep(entry)
-    while len(h["entries"]) > HIST_LIMIT:
-        _drop(h["entries"].pop(0))
+    del h["entries"][:-HIST_LIMIT]
     h["cursor"] = len(h["entries"])
 
 
@@ -490,8 +493,8 @@ def _move(direction, force):
     _expect(entry, cur, e, force)
     rescue = None
     if force and entry["wt"]:  # 作業ツリーの変更を上書きする前に、現在の状態を退避しておく
-        rescue = _worktree_snapshot()["tree"]
-        _run(["update-ref", f"{REF_PREFIX}rescue/{int(time.time())}", rescue], check=False)
+        rescue = _worktree_snapshot(real=True)["tree"]  # 本物の .git/objects に書く (終了後も残す)
+        _run(["update-ref", f"{REF_PREFIX}rescue/{int(time.time())}", rescue], check=False, real=True)
     _apply(entry, t, cur)
     h["cursor"] += direction
     return entry, rescue

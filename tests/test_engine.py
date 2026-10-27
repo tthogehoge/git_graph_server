@@ -42,6 +42,7 @@ class EngineTests(unittest.TestCase):
         self.head = self.git("rev-parse", "HEAD").strip()
 
     def tearDown(self):
+        engine.cleanup()
         state.REPO, state.WIP_ENABLED, state.HAS_WORKTREE, state.WRITABLE = self.saved
         self.temp_dir.cleanup()
 
@@ -288,13 +289,28 @@ class EngineTests(unittest.TestCase):
         rescued = self.git("for-each-ref", "refs/git_graph/rescue/").strip()
         self.assertTrue(rescued)  # 上書きした edit2 は退避されている
 
-    def test_snapshot_refs_are_kept_and_dropped_with_history(self):
-        self.write("tracked.txt", "edit\n")
+    def test_nothing_is_written_to_git_dir(self):
+        """退避は一時ディレクトリに書く: .git/objects にも refs にも何も残さない。"""
+        self.write("tracked.txt", "modified content unique 91cf\n")
+        blob = subprocess.check_output(["git", "-C", self.repo, "hash-object", "tracked.txt"], text=True).strip()
         self.do("/api/discard", {"paths": ["tracked.txt"]})
-        self.assertTrue(self.git("for-each-ref", "refs/git_graph/undo/").strip())
-        self.undo()
-        self.do("/api/branch", {"hash": self.head, "name": "b"})  # redo の先を捨てる
-        self.assertEqual(self.git("for-each-ref", "refs/git_graph/undo/").strip(), "")
+        self.assertEqual(self.read("tracked.txt"), "initial\n")
+        self.assertNotEqual(subprocess.run(["git", "-C", self.repo, "cat-file", "-e", blob]).returncode, 0)  # .git には無い
+        self.assertEqual(self.git("for-each-ref", "refs/git_graph/").strip(), "")
+        self.assertTrue(self.undo()["ok"])                     # それでも元に戻せる (一時ディレクトリから読む)
+        self.assertEqual(self.read("tracked.txt"), "modified content unique 91cf\n")
+        self.assertTrue(self.redo()["ok"])
+        self.assertEqual(self.read("tracked.txt"), "initial\n")
+
+    def test_object_env_follows_repository_alternates(self):
+        alt = os.path.join(self.repo, ".git", "objects", "info", "alternates")
+        os.makedirs(os.path.dirname(alt), exist_ok=True)
+        with open(alt, "w", encoding="utf-8") as f:
+            f.write("/some/other/objects\n")
+        engine.cleanup()
+        env = engine._object_env()
+        self.assertIn("/some/other/objects", env["GIT_ALTERNATE_OBJECT_DIRECTORIES"].split(os.pathsep))
+        self.assertTrue(env["GIT_OBJECT_DIRECTORY"].startswith(tempfile.gettempdir()))
 
     def test_no_undo_option_bypasses_recording(self):
         class Opts:
@@ -334,12 +350,15 @@ class EngineTests(unittest.TestCase):
             state.OPTS = saved
         self.assertEqual((res["can_undo"], res["can_redo"], res["entries"]), (False, False, []))
 
-    def test_history_is_memory_only_and_cleanup_removes_refs(self):
+    def test_history_is_memory_only_and_cleanup_removes_everything(self):
         self.write("tracked.txt", "edit\n")
         self.do("/api/discard", {"paths": ["tracked.txt"]})
-        self.assertTrue(self.git("for-each-ref", "refs/git_graph/undo/").strip())
+        scratch = engine._SCRATCH[self.repo][0]
+        self.assertTrue(os.path.isdir(scratch))
         self.assertFalse(os.path.exists(os.path.join(self.repo, ".git", "git_graph_undo.json")))  # ファイルには保存しない
+        self.git("update-ref", "refs/git_graph/undo/legacy-w0", self.head)  # 以前の版が残した ref
         engine.cleanup()  # 起動時・終了時
+        self.assertFalse(os.path.exists(scratch))
         self.assertEqual(self.git("for-each-ref", "refs/git_graph/").strip(), "")
         self.assertEqual(engine._load()["entries"], [])
         with self.assertRaises(UserError):
