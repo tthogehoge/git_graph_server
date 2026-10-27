@@ -630,8 +630,8 @@
   "undo": "元に戻す",
   "redo": "やり直し",
   "op_history": "操作履歴",
-  "tip_undo": "直前のgit操作を元に戻す",
-  "tip_redo": "元に戻した操作をやり直す",
+  "tip_undo": "直前のgit操作を元に戻す (Ctrl+Z)",
+  "tip_redo": "元に戻した操作をやり直す (Ctrl+Y)",
   "tip_op_history": "このアプリで行ったgit操作の履歴を表示",
   "op_history_title": "操作履歴",
   "op_history_help": "このアプリで行った書き込み操作の履歴 (新しい順)。薄い行は元に戻した操作です。元に戻すのは ref・追跡ファイルの内容・stash・config で、管理外ファイルとステージ状態は対象外です。pushなどリモートを変える操作は含まれません。",
@@ -655,6 +655,8 @@
   "undo_reason_snapshot_incomplete": "追跡ファイルを完全には退避できませんでした",
   "undo_failed": "実行できませんでした: {error}",
   "cli_help_no_undo": "操作の履歴を記録しない (元に戻す/やり直しを使わない)。追跡ファイルが非常に多いリポジトリで、書き込み操作を最速にしたいとき",
-  "tip_undo_op": "元に戻す: {op}",
-  "tip_redo_op": "やり直し: {op}"
+  "tip_undo_op": "元に戻す: {op} (Ctrl+Z)",
+  "tip_redo_op": "やり直し: {op} (Ctrl+Y)",
+  "ok": "OK",
+  "dialog_suppressed_note": "ブラウザの設定で確認ダイアログが表示されないため、ここで確認します。"
 }

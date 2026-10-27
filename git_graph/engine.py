@@ -7,13 +7,12 @@
 #
 # - 競合などで途中停止した merge / rebase / cherry-pick / revert は、完了または中断されるまでを1つの操作として扱う。
 # - push / push-tag / リモートブランチ削除などリモート側を変える操作は履歴に積まない (戻せないため)。
-# - 履歴は .git/git_graph_undo.json に保存し、サーバーを再起動しても残る。
+# - 履歴はメモリ上だけに持つ (サーバーを再起動すると消える)。
 # - 作業ツリーは「追跡ファイルの内容」だけを退避する (変更のあるファイルの blob と小さなコミット1つ。サイズは変更量に比例)。
 #   管理外ファイルの中身と index は退避しない。管理外ファイルは名前だけ記録し、元に戻すときに消してよいファイルの判定に使う。
-#   退避した tree は refs/git_graph/undo/ 以下の ref で gc から守る。
+#   退避した tree は refs/git_graph/undo/ 以下の ref で gc から守り、その ref は起動時と終了時に cleanup() で消す。
 #
 # 依存の向き: gitstate より上、server より下 (機能モジュールの API を呼ぶのは server)。
-import json
 import os
 import shutil
 import subprocess
@@ -28,7 +27,7 @@ from .routing import route
 HIST_LIMIT = 30                       # 残す履歴の数 (古いものから捨てる)
 UNTRACKED_NAMES_LIMIT = 5000          # 管理外ファイルの名前をこれ以上記録しない (超えたら、元に戻すときに何も消さない)
 REF_PREFIX = "refs/git_graph/"
-HIST_FILE = "git_graph_undo.json"
+RESCUE_KEEP_SECONDS = 14 * 24 * 3600  # 上書きして元に戻したときの退避 (refs/git_graph/rescue/) を残す期間
 
 # 書き込み API ごとの扱い: パス -> (操作名, 作業ツリーに触れるか)。作業ツリーに触れるかは False / True /
 # "names" (管理外ファイルが追跡対象になりうる操作。管理外ファイルの名前も記録する。コミットなど)。
@@ -222,25 +221,28 @@ def _make_entry(before, after, meta):
 
 # ---------------------------------------------------------------- 履歴の保存
 
+_HISTORY = {}  # リポジトリのパス -> 履歴 (メモリ上だけ)
+
+
 def _load():
-    try:
-        with open(_git_path(HIST_FILE), encoding="utf-8") as f:
-            h = json.load(f)
-        if isinstance(h, dict) and isinstance(h.get("entries"), list) and isinstance(h.get("cursor"), int):
-            h["cursor"] = max(0, min(h["cursor"], len(h["entries"])))
-            h.setdefault("pending", None)
-            return h
-    except (OSError, ValueError):
-        pass
-    return {"v": 1, "cursor": 0, "entries": [], "pending": None}
+    return _HISTORY.setdefault(state.REPO, {"cursor": 0, "entries": [], "pending": None})
 
 
-def _save(h):
-    path = _git_path(HIST_FILE)
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(h, f, ensure_ascii=False)
-    os.replace(tmp, path)
+def cleanup():
+    """退避用の ref (refs/git_graph/undo/) と、メモリ上の履歴を消す。起動時と終了時に呼ぶ。
+    refs/git_graph/rescue/ は、上書きして元に戻したときに失われる作業ツリーを守るものなので、一定期間は残す。"""
+    _HISTORY.pop(state.REPO, None)
+    now, doomed = time.time(), []
+    for ref in _text(["for-each-ref", "--format=%(refname)", REF_PREFIX]).split():
+        if ref.startswith(REF_PREFIX + "rescue/"):
+            try:
+                if now - int(ref.rsplit("/", 1)[1]) < RESCUE_KEEP_SECONDS:
+                    continue
+            except ValueError:
+                pass
+        doomed.append(ref)
+    if doomed:
+        _run(["update-ref", "--stdin"], input="".join(f"delete {r}\n" for r in doomed).encode(), check=False)
 
 
 def _keep_targets(entry):
@@ -325,14 +327,12 @@ def _finish(hist, meta, busy_before, before):
     if in_progress():  # まだ途中 (競合で停止中): 完了か中断までは履歴に積まない
         if not busy_before:
             hist["pending"] = {"before": before, "meta": meta}
-            _save(hist)
         return
     after = take(meta["touches_wt"])
     hist["pending"] = None
     entry = _make_entry(base, after, meta)
     if entry:
         _push(hist, entry)
-    _save(hist)
 
 
 # ---------------------------------------------------------------- undo / redo
@@ -494,7 +494,6 @@ def _move(direction, force):
         _run(["update-ref", f"{REF_PREFIX}rescue/{int(time.time())}", rescue], check=False)
     _apply(entry, t, cur)
     h["cursor"] += direction
-    _save(h)
     return entry, rescue
 
 
@@ -552,4 +551,4 @@ def api_redo(body):
     return {"ok": True, "message": tr("redo_done", op=_label(entry)) + (" " + tr("undo_rescued", ref=rescue[:7]) if rescue else "")}
 
 
-__all__ = ["IGNORED", "WRITE_OPS", "api_redo", "api_undo", "api_undo_history", "in_progress", "run", "take", "write_op_for"]
+__all__ = ["cleanup", "IGNORED", "WRITE_OPS", "api_redo", "api_undo", "api_undo_history", "in_progress", "run", "take", "write_op_for"]

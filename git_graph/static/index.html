@@ -109,6 +109,15 @@ __FAVICON__
     <button class="abtn danger" id="coDiscardBtn" data-co="discard">{{discard_checkout}}</button>
     <button class="abtn" data-co="cancel">{{cancel}}</button></div>
 </div></div>
+<div id="confirmModal" hidden><div class="comodal" role="dialog" aria-modal="true" aria-labelledby="confirmModalMsg">
+  <div id="confirmModalMsg" class="confirm-msg"></div>
+  <input type="text" id="confirmModalInput" hidden>
+  <div class="hint">{{dialog_suppressed_note}}</div>
+  <div class="arow">
+    <button class="abtn" id="confirmModalOk">{{ok}}</button>
+    <button class="abtn" id="confirmModalCancel">{{cancel}}</button>
+  </div>
+</div></div>
 <div id="quitModal" hidden><div class="comodal" role="dialog" aria-modal="true" aria-labelledby="quitModalTitle">
   <div><b id="quitModalTitle">{{quit_modal_title}}</b></div>
   <div class="arow">

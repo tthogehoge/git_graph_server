@@ -1,3 +1,43 @@
+// ブラウザの「このページでこれ以上ダイアログを表示しない」対策。
+// 抑止されると confirm() が即座に false、prompt() が null を返し、確認が必要な操作が何もできなくなる。
+// 人間には不可能な速さで戻ってきたら抑止とみなし、ページ内のモーダルで確認して、承認された操作をもう一度実行する
+// (承認は短時間だけ覚えておくので、再実行された操作は同じ確認をそのまま通る)。
+const nativeConfirm = window.confirm.bind(window), nativePrompt = window.prompt.bind(window);
+const dialogGrants = new Map();  // 種類+メッセージ -> {value, until}
+let lastClickTarget = null, replayingClick = false, dialogPending = null;
+document.addEventListener("click", ev => { if (!replayingClick) lastClickTarget = ev.target; }, true);
+function guardedDialog(kind, msg, def, nativeFn) {
+  const grant = dialogGrants.get(kind + msg);
+  if (grant && grant.until > Date.now()) return grant.value;
+  const t0 = performance.now(), r = nativeFn();
+  if ((kind === "confirm" ? r !== false : r !== null) || performance.now() - t0 > 30) return r;
+  const modal = document.getElementById("confirmModal"), input = document.getElementById("confirmModalInput");
+  document.getElementById("confirmModalMsg").textContent = msg;
+  input.hidden = kind !== "prompt";
+  input.value = def || "";
+  dialogPending = {kind: kind, msg: msg, target: lastClickTarget};
+  modal.hidden = false;
+  (kind === "prompt" ? input : document.getElementById("confirmModalOk")).focus();
+  return kind === "confirm" ? false : null;
+}
+window.confirm = msg => guardedDialog("confirm", String(msg), null, () => nativeConfirm(msg));
+window.prompt = (msg, def) => guardedDialog("prompt", String(msg), def, () => nativePrompt(msg, def));
+function closeConfirmModal(ok) {
+  const p = dialogPending, input = document.getElementById("confirmModalInput");
+  dialogPending = null;
+  document.getElementById("confirmModal").hidden = true;
+  if (!ok || !p || !p.target || !p.target.isConnected) return;
+  dialogGrants.set(p.kind + p.msg, {value: p.kind === "confirm" ? true : input.value, until: Date.now() + 10000});
+  replayingClick = true;
+  try { p.target.click(); } finally { replayingClick = false; }
+}
+document.getElementById("confirmModalOk").addEventListener("click", () => closeConfirmModal(true));
+document.getElementById("confirmModalCancel").addEventListener("click", () => closeConfirmModal(false));
+document.getElementById("confirmModal").addEventListener("keydown", ev => {
+  if (ev.key === "Escape") { ev.preventDefault(); closeConfirmModal(false); }
+  else if (ev.key === "Enter") { ev.preventDefault(); closeConfirmModal(true); }
+});
+
 /*__I18N__*/
 function t(key, values = {}) {  // {name} を values[name] に置き換える (値の中の $ は特別扱いしない)
   let text = key in I18N ? I18N[key] : key;

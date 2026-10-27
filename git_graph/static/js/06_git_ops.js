@@ -331,7 +331,7 @@ function selectCmpB(hash) {
 }
 
 // ---- 元に戻す / やり直し / 操作履歴 (engine.py) ----
-function doUndoRedo(dir) {  // dir: "undo" | "redo"
+function doUndoRedo(dir, quiet) {  // dir: "undo" | "redo"。quiet はショートカットから (確認ダイアログを出さず、結果をステータスに出す)
   const undo = dir === "undo", url = "/api/" + dir;
   closeMenus();
   api("/api/undo-history", {}).then(h => {
@@ -340,7 +340,7 @@ function doUndoRedo(dir) {  // dir: "undo" | "redo"
       setGraphStatus(t(undo ? "undo_nothing" : "redo_nothing"), "error", true);
       return null;
     }
-    if (!confirm(t(undo ? "undo_confirm" : "redo_confirm", {op: label}))) return null;
+    if (!quiet && !confirm(t(undo ? "undo_confirm" : "redo_confirm", {op: label}))) return null;
     setGraphStatus(t(undo ? "undo_busy" : "redo_busy"), "progress");
     return post(url, {}).then(r => {  // 操作のあとに作業ツリーが変わっていたら、上書きしてよいか確認する
       if (!r.worktree_changed) return r;

@@ -334,6 +334,27 @@ class EngineTests(unittest.TestCase):
             state.OPTS = saved
         self.assertEqual((res["can_undo"], res["can_redo"], res["entries"]), (False, False, []))
 
+    def test_history_is_memory_only_and_cleanup_removes_refs(self):
+        self.write("tracked.txt", "edit\n")
+        self.do("/api/discard", {"paths": ["tracked.txt"]})
+        self.assertTrue(self.git("for-each-ref", "refs/git_graph/undo/").strip())
+        self.assertFalse(os.path.exists(os.path.join(self.repo, ".git", "git_graph_undo.json")))  # ファイルには保存しない
+        engine.cleanup()  # 起動時・終了時
+        self.assertEqual(self.git("for-each-ref", "refs/git_graph/").strip(), "")
+        self.assertEqual(engine._load()["entries"], [])
+        with self.assertRaises(UserError):
+            self.undo()
+
+    def test_cleanup_keeps_recent_rescue_refs_and_drops_old_ones(self):
+        import time
+        now = int(time.time())
+        recent, old = f"refs/git_graph/rescue/{now - 3600}", f"refs/git_graph/rescue/{now - engine.RESCUE_KEEP_SECONDS - 3600}"
+        for ref in (recent, old):
+            self.git("update-ref", ref, self.head)
+        engine.cleanup()
+        self.assertTrue(self.ref_exists(recent))   # 上書きして戻したときの退避は、しばらく残す
+        self.assertFalse(self.ref_exists(old))
+
     def test_history_is_limited(self):
         for i in range(engine.HIST_LIMIT + 5):
             self.do("/api/tag", {"hash": self.head, "name": f"t{i}"})

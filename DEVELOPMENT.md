@@ -62,7 +62,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.test_git_graph_server.InputV
 | `git_graph/app_state.py` | 対象リポジトリ、起動オプション、書き込み可否、worktree 状態、HTTP サーバーなどのプロセス共有状態。 |
 | `git_graph/gitrun.py` | Git コマンド実行、コミット/ref/ホストの検証、書き込みコマンド、リモート通信と認証情報の処理。 |
 | `git_graph/gitstate.py` | マージ中・HEAD の有無・`git status` / `--numstat` の解析など、リポジトリの状態を調べる共通関数。機能モジュールから共通で使われる低レベルの層。 |
-| `git_graph/engine.py` | git 操作エンジン。リポジトリを変更する POST API はすべて `server.py` の `do_POST` からここの `engine.run()` を通り、操作の前後で ref / HEAD / stash 一覧 / ローカル config / 作業ツリーと index の状態を記録して、その差分を履歴 (`.git/git_graph_undo.json`) に積みます。元に戻す・やり直し (`/api/undo`、`/api/redo`、`/api/undo-history`) はこの差分を逆向き・順方向に適用するだけなので、操作ごとに逆操作を書く必要はありません。作業ツリーの退避は `refs/git_graph/undo/` の ref で gc から守ります。 |
+| `git_graph/engine.py` | git 操作エンジン。リポジトリを変更する POST API はすべて `server.py` の `do_POST` からここの `engine.run()` を通り、操作の前後で ref / HEAD / stash 一覧 / ローカル config / 作業ツリーと index の状態を記録して、その差分をメモリ上の履歴に積みます (ファイルには保存せず、再起動すると消えます)。元に戻す・やり直し (`/api/undo`、`/api/redo`、`/api/undo-history`) はこの差分を逆向き・順方向に適用するだけなので、操作ごとに逆操作を書く必要はありません。作業ツリーの退避は `refs/git_graph/undo/` の ref で gc から守り、この ref は起動時・終了時・再起動時に `cleanup()` で消します (上書きして戻したときの `refs/git_graph/rescue/` だけは14日間残します)。 |
 | `git_graph/graph.py` | Git の履歴・ref を読み込み、表示対象ノードとエッジを決定し、Graphviz の DOT/SVG 情報を生成。 |
 | `git_graph/history.py` | ログ・ブランチ・タグ・reflog・stash 一覧・コミット詳細・比較・差分を返すデータ API。 |
 | `git_graph/external.py` | 外部エディタ / 外部差分ツールの起動 (`/api/open-editor`、`/api/open-diff`)。`--desktop` かつ書き込み有効かつループバックのときだけ動き、設定ファイル (`git_graph_server.json`) のコマンド配列を、シェルを通さずに実行します。コミットやインデックスの内容は読み取り専用の一時ファイルにして渡し、作業ツリーのファイルはそのまま渡します。 |

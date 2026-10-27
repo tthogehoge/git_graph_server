@@ -46,6 +46,15 @@ document.getElementById("backBtn").addEventListener("click", () => history.back(
 document.getElementById("undoBtn").addEventListener("click", () => doUndoRedo("undo"));
 document.getElementById("redoBtn").addEventListener("click", () => doUndoRedo("redo"));
 updateUndoButtons();
+document.addEventListener("keydown", ev => {  // Ctrl+Z / Ctrl+Y (Ctrl+Shift+Z) で元に戻す / やり直し。入力欄やダイアログの操作中は、ブラウザ標準の動作に任せる
+  if (!(ev.ctrlKey || ev.metaKey) || ev.altKey || ev.repeat) return;
+  const key = ev.key.toLowerCase(), undo = key === "z" && !ev.shiftKey, redo = key === "y" || (key === "z" && ev.shiftKey);
+  if (!undo && !redo) return;
+  if (ev.target.closest && ev.target.closest("input, textarea, select, [contenteditable]")) return;
+  if (document.querySelector("#quitModal:not([hidden]), #coModal:not([hidden]), #actionModal:not([hidden]), #confirmModal:not([hidden])")) return;
+  ev.preventDefault();
+  if (!document.getElementById(undo ? "undoBtn" : "redoBtn").disabled) doUndoRedo(undo ? "undo" : "redo", true);
+});
 document.getElementById("quitBtn").addEventListener("click", () => {  // サーバーを終了または再起動する
   document.getElementById("quitModal").hidden = false;
   document.getElementById("quitModalQuit").focus();

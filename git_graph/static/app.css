@@ -83,10 +83,12 @@ html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-s
   .abtn:hover { background: #d6e2fb; } .abtn:disabled { opacity: .5; cursor: default; }
   .detail-files { margin-left: 8px; color: #06c; font-size: 13px; font-weight: normal; text-decoration: none; }
   .detail-files:hover { text-decoration: underline; }
-  #coModal, #actionModal, #quitModal { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+  #coModal, #actionModal, #quitModal, #confirmModal { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: flex; align-items: center; justify-content: center; z-index: 1000; }
   #coModal[hidden] { display: none; }
   #actionModal[hidden] { display: none; }
-  #quitModal[hidden] { display: none; }
+  #quitModal[hidden], #confirmModal[hidden] { display: none; }
+  .confirm-msg { white-space: pre-wrap; margin-bottom: 8px; }
+  #confirmModalInput { width: 100%; box-sizing: border-box; margin-bottom: 8px; }
   .comodal { background: #fff; border-radius: 6px; padding: 14px 16px; max-width: 560px; max-height: 80vh; overflow: auto; box-shadow: 0 4px 20px rgba(0,0,0,.3); }
   .action-dialog { background: #fff; border-radius: 6px; padding: 14px 16px; width: min(420px, calc(100vw - 48px)); max-height: 80vh; overflow: auto; box-shadow: 0 4px 20px rgba(0,0,0,.3); }
   .action-dialog h2 { font-size: 16px; margin: 0 0 12px; }

@@ -630,8 +630,8 @@
   "undo": "Undo",
   "redo": "Redo",
   "op_history": "Operation history",
-  "tip_undo": "Undo the last git operation",
-  "tip_redo": "Redo the undone operation",
+  "tip_undo": "Undo the last git operation (Ctrl+Z)",
+  "tip_redo": "Redo the undone operation (Ctrl+Y)",
   "tip_op_history": "Show the history of git operations made in this app",
   "op_history_title": "Operation history",
   "op_history_help": "Write operations made in this app (newest first). Dimmed rows were undone. Undo restores refs, tracked file contents, stashes and config; untracked files and the staging area are not restored. Operations that change a remote, such as push, are not recorded.",
@@ -655,6 +655,8 @@
   "undo_reason_snapshot_incomplete": "tracked files could not be saved completely",
   "undo_failed": "Failed: {error}",
   "cli_help_no_undo": "Do not record operations (disables undo/redo). Makes write operations fastest in repositories with a very large number of tracked files",
-  "tip_undo_op": "Undo: {op}",
-  "tip_redo_op": "Redo: {op}"
+  "tip_undo_op": "Undo: {op} (Ctrl+Z)",
+  "tip_redo_op": "Redo: {op} (Ctrl+Y)",
+  "ok": "OK",
+  "dialog_suppressed_note": "Your browser is blocking confirmation dialogs, so the confirmation is shown here."
 }

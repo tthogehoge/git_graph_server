@@ -68,6 +68,14 @@ def api_restart(body):
     """再起動要求を返す。サーバーの停止と os.execv による再起動は HTTP 応答の送信後に行う。"""
     return {"ok": True}
 
+def cleanup_engine():
+    """元に戻す用の履歴と退避 ref を消す (起動時・終了時・再起動時)。失敗しても起動や終了は妨げない。"""
+    try:
+        with _write_lock:
+            engine.cleanup()
+    except Exception:
+        pass
+
 POST_ROUTES = {path: handler for (method, path), handler in ROUTES.items() if method == "POST"}
 
 class Handler(BaseHTTPRequestHandler):
@@ -166,6 +174,7 @@ class Handler(BaseHTTPRequestHandler):
                     # os.execv はプロセスを丸ごと置き換えるので shutdown() 不要。
                     # daemon スレッドだとメインスレッド終了後に殺されるため、daemon=False にする。
                     def _do_restart():
+                        cleanup_engine()
                         hook = getattr(state, "RESTART_HOOK", None)  # pywebview など、サーバーを同じプロセスで動かしているとき
                         if hook:
                             hook()
@@ -250,6 +259,7 @@ def main():
         print(dot_text_for_cli(state.OPTS))
         return
 
+    cleanup_engine()  # 前回の異常終了などで残った退避 ref を片付ける
     fill_template(HTML_TEMPLATE), fill_template(FILES_PAGE)  # 未定義の翻訳キーがあれば、起動時に KeyError で気づけるようにする
     wanted = state.OPTS.port if state.OPTS.port is not None else DEFAULT_PORT
     try:
@@ -277,7 +287,8 @@ def main():
         pass
     finally:
         server.server_close()
+        cleanup_engine()
 
 
 __all__ = ["DEFAULT_PORT", "Forbidden", "Handler", "POST_ROUTES", "QuietServer", "ROUTES",
-           "api_restart", "api_shutdown", "main", "route"]
+           "api_restart", "api_shutdown", "cleanup_engine", "main", "route"]
