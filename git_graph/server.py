@@ -41,6 +41,7 @@ from .history import (  # noqa: F401
     api_reflog, api_stash_list, api_tags,
 )
 from .external import DEFAULT_CONFIG_PATH, load_config
+from . import engine
 from .pages import render_diff_page, render_files_page
 from .wip import api_status, api_wip_commit  # noqa: F401
 
@@ -158,7 +159,7 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(body, dict):
                 raise ValueError("bad body")
             with _write_lock:
-                res = handler(body)
+                res = engine.run(path, handler, body)  # リポジトリを変更する操作は、状態の前後を記録するエンジン経由で実行する
             self._send(200, "application/json", json.dumps(res, ensure_ascii=False))
             if path in ("/api/shutdown", "/api/restart") and state.SERVER is not None:
                 if path == "/api/restart":

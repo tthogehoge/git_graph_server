@@ -1,0 +1,312 @@
+import os
+import subprocess
+import tempfile
+import unittest
+
+import git_graph_server as app  # noqa: F401  (各モジュールの @route 登録を実行させる)
+from git_graph import app_state as state
+from git_graph import engine
+from git_graph.i18n import UserError
+from git_graph.routing import ROUTES
+
+
+class RouteTableTests(unittest.TestCase):
+    def test_every_post_route_is_classified(self):
+        """新しい書き込み API を足したら、engine.WRITE_OPS か engine.IGNORED に登録する (登録漏れの検出)。"""
+        posts = {path for (method, path) in ROUTES if method == "POST"}
+        unknown = posts - set(engine.WRITE_OPS) - engine.IGNORED
+        self.assertEqual(unknown, set())
+        stale = (set(engine.WRITE_OPS) | engine.IGNORED) - posts
+        self.assertEqual(stale, set())
+
+    def test_remote_side_operations_are_not_recorded(self):
+        self.assertIsNone(engine.write_op_for("/api/push", {}))
+        self.assertIsNone(engine.write_op_for("/api/ref-delete", {"kind": "remote-branch", "name": "origin/x"}))
+        self.assertEqual(engine.write_op_for("/api/ref-delete", {"kind": "branch"}), ("delete_ref", False))
+        self.assertEqual(engine.write_op_for("/api/not-listed", {}), ("other", True))  # 未登録は安全側 (作業ツリーも退避)
+
+
+class EngineTests(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.repo = self.temp_dir.name
+        self.saved = (state.REPO, state.WIP_ENABLED, state.HAS_WORKTREE)
+        state.REPO, state.WIP_ENABLED, state.HAS_WORKTREE = self.repo, True, True
+        self.git("init", "-q")
+        self.git("config", "user.name", "Test User")
+        self.git("config", "user.email", "test@example.com")
+        self.git("branch", "-M", "main")
+        self.write("tracked.txt", "initial\n")
+        self.git("add", "tracked.txt")
+        self.git("commit", "-q", "-m", "initial commit")
+        self.head = self.git("rev-parse", "HEAD").strip()
+
+    def tearDown(self):
+        state.REPO, state.WIP_ENABLED, state.HAS_WORKTREE = self.saved
+        self.temp_dir.cleanup()
+
+    def git(self, *args):
+        return subprocess.check_output(["git", "-C", self.repo, *args], text=True, encoding="utf-8")
+
+    def write(self, path, content):
+        full = os.path.join(self.repo, path)
+        os.makedirs(os.path.dirname(full), exist_ok=True)
+        with open(full, "w", encoding="utf-8") as f:
+            f.write(content)
+
+    def read(self, path):
+        with open(os.path.join(self.repo, path), encoding="utf-8") as f:
+            return f.read()
+
+    def exists(self, path):
+        return os.path.exists(os.path.join(self.repo, path))
+
+    def ref_exists(self, ref):
+        return subprocess.run(["git", "-C", self.repo, "show-ref", "--verify", "--quiet", ref]).returncode == 0
+
+    def do(self, path, body):
+        """server.do_POST と同じく engine.run を通して API を実行する。"""
+        return engine.run(path, ROUTES[("POST", path)], body)
+
+    def undo(self, **body):
+        return ROUTES[("POST", "/api/undo")](body)
+
+    def redo(self, **body):
+        return ROUTES[("POST", "/api/redo")](body)
+
+    def commit_file(self, name, content, msg):
+        self.write(name, content)
+        self.git("add", name)
+        self.git("commit", "-q", "-m", msg)
+        return self.git("rev-parse", "HEAD").strip()
+
+    # ---- ref 操作
+
+    def test_branch_create_undo_redo(self):
+        self.do("/api/branch", {"hash": self.head, "name": "feature"})
+        self.assertTrue(self.ref_exists("refs/heads/feature"))
+        self.assertEqual(len(engine._load()["entries"]), 1)
+
+        self.assertTrue(self.undo()["ok"])
+        self.assertFalse(self.ref_exists("refs/heads/feature"))
+        self.assertTrue(self.redo()["ok"])
+        self.assertEqual(self.git("rev-parse", "refs/heads/feature").strip(), self.head)
+
+    def test_branch_delete_and_rename_undo(self):
+        self.do("/api/branch", {"hash": self.head, "name": "old-name"})
+        self.do("/api/branch-rename", {"old": "old-name", "new": "new-name"})
+        self.assertTrue(self.ref_exists("refs/heads/new-name"))
+        self.undo()
+        self.assertTrue(self.ref_exists("refs/heads/old-name"))
+        self.assertFalse(self.ref_exists("refs/heads/new-name"))
+        self.do("/api/ref-delete", {"kind": "branch", "name": "old-name"})
+        self.assertFalse(self.ref_exists("refs/heads/old-name"))
+        self.undo()
+        self.assertEqual(self.git("rev-parse", "refs/heads/old-name").strip(), self.head)
+
+    def test_nothing_changed_records_nothing(self):
+        with self.assertRaises(UserError):
+            self.do("/api/branch", {"hash": self.head, "name": "bad name"})  # 失敗して何も変わらない
+        self.assertEqual(engine._load()["entries"], [])
+        with self.assertRaises(UserError):
+            self.undo()
+
+    def test_new_operation_discards_redo_tail(self):
+        self.do("/api/branch", {"hash": self.head, "name": "a"})
+        self.undo()
+        self.do("/api/branch", {"hash": self.head, "name": "b"})
+        with self.assertRaises(UserError):
+            self.redo()
+        self.assertEqual([e["detail"] for e in engine._load()["entries"]], ["b"])
+
+    # ---- 作業ツリー
+
+    def test_commit_undo_keeps_untracked_file_untracked(self):
+        self.write("new.txt", "brand new\n")
+        self.write("tracked.txt", "edited\n")
+        self.do("/api/wip-commit", {"paths": ["new.txt", "tracked.txt"], "message": "c2"})
+        self.assertEqual(self.git("status", "--porcelain").strip(), "")
+        self.undo()
+        self.assertEqual(self.git("rev-parse", "HEAD").strip(), self.head)
+        self.assertEqual(self.read("new.txt"), "brand new\n")  # コミットを戻しても、ファイルは消えない
+        self.assertEqual(self.read("tracked.txt"), "edited\n")
+        self.assertIn("?? new.txt", self.git("status", "--porcelain"))
+
+    def test_hard_reset_undo_restores_dirty_worktree_and_index(self):
+        second = self.commit_file("second.txt", "two\n", "second")
+        self.write("tracked.txt", "staged edit\n")
+        self.git("add", "tracked.txt")
+        self.write("second.txt", "unstaged edit\n")
+        self.write("scratch.txt", "untracked\n")
+        before_status = self.git("status", "--porcelain")
+
+        self.do("/api/reset", {"hash": self.head, "mode": "hard"})
+        self.assertFalse(self.exists("second.txt"))
+        self.assertEqual(self.read("tracked.txt"), "initial\n")
+
+        self.undo()
+        self.assertEqual(self.git("rev-parse", "HEAD").strip(), second)
+        self.assertEqual(self.read("tracked.txt"), "staged edit\n")
+        self.assertEqual(self.read("second.txt"), "unstaged edit\n")
+        self.assertEqual(self.read("scratch.txt"), "untracked\n")
+        self.assertEqual(self.git("status", "--porcelain"), before_status)  # ステージ済み/未ステージの区別まで元どおり
+
+        self.redo()
+        self.assertEqual(self.git("rev-parse", "HEAD").strip(), self.head)
+        self.assertFalse(self.exists("second.txt"))
+
+    def test_discard_untracked_file_is_undoable(self):
+        self.write("scratch.txt", "precious\n")
+        self.do("/api/discard", {"paths": ["scratch.txt"]})
+        self.assertFalse(self.exists("scratch.txt"))
+        self.undo()
+        self.assertEqual(self.read("scratch.txt"), "precious\n")
+
+    def test_checkout_branch_undo_returns_to_previous_branch(self):
+        self.do("/api/branch", {"hash": self.head, "name": "other"})
+        self.do("/api/checkout", {"branch": "other"})
+        self.assertEqual(self.git("symbolic-ref", "--short", "HEAD").strip(), "other")
+        self.undo()
+        self.assertEqual(self.git("symbolic-ref", "--short", "HEAD").strip(), "main")
+
+    def test_stash_push_and_drop_undo(self):
+        self.write("tracked.txt", "wip\n")
+        self.do("/api/stash-push", {})
+        self.assertEqual(self.read("tracked.txt"), "initial\n")
+        stash = self.git("rev-parse", "refs/stash").strip()
+        self.undo()
+        self.assertEqual(self.read("tracked.txt"), "wip\n")
+        self.assertEqual(self.git("stash", "list").strip(), "")
+        self.redo()
+        self.assertEqual(self.git("rev-parse", "refs/stash").strip(), stash)
+
+        self.do("/api/stash", {"hash": stash, "op": "drop"})
+        self.assertEqual(self.git("stash", "list").strip(), "")
+        self.undo()
+        self.assertEqual(self.git("rev-parse", "refs/stash").strip(), stash)  # drop したstashも一覧ごと戻る
+
+    # ---- 途中停止 (競合)
+
+    def make_conflict(self):
+        self.git("checkout", "-q", "-b", "side")
+        self.commit_file("tracked.txt", "side\n", "side change")
+        self.git("checkout", "-q", "main")
+        self.commit_file("tracked.txt", "main\n", "main change")
+        return self.git("rev-parse", "side").strip()
+
+    def test_clean_merge_undo(self):
+        self.git("checkout", "-q", "-b", "side")
+        side = self.commit_file("side.txt", "s\n", "side")
+        self.git("checkout", "-q", "main")
+        main = self.commit_file("main.txt", "m\n", "main")
+        self.do("/api/merge", {"hash": side, "no_ff": True})
+        self.assertNotEqual(self.git("rev-parse", "HEAD").strip(), main)
+        self.undo()
+        self.assertEqual(self.git("rev-parse", "HEAD").strip(), main)
+        self.assertFalse(self.exists("side.txt"))
+
+    def test_conflicting_merge_is_one_entry_until_it_finishes(self):
+        side = self.make_conflict()
+        main = self.git("rev-parse", "HEAD").strip()
+        try:
+            self.do("/api/merge", {"hash": side})
+        except ValueError:
+            pass
+        self.assertTrue(engine.in_progress())
+        h = engine._load()
+        self.assertEqual(h["entries"], [])          # 途中は履歴に積まない
+        self.assertIsNotNone(h["pending"])
+        with self.assertRaises(UserError):          # 途中では undo できない
+            self.undo()
+
+        self.do("/api/abort", {})                    # 中断すれば元の状態なので、履歴は空のまま
+        h = engine._load()
+        self.assertEqual((h["entries"], h["pending"]), ([], None))
+        self.assertEqual(self.git("rev-parse", "HEAD").strip(), main)
+
+    def test_resolved_merge_becomes_single_undoable_entry(self):
+        side = self.make_conflict()
+        main = self.git("rev-parse", "HEAD").strip()
+        try:
+            self.do("/api/merge", {"hash": side})
+        except ValueError:
+            pass
+        self.write("tracked.txt", "resolved\n")
+        self.do("/api/wip-commit", {"paths": ["tracked.txt"], "message": "merge side"})
+        h = engine._load()
+        self.assertEqual([e["op"] for e in h["entries"]], ["merge"])  # 最初の操作の名前で1件にまとまる
+        self.undo()
+        self.assertEqual(self.git("rev-parse", "HEAD").strip(), main)
+        self.assertEqual(self.read("tracked.txt"), "main\n")
+
+    # ---- 安全装置
+
+    def test_undo_refused_when_ref_moved_by_someone_else(self):
+        self.do("/api/branch", {"hash": self.head, "name": "feature"})
+        second = self.commit_file("x.txt", "x\n", "x")
+        self.git("branch", "-f", "feature", second)  # このアプリの外で動かされた
+        with self.assertRaises(UserError) as ctx:
+            self.undo()
+        self.assertEqual(ctx.exception.key, "undo_state_changed")
+        self.assertEqual(self.git("rev-parse", "feature").strip(), second)  # 何も壊していない
+
+    def test_worktree_edit_after_operation_needs_force_and_is_rescued(self):
+        self.write("tracked.txt", "edit1\n")
+        self.do("/api/discard", {"paths": ["tracked.txt"]})
+        self.write("tracked.txt", "edit2\n")  # discard のあとに、また編集した
+        r = self.undo()
+        self.assertTrue(r["worktree_changed"])
+        self.assertEqual(self.read("tracked.txt"), "edit2\n")  # 確認なしでは上書きしない
+        r = self.undo(force=True)
+        self.assertTrue(r["ok"])
+        self.assertEqual(self.read("tracked.txt"), "edit1\n")
+        rescued = self.git("for-each-ref", "refs/git_graph/rescue/").strip()
+        self.assertTrue(rescued)  # 上書きした edit2 は退避されている
+
+    def test_snapshot_refs_are_kept_and_dropped_with_history(self):
+        self.write("tracked.txt", "edit\n")
+        self.do("/api/discard", {"paths": ["tracked.txt"]})
+        self.assertTrue(self.git("for-each-ref", "refs/git_graph/undo/").strip())
+        self.undo()
+        self.do("/api/branch", {"hash": self.head, "name": "b"})  # redo の先を捨てる
+        self.assertEqual(self.git("for-each-ref", "refs/git_graph/undo/").strip(), "")
+
+    def test_history_is_limited(self):
+        for i in range(engine.HIST_LIMIT + 5):
+            self.do("/api/tag", {"hash": self.head, "name": f"t{i}"})
+        self.assertEqual(len(engine._load()["entries"]), engine.HIST_LIMIT)
+
+    def test_history_api_lists_entries_newest_first(self):
+        self.do("/api/branch", {"hash": self.head, "name": "one"})
+        self.do("/api/tag", {"hash": self.head, "name": "two"})
+        self.undo()
+        res = ROUTES[("GET", "/api/undo-history")]({})
+        self.assertEqual([e["done"] for e in res["entries"]], [False, True])
+        self.assertTrue(res["can_undo"])
+        self.assertTrue(res["can_redo"])
+        self.assertIn("one", res["next_undo"])
+        self.assertIn("two", res["next_redo"])
+
+    def test_recording_failure_never_blocks_the_operation(self):
+        original = engine.take
+        engine.take = lambda with_worktree: (_ for _ in ()).throw(RuntimeError("boom"))
+        try:
+            self.do("/api/branch", {"hash": self.head, "name": "still-works"})
+        finally:
+            engine.take = original
+        self.assertTrue(self.ref_exists("refs/heads/still-works"))
+
+    def test_remote_add_undo_removes_config_and_tracking_refs(self):
+        with tempfile.TemporaryDirectory() as other:
+            subprocess.check_call(["git", "clone", "-q", self.repo, other])
+            self.do("/api/remote-add", {"name": "up", "url": other, "fetch": True})
+            self.assertIn("up", self.git("remote").split())
+            self.undo()
+            self.assertNotIn("up", self.git("remote").split())
+            self.redo()
+            self.assertIn("up", self.git("remote").split())
+            self.assertTrue(self.ref_exists("refs/remotes/up/main"))
+
+
+if __name__ == "__main__":
+    unittest.main()

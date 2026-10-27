@@ -153,6 +153,7 @@ def build_model(opts):
             ref for ref in refs
             if not ref.endswith("/HEAD")
             and ref != "refs/stash"  # stash は下で別扱いにする (親の index / untracked 用コミットまで出さない)
+            and not ref.startswith("refs/git_graph/")  # 元に戻す用の退避 (engine.py)
             and (getattr(opts, "include_tips", False)
                  or ref.startswith(("refs/heads/", "refs/remotes/", "refs/tags/")))
             and (not opts.no_remotes or not ref.startswith("refs/remotes/"))

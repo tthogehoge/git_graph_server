@@ -124,6 +124,7 @@ html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-s
   table.log tr.clickable { cursor: pointer; }
   table.log tr.clickable:hover td { background: #eef; }
   table.log tr.cur td { background: #ffe9a0; }
+  table.log tr.oph-undone td { opacity: .5; }
   table.log tr.clickable.cmpA td { background: #cfe3ff; }
   table.log tr.clickable.cmpB td { background: #ffdcb0; }
   table.log td.graph { position: relative; padding: 0; }
