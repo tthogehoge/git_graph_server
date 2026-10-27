@@ -40,6 +40,17 @@ If no revisions are specified, branches, tags, and `HEAD` are shown. Press `Ctrl
 - Right-click a log row (or a graph node), or click it to open the **Actions** menu, and choose **Set as A** / **Set as B** to pick commits to compare. While a commit is selected, Ctrl+click another commit (a graph node or a log row) to set the selected one as A and the clicked one as B. Click A: / B: to open a branch log containing that commit.
 - The regular **Actions** menu operates on the selected commit, for example creating a branch or tag, or checking it out.
 
+## Undo / Redo
+
+Write operations (creating/deleting branches and tags, checkout, reset, merge, rebase, cherry-pick, stash, commit, fetch/pull, and so on) are recorded before and after they run, so they can be undone later. Use the **Undo** / **Redo** buttons to the right of the Back button in the toolbar, or Ctrl+Z / Ctrl+Y (Ctrl+Shift+Z). Ctrl+Z / Ctrl+Y do not apply while you are typing in an input field. The buttons are disabled when there is nothing to undo or redo (also with `--no-undo` or in read-only mode). The **Operation history** item in the **Other** menu lists the recorded operations.
+
+- **What is restored**: refs such as branches and tags, HEAD, stashes, the local git config, and the contents of tracked files.
+- **What is not restored**: untracked files and the staging area (after an undo the changes are left unstaged), files ignored by `.gitignore`, and anything changed on a remote. Push, tag push and remote branch deletion are not recorded at all. Operations that only change untracked files (such as discarding untracked files) are not recorded either. Stashing is an exception: undoing it brings back untracked files too.
+- A merge / rebase etc. that stops on a conflict is treated as one operation until it is finished or aborted, and cannot be undone midway.
+- If another git command has moved the same refs since the operation, it cannot be undone. If files in the working tree changed after the operation, you are asked to confirm; when you overwrite them, the overwritten state can be brought back with Redo.
+- The history keeps at most 30 operations and lives only in memory (it is lost when the server restarts). What is saved for undo is written to a temporary directory of the OS, not to `.git`, and is removed on exit (nothing is left in `.git`: no objects and no refs). If the server crashes, a temporary directory `git_graph_objects_*` may be left behind.
+- Operations that touch the working tree are a little slower because tracked files are scanned before and after (about 0.1-0.2 s with 20,000 tracked files). In a repository with a very large number of tracked files you can turn recording off with `--no-undo` (undo/redo then become unavailable).
+
 ## AB actions
 
 Select both A and B to show these actions:
@@ -91,6 +102,7 @@ These buttons work only with `--desktop` on a loopback address with writing enab
 | `--merge-max-nodes N` | Cap the total graph nodes when showing merges, newest merges first (0 = unlimited, default 2200) |
 | `--full-layout` | Do not skip Graphviz layout optimization |
 | `--read-only` | Disable write operations |
+| `--no-undo` | Do not record operations (disables undo/redo); makes write operations fastest in repositories with a very large number of tracked files |
 | `--lan` | Allow LAN access and write operations |
 | `--desktop` | For use from a screen on the same PC such as pywebview (shows external editor / diff tool buttons) |
 | `--config FILE` | Config file for the external apps (default: `git_graph_server.json` next to the script) |
@@ -100,7 +112,7 @@ These buttons work only with `--desktop` on a loopback address with writing enab
 
 Write operations are enabled only from localhost by default. `--lan` and `--allow-write` accept unauthenticated requests, so use them only on a trusted network.
 
-Operations such as reset, checkout, and dropping a stash may cause data loss. Back up important repositories and review each operation before running it.
+Operations such as reset, checkout, and dropping a stash may cause data loss. Back up important repositories and review each operation before running it. Undo does not restore untracked files, the staging area, or changes on a remote.
 
 ## Screenshots
 
