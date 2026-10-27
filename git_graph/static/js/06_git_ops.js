@@ -329,3 +329,49 @@ function selectCmpB(hash) {
   saveUiState();
   revealHash(hash);
 }
+
+// ---- 元に戻す / やり直し / 操作履歴 (engine.py) ----
+function doUndoRedo(dir) {  // dir: "undo" | "redo"
+  const undo = dir === "undo", url = "/api/" + dir;
+  closeMenus();
+  api("/api/undo-history", {}).then(h => {
+    const label = undo ? h.next_undo : h.next_redo;
+    if (!(undo ? h.can_undo : h.can_redo) || !label) {
+      setGraphStatus(t(undo ? "undo_nothing" : "redo_nothing"), "error", true);
+      return null;
+    }
+    if (!confirm(t(undo ? "undo_confirm" : "redo_confirm", {op: label}))) return null;
+    setGraphStatus(t(undo ? "undo_busy" : "redo_busy"), "progress");
+    return post(url, {}).then(r => {  // 操作のあとに作業ツリーが変わっていたら、上書きしてよいか確認する
+      if (!r.worktree_changed) return r;
+      setGraphStatus("", "info", true);
+      if (!confirm(t("undo_worktree_force", {msg: r.message}))) return null;
+      setGraphStatus(t(undo ? "undo_busy" : "redo_busy"), "progress");
+      return post(url, {force: true});
+    });
+  }).then(r => {
+    if (!r) { setGraphStatus("", "info", true); return; }
+    setGraphStatus(r.message, "success", true);
+    return Promise.all([loadStashes(), refreshGraph().catch(() => {})]).then(() => {
+      if (curView === "list" && listView.dataset.src === "/api/stash-list") showStashList(true);
+    });
+  }).catch(e => setGraphStatus(t("undo_failed", {error: e.message}), "error", true));
+}
+
+function showOpHistory() {
+  closeMenus();
+  api("/api/undo-history", {}).then(h => {
+    const rows = h.entries.map(e => {
+      const note = e.done ? "" : " (" + t("op_history_undone") + ")",
+            warn = e.undoable ? "" : ' <span class="hint">' + esc(t("op_history_irreversible", {reason: e.problem})) + "</span>";
+      return '<tr class="' + (e.done ? "" : "oph-undone") + '"><td>' + esc(new Date(e.time * 1000).toLocaleString()) +
+        "</td><td>" + esc(e.label) + esc(note) + warn + "</td></tr>";
+    }).join("");
+    const body = rows ? '<table class="log"><tbody>' + rows + "</tbody></table>" : '<div class="hint">' + esc(t("op_history_empty")) + "</div>";
+    listView.innerHTML = "<h2>" + esc(t("op_history_title")) + "</h2>" +
+      '<div class="meta">' + esc(t("op_history_help")) + "</div>" + body;
+    setDocumentTitleFromHtml(esc(t("op_history_title")));
+    showView("list");
+    listView.dataset.src = "";
+  }).catch(e => setGraphStatus(t("undo_failed", {error: e.message}), "error", true));
+}
