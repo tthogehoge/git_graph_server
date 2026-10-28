@@ -3,10 +3,10 @@ import re
 import shutil
 import subprocess
 import sys
-import tempfile
 import threading
 from collections import Counter, defaultdict
 from . import app_state as state
+from . import tmpdir
 from .gitrun import git, resolve_commit, run_git_write
 from .gitstate import (
     has_head, is_cherry_picking, is_merging, is_rebasing, is_reverting, parse_status,
@@ -870,7 +870,7 @@ def api_rebase_i(body):
         return path.replace("\\", "/")
 
     before = git("rev-parse", "HEAD").strip()
-    tmp = tempfile.mkdtemp(prefix="git_graph_rebase_")
+    tmp = tmpdir.make_temp_dir("rebase")
     try:
         lines, pending = [], None  # pending: 直前のグループの reword 用 exec 行
         for act, h, msg in todo:

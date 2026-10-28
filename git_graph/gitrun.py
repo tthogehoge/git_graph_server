@@ -2,8 +2,8 @@ import os
 import re
 import shutil
 import subprocess
-import tempfile
 from . import app_state as state
+from . import tmpdir
 from .i18n import tr, UserError
 
 
@@ -77,7 +77,7 @@ def run_git_net(*args, timeout=None, auth=None, c_locale=False):
     if auth:
         if not isinstance(auth, dict) or not isinstance(auth.get("username", ""), str) or not isinstance(auth.get("password", ""), str):
             raise UserError("auth_invalid")
-        askpass_dir = tempfile.mkdtemp(prefix="git_graph_askpass_")
+        askpass_dir = tmpdir.make_temp_dir("askpass")
         askpass = os.path.join(askpass_dir, "askpass.py")
         with open(askpass, "w", encoding="utf-8") as f:
             f.write("#!/usr/bin/env python3\nimport os, sys\np = (sys.argv[1] if len(sys.argv) > 1 else '').lower()\nprint(os.environ.get('GIT_GRAPH_HTTP_USERNAME' if 'username' in p or 'user' in p else 'GIT_GRAPH_HTTP_PASSWORD', ''))\n")

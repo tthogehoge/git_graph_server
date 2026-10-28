@@ -8,6 +8,7 @@ import tempfile
 import subprocess
 from datetime import datetime, timedelta, timezone
 from . import app_state as state
+from . import tmpdir
 from .gitrun import git, git_bytes, resolve_commit
 from .gitstate import CONFLICT_CODES, has_head, is_cherry_picking, is_merging, is_rebasing, is_reverting
 from .i18n import tr, UserError
@@ -389,7 +390,7 @@ def wip_patch(base=None):
             base = git("rev-parse", "--verify", "--quiet", "HEAD^{commit}").strip()
         except subprocess.CalledProcessError:
             raise UserError("patch_no_head")
-    tmp = tempfile.mkdtemp(prefix="git_graph_patch_")
+    tmp = tmpdir.make_temp_dir("patch")
     try:
         index = os.path.join(tmp, "index")
         real = os.path.join(state.REPO, git("rev-parse", "--git-path", "index").strip())

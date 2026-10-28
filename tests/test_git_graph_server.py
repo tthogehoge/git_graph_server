@@ -131,6 +131,12 @@ class InstanceTempDirTests(unittest.TestCase):
             for kept in (alive, mine, legacy_new, other):
                 self.assertTrue(os.path.exists(kept), kept)
 
+    def test_only_tmpdir_module_creates_temp_directories(self):
+        # 一時ディレクトリはすべて tmpdir.make_temp_dir() を通す (保存時の編集先と同じ場所の一時ファイル mkstemp は別)
+        package = Path(tmpdir.__file__).parent
+        offenders = [p.name for p in package.glob("*.py") if p.name != "tmpdir.py" and "mkdtemp(" in p.read_text(encoding="utf-8")]
+        self.assertEqual(offenders, [])
+
     def test_pid_alive(self):
         self.assertTrue(tmpdir.pid_alive(os.getpid()))
         self.assertFalse(tmpdir.pid_alive(0))
@@ -992,6 +998,19 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertEqual(self.read_file("tracked.txt"), "changed\n")
         self.assertEqual(self.read_file("new.txt"), "new file\n")
         self.assertEqual(self.git("diff", "--cached", "--name-only").strip(), "")  # ステージはしない
+
+    def test_patch_temp_dir_is_made_under_the_instance_directory(self):
+        made = []
+        real = tmpdir.make_temp_dir
+        def spy(kind):
+            path = real(kind)
+            made.append((kind, os.path.dirname(path)))
+            return path
+        self.write_file("tracked.txt", "changed\n")
+        with mock.patch.object(tmpdir, "make_temp_dir", spy):
+            app.patch_download({"hash": ["WIP"]})
+        self.assertEqual(made, [("patch", tmpdir.instance_dir())])
+        self.assertEqual([n for n in os.listdir(tmpdir.instance_dir()) if n.startswith("patch_")], [])  # 使い終わったら消えている
 
     def test_wip_patch_without_changes_is_rejected(self):
         with self.assertRaises(app.UserError):
