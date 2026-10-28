@@ -191,8 +191,10 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
   setA.disabled = setB.disabled = !actionHash;
   setA.textContent = t(actionHash && actionHash === compareAHash ? "unset_a" : "set_as_a");
   setB.textContent = t(actionHash && actionHash === compareBHash ? "unset_b" : "set_as_b");
-  document.getElementById("unsetABtn").hidden = !compareAHash || !compareBHash;
-  document.getElementById("unsetBBtn").hidden = !compareAHash || !compareBHash;
+  // A/B のコミットを右クリックして開いたときは、そのコミットの側の解除だけ出す (A なら A、B なら B)
+  const both = !!compareAHash && !!compareBHash;
+  document.getElementById("unsetABtn").hidden = !both || (!!abMenuHash && abMenuHash !== compareAHash);
+  document.getElementById("unsetBBtn").hidden = !both || (!!abMenuHash && abMenuHash !== compareBHash);
   document.querySelectorAll("#remoteActions button")
     .forEach(el => { el.disabled = !canWrite || (el.dataset.cact === "pull" && !DATA.merge); });
   document.querySelectorAll("#remoteConfigActions button").forEach(el => { el.disabled = !canWrite; });

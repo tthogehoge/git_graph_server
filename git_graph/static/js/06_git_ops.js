@@ -312,7 +312,7 @@ async function doMerge() {
 function selectCmpA(hash) {
   compareAHash = hash;
   if (compareBHash === hash) compareBHash = null;
-  if (compareAHash && compareBHash) { abActOpen = true; cmpActOpen = false; setOtherMenu(false); }
+  if (compareAHash && compareBHash) { abActOpen = true; cmpActOpen = false; abMenuHash = null; setOtherMenu(false); }
   updateCmpClasses();
   saveUiState();
   revealHash(hash);
@@ -324,7 +324,7 @@ function selectCompareHash(slot, hash) {
 function selectCmpB(hash) {
   compareBHash = hash;
   if (compareAHash === hash) compareAHash = null;
-  if (compareAHash && compareBHash) { abActOpen = true; cmpActOpen = false; setOtherMenu(false); }
+  if (compareAHash && compareBHash) { abActOpen = true; cmpActOpen = false; abMenuHash = null; setOtherMenu(false); }
   updateCmpClasses();
   saveUiState();
   revealHash(hash);

@@ -87,7 +87,7 @@ listView.addEventListener("contextmenu", ev => {  // ログ一覧の右クリッ
   ev.preventDefault();
   const h = tr.dataset.h;
   if (compareAHash && compareBHash && (h === compareAHash || h === compareBHash)) {  // A/B の行は AB操作メニュー (グラフのノードと同じ)
-    cmpActOpen = false; abActOpen = true; setOtherMenu(false);
+    cmpActOpen = false; abActOpen = true; setOtherMenu(false); abMenuHash = h;
     updateCmpClasses();
     positionMenuNearPointer(document.getElementById("abActions"), ev);
   } else {
@@ -157,7 +157,7 @@ document.getElementById("compareToolbar").addEventListener("click", ev => {  // 
     }
     const near = document.getElementById("cmpActions").classList.contains("near-pointer");  // 右クリックで開いたメニューか
     selectCompareHash(setBtn.dataset.setCmp, actionHash);  // A/B が揃うと操作メニューは閉じて AB操作メニューが開く
-    if (abActOpen && near) positionMenuNearPointer(document.getElementById("abActions"), ev);
+    if (abActOpen && near) { abMenuHash = actionHash; updateCmpClasses(); positionMenuNearPointer(document.getElementById("abActions"), ev); }  // いまセットしたコミットの解除だけ出す
     else if (!abActOpen) closeMenus();
     return;
   }
@@ -180,6 +180,7 @@ document.getElementById("compareToolbar").addEventListener("click", ev => {  // 
     return;
   }
   if (ev.target.closest("#abActToggle")) {
+    abMenuHash = null;  // ツールバーから開いたときは、A / B どちらの解除も出す
     abActOpen = !abActOpen;
     if (abActOpen) { cmpActOpen = false; setOtherMenu(false); }
     updateCmpClasses();
@@ -251,9 +252,17 @@ document.getElementById("compareToolbar").addEventListener("click", ev => {  // 
 });
 document.addEventListener("click", ev => {  // メニューの外をクリックしたら閉じる
   if (ev.target.closest(".menu-wrap") || ev.target.closest("svg g.node") || ev.target.closest("#panel")) return;  // 右ペインのクリックでは閉じない  // ノードのクリックは onNodeClick が扱う
+  if (ev.target.closest("#graph") && !ev.target.closest("button, a, input, select, label")) { clearSelection(); return; }  // グラフの何もないところをクリック: 選択を解除する
   closeMenus();
 });
-document.addEventListener("keydown", ev => { if (ev.key === "Escape") closeMenus(); });
+document.addEventListener("keydown", ev => {
+  if (ev.key !== "Escape" || ev.defaultPrevented) return;  // ダイアログが Escape を処理したときは何もしない
+  closeMenus();
+  const tag = ev.target && ev.target.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;  // 入力中の Escape では選択を解除しない
+  if (document.querySelector('[id$="Modal"]:not([hidden])')) return;  // ダイアログを開いているあいだも解除しない
+  clearSelection();
+});
 function select(g) {
   if (selected) selected.classList.remove("sel");
   selected = g; g.classList.add("sel");
@@ -264,7 +273,7 @@ function select(g) {
 function onNodeClick(g, n, ev) {
   const openMenu = ev && ev.type === "contextmenu";
   if (openMenu && compareAHash && compareBHash && (n.hash === compareAHash || n.hash === compareBHash)) {
-    cmpActOpen = false; abActOpen = true; setOtherMenu(false);
+    cmpActOpen = false; abActOpen = true; setOtherMenu(false); abMenuHash = n.hash;
     select(g);
     updateCmpClasses();
     positionMenuNearPointer(document.getElementById("abActions"), ev);

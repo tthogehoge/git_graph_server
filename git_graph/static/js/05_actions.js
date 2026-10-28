@@ -1,4 +1,5 @@
 let cmpActOpen = false;
+let abMenuHash = null;  // AB操作メニューを A/B のコミットの右クリックで開いたときの、そのコミット (ツールバーから開いたときは null)
 let abActOpen = false;
 function restoreMenuPosition(menu) {
   menu.classList.remove("near-pointer");
@@ -30,8 +31,15 @@ function closeMenus() {  // 開いているメニュー (操作 / AB操作 / そ
   const changed = cmpActOpen || abActOpen || !document.getElementById("otherActions").hidden;
   cmpActOpen = false;
   abActOpen = false;
+  abMenuHash = null;
   setOtherMenu(false);
   if (changed) updateCmpClasses();
+}
+function clearSelection() {  // 選択 (A / B / 操作対象 / グラフのノード / ログの行) をすべて解除する
+  clearCmp();
+  if (selected) { selected.classList.remove("sel"); selected = null; selectedKey = null; }
+  if (curRow) { curRow.classList.remove("cur"); curRow = null; }
+  closeMenus();
 }
 let stashByHash = {};  // stash のコミットのハッシュ -> stash@{n}
 function loadStashes() {
