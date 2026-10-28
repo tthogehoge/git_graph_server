@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -1469,6 +1470,24 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertEqual(self.git("show", "HEAD:second.txt"), "second\n")
         self.assertEqual(self.git("rev-parse", "HEAD~2").strip(), self.head)
         self.assertEqual(self.git("status", "--porcelain"), "")
+
+    def test_interactive_rebase_does_not_run_sys_executable(self):
+        # PyInstaller の exe では sys.executable がアプリ自身。todo の差し替えにそれを使うと動かない
+        self.write_file("first.txt", "first\n")
+        self.git("add", "first.txt")
+        self.git("commit", "-q", "-m", "first topic commit")
+        self.write_file("second.txt", "second\n")
+        self.git("add", "second.txt")
+        self.git("commit", "-q", "-m", "second topic commit")
+        todo = app.api_rebase_todo({"hash": [self.head]})
+        items = [{"hash": todo["commits"][0]["hash"], "action": "reword", "message": "rewritten first"},
+                 {"hash": todo["commits"][1]["hash"], "action": "pick"}]
+
+        with mock.patch.object(sys, "executable", "/nonexistent/app.exe"):
+            result = app.api_rebase_i({"hash": self.head, "todo": items})
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(self.git("log", "-2", "--format=%s"), "second topic commit\nrewritten first\n")
 
     def make_branch_changing_tracked_file(self, name="other", content="other version\n"):
         """main を動かさずに、tracked.txt を変えたブランチを作る (main へのマージは fast-forward になる)。"""

@@ -667,11 +667,12 @@ def api_rebase_i(body):
         todo_path = os.path.join(tmp, "todo.txt")
         with open(todo_path, "w", encoding="utf-8", newline="\n") as f:
             f.write("\n".join(lines) + "\n")
-        script = os.path.join(tmp, "seq_editor.py")
-        with open(script, "w", encoding="utf-8") as f:
-            f.write("import shutil, sys\nshutil.copyfile(sys.argv[1], sys.argv[2])\n")  # argv[2] が git の todo
+        # todo の差し替えは python ではなく cp で行う。PyInstaller の exe などでは sys.executable が
+        # アプリ自身なので、python のスクリプトのつもりで起動すると、引数がアプリのリポジトリ指定として
+        # 解釈されて「seq_editor.py は git リポジトリではありません」になる。git は sh 経由で editor を呼ぶので、
+        # Windows でも Git for Windows 付属の cp が使える (git が todo のパスを最後に付ける)。
         env = dict(os.environ, GIT_EDITOR=":", GIT_TERMINAL_PROMPT="0",
-                   GIT_SEQUENCE_EDITOR=f'"{fwd(sys.executable)}" "{fwd(script)}" "{fwd(todo_path)}"')
+                   GIT_SEQUENCE_EDITOR=f'cp "{fwd(todo_path)}"')
         r, blocked, stashed = run_resolving(
             lambda c: _git_run(["rebase", "-i", base], c, env), body.get("on_conflict"), rebase_dirty=True)
         if blocked:
