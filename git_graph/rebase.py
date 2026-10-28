@@ -105,6 +105,81 @@ def with_tags_note(message, moved):
     return f"{message} {tr('rebase_tags_moved', n=moved)}" if moved else message
 
 
+def rebase_tag_only_tips(base, onto, tips):
+    """ブランチから到達できないタグ先履歴を onto の上に作り直し、旧新コミット対応表を返す。"""
+    tips = set(tips)
+    if not tips:
+        return {}
+
+    commits = {base}
+    for tip in tips:
+        commits.update(git("rev-list", f"{base}..{tip}").splitlines())
+    if onto in commits:
+        raise ValueError(tr("rebase_failed"))
+
+    children = defaultdict(list)
+    for commit in commits:
+        ps = git("rev-list", "--parents", "-n", "1", commit).split()[1:]
+        if commit != base and len(ps) != 1:
+            raise UserError("rebase_descendants_merges")
+        for parent in ps:
+            if parent in commits:
+                children[parent].append(commit)
+            elif commit != base:
+                raise UserError("rebase_descendants_merges")
+    for value in children.values():
+        value.sort()
+
+    boundaries = {base, *tips}
+    boundaries.update(commit for commit in commits if len(children[commit]) != 1)
+    original_branch = api_head()["branch"]
+    temp = f"git-graph-tag-rebase-{os.getpid()}-{threading.get_ident()}"
+    while subprocess.run(["git", "-C", state.REPO, "show-ref", "--verify", "--quiet",
+                          f"refs/heads/{temp}"]).returncode == 0:
+        temp += "-x"
+
+    mapping = {base: onto}
+    queue = [base]
+    temp_exists = False
+    try:
+        run_git_write("checkout", "-b", temp, base)
+        temp_exists = True
+        while queue:
+            old_base = queue.pop(0)
+            new_base = mapping[old_base]
+            for first in children[old_base]:
+                old_tip = first
+                while old_tip not in boundaries:
+                    old_tip = children[old_tip][0]
+                old_segment = git("rev-list", "--reverse", f"{old_base}..{old_tip}").splitlines()
+                run_git_write("checkout", "-B", temp, old_tip)
+                r = subprocess.run(["git", "-C", state.REPO, "rebase", "--onto", new_base, old_base],
+                                   capture_output=True, text=True, encoding="utf-8", errors="replace")
+                if r.returncode != 0:
+                    if is_rebasing():
+                        subprocess.run(["git", "-C", state.REPO, "rebase", "--abort"], capture_output=True)
+                        raise UserError("rebase_conflict", target=new_base[:7], cmd="git rebase --onto")
+                    raise ValueError((r.stdout + r.stderr).strip() or tr("rebase_failed"))
+                new_tip = git("rev-parse", "HEAD").strip()
+                new_segment = git("rev-list", "--reverse", f"{new_base}..{new_tip}").splitlines()
+                if len(old_segment) != len(new_segment):
+                    raise UserError("rebase_descendants_merges")
+                mapping.update(zip(old_segment, new_segment))
+                mapping[old_tip] = new_tip
+                queue.append(old_tip)
+        run_git_write("checkout", original_branch)
+        run_git_write("branch", "-D", temp)
+        temp_exists = False
+    except Exception:
+        if is_rebasing():
+            subprocess.run(["git", "-C", state.REPO, "rebase", "--abort"], capture_output=True)
+        if temp_exists:
+            subprocess.run(["git", "-C", state.REPO, "checkout", original_branch], capture_output=True)
+            subprocess.run(["git", "-C", state.REPO, "branch", "-D", temp], capture_output=True)
+        raise
+    return {old: new for old, new in mapping.items() if old != base}
+
+
 @route("/api/head")
 def api_head(q=None):
     r = subprocess.run(["git", "-C", state.REPO, "symbolic-ref", "--short", "-q", "HEAD"],
@@ -196,22 +271,44 @@ def api_rebase_range(body):
     head = api_head()
     if not head["branch"]:
         raise UserError("detached_rebase")
-    before = git("rev-parse", "HEAD").strip()
-    old_ids = snapshot_for_tags(f"{a}..{before}")  # A..HEAD のコミットに付いたタグがあれば、付け替えのために変更を控えておく
-    r, blocked, stashed = run_resolving(
-        lambda c: _git_run(["rebase", "--onto", b, a], c), body.get("on_conflict"), rebase_dirty=True)
+    blocked, stashed = resolve_dirty_worktree(body.get("on_conflict"))
     if blocked:
         return blocked
     stash = {"stashed": stashed}
+    before = git("rev-parse", "HEAD").strip()
+    before_commits = set(git("rev-list", before).split())
+    all_branch_commits = set(git("rev-list", "--branches").split())
+    tag_tips = set()
+    a_is_ancestor_of_b = subprocess.run(
+        ["git", "-C", state.REPO, "merge-base", "--is-ancestor", a, b], capture_output=True
+    ).returncode == 0
+    for tag in tag_targets():
+        tip = tag["commit"]
+        if (tip in all_branch_commits
+                or subprocess.run(["git", "-C", state.REPO, "merge-base", "--is-ancestor", a, tip],
+                                  capture_output=True).returncode != 0
+                or (a_is_ancestor_of_b
+                    and subprocess.run(["git", "-C", state.REPO, "merge-base", "--is-ancestor", b, tip],
+                                       capture_output=True).returncode == 0)):
+            continue
+        path_commits = set(git("rev-list", f"{a}..{tip}").split())
+        if path_commits.isdisjoint(before_commits):
+            tag_tips.add(tip)
+    tag_mapping_only = rebase_tag_only_tips(a, b, tag_tips)
+    old_ids = snapshot_for_tags(f"{a}..{before}")  # A..HEAD のコミットに付いたタグがあれば、付け替えのために変更を控えておく
+    r = _git_run(["rebase", "--onto", b, a])
     out = (r.stdout + r.stderr).strip()
     if r.returncode != 0:
         if is_rebasing():
             subprocess.run(["git", "-C", state.REPO, "rebase", "--abort"], capture_output=True)
             raise UserError("rebase_conflict", target=b[:7], cmd="git rebase --onto")
         raise ValueError(with_stash_note(stash, out or tr("rebase_failed")))
+    mapping = tag_mapping(old_ids, f"{b}..HEAD") if old_ids else {}
+    mapping.update(tag_mapping_only)
+    moved = move_tags(mapping)
     if git("rev-parse", "HEAD").strip() == before:
-        return {"ok": True, "message": with_stash_note(stash, tr("rebase_noop", branch=head["branch"], hash=b[:7]))}
-    moved = move_tags(tag_mapping(old_ids, f"{b}..HEAD")) if old_ids else 0
+        message = with_stash_note(stash, tr("rebase_noop", branch=head["branch"], hash=b[:7]))
+        return {"ok": True, "message": with_tags_note(message, moved)}
     return {"ok": True, "message": with_tags_note(with_stash_note(stash, tr("rebase_range_done", branch=head["branch"], **{"from": a[:7], "to": b[:7]})), moved)}
 
 @route("/api/rebase-descendants", method="POST")
@@ -250,6 +347,7 @@ def api_rebase_descendants(body):
     # 子孫側にある場合は、B を含む系統（通常は main など）を土台として
     # 残し、そこから分岐したブランチだけを載せ替える。
     b_descends_from_a = is_ancestor(a, b)
+    all_branch_commits = set(git("rev-list", "--branches").split())
     branch_tips = []
     for ref in git("for-each-ref", "--format=%(refname)", "refs/heads").splitlines():
         tip = git("rev-parse", ref + "^{commit}").strip()
@@ -260,10 +358,9 @@ def api_rebase_descendants(body):
     for _, tip in branch_tips:
         if tip != a:
             commits.update(git("rev-list", f"{a}..{tip}").splitlines())
-    branch_commits = set(commits)
     tag_tips = {
         tag["commit"] for tag in tag_targets()
-        if tag["commit"] not in branch_commits
+        if tag["commit"] not in all_branch_commits
         and is_ancestor(a, tag["commit"])
         and not (
             b_descends_from_a
@@ -478,10 +575,28 @@ def api_rebase_equivalent(body):
 
     matched_a = a_commits[a_index]["hash"]
     matched_b = b_commits[b_index]["hash"]
+    branch_commits = set(git("rev-list", "--branches").split())
     if matched_a == matched_b:
         return {"ok": True, "message": with_stash_note(stash, tr("rebase_equivalent_noop", **{"from": a[:7], "to": b[:7]}))}
     # a_commits は先端からの順なので、一致コミットより前が A 側のリベース対象。
     replay = a_commits[:a_index]
+    replay_hashes = {c["hash"] for c in replay}
+    tag_tips = set()
+    for tag in tag_targets():
+        tip = tag["commit"]
+        if (tip in branch_commits
+                or tip == matched_a
+                or subprocess.run(["git", "-C", state.REPO, "merge-base", "--is-ancestor", tip, a],
+                                  capture_output=True).returncode == 0
+                or subprocess.run(["git", "-C", state.REPO, "merge-base", "--is-ancestor", tip, b],
+                                  capture_output=True).returncode == 0
+                or subprocess.run(["git", "-C", state.REPO, "merge-base", "--is-ancestor", matched_a, tip],
+                                  capture_output=True).returncode != 0):
+            continue
+        path_commits = set(git("rev-list", f"{matched_a}..{tip}").split())
+        if path_commits.isdisjoint(replay_hashes):
+            tag_tips.add(tip)
+    tag_only_mapping = rebase_tag_only_tips(matched_a, matched_b, tag_tips)
     if not replay:
         new_tip = matched_b
         run_git_write("checkout", "--detach", a)
@@ -492,9 +607,10 @@ def api_rebase_equivalent(body):
         except Exception:
             subprocess.run(["git", "-C", state.REPO, "checkout", head["branch"]], capture_output=True)
             raise
-        return {"ok": True, "message": with_stash_note(stash, tr("rebase_equivalent_done", **{"from": a[:7], "to": new_tip[:7]}, matched=1))}
+        moved = move_tags(tag_only_mapping)
+        message = with_stash_note(stash, tr("rebase_equivalent_done", **{"from": a[:7], "to": new_tip[:7]}, matched=1))
+        return {"ok": True, "message": with_tags_note(message, moved)}
 
-    replay_hashes = {c["hash"] for c in replay}
     for commit in replay_hashes:
         parents = git("rev-list", "--parents", "-n", "1", commit).split()[1:]
         if len(parents) > 1:
@@ -525,7 +641,9 @@ def api_rebase_equivalent(body):
         subprocess.run(["git", "-C", state.REPO, "checkout", head["branch"]], capture_output=True)
         subprocess.run(["git", "-C", state.REPO, "branch", "-D", temp], capture_output=True)
         raise
-    moved = move_tags(tag_mapping(old_ids, f"{matched_b}..{new_tip}")) if old_ids else 0
+    mapping = tag_mapping(old_ids, f"{matched_b}..{new_tip}") if old_ids else {}
+    mapping.update(tag_only_mapping)
+    moved = move_tags(mapping)
     return {"ok": True, "message": with_tags_note(with_stash_note(stash, tr("rebase_equivalent_done", **{"from": a[:7], "to": new_tip[:7]}, matched=1)), moved)}
 
 @route("/api/find-equivalent-branch", method="POST")

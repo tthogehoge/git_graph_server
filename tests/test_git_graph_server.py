@@ -1409,6 +1409,53 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertEqual(self.git("rev-parse", "on-base^{commit}").strip(), base)
         self.assertIn(tr("rebase_tags_moved", n=2), result["message"])
 
+    def test_rebase_range_moves_tags_on_commits_without_branches(self):
+        base = self.head
+        self.git("checkout", "-q", "-b", "topic")
+        self.commit_file("topic.txt", "topic\n", "topic change")
+        self.git("checkout", "-q", "-b", "tag-only", base)
+        first = self.commit_file("t1.txt", "one\n", "tag-only one")
+        tip = self.commit_file("t2.txt", "two\n", "tag-only two")
+        self.git("tag", "tag-only-mid", first)
+        self.git("tag", "-a", "tag-only-tip", "-m", "tag-only release", tip)
+        self.git("tag", "range-base-tag", base)
+        self.git("checkout", "-q", "main")
+        target = self.commit_file("target.txt", "target\n", "target change")
+        self.git("checkout", "-q", "topic")
+        self.git("branch", "-D", "tag-only")
+
+        result = app.api_rebase_range({"from": base, "to": target})
+
+        new_first = self.git("rev-parse", "tag-only-mid^{commit}").strip()
+        new_tip = self.git("rev-parse", "tag-only-tip^{commit}").strip()
+        self.assertTrue(result["ok"])
+        self.assertNotEqual(new_first, first)
+        self.assertNotEqual(new_tip, tip)
+        self.assertEqual(self.git("rev-parse", f"{new_first}^").strip(), target)
+        self.assertEqual(self.git("rev-parse", f"{new_tip}^").strip(), new_first)
+        self.assertEqual(self.git("rev-parse", "HEAD^").strip(), target)
+        self.assertEqual(self.git("rev-parse", "range-base-tag^{commit}").strip(), base)
+        self.assertEqual(self.git("cat-file", "-t", "tag-only-tip").strip(), "tag")
+        self.assertIn(tr("rebase_tags_moved", n=2), result["message"])
+
+    def test_rebase_range_moves_tag_only_history_when_head_range_is_empty(self):
+        base = self.head
+        self.git("checkout", "-q", "-b", "tag-only")
+        tip = self.commit_file("tag-only.txt", "tag-only\n", "tag-only change")
+        self.git("tag", "tag-only-tip", tip)
+        self.git("checkout", "-q", "main")
+        target = self.commit_file("target.txt", "target\n", "target change")
+        self.git("checkout", "-q", "-b", "topic", base)
+        self.git("branch", "-D", "tag-only")
+
+        result = app.api_rebase_range({"from": base, "to": target})
+
+        new_tip = self.git("rev-parse", "tag-only-tip^{commit}").strip()
+        self.assertTrue(result["ok"])
+        self.assertEqual(self.git("rev-parse", "HEAD").strip(), target)
+        self.assertEqual(self.git("rev-parse", f"{new_tip}^").strip(), target)
+        self.assertIn(tr("rebase_tags_moved", n=1), result["message"])
+
     def test_rebase_range_leaves_tags_alone_when_nothing_to_move(self):
         base = self.head
         self.git("checkout", "-q", "-b", "topic")
@@ -1490,6 +1537,40 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertNotEqual(self.git("rev-parse", "HEAD").strip(), p2)
         self.assertEqual(self.git("rev-parse", "p1tag^{commit}").strip(), self.git("rev-parse", "HEAD~1").strip())
         self.assertEqual(self.git("show", "p1tag:p1.txt"), "p1\n")
+
+    def test_rebase_equivalent_moves_tags_on_commits_without_branches(self):
+        base = self.head
+        self.git("checkout", "-q", "-b", "topic")
+        equivalent = self.commit_file("e.txt", "equivalent\n", "E")
+        self.commit_file("p1.txt", "p1\n", "P1")
+        p2 = self.commit_file("p2.txt", "p2\n", "P2")
+        self.git("checkout", "-q", "-b", "tag-only", equivalent)
+        first = self.commit_file("t1.txt", "one\n", "tag-only one")
+        tip = self.commit_file("t2.txt", "two\n", "tag-only two")
+        self.git("tag", "tag-only-mid", first)
+        self.git("tag", "-a", "tag-only-tip", "-m", "tag-only release", tip)
+        self.git("tag", "equivalent-base-tag", equivalent)
+        self.git("checkout", "-q", "main")
+        self.write_file("e.txt", "equivalent\n")
+        self.git("add", "e.txt")
+        self.git("commit", "-q", "--date=2001-01-01T00:00:00", "-m", "E")
+        target = self.git("rev-parse", "HEAD").strip()
+        self.git("checkout", "-q", "topic")
+        self.git("branch", "-D", "tag-only")
+
+        result = app.api_rebase_equivalent({"from": p2, "to": target})
+
+        new_first = self.git("rev-parse", "tag-only-mid^{commit}").strip()
+        new_tip = self.git("rev-parse", "tag-only-tip^{commit}").strip()
+        self.assertTrue(result["ok"])
+        self.assertNotEqual(new_first, first)
+        self.assertNotEqual(new_tip, tip)
+        self.assertEqual(self.git("rev-parse", f"{new_first}^").strip(), target)
+        self.assertEqual(self.git("rev-parse", f"{new_tip}^").strip(), new_first)
+        self.assertEqual(self.git("cat-file", "-t", "tag-only-tip").strip(), "tag")
+        self.assertEqual(self.git("rev-parse", "HEAD~2").strip(), target)
+        self.assertEqual(self.git("rev-parse", "equivalent-base-tag^{commit}").strip(), equivalent)
+        self.assertIn(tr("rebase_tags_moved", n=2), result["message"])
 
     def test_status_and_wip_diff_cover_staged_unstaged_and_untracked_files(self):
         self.write_file("tracked.txt", "staged change\n")
