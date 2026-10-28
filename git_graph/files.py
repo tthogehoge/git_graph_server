@@ -9,7 +9,7 @@ import subprocess
 from datetime import datetime, timedelta, timezone
 from . import app_state as state
 from .gitrun import git, git_bytes, resolve_commit
-from .gitstate import CONFLICT_CODES
+from .gitstate import CONFLICT_CODES, has_head, is_cherry_picking, is_merging, is_rebasing, is_reverting
 from .i18n import tr, UserError
 from .routing import route
 
@@ -381,13 +381,14 @@ def _git_raw(*args, env=None):
     return r.stdout
 
 
-def wip_patch():
-    """作業ツリーの変更 (ステージ済み・未ステージ・未追跡) をまとめた、HEAD からのパッチ。
+def wip_patch(base=None):
+    """作業ツリーの変更 (ステージ済み・未ステージ・未追跡) をまとめた、base (既定は HEAD) からのパッチ。
     本物のインデックスは変えず、そのコピーに add -A して差分を取る。"""
-    try:
-        head = git("rev-parse", "--verify", "--quiet", "HEAD^{commit}").strip()
-    except subprocess.CalledProcessError:
-        raise UserError("patch_no_head")
+    if base is None:
+        try:
+            base = git("rev-parse", "--verify", "--quiet", "HEAD^{commit}").strip()
+        except subprocess.CalledProcessError:
+            raise UserError("patch_no_head")
     tmp = tempfile.mkdtemp(prefix="git_graph_patch_")
     try:
         index = os.path.join(tmp, "index")
@@ -396,16 +397,28 @@ def wip_patch():
         if os.path.isfile(real):
             shutil.copyfile(real, index)  # 手元のファイルの情報を再利用して速くする
         else:
-            _git_raw("read-tree", head, env=env)
+            _git_raw("read-tree", base, env=env)
         _git_raw("add", "-A", env=env)
-        return _git_raw("diff", "--cached", "--binary", "-M", head, env=env)
+        return _git_raw("diff", "--cached", "--binary", "-M", base, env=env)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
 def patch_download(q):
-    """作成したパッチを (ファイル名, バイト列) で返す。作業ツリーは HEAD からの全変更、コミットはそのコミットの変更。"""
-    if is_wip(q):
+    """作成したパッチを (ファイル名, バイト列) で返す。
+    hash=WIP: 作業ツリーの HEAD からの全変更 / hash=<コミット>: そのコミットの変更 (format-patch)。
+    from=<A>&to=<B>: 2コミット間の差分。to=WIP のときは A から作業ツリーまでの差分。"""
+    if "from" in q:
+        a = resolve_commit(q.get("from", [""])[0])
+        to = q.get("to", [""])[0]
+        if to == WIP_HASH:
+            if not state.WIP_ENABLED or not state.HAS_WORKTREE:
+                raise UserError("wip_disabled")
+            name, raw = a[:7] + "..wip.patch", wip_patch(a)
+        else:
+            b = resolve_commit(to)
+            name, raw = f"{a[:7]}..{b[:7]}.patch", git_bytes("diff", "--binary", "-M", a, b)
+    elif is_wip(q):
         name, raw = "wip.patch", wip_patch()
     else:
         h = resolve_commit(q.get("hash", [""])[0])
@@ -420,17 +433,23 @@ def patch_download(q):
     return name, raw
 
 
-@route("/api/patch-apply", method="POST")
-def api_patch_apply(body):
-    """アップロードされたパッチを作業ツリーに git apply する (ステージ・コミットはしない)。先に解析と適用の確認をして、失敗したら何も変えない。"""
-    if not state.WIP_ENABLED:
-        raise UserError("wip_disabled")
+def _patch_data(body):
+    """リクエストのパッチ本体 (base64) を取り出す。"""
     try:
         data = base64.b64decode(body.get("data") or "", validate=True)
     except (ValueError, TypeError):
         raise UserError("patch_invalid")
     if not data.strip():
         raise UserError("patch_empty")
+    return data
+
+
+@route("/api/patch-apply", method="POST")
+def api_patch_apply(body):
+    """アップロードされたパッチを作業ツリーに git apply する (ステージ・コミットはしない)。先に解析と適用の確認をして、失敗したら何も変えない。"""
+    if not state.WIP_ENABLED:
+        raise UserError("wip_disabled")
+    data = _patch_data(body)
 
     def run_apply(*opts):
         r = subprocess.run(["git", "-C", state.REPO, "apply", "--whitespace=nowarn", *opts, "-"], input=data, capture_output=True)
@@ -444,6 +463,25 @@ def api_patch_apply(body):
     run_apply("--check")
     run_apply()
     return {"ok": True, "message": tr("patch_applied", n=n)}
+
+
+@route("/api/patch-am", method="POST")
+def api_patch_am(body):
+    """アップロードされたパッチ (git format-patch の出力) を git am で適用し、パッチのコミットを現在のブランチに積む。
+    途中で失敗したら git am --abort で元の状態に戻す。マージなどの途中のときは、その操作を壊さないよう何もしない。"""
+    if not state.WIP_ENABLED:
+        raise UserError("wip_disabled")
+    data = _patch_data(body)
+    if is_merging() or is_rebasing() or is_cherry_picking() or is_reverting():
+        raise UserError("patch_am_busy")  # rebase-apply が残っていると、am --abort が別の操作を中断してしまう
+    old = git("rev-parse", "HEAD").strip() if has_head() else ""
+    r = subprocess.run(["git", "-C", state.REPO, "am", "--quiet", "--whitespace=nowarn"], input=data, capture_output=True)
+    if r.returncode != 0:
+        subprocess.run(["git", "-C", state.REPO, "am", "--abort"], capture_output=True)
+        text = (r.stderr + r.stdout).decode("utf-8", "replace").strip()
+        raise ValueError(text or tr("git_command_failed"))
+    n = int(git("rev-list", "--count", f"{old}..HEAD" if old else "HEAD").strip() or 0)
+    return {"ok": True, "message": tr("patch_am_applied", n=n)}
 
 
 @route("/api/blame")
@@ -540,5 +578,5 @@ def api_file_copy(body):
 
 __all__ = [
     "FILE_CONTENT_LIMIT", "api_file", "api_file_copy", "api_tree", "decode_text", "api_blame",
-    "validate_file_path", "WIP_HASH", "api_file_save", "SAVE_BODY_LIMIT", "file_download", "patch_download", "api_patch_apply", "PATCH_BODY_LIMIT", "wip_patch",
+    "validate_file_path", "WIP_HASH", "api_file_save", "SAVE_BODY_LIMIT", "file_download", "patch_download", "api_patch_apply", "api_patch_am", "PATCH_BODY_LIMIT", "wip_patch",
 ]

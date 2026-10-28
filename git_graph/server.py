@@ -33,7 +33,7 @@ from .remote import (  # noqa: F401
 )
 from .routing import route, ROUTES
 from .files import (  # noqa: F401
-    api_blame, api_file, api_file_copy, api_file_save, api_patch_apply, api_tree, file_download, patch_download,
+    api_blame, api_file, api_file_copy, api_file_save, api_patch_am, api_patch_apply, api_tree, file_download, patch_download,
     PATCH_BODY_LIMIT, SAVE_BODY_LIMIT, WIP_HASH,
 )
 from .history import (  # noqa: F401
@@ -161,7 +161,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._check_post(shutdown=path in ("/api/shutdown", "/api/restart"))
             n = int(self.headers.get("Content-Length") or 0)
-            if n > {"/api/file-save": SAVE_BODY_LIMIT, "/api/patch-apply": PATCH_BODY_LIMIT}.get(path, 100000):
+            if n > {"/api/file-save": SAVE_BODY_LIMIT, "/api/patch-apply": PATCH_BODY_LIMIT, "/api/patch-am": PATCH_BODY_LIMIT}.get(path, 100000):
                 raise ValueError("body too large")
             body = json.loads(self.rfile.read(n) or b"{}")
             if not isinstance(body, dict):

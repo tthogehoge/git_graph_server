@@ -1,6 +1,7 @@
 import calendar
 import base64
 import codecs
+import html
 import json
 import os
 import shutil
@@ -555,10 +556,10 @@ class WorkingTreeFilesTests(unittest.TestCase):
         self.assertIn('href="/files?hash=WIP&amp;path=&amp;file=README.md&amp;view=edit"', page)
         page = viewer.render_diff_page({"path": ["src/app.py"], "wip": ["unstaged"]})
         self.assertIn("path=src&amp;file=src%2Fapp.py&amp;view=edit", page)
-        self.assertNotIn('class="ebtn"', viewer.render_diff_page({"path": ["gone.txt"], "wip": ["unstaged"]}))
-        self.assertNotIn('class="ebtn"', viewer.render_diff_page({"hash": [self.head], "path": ["README.md"]}))
+        self.assertNotIn("view=edit", viewer.render_diff_page({"path": ["gone.txt"], "wip": ["unstaged"]}))  # 作業ツリーに無いファイルは編集できない
+        self.assertNotIn("view=edit", viewer.render_diff_page({"hash": [self.head], "path": ["README.md"]}))
         state.WRITABLE = False
-        self.assertNotIn('class="ebtn"', viewer.render_diff_page({"path": ["README.md"], "wip": ["unstaged"]}))
+        self.assertNotIn("view=edit", viewer.render_diff_page({"path": ["README.md"], "wip": ["unstaged"]}))
 
     def test_requires_worktree(self):
         state.HAS_WORKTREE = False
@@ -952,11 +953,134 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
 
         self.assertFalse(os.path.exists(os.path.join(os.path.dirname(self.repo), "evil.txt")))
 
+    def commit_second(self):
+        self.write_file("tracked.txt", "second\n")
+        self.git("commit", "-q", "-am", "second commit")
+        return self.git("rev-parse", "HEAD").strip()
+
+    def test_compare_patch_is_diff_between_two_commits(self):
+        second = self.commit_second()
+
+        name, raw = app.patch_download({"from": [self.head], "to": [second]})
+
+        self.assertEqual(name, f"{self.head[:7]}..{second[:7]}.patch")
+        self.assertIn(b"+second", raw)
+        self.git("reset", "-q", "--hard", self.head)
+        app.api_patch_apply({"data": base64.b64encode(raw).decode("ascii")})
+        self.assertEqual(self.read_file("tracked.txt"), "second\n")
+
+    def test_compare_patch_to_wip_includes_untracked_files(self):
+        self.write_file("tracked.txt", "changed\n")
+        self.write_file("new.txt", "new file\n")
+        index_before = self.git("ls-files", "--stage")
+
+        name, raw = app.patch_download({"from": [self.head], "to": ["WIP"]})
+
+        self.assertEqual(name, self.head[:7] + "..wip.patch")
+        self.assertIn(b"+changed", raw)
+        self.assertIn(b"+new file", raw)
+        self.assertEqual(self.git("ls-files", "--stage"), index_before)
+
+    def test_compare_patch_without_difference_is_rejected(self):
+        with self.assertRaises(app.UserError):
+            app.patch_download({"from": [self.head], "to": [self.head]})
+
+    def test_patch_am_applies_patch_as_commits(self):
+        second = self.commit_second()
+        _, raw = app.patch_download({"hash": [second]})
+        self.git("reset", "-q", "--hard", self.head)
+
+        result = app.api_patch_am({"data": base64.b64encode(raw).decode("ascii")})
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(self.git("log", "-1", "--format=%s").strip(), "second commit")
+        self.assertEqual(self.git("rev-list", "--count", f"{self.head}..HEAD").strip(), "1")
+        self.assertEqual(self.read_file("tracked.txt"), "second\n")
+        self.assertEqual(self.git("status", "--porcelain").strip(), "")
+
+    def test_patch_am_failure_restores_previous_state(self):
+        second = self.commit_second()
+        _, raw = app.patch_download({"hash": [second]})
+        self.git("reset", "-q", "--hard", self.head)
+        self.write_file("tracked.txt", "diverged\n")
+        self.git("commit", "-q", "-am", "diverged")
+        before = self.git("rev-parse", "HEAD").strip()
+
+        with self.assertRaises(ValueError):
+            app.api_patch_am({"data": base64.b64encode(raw).decode("ascii")})
+
+        self.assertEqual(self.git("rev-parse", "HEAD").strip(), before)
+        self.assertFalse(os.path.exists(os.path.join(self.repo, ".git", "rebase-apply")))  # am の途中状態を残さない
+        self.assertEqual(self.read_file("tracked.txt"), "diverged\n")
+
+    def test_patch_am_rejects_plain_diff(self):
+        self.write_file("tracked.txt", "changed\n")
+        _, raw = app.patch_download({"hash": ["WIP"]})  # format-patch ではなく git diff の出力
+        self.git("checkout", "--", "tracked.txt")
+
+        with self.assertRaises(ValueError):
+            app.api_patch_am({"data": base64.b64encode(raw).decode("ascii")})
+
+        self.assertEqual(self.git("rev-parse", "HEAD").strip(), self.head)
+        self.assertFalse(os.path.exists(os.path.join(self.repo, ".git", "rebase-apply")))
+
+    def test_patch_am_does_not_touch_operation_in_progress(self):
+        second = self.commit_second()
+        _, raw = app.patch_download({"hash": [second]})
+        self.git("reset", "-q", "--hard", self.head)
+        busy = os.path.join(self.repo, ".git", "rebase-apply")
+        os.makedirs(busy)  # 別の rebase / am の途中を模す。am --abort がこれを消してはいけない
+
+        with self.assertRaises(app.UserError):
+            app.api_patch_am({"data": base64.b64encode(raw).decode("ascii")})
+
+        self.assertTrue(os.path.isdir(busy))
+
+    def test_patch_am_rejects_bad_input(self):
+        for data in ("", base64.b64encode(b"   \n").decode("ascii"), "not base64!!"):
+            with self.assertRaises(app.UserError):
+                app.api_patch_am({"data": data})
+
+    def test_patch_am_is_a_write_operation_for_the_engine(self):
+        from git_graph import engine
+        self.assertEqual(engine.write_op_for("/api/patch-am", {}), ("patch_am", True))
+        self.assertIn("patch_am", engine.LABEL_KEYS)
+        self.assertIs(app.ROUTES[("POST", "/api/patch-am")], app.api_patch_am)
+
+    def test_diff_page_has_patch_button_and_file_link(self):
+        second = self.commit_second()
+        page = viewer.render_diff_page({"hash": [second], "path": ["tracked.txt"]})
+        self.assertIn('id="pbtn"', page)
+        self.assertIn(html.escape(json.dumps({"hash": second}), quote=True), page)
+        self.assertIn(f'href="/files?hash={second}&amp;path=&amp;file=tracked.txt"', page)
+
+        page = viewer.render_diff_page({"from": [self.head], "to": [second], "path": ["tracked.txt"]})
+        self.assertIn(html.escape(json.dumps({"from": self.head, "to": second}), quote=True), page)
+        self.assertIn(f'href="/files?hash={second}&amp;path=&amp;file=tracked.txt"', page)
+
+    def test_diff_page_file_link_falls_back_to_parent_for_deleted_file(self):
+        self.git("rm", "-q", "tracked.txt")
+        self.git("commit", "-q", "-m", "remove tracked")
+        removed = self.git("rev-parse", "HEAD").strip()
+
+        page = viewer.render_diff_page({"hash": [removed], "path": ["tracked.txt"]})
+
+        self.assertIn(f'href="/files?hash={self.head}&amp;path=&amp;file=tracked.txt"', page)  # 削除したコミットには無いので親
+
+    def test_diff_page_wip_has_patch_button_but_amend_does_not(self):
+        self.write_file("tracked.txt", "changed\n")
+        page = viewer.render_diff_page({"path": ["tracked.txt"], "wip": ["unstaged"]})
+        self.assertIn('id="pbtn"', page)
+        self.assertIn('href="/files?hash=WIP&amp;path=&amp;file=tracked.txt"', page)
+        self.assertNotIn('id="pbtn"', viewer.render_diff_page({"path": ["tracked.txt"], "wip": ["amend"]}))
+
     def test_files_page_has_patch_buttons(self):
         page = viewer.render_files_page()
 
         self.assertIn('id="patchCreateBtn"', page)
         self.assertIn('id="patchApplyBtn"', page)
+        self.assertIn('id="patchAmBtn"', page)
+        self.assertIn("/api/patch-am", page)
         self.assertIn("/api/patch-apply", page)
 
     def test_wip_diff_page_has_same_actions_as_wip_pane(self):

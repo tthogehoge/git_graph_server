@@ -60,6 +60,7 @@ WRITE_OPS = {
     "/api/remote-add": ("remote_add", False),
     "/api/remote-remove": ("remote_remove", False),
     "/api/patch-apply": ("patch_apply", "names"),
+    "/api/patch-am": ("patch_am", True),
     "/api/file-save": ("file_save", True),
 }
 IGNORED = {
@@ -78,7 +79,7 @@ LABEL_KEYS = {
     "branch_rename": "op_label_branch_rename", "checkout": "op_label_checkout", "reset": "op_label_reset",
     "discard": "op_label_discard", "rm": "op_label_rm", "commit": "op_label_commit", "fetch": "op_label_fetch",
     "pull": "op_label_pull", "remote_add": "op_label_remote_add", "remote_remove": "op_label_remote_remove",
-    "patch_apply": "op_label_patch_apply", "file_save": "op_label_file_save",
+    "patch_apply": "op_label_patch_apply", "patch_am": "op_label_patch_am", "file_save": "op_label_file_save",
 }
 
 

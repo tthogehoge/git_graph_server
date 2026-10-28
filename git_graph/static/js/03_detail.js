@@ -151,7 +151,8 @@ function showDetail(h, fromHistory) {
     curCtx = {hash: c.hash}; curFiles = c.files; curDetailHash = c.hash;
     const parents = c.parents.map(p => esc(p.slice(0, 7))).join(", ") || t("none");
     detailView.innerHTML = back + "<h2>" + t("commit_label") + " " + esc(c.hash.slice(0, 7)) +
-      ' <a class="detail-files" href="/files?hash=' + encodeURIComponent(c.hash) + '" title="' + esc(t("tip_files")) + '">' + esc(t("files")) + "</a></h2>" +
+      ' <a class="detail-files" href="/files?hash=' + encodeURIComponent(c.hash) + '" title="' + esc(t("tip_files")) + '">' + esc(t("files")) + "</a>" +
+      ' <a class="detail-patch" href="#" data-hash="' + esc(c.hash) + '" data-name="' + esc(c.hash.slice(0, 7)) + '.patch" title="' + esc(t("tip_patch_create_commit")) + '">' + esc(t("patch_create")) + "</a></h2>" +
       '<span id="dChips">' + detailChips(c.hash) + "</span>" +
       '<div class="meta">' + esc(c.hash) + copyLink(c.hash) + "</div>" +
       '<div class="meta">Author: ' + esc(c.author) + "</div>" +
@@ -169,6 +170,56 @@ function post(path, body) {
     .then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); }))
     .then(r => { updateUndoButtons(); return r; });  // 書き込み操作のたびに、元に戻す/やり直しの有効・無効を更新する
 }
+// ---- パッチの作成 (ダウンロード) と適用 (アップロード) ----
+// say(text, ok) は結果の出し先。右ペインの WIP とコミット詳細・比較で共通に使う
+function downloadPatch(params, name, say) {
+  return fetch("/patch?" + new URLSearchParams(params))
+    .then(r => r.ok ? r.blob() : r.text().then(m => { throw new Error(m || r.status); }))
+    .then(blob => {  // 失敗 (変更なしなど) のときにページを移動しないよう、fetch で取得して保存する
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = name;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    })
+    .catch(e => say(e.message, false));
+}
+function bytesToBase64(bytes) {
+  let s = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+let patchPicker = null;
+function pickPatchFile(mode, say, done) {  // mode: "apply" (git apply) | "am" (git am)。done(結果) は適用に成功したあとに呼ぶ
+  if (!patchPicker) {
+    patchPicker = document.createElement("input");
+    patchPicker.type = "file"; patchPicker.hidden = true;
+    document.body.appendChild(patchPicker);
+  }
+  const input = patchPicker;
+  input.value = "";
+  input.onchange = () => {
+    const f = input.files[0];
+    if (!f) return;
+    const size = f.size < 1024 ? f.size + " B" : Math.ceil(f.size / 1024) + " KB";
+    if (!confirm(t(mode === "am" ? "confirm_patch_am" : "confirm_patch_apply", {name: f.name, size: size}))) return;
+    say(t("wip_execute"), true);
+    f.arrayBuffer()
+      .then(buf => post(mode === "am" ? "/api/patch-am" : "/api/patch-apply", {data: bytesToBase64(new Uint8Array(buf))}))
+      .then(done)
+      .catch(e => say(e.message, false));
+  };
+  input.click();
+}
+document.addEventListener("click", ev => {  // コミット詳細・比較の「パッチ作成」
+  const a = ev.target.closest("a.detail-patch");
+  if (!a) return;
+  ev.preventDefault();
+  const params = {};
+  ["hash", "from", "to"].forEach(k => { if (a.dataset[k]) params[k] = a.dataset[k]; });
+  downloadPatch(params, a.dataset.name, (text, ok) => setGraphStatus(text, ok ? "success" : "error"));
+});
+
 function doAction(btn) {  // ブランチ/タグのチップの × (削除)
   if (btn.dataset.act !== "delete-ref") return;
   const kind = btn.dataset.kind, name = btn.dataset.name;

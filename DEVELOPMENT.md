@@ -66,7 +66,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.test_git_graph_server.InputV
 | `git_graph/graph.py` | Git の履歴・ref を読み込み、表示対象ノードとエッジを決定し、Graphviz の DOT/SVG 情報を生成。 |
 | `git_graph/history.py` | ログ・ブランチ・タグ・reflog・stash 一覧・コミット詳細・比較・差分を返すデータ API。 |
 | `git_graph/external.py` | 外部エディタ / 外部差分ツールの起動 (`/api/open-editor`、`/api/open-diff`)。`--desktop` かつ書き込み有効かつループバックのときだけ動き、設定ファイル (`git_graph_server.json`) のコマンド配列を、シェルを通さずに実行します。コミットやインデックスの内容は読み取り専用の一時ファイルにして渡し、作業ツリーのファイルはそのまま渡します。 |
-| `git_graph/files.py` | ファイルの一覧・内容・blame・作業ディレクトリへのコピーと、文字コードの判別。`hash=WIP` のときはコミットではなく作業ツリーを読みます (`.gitignore` で無視されたファイルは出さず、リポジトリ外を指すパスは拒否)。作業ツリーのファイルの編集 (`/api/file-save`) もここにあり、保存時は元の文字コード・BOM・改行コードに戻します。元のバイト列に正確に戻せないファイルは編集できません。 |
+| `git_graph/files.py` | ファイルの一覧・内容・blame・作業ディレクトリへのコピーと、文字コードの判別。`hash=WIP` のときはコミットではなく作業ツリーを読みます (`.gitignore` で無視されたファイルは出さず、リポジトリ外を指すパスは拒否)。作業ツリーのファイルの編集 (`/api/file-save`) もここにあり、保存時は元の文字コード・BOM・改行コードに戻します。元のバイト列に正確に戻せないファイルは編集できません。 パッチの作成 (`/patch`。WIP・1コミット・2コミット間・コミットから作業ツリーまで) と適用 (`/api/patch-apply` は作業ツリーへの `git apply`、`/api/patch-am` は `git am` でコミットを積み、失敗したら `am --abort` で戻す。別の操作の途中のときは何もしない) もここにあります。 |
 | `git_graph/pages.py` | `/diff`(差分ページ)と `/files`(ファイル表示ページ)の HTML を組み立てます。 |
 | `git_graph/wip.py` | `git status` の解析、作業ツリー差分の表示、未コミット変更を含めた操作。 |
 | `git_graph/refops.py` | ブランチ・タグの作成/削除/rename、checkout、reset、stash、変更の破棄。 |

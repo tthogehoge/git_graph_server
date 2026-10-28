@@ -83,6 +83,9 @@ html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-s
   .abtn:hover { background: #d6e2fb; } .abtn:disabled { opacity: .5; cursor: default; }
   .detail-files { margin-left: 8px; color: #06c; font-size: 13px; font-weight: normal; text-decoration: none; }
   .detail-files:hover { text-decoration: underline; }
+  .detail-patch { margin-left: 8px; color: #06c; font-size: 13px; font-weight: normal; text-decoration: none; }
+  .detail-patch:hover { text-decoration: underline; }
+  .wippatch { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
   #coModal, #actionModal, #quitModal, #confirmModal { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: flex; align-items: center; justify-content: center; z-index: 1000; }
   #coModal[hidden] { display: none; }
   #actionModal[hidden] { display: none; }

@@ -2,6 +2,7 @@
 import html
 import json
 import os
+import subprocess
 from collections import Counter
 from urllib.parse import urlencode
 from . import app_state as state
@@ -33,6 +34,7 @@ NAV_TOP_LINK = ('<a class="iconbtn" href="/" title="{label}" aria-label="{label}
 NAV_BACK_BUTTON = ('<button type="button" class="iconbtn" onclick="history.back()" title="{label}" aria-label="{label}">'
                    '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M13 8H3M7.5 3.5 3 8l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>')
 EXT_DIFF_JS = read_asset("ext_diff.js")
+DIFF_PATCH_JS = read_asset("diff_patch.js")
 
 
 WIP_DIR_COLLAPSE = 10
@@ -40,6 +42,16 @@ WIP_DIR_COLLAPSE = 10
 
 def dir_of(path):
     return path.rpartition("/")[0]
+
+
+def file_exists_at(commit, path):
+    """commit にそのファイルがあるか (ファイル表示へのリンクを出すかの判定に使う)。"""
+    r = subprocess.run(["git", "-C", state.REPO, "cat-file", "-e", f"{commit}:{path}"], capture_output=True)
+    return r.returncode == 0
+
+
+def files_view_url(hash_, path):
+    return "/files?" + urlencode({"hash": hash_, "path": dir_of(path), "file": path})
 
 
 def diff_lines_html(text):
@@ -120,6 +132,8 @@ def render_diff_page(q):
     is_wip_compare = wip == "compare"
     d = api_diff(q)
     wip_status = None
+    patch = None   # (ダウンロード用のパラメータ, ファイル名, ツールチップの翻訳キー)。パッチ作成ボタン用
+    view_hash = None  # ファイル表示で開くコミット (None なら出さない)
     if wip == "compare":  # コミットと作業ツリーの比較
         c = api_compare({"from": q.get("from", [""]), "to": ["WIP"]})
         a = c["from"]
@@ -128,6 +142,8 @@ def render_diff_page(q):
         info = (commit_line_html("A", a) +
                 f'<div class="meta"><span class="tag tagB">B</span>{html.escape(tr("wip_title"))}</div>')
         cmd = f"git diff {a['hash'][:7]} -- {path}"
+        patch = ({"from": a["hash"], "to": "WIP"}, f"{a['hash'][:7]}..wip.patch", "tip_patch_create_compare_wip")
+        view_hash = WIP_HASH if wip_file_exists(path) else None
     elif wip:  # 作業ツリーの変更
         if wip != "amend":
             wip_status = api_status({})
@@ -135,6 +151,9 @@ def render_diff_page(q):
         info = f'<div class="meta">{html.escape(tr("working_tree"))} — {html.escape(localized_wip_title(wip))}</div>'
         cmd = {"staged": f"git diff --cached -- {path}", "amend": f"git diff HEAD^ -- {path}",
                "untracked": f"git diff --no-index /dev/null {path}"}.get(wip, f"git diff -- {path}")
+        if wip != "amend":  # amend の内容は、まだ存在しないコミットの変更なのでパッチにしない
+            patch = ({"hash": WIP_HASH}, "wip.patch", "tip_patch_create_wip")
+        view_hash = WIP_HASH if wip_file_exists(path) else None
     elif "from" in q:  # 2コミット間の比較
         c = api_compare(q)
         a, b = c["from"], c["to"]
@@ -142,6 +161,8 @@ def render_diff_page(q):
         ref = f"{a['hash'][:7]}..{b['hash'][:7]}"
         info = commit_line_html("A", a) + commit_line_html("B", b)
         cmd = f"git diff {a['hash'][:7]} {b['hash'][:7]} -- {path}"
+        patch = ({"from": a["hash"], "to": b["hash"]}, f"{a['hash'][:7]}..{b['hash'][:7]}.patch", "tip_patch_create_compare")
+        view_hash = next((h for h in (b["hash"], a["hash"]) if file_exists_at(h, path)), None)  # B で消えたファイルは A で開く
     else:
         c = api_commit(q)
         files, ctx, ref = c["files"], {"hash": c["hash"]}, c["hash"][:7]
@@ -151,11 +172,24 @@ def render_diff_page(q):
                 f' — {html.escape(subject)}</div>'
                 f'<div class="meta">{html.escape(c["author"])} / {html.escape(c["date"])}</div>')
         cmd = f"git show {ref} -- {path}"
+        patch = ({"hash": c["hash"]}, f"{ref}.patch", "tip_patch_create_commit")
+        view_hash = next((h for h in [c["hash"], *c["parents"][:1]] if file_exists_at(h, path)), None)  # 削除されたファイルは親で開く
     name = f"{old} => {path}" if old else path
     edit_link = ""
     if wip and state.WRITABLE and state.HAS_WORKTREE and wip_file_exists(path):  # 作業ツリーにあるファイルは編集画面へ
         edit_url = "/files?" + urlencode({"hash": WIP_HASH, "path": dir_of(path), "file": path, "view": "edit"})
         edit_link = (f'<a class="ebtn" href="{html.escape(edit_url)}">{html.escape(tr("file_edit"))}</a>')
+
+    files_link = ""
+    if view_hash:  # この差分のファイルを、ファイル表示 (/files) で開く
+        files_link = (f'<a class="ebtn" href="{html.escape(files_view_url(view_hash, path))}" '
+                      f'title="{html.escape(tr("tip_diff_to_file"), quote=True)}">{html.escape(tr("files"))}</a>')
+    patch_btn = ""
+    if patch:  # そのコミット (比較・作業ツリー) の変更をパッチとしてダウンロードする
+        params, patch_name, tip = patch
+        patch_btn = (f'<button class="ebtn" id="pbtn" data-params="{html.escape(json.dumps(params), quote=True)}" '
+                     f'data-name="{html.escape(patch_name, quote=True)}" title="{html.escape(tr(tip), quote=True)}">'
+                     f'{html.escape(tr("patch_create"))}</button>')
 
     ext_diff = ""
     if state.DESKTOP and state.WRITABLE:  # pywebview など: 外部の差分ツール (WinMerge など) で開くボタン
@@ -271,7 +305,8 @@ def render_diff_page(q):
   {"".join(side)}
 </div>
 <div id="main">
-  <h1>{html.escape(name)}{edit_link}{ext_diff}</h1>
+  <h1>{html.escape(name)}{edit_link}{files_link}{patch_btn}{ext_diff}</h1>
+  {'<div class="meta hint" id="pmsg"></div>' if patch_btn else ""}
   {'<div class="meta hint" id="xmsg"></div>' if ext_diff else ""}
   {info}
   <div class="meta"><code>{html.escape(cmd)}</code></div>
@@ -283,6 +318,7 @@ def render_diff_page(q):
 <script>{fold_js}</script>
 <script>{commit_js}</script>
 <script>{EXT_DIFF_JS if ext_diff else ""}</script>
+<script>{DIFF_PATCH_JS if patch_btn else ""}</script>
 </body></html>
 """
 

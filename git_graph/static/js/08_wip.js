@@ -168,6 +168,21 @@ async function doWipStash() {  // 作業ツリーの変更を stash に退避す
     .then(r => { wipSel = {}; showWip(true, r.message); loadStashes(); refreshGraph().catch(() => {}); })
     .catch(e => { wipSay(e.message, false); if (btn) btn.disabled = false; });
 }
+function wipPatchBarHtml(canWrite) {  // パッチ作成 (読み取りだけなので常時) と、書き込みが有効なときの適用 (git apply / git am)
+  return '<div class="wippatch"><button class="wbtn" id="wipPatchCreate" title="' + esc(t("tip_patch_create_wip")) + '">' + esc(t("patch_create")) + '</button>' +
+    (canWrite ? '<button class="wbtn" id="wipPatchApply" title="' + esc(t("tip_patch_apply")) + '">' + esc(t("patch_apply")) + '</button>' +
+      '<button class="wbtn" id="wipPatchAm" title="' + esc(t("tip_patch_am")) + '">' + esc(t("patch_am")) + '</button>' : "") + '</div>';
+}
+detailView.addEventListener("click", ev => {
+  const b = ev.target.closest("#wipPatchCreate, #wipPatchApply, #wipPatchAm");
+  if (!b) return;
+  if (b.id === "wipPatchCreate") { downloadPatch({hash: "WIP"}, "wip.patch", wipSay); return; }
+  pickPatchFile(b.id === "wipPatchAm" ? "am" : "apply", wipSay, r => {
+    wipSel = {};
+    showWip(true, r.message);
+    refreshGraph().catch(() => {});
+  });
+});
 function doWipAbort() {
   const b = detailView.querySelector("#wipAbort");
   if (!b) return;
@@ -224,6 +239,7 @@ function showWip(fromHistory, okMsg) {
     detailView.innerHTML = btns + "<h2>" + t("wip_title") +
       ' <a class="detail-files" href="/files?hash=WIP" title="' + esc(t("tip_wip_files")) + '">' + esc(t("files")) + "</a></h2>" + opBannerHtml(opCmd, canCommit) +
       '<div class="meta">HEAD: ' + (s.head ? chips(s.head) + esc(s.head.slice(0, 7)) : t("no_commits_yet")) + "</div>" +
+      (wipAmendOn ? "" : wipPatchBarHtml(canCommit)) +
       (body || '<p class="hint">' + t("no_changes") + '</p>') + box +
       (s.truncated ? '<p class="hint">' + t("truncated_files") + '</p>' : "");
     const ta = detailView.querySelector("#wipMsg");

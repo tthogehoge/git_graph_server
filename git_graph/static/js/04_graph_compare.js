@@ -100,7 +100,10 @@ function showCompare(a, b, fromHistory) {  // a, b はコミットのハッシ�
       ? '<div class="meta"><span class="tag tagB">B</span>' + esc(t("wip_title")) + "</div>"
       : commitLine("B", r.to);
     const command = "git diff " + r.from.hash.slice(0, 7) + (isWip ? "" : " " + r.to.hash.slice(0, 7));
-    detailView.innerHTML = btns + "<h2>" + esc(heading) + "</h2>" +
+    const patchName = r.from.hash.slice(0, 7) + ".." + (isWip ? "wip" : r.to.hash.slice(0, 7)) + ".patch";
+    detailView.innerHTML = btns + "<h2>" + esc(heading) +
+      ' <a class="detail-patch" href="#" data-from="' + esc(r.from.hash) + '" data-to="' + esc(r.to.hash) + '" data-name="' + esc(patchName) +
+      '" title="' + esc(t(isWip ? "tip_patch_create_compare_wip" : "tip_patch_create_compare")) + '">' + esc(t("patch_create")) + "</a></h2>" +
       commitLine("A", r.from) + toLine + filesHtml(curCtx, r.files) +
       '<div class="meta"><code>' + esc(command) + "</code></div>";
   }).catch(e => {

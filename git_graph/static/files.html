@@ -66,7 +66,7 @@ __FAVICON__
   .navbar .iconbtn { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 28px; padding: 0; box-sizing: border-box; background: #e8eefc; border: 1px solid #b8c7ee; border-radius: 3px; color: #06c; cursor: pointer; text-decoration: none; }
   .navbar .iconbtn:hover { background: #d6e2fb; }
 </style><script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script></head>
-<body><aside id="tree"><div class="navbar"><a class="iconbtn" href="/" title="{{back_top}}" aria-label="{{back_top}}"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M2 8 8 2.5 14 8M3.8 7v6.5h3V10h2.4v3.5h3V7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></a><button type="button" class="iconbtn" onclick="history.back()" title="{{back_prev}}" aria-label="{{back_prev}}"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M13 8H3M7.5 3.5 3 8l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div><h1>{{file_view}}</h1><div class="meta" id="commit"></div><div class="file-actions patch-bar"><button id="patchCreateBtn">{{patch_create}}</button><button id="patchApplyBtn" hidden title="{{tip_patch_apply}}">{{patch_apply}}</button><input type="file" id="patchFile" hidden><span id="patchMsg" class="msg"></span></div><div id="list"></div></aside>
+<body><aside id="tree"><div class="navbar"><a class="iconbtn" href="/" title="{{back_top}}" aria-label="{{back_top}}"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M2 8 8 2.5 14 8M3.8 7v6.5h3V10h2.4v3.5h3V7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></a><button type="button" class="iconbtn" onclick="history.back()" title="{{back_prev}}" aria-label="{{back_prev}}"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M13 8H3M7.5 3.5 3 8l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div><h1>{{file_view}}</h1><div class="meta" id="commit"></div><div class="file-actions patch-bar"><button id="patchCreateBtn">{{patch_create}}</button><button id="patchApplyBtn" hidden title="{{tip_patch_apply}}">{{patch_apply}}</button><button id="patchAmBtn" hidden title="{{tip_patch_am}}">{{patch_am}}</button><input type="file" id="patchFile" hidden><span id="patchMsg" class="msg"></span></div><div id="list"></div></aside>
 <main id="main"><h2 id="title">{{select_file}}</h2>
 <div id="fileActions" class="file-actions" hidden><button id="fileLogBtn">{{file_log}}</button><button id="fileBlameBtn">{{file_blame}}</button><button id="fileDiffBtn" hidden>{{file_diff}}</button><button id="fileEditBtn" hidden>{{file_edit}}</button><button id="fileContentBtn" hidden>{{file_content}}</button><button id="fileCopyBtn" hidden>{{copy_to_work}}</button><button id="fileDownloadBtn" hidden>{{file_download}}</button><button id="fileExtEditBtn" hidden title="{{tip_open_editor}}">{{open_editor}}</button><button id="fileRmBtn" hidden title="{{tip_rm_file}}">{{rm_button}}</button><button id="fileRmCachedBtn" hidden title="{{tip_rm_cached_file}}">{{rm_cached_button}}</button><span id="fileMsg" class="msg"></span></div>
 <div id="content" class="hint">{{select_file_hint}}</div></main>
@@ -91,7 +91,7 @@ const fileRmBtn = document.getElementById("fileRmBtn"), fileRmCachedBtn = docume
 const fileCopyBtn = document.getElementById("fileCopyBtn"), fileMsg = document.getElementById("fileMsg");
 const fileDiffBtn = document.getElementById("fileDiffBtn"), fileEditBtn = document.getElementById("fileEditBtn");
 const patchCreateBtn = document.getElementById("patchCreateBtn"), patchApplyBtn = document.getElementById("patchApplyBtn");
-const patchFile = document.getElementById("patchFile"), patchMsg = document.getElementById("patchMsg");
+const patchAmBtn = document.getElementById("patchAmBtn"), patchFile = document.getElementById("patchFile"), patchMsg = document.getElementById("patchMsg");
 const CAN_EDIT = CAN_COPY && hash === "WIP";  // 作業ツリーのファイルだけ編集できる (書き込みが有効なとき)
 const isWip = hash === "WIP";  // 作業ツリーのファイルを表示する
 fileCopyBtn.hidden = !CAN_COPY || isWip;
@@ -220,8 +220,11 @@ patchCreateBtn.onclick = () => {  // 失敗 (変更なしなど) のときにペ
     .catch(e => setPatchMsg(e.message, false))
     .finally(() => { patchCreateBtn.disabled = false; });
 };
-patchApplyBtn.hidden = !CAN_EDIT;  // 作業ツリーの表示で、書き込みが有効なときだけ
-patchApplyBtn.onclick = () => { if (leaveEdit()) { patchFile.value = ""; patchFile.click(); } };
+patchApplyBtn.hidden = patchAmBtn.hidden = !CAN_EDIT;  // 作業ツリーの表示で、書き込みが有効なときだけ
+let patchMode = "apply";  // "apply": git apply (作業ツリーだけ変える) / "am": git am (コミットを積む)
+function pickPatch(mode) { if (leaveEdit()) { patchMode = mode; patchFile.value = ""; patchFile.click(); } }
+patchApplyBtn.onclick = () => pickPatch("apply");
+patchAmBtn.onclick = () => pickPatch("am");
 function bytesToBase64(bytes) {
   let s = "";
   for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
@@ -231,11 +234,12 @@ patchFile.onchange = () => {
   const f = patchFile.files[0];
   if (!f) return;
   const size = f.size < 1024 ? f.size + " B" : Math.ceil(f.size / 1024) + " KB";
-  if (!confirm(t("confirm_patch_apply", {name: f.name, size: size}))) return;
+  const am = patchMode === "am";
+  if (!confirm(t(am ? "confirm_patch_am" : "confirm_patch_apply", {name: f.name, size: size}))) return;
   setPatchMsg("", true);
-  patchApplyBtn.disabled = true;
+  patchApplyBtn.disabled = patchAmBtn.disabled = true;
   f.arrayBuffer()
-    .then(buf => fetch("/api/patch-apply", {method: "POST", headers: {"Content-Type": "application/json"},
+    .then(buf => fetch(am ? "/api/patch-am" : "/api/patch-apply", {method: "POST", headers: {"Content-Type": "application/json"},
                                              body: JSON.stringify({data: bytesToBase64(new Uint8Array(buf))})}))
     .then(r => r.ok ? r.json() : r.text().then(m => { throw new Error(m || r.status); }))
     .then(r => {
@@ -244,7 +248,7 @@ patchFile.onchange = () => {
       return loadTree(current, false).then(() => { if (currentFile) return loadFile(currentFile, false); });
     })
     .catch(e => setPatchMsg(e.message, false))
-    .finally(() => { patchApplyBtn.disabled = false; });
+    .finally(() => { patchApplyBtn.disabled = patchAmBtn.disabled = false; });
 };
 function setFileMsg(text, ok) { fileMsg.textContent = text; fileMsg.className = "msg" + (ok ? "" : " err"); }
 function defaultCopyName(path) {  // 例: src/a.py → src/a_1234567.py
