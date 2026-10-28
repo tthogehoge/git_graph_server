@@ -35,6 +35,11 @@ function closeMenus() {  // 開いているメニュー (操作 / AB操作 / そ
   setOtherMenu(false);
   if (changed) updateCmpClasses();
 }
+function anyMenuOpen() { return cmpActOpen || abActOpen || !document.getElementById("otherActions").hidden; }
+function closeMenusOrClearSelection() {  // メニューが開いていたら、まず閉じるだけ。開いていなければ選択を解除する (何もないところのクリック / Escape)
+  if (anyMenuOpen()) closeMenus();
+  else clearSelection();
+}
 function clearSelection() {  // 選択 (A / B / 操作対象 / グラフのノード / ログの行) をすべて解除する
   clearCmp();
   if (selected) { selected.classList.remove("sel"); selected = null; selectedKey = null; }

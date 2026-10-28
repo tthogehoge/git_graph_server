@@ -252,12 +252,12 @@ document.getElementById("compareToolbar").addEventListener("click", ev => {  // 
 });
 document.addEventListener("click", ev => {  // メニューの外をクリックしたら閉じる
   if (ev.target.closest(".menu-wrap") || ev.target.closest("svg g.node") || ev.target.closest("#panel")) return;  // 右ペインのクリックでは閉じない  // ノードのクリックは onNodeClick が扱う
-  if (ev.target.closest("#graph") && !ev.target.closest("button, a, input, select, label")) { clearSelection(); return; }  // グラフの何もないところをクリック: 選択を解除する
+  if (ev.target.closest("#graph") && !ev.target.closest("button, a, input, select, label")) { closeMenusOrClearSelection(); return; }  // グラフの何もないところをクリック: メニューを閉じる。メニューが無ければ選択を解除する
   closeMenus();
 });
 document.addEventListener("keydown", ev => {
   if (ev.key !== "Escape" || ev.defaultPrevented) return;  // ダイアログが Escape を処理したときは何もしない
-  closeMenus();
+  if (anyMenuOpen()) { closeMenus(); return; }  // メニューが開いていたら閉じるだけ。もう一度 Escape で選択を解除する
   const tag = ev.target && ev.target.tagName;
   if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;  // 入力中の Escape では選択を解除しない
   if (document.querySelector('[id$="Modal"]:not([hidden])')) return;  // ダイアログを開いているあいだも解除しない
