@@ -302,6 +302,71 @@ function onNodeClick(g, n, ev) {
           chips(n.hash) + '<div class="meta">' + t("all_log_to_root") + '</div>');
 }
 
+// ---- グラフのノードをドラッグ&ドロップして A / B にセットする (ドラッグ元が A、ドロップ先が B) ----
+// ドロップするとAB操作メニューが開く。ほとんど動かさずに離したときは、これまでどおりのクリックとして扱う
+let nodeDrag = null, dragClickUntil = 0;
+const DRAG_THRESHOLD = 6;  // px
+function startNodeDrag(g, n, ev) {
+  if (ev.button !== 0 || ev.pointerType === "touch" || n.wip) return;  // マウス / ペンの左ボタンだけ。WIP ノードは比較に使えない
+  nodeDrag = {g: g, n: n, x: ev.clientX, y: ev.clientY, active: false, over: null, tip: null};
+}
+function dropTargetAt(x, y) {  // その位置にあるコミットのノード (WIP は除く)
+  const el = document.elementFromPoint(x, y), g = el && el.closest("svg g.node");
+  const t = g && g.querySelector("title"), n = t && DATA.nodes[t.textContent];
+  return n && !n.wip ? {g: g, n: n} : null;
+}
+function endNodeDrag(ev, cancel) {
+  const d = nodeDrag;
+  nodeDrag = null;
+  if (!d || !d.active) return;
+  document.body.classList.remove("node-dragging");
+  d.g.classList.remove("drag-src");
+  if (d.over) d.over.classList.remove("drop-target");
+  if (d.tip) d.tip.remove();
+  dragClickUntil = Date.now() + 400;  // ドラッグの終わりに出る click は無かったことにする (背景のクリックで選択が外れないように)
+  if (cancel) return;
+  const hit = dropTargetAt(ev.clientX, ev.clientY);
+  if (!hit || hit.n.hash === d.n.hash) return;  // 何もないところや自分自身に落としたら、何もしない
+  compareAHash = d.n.hash; compareBHash = hit.n.hash;
+  cmpActOpen = false; abActOpen = true; abMenuHash = null; setOtherMenu(false);
+  select(hit.g);
+  updateCmpClasses();
+  saveUiState();
+  positionMenuNearPointer(document.getElementById("abActions"), {type: "contextmenu", clientX: ev.clientX, clientY: ev.clientY});
+}
+document.addEventListener("pointermove", ev => {
+  const d = nodeDrag;
+  if (!d) return;
+  if (!d.active) {
+    if (Math.hypot(ev.clientX - d.x, ev.clientY - d.y) < DRAG_THRESHOLD) return;
+    d.active = true;
+    closeMenus();
+    if (window.getSelection) window.getSelection().removeAllRanges();
+    document.body.classList.add("node-dragging");
+    d.g.classList.add("drag-src");
+    d.tip = document.createElement("div");
+    d.tip.id = "dragTip";
+    document.body.appendChild(d.tip);
+  }
+  const hit = dropTargetAt(ev.clientX, ev.clientY), over = hit && hit.n.hash !== d.n.hash ? hit.g : null;
+  if (over !== d.over) {
+    if (d.over) d.over.classList.remove("drop-target");
+    if (over) over.classList.add("drop-target");
+    d.over = over;
+  }
+  d.tip.textContent = "A: " + d.n.hash.slice(0, 7) + (over ? "  →  B: " + hit.n.hash.slice(0, 7) : "");
+  d.tip.style.left = (ev.clientX + 14) + "px";
+  d.tip.style.top = (ev.clientY + 14) + "px";
+});
+document.addEventListener("pointerup", ev => endNodeDrag(ev, false));
+document.addEventListener("pointercancel", ev => endNodeDrag(ev, true));
+document.addEventListener("keydown", ev => {  // ドラッグ中の Escape はドラッグだけを取り消す
+  if (ev.key === "Escape" && nodeDrag && nodeDrag.active) { ev.stopPropagation(); endNodeDrag(ev, true); }
+}, true);
+document.addEventListener("click", ev => {
+  if (Date.now() < dragClickUntil) { ev.stopPropagation(); ev.preventDefault(); }
+}, true);
+
 function init() {
   document.querySelectorAll("svg g.node").forEach(g => {
     const t = g.querySelector("title");
@@ -320,6 +385,7 @@ function init() {
       hit.setAttribute("width", box.width + padX * 2); hit.setAttribute("height", box.height + padY * 2);
       hit.setAttribute("fill", "transparent"); hit.setAttribute("pointer-events", "all");
       g.insertBefore(hit, g.children[1] || null);
+      g.addEventListener("pointerdown", ev => startNodeDrag(g, n, ev));
       g.addEventListener("click", ev => { if (ev.detail <= 1) onNodeClick(g, n, ev); });
       g.addEventListener("contextmenu", ev => { ev.preventDefault(); onNodeClick(g, n, ev); });
     }

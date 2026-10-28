@@ -24,6 +24,10 @@ html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-s
   .menu-check input { margin: 0; cursor: pointer; }
   .dropdown .menu-check { cursor: pointer; }
   #reload.busy svg { animation: spin 1s linear infinite; }
+  body.node-dragging, body.node-dragging svg g.node { cursor: grabbing; user-select: none; -webkit-user-select: none; }
+  g.node.drag-src { opacity: .55; }
+  g.node.drop-target { filter: drop-shadow(0 0 3px #e67e00); }
+  #dragTip { position: fixed; z-index: 1000; pointer-events: none; background: #333; color: #fff; font: 12px monospace; padding: 2px 6px; border-radius: 3px; white-space: pre; }
   .sbtn.danger { background: #fde8e8; } .sbtn.danger:hover { background: #fbd3d3; }
   .sbtn.iconbtn { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 26px; padding: 0; margin: 0; box-sizing: border-box; }
   .menubar-left { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; order: 0; min-width: 0; }  /* 幅が狭いときは折り返して、右ペインにはみ出さない */
