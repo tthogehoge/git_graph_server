@@ -5,6 +5,28 @@ let wipSel = {}, wipMerging = false, wipMsg = "";  // wipSel: 「種類 + パス
 // amend モード: チェック中は「直前のコミットの親」と作業ツリーの差分を出し、メッセージも直前のものを入れる
 let wipAmendOn = false, wipMsgNormal = "", wipHeadMsg = "";  // wipMsgNormal: amend にする前に書いていたメッセージ (解除で戻す)
 function wipKey(kind, path) { return kind + "\0" + path; }
+// チェック・コミットメッセージ・ブランチ名は、差分ページ (/diff の WIP) と localStorage で共有する (wip_diff_commit.js も同じキーと形式)。
+// 操作が成功したら消す。放置された古い状態を使わないよう、一定時間たったものは捨てる。amend のあいだは共有しない (一覧が別物のため)
+const WIP_KEEP_KEY = "git_graph_wip_diff", WIP_KEEP_MS = 6 * 60 * 60 * 1000;
+let wipBranchVal = "";
+function wipKeepLoad() {
+  try {
+    const k = JSON.parse(localStorage.getItem(WIP_KEEP_KEY));
+    return k && Date.now() - k.t < WIP_KEEP_MS ? k : null;
+  } catch (e) { return null; }
+}
+function wipKeepSave() {
+  if (wipAmendOn) return;
+  try { localStorage.setItem(WIP_KEEP_KEY, JSON.stringify({t: Date.now(), sel: wipSel, msg: wipMsg, branch: wipBranchVal})); } catch (e) { /* 保存できなくても動作には影響しない */ }
+}
+function wipKeepClear() { try { localStorage.removeItem(WIP_KEEP_KEY); } catch (e) { /* 同上 */ } }
+function wipKeepPull() {  // 差分ページなどで付け外しした内容を取り込む
+  const k = wipKeepLoad();
+  if (!k) return;
+  wipSel = Object.assign({}, k.sel || {});
+  if (typeof k.msg === "string") wipMsg = k.msg;
+  if (typeof k.branch === "string") wipBranchVal = k.branch;
+}
 function wipIsChecked(f) {  // amend: 直前のコミットのファイルは、外さない限りコミットに残る (チェック済みが既定)
   const k = wipKey(f.wip, f.path);
   return k in wipSel ? wipSel[k] : (wipMerging || !!f.in_head || f.wip === "staged");
@@ -30,6 +52,7 @@ function wipWorkPaths() {  // チェックされた、作業ツリーの内容�
 function setWipCk(el, v) {  // このチェックボックスだけを切り替える (同じパスの別の欄は変えない)
   wipSel[wipKey(el.dataset.kind, el.dataset.path)] = v;
   el.checked = v;
+  wipKeepSave();
 }
 function wipSync() {  // コミットボタンの件数と、グループの全選択チェックを更新
   const n = wipPaths().length, b = detailView.querySelector("#wipCommit");
@@ -84,7 +107,7 @@ function doWipCommit() {
   // paths: 作業ツリーの内容をコミットするファイル / staged_paths: ステージ済みの内容だけをコミットするファイル (未ステージの変更は残る)
   post("/api/wip-commit", {paths: wipWorkPaths(), staged_paths: wipStagedPaths(), message: msg, amend: amend, branch: branch})
     .then(r => {
-      wipMsg = ""; wipMsgNormal = ""; wipSel = {}; wipAmendOn = false;
+      wipMsg = ""; wipBranchVal = ""; wipMsgNormal = ""; wipSel = {}; wipKeepClear(); wipAmendOn = false;
       showWip(true, r.message);
       refreshGraph().catch(() => {});
     })
@@ -99,7 +122,12 @@ detailView.addEventListener("change", ev => {
   else return;
   wipSync();
 });
-detailView.addEventListener("input", ev => { if (ev.target.id === "wipMsg") wipMsg = ev.target.value; });
+detailView.addEventListener("input", ev => {
+  if (ev.target.id === "wipMsg") wipMsg = ev.target.value;
+  else if (ev.target.id === "wipBranch") wipBranchVal = ev.target.value;
+  else return;
+  wipKeepSave();
+});
 
 function resolveBarHtml() {  // 競合ファイルを ours / theirs で解決するボタン (チェックしたファイルが対象)
   return '<div class="wipres"><button class="abtn" data-resolve="ours">' + esc(t("resolve_ours")) + '</button>' +
@@ -117,7 +145,7 @@ function doWipResolve(side) {
   if (!confirm(t("confirm_resolve", {n: paths.length, side: side}))) return;
   wipSay(t("wip_execute"), true);
   post("/api/resolve", {paths: paths, side: side})
-    .then(r => { wipSel = {}; showWip(true, r.message); refreshGraph().catch(() => {}); })
+    .then(r => { wipSel = {}; wipKeepClear(); showWip(true, r.message); refreshGraph().catch(() => {}); })
     .catch(e => wipSay(e.message, false));
 }
 function doWipDiscard() {
@@ -130,7 +158,7 @@ function doWipDiscard() {
   if (btn) btn.disabled = true;
   wipSay(t("wip_execute"), true);
   post("/api/discard", {paths: paths})
-    .then(r => { wipSel = {}; showWip(true, r.message); refreshGraph().catch(() => {}); })
+    .then(r => { wipSel = {}; wipKeepClear(); showWip(true, r.message); refreshGraph().catch(() => {}); })
     .catch(e => { wipSay(e.message, false); wipSync(); });
 }
 async function doWipRm() {  // 追跡中のファイルを git rm する (--cached / -f はダイアログで選ぶ)
@@ -147,7 +175,7 @@ async function doWipRm() {  // 追跡中のファイルを git rm する (--cach
   if (btn) btn.disabled = true;
   wipSay(t("wip_execute"), true);
   post("/api/rm", {paths: paths, cached: !!values.cached, force: !!values.force})
-    .then(r => { wipSel = {}; showWip(true, r.message); refreshGraph().catch(() => {}); })
+    .then(r => { wipSel = {}; wipKeepClear(); showWip(true, r.message); refreshGraph().catch(() => {}); })
     .catch(e => { wipSay(e.message, false); wipSync(); });
 }
 async function doWipStash() {  // 作業ツリーの変更を stash に退避する (チェックしたファイルだけ / すべて)
@@ -165,7 +193,7 @@ async function doWipStash() {  // 作業ツリーの変更を stash に退避す
   if (btn) btn.disabled = true;
   wipSay(t("wip_execute"), true);
   post("/api/stash-push", body)
-    .then(r => { wipSel = {}; showWip(true, r.message); loadStashes(); refreshGraph().catch(() => {}); })
+    .then(r => { wipSel = {}; wipKeepClear(); showWip(true, r.message); loadStashes(); refreshGraph().catch(() => {}); })
     .catch(e => { wipSay(e.message, false); if (btn) btn.disabled = false; });
 }
 function wipPatchBarHtml(canWrite) {  // パッチ作成 (読み取りだけなので常時) と、書き込みが有効なときの適用 (git apply / git am)
@@ -178,7 +206,7 @@ detailView.addEventListener("click", ev => {
   if (!b) return;
   if (b.id === "wipPatchCreate") { downloadPatch({hash: "WIP"}, "wip.patch", wipSay); return; }
   pickPatchFile(b.id === "wipPatchAm" ? "am" : "apply", wipSay, r => {
-    wipSel = {};
+    wipSel = {}; wipKeepClear();
     showWip(true, r.message);
     refreshGraph().catch(() => {});
   });
@@ -189,7 +217,7 @@ function doWipAbort() {
   if (!confirm(t("confirm_abort", {cmd: b.dataset.cmd}))) return;
   b.disabled = true;
   post("/api/abort", {})
-    .then(r => { wipSel = {}; wipMsg = ""; wipMsgNormal = ""; wipAmendOn = false; showWip(true, r.message); return refreshGraph().catch(() => {}); })
+    .then(r => { wipSel = {}; wipKeepClear(); wipMsg = ""; wipMsgNormal = ""; wipAmendOn = false; showWip(true, r.message); return refreshGraph().catch(() => {}); })
     .catch(e => { b.disabled = false; wipSay(e.message, false); });
 }
 
@@ -206,6 +234,7 @@ function showWip(fromHistory, okMsg) {
     if (wipAmendOn && !s.amend_files) {  // マージ中になったなどで amend できなくなった: 通常のコミットに戻す
       wipMsg = wipMsgNormal; wipMsgNormal = ""; wipAmendOn = false;
     }
+    if (!wipAmendOn) wipKeepPull();
     const canCommit = !!DATA.writable;  // 書き込みが無効 (--read-only など) のときはチェック欄を出さない
     const opCmd = s.merging ? "merge" : s.rebasing ? "rebase" : s.cherry_picking ? "cherry-pick" : s.reverting ? "revert" : null;
     const sections = wipAmendOn
@@ -244,6 +273,8 @@ function showWip(fromHistory, okMsg) {
       (s.truncated ? '<p class="hint">' + t("truncated_files") + '</p>' : "");
     const ta = detailView.querySelector("#wipMsg");
     if (ta) ta.value = wipMsg;
+    const bi = detailView.querySelector("#wipBranch");
+    if (bi) bi.value = wipBranchVal;
     if (okMsg) wipSay(okMsg, true);
     wipSync();
   }).catch(e => {

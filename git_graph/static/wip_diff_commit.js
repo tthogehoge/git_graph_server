@@ -4,17 +4,23 @@ function paths() { return [...new Set(cks().filter(x => x.checked).map(x => x.da
 // ステージ済みと未ステージは別々にチェックできる。ステージ済みだけチェックしたファイルは、ステージ済みの内容だけをコミットする
 function pathsOf(staged) { return [...new Set(cks().filter(x => x.checked && (x.dataset.kind === "staged") === staged).map(x => x.dataset.path))]; }
 // ---- 左の差分ファイルをクリックするとページごと読み込み直しになるので、チェック・コミットメッセージ・ブランチ名を
-// sessionStorage に残して復元する (コミットや破棄などの操作が成功したら消す) ----
-const KEEP_KEY = "git_graph_wip_diff";
-function keepLoad() { try { return JSON.parse(sessionStorage.getItem(KEEP_KEY)) || {}; } catch (e) { return {}; } }
+// localStorage に残して復元する (コミットや破棄などの操作が成功したら消す)。
+// 右ペインの WIP (08_wip.js) と同じキー・形式で共有していて、一定時間たった古い状態は捨てる ----
+const KEEP_KEY = "git_graph_wip_diff", KEEP_MS = 6 * 60 * 60 * 1000;
+function keepLoad() {
+  try {
+    const k = JSON.parse(localStorage.getItem(KEEP_KEY));
+    return k && Date.now() - k.t < KEEP_MS ? k : {};
+  } catch (e) { return {}; }
+}
 function keepSave() {
   try {
     const sel = keepLoad().sel || {}, m = document.getElementById("cmsg"), b = document.getElementById("cbranch");
     cks().forEach(x => { sel[x.dataset.kind + "\0" + x.dataset.path] = x.checked; });
-    sessionStorage.setItem(KEEP_KEY, JSON.stringify({sel: sel, msg: m ? m.value : "", branch: b ? b.value : ""}));
+    localStorage.setItem(KEEP_KEY, JSON.stringify({t: Date.now(), sel: sel, msg: m ? m.value : "", branch: b ? b.value : ""}));
   } catch (e) { /* 保存できなくても動作には影響しない */ }
 }
-function keepClear() { try { sessionStorage.removeItem(KEEP_KEY); } catch (e) { /* 同上 */ } }
+function keepClear() { try { localStorage.removeItem(KEEP_KEY); } catch (e) { /* 同上 */ } }
 function keepRestore() {
   const k = keepLoad(), sel = k.sel || {}, m = document.getElementById("cmsg"), b = document.getElementById("cbranch");
   cks().forEach(x => { const key = x.dataset.kind + "\0" + x.dataset.path; if (key in sel) x.checked = !!sel[key]; });
