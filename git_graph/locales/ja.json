@@ -368,6 +368,7 @@
   "rebase_done": "{branch} を {hash} の上にリベースしました",
   "rebase_range_done": "ブランチ {branch} の A ({from}) より後のコミットを B ({to}) の上にリベースしました",
   "rebase_descendants_done": "A ({from}) から末端までの {branches} ブランチを B ({to}) の上にリベースしました",
+  "rebase_tags_moved": "タグ {n} 件を付け替えました",
   "rebase_descendants_merges": "Aから末端までの範囲にマージコミットがあるため、分岐構造を保ったリベースはできません",
   "rebase_equivalent_done": "A ({from}) を B ({to}) 側へ寄せました ({matched} 件の同一差分を確認)",
   "rebase_equivalent_noop": "A ({from}) は既に B ({to}) 側へ寄っています (変更なし)",

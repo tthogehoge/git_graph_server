@@ -368,6 +368,7 @@
   "rebase_done": "Rebased {branch} onto {hash}",
   "rebase_range_done": "Rebased commits after A ({from}) on branch {branch} onto B ({to})",
   "rebase_descendants_done": "Rebased {branches} branches from A ({from}) to their tips onto B ({to})",
+  "rebase_tags_moved": "Moved {n} tag(s)",
   "rebase_descendants_merges": "The A-to-tips range contains merge commits, so it cannot be rebased while preserving the branch structure",
   "rebase_equivalent_done": "Aligned A ({from}) with B ({to})'s history ({matched} identical changes checked)",
   "rebase_equivalent_noop": "A ({from}) is already aligned with B ({to}) (no change)",

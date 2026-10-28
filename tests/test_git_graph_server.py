@@ -1377,6 +1377,96 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertEqual(self.git("show", "HEAD:topic.txt"), "topic change\n")
         self.assertEqual(self.git("show", "HEAD:target.txt"), "target change\n")
 
+    def commit_file(self, name, content, message):
+        self.write_file(name, content)
+        self.git("add", name)
+        self.git("commit", "-q", "-m", message)
+        return self.git("rev-parse", "HEAD").strip()
+
+    def test_rebase_range_moves_tags_of_rebased_commits(self):
+        base = self.head
+        self.git("checkout", "-q", "-b", "topic")
+        first = self.commit_file("t1.txt", "one\n", "topic one")
+        second = self.commit_file("t2.txt", "two\n", "topic two")
+        self.git("tag", "light", first)
+        self.git("tag", "-a", "annotated", "-m", "release note", second)
+        self.git("tag", "on-base", base)  # 土台 (A) のタグは動かさない
+        self.git("checkout", "-q", "main")
+        target = self.commit_file("target.txt", "target\n", "target change")
+        self.git("checkout", "-q", "topic")
+        tagger = self.git("for-each-ref", "--format=%(taggername) %(taggerdate:raw)", "refs/tags/annotated").strip()
+
+        result = app.api_rebase_range({"from": base, "to": target})
+
+        self.assertTrue(result["ok"])
+        new_first, new_second = self.git("rev-parse", "HEAD~1").strip(), self.git("rev-parse", "HEAD").strip()
+        self.assertNotEqual(new_first, first)
+        self.assertEqual(self.git("rev-parse", "light^{commit}").strip(), new_first)
+        self.assertEqual(self.git("rev-parse", "annotated^{commit}").strip(), new_second)
+        self.assertEqual(self.git("cat-file", "-t", "annotated").strip(), "tag")  # 注釈付きのまま
+        self.assertIn("release note", self.git("tag", "-n", "annotated"))
+        self.assertEqual(self.git("for-each-ref", "--format=%(taggername) %(taggerdate:raw)", "refs/tags/annotated").strip(), tagger)
+        self.assertEqual(self.git("rev-parse", "on-base^{commit}").strip(), base)
+        self.assertIn(tr("rebase_tags_moved", n=2), result["message"])
+
+    def test_rebase_range_leaves_tags_alone_when_nothing_to_move(self):
+        base = self.head
+        self.git("checkout", "-q", "-b", "topic")
+        self.commit_file("t1.txt", "one\n", "topic one")
+        self.git("checkout", "-q", "main")
+        target = self.commit_file("target.txt", "target\n", "target change")
+        self.git("tag", "elsewhere", target)
+        self.git("checkout", "-q", "topic")
+
+        result = app.api_rebase_range({"from": base, "to": target})
+
+        self.assertEqual(self.git("rev-parse", "elsewhere^{commit}").strip(), target)
+        self.assertNotIn(tr("rebase_tags_moved", n=0), result["message"])
+
+    def test_rebase_descendants_moves_tags_of_rebased_commits(self):
+        base = self.head
+        self.git("checkout", "-q", "-b", "topic")
+        first = self.commit_file("t1.txt", "one\n", "topic one")
+        second = self.commit_file("t2.txt", "two\n", "topic two")
+        self.git("tag", "mid", first)
+        self.git("tag", "-a", "tip", "-m", "tip note", second)
+        self.git("tag", "on-base", base)
+        self.git("checkout", "-q", "main")
+        target = self.commit_file("target.txt", "target\n", "target change")
+        self.git("checkout", "-q", "topic")
+
+        result = app.api_rebase_descendants({"from": base, "to": target})
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(self.git("rev-parse", "mid^{commit}").strip(), self.git("rev-parse", "topic~1").strip())
+        self.assertEqual(self.git("rev-parse", "tip^{commit}").strip(), self.git("rev-parse", "topic").strip())
+        self.assertEqual(self.git("cat-file", "-t", "tip").strip(), "tag")
+        self.assertEqual(self.git("rev-parse", "on-base^{commit}").strip(), base)
+        self.assertNotEqual(self.git("rev-parse", "mid^{commit}").strip(), first)
+        self.assertIn(tr("rebase_tags_moved", n=2), result["message"])
+
+    def test_rebase_equivalent_moves_tags_of_replayed_commits(self):
+        base = self.head
+        # A (topic): base -> E -> P1 -> P2、B (main): base -> E' (E と同じ変更) -> M2
+        self.git("checkout", "-q", "-b", "topic")
+        self.commit_file("e.txt", "equivalent\n", "E")
+        p1 = self.commit_file("p1.txt", "p1\n", "P1")
+        p2 = self.commit_file("p2.txt", "p2\n", "P2")
+        self.git("tag", "p1tag", p1)
+        self.git("checkout", "-q", "main")
+        self.write_file("e.txt", "equivalent\n")
+        self.git("add", "e.txt")
+        self.git("commit", "-q", "--date=2001-01-01T00:00:00", "-m", "E")  # 件名と内容が同じで別のコミット (日時を変えて同一コミットになるのを避ける)
+        b = self.commit_file("m2.txt", "m2\n", "M2")
+        self.git("checkout", "-q", "topic")
+
+        result = app.api_rebase_equivalent({"from": p2, "to": b})
+
+        self.assertTrue(result["ok"])
+        self.assertNotEqual(self.git("rev-parse", "HEAD").strip(), p2)
+        self.assertEqual(self.git("rev-parse", "p1tag^{commit}").strip(), self.git("rev-parse", "HEAD~1").strip())
+        self.assertEqual(self.git("show", "p1tag:p1.txt"), "p1\n")
+
     def test_status_and_wip_diff_cover_staged_unstaged_and_untracked_files(self):
         self.write_file("tracked.txt", "staged change\n")
         self.git("add", "tracked.txt")

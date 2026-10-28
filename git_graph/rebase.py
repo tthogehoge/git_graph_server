@@ -17,6 +17,94 @@ from .refops import resolve_dirty_worktree, run_resolving, with_stash_note
 from .routing import route
 
 
+# ---- リベースで作り直されたコミットに付いていたタグを、新しいコミットへ付け替える ----
+def tag_targets():
+    """[{ref, sha, annotated, commit}]。注釈付きタグは、直接コミットを指しているものだけ (タグのタグは対象外)。"""
+    fmt = "%(refname)%09%(objecttype)%09%(objectname)%09%(*objectname)%09%(*objecttype)"
+    tags = []
+    for line in git("for-each-ref", "--format=" + fmt, "refs/tags").splitlines():
+        ref, kind, sha, peeled, peeled_kind = (line.split("\t") + [""] * 5)[:5]
+        if kind == "commit":
+            tags.append({"ref": ref, "sha": sha, "annotated": False, "commit": sha})
+        elif kind == "tag" and peeled_kind == "commit":
+            tags.append({"ref": ref, "sha": sha, "annotated": True, "commit": peeled})
+    return tags
+
+
+def commit_patch_ids(rev_range):
+    """rev_range のマージ以外のコミットを古い順に [(コミット, patch-id)] で返す (空のコミットは含まれない)。"""
+    log = subprocess.run(["git", "-C", state.REPO, "log", "--reverse", "--no-merges", "-p", "--format=commit %H", rev_range],
+                         capture_output=True)
+    if log.returncode != 0:
+        return []
+    pid = subprocess.run(["git", "-C", state.REPO, "patch-id", "--stable"], input=log.stdout, capture_output=True)
+    result = []
+    for line in pid.stdout.decode("utf-8", "replace").splitlines():
+        patch_id, _, commit = line.partition(" ")
+        if commit.strip():
+            result.append((commit.strip(), patch_id))
+    return result
+
+
+def snapshot_for_tags(rev_range):
+    """リベース前に呼ぶ。rev_range の中のコミットを指すタグがあれば、そのコミットの patch-id を返す (無ければ None)。"""
+    tags = tag_targets()
+    if not tags:
+        return None
+    commits = set(git("rev-list", rev_range).split())
+    if not any(t["commit"] in commits for t in tags):
+        return None
+    return commit_patch_ids(rev_range)
+
+
+def tag_mapping(old_ids, new_range):
+    """リベース前後で同じ変更 (patch-id) を持つコミットを、古い順に突き合わせて {旧コミット: 新コミット} にする。"""
+    new_ids = commit_patch_ids(new_range)
+    used, mapping = set(), {}
+    for old_commit, old_pid in old_ids or []:
+        for new_commit, new_pid in new_ids:
+            if new_pid == old_pid and new_commit not in used:
+                mapping[old_commit] = new_commit
+                used.add(new_commit)
+                break
+    return mapping
+
+
+def move_tags(mapping):
+    """mapping ({旧コミット: 新コミット}) の旧コミットに付いていたタグを、新コミットへ付け替えて、付け替えた数を返す。
+    注釈付きタグは、メッセージ・タグ付けした人と日時を保ったまま、指す先だけ変えたタグを作り直す (署名は無効になる)。"""
+    mapping = {old: new for old, new in mapping.items() if old != new}
+    if not mapping:
+        return 0
+    lines = []
+    for tag in tag_targets():
+        new = mapping.get(tag["commit"])
+        if not new:
+            continue
+        new_obj = new
+        if tag["annotated"]:
+            raw = subprocess.run(["git", "-C", state.REPO, "cat-file", "tag", tag["sha"]], capture_output=True)
+            first, newline, rest = raw.stdout.partition(b"\n")
+            if raw.returncode != 0 or first != b"object " + tag["commit"].encode():
+                continue
+            made = subprocess.run(["git", "-C", state.REPO, "mktag"], input=b"object " + new.encode() + newline + rest,
+                                  capture_output=True)
+            if made.returncode != 0:
+                continue
+            new_obj = made.stdout.decode().strip()
+        lines.append(f"update {tag['ref']} {new_obj} {tag['sha']}")
+    if lines:
+        r = subprocess.run(["git", "-C", state.REPO, "update-ref", "--stdin"], input="\n".join(lines) + "\n",
+                           capture_output=True, text=True, encoding="utf-8", errors="replace")
+        if r.returncode != 0:
+            raise ValueError((r.stderr or r.stdout).strip() or tr("rebase_failed"))
+    return len(lines)
+
+
+def with_tags_note(message, moved):
+    return f"{message} {tr('rebase_tags_moved', n=moved)}" if moved else message
+
+
 @route("/api/head")
 def api_head(q=None):
     r = subprocess.run(["git", "-C", state.REPO, "symbolic-ref", "--short", "-q", "HEAD"],
@@ -109,6 +197,7 @@ def api_rebase_range(body):
     if not head["branch"]:
         raise UserError("detached_rebase")
     before = git("rev-parse", "HEAD").strip()
+    old_ids = snapshot_for_tags(f"{a}..{before}")  # A..HEAD のコミットに付いたタグがあれば、付け替えのために変更を控えておく
     r, blocked, stashed = run_resolving(
         lambda c: _git_run(["rebase", "--onto", b, a], c), body.get("on_conflict"), rebase_dirty=True)
     if blocked:
@@ -122,7 +211,8 @@ def api_rebase_range(body):
         raise ValueError(with_stash_note(stash, out or tr("rebase_failed")))
     if git("rev-parse", "HEAD").strip() == before:
         return {"ok": True, "message": with_stash_note(stash, tr("rebase_noop", branch=head["branch"], hash=b[:7]))}
-    return {"ok": True, "message": with_stash_note(stash, tr("rebase_range_done", branch=head["branch"], **{"from": a[:7], "to": b[:7]}))}
+    moved = move_tags(tag_mapping(old_ids, f"{b}..HEAD")) if old_ids else 0
+    return {"ok": True, "message": with_tags_note(with_stash_note(stash, tr("rebase_range_done", branch=head["branch"], **{"from": a[:7], "to": b[:7]})), moved)}
 
 @route("/api/rebase-descendants", method="POST")
 def api_rebase_descendants(body):
@@ -257,7 +347,8 @@ def api_rebase_descendants(body):
             subprocess.run(["git", "-C", state.REPO, "branch", "-D", temp], capture_output=True)
         raise
     changed = len([1 for _, old_tip, new_tip in updates if old_tip != new_tip])
-    return {"ok": True, "message": with_stash_note(stash, tr("rebase_descendants_done", branches=changed, **{"from": a[:7], "to": b[:7]}))}
+    moved = move_tags({old: new for old, new in mapping.items() if old != a})  # A は土台なので、A に付いたタグは動かさない
+    return {"ok": True, "message": with_tags_note(with_stash_note(stash, tr("rebase_descendants_done", branches=changed, **{"from": a[:7], "to": b[:7]})), moved)}
 
 def equivalent_commit_prefix(a, b, allow_merges=False):
     """A/B の共通親から、親相対の差分が連続して一致するコミット数を返す。"""
@@ -396,6 +487,7 @@ def api_rebase_equivalent(body):
         if len(parents) > 1:
             raise UserError("rebase_equivalent_merges")
 
+    old_ids = snapshot_for_tags(f"{matched_a}..{a}")  # 載せ替える A 側のコミットに付いたタグの付け替え用
     temp = f"git-graph-rebase-equivalent-{os.getpid()}-{threading.get_ident()}"
     while subprocess.run(["git", "-C", state.REPO, "show-ref", "--verify", "--quiet", f"refs/heads/{temp}"]).returncode == 0:
         temp += "-x"
@@ -420,7 +512,8 @@ def api_rebase_equivalent(body):
         subprocess.run(["git", "-C", state.REPO, "checkout", head["branch"]], capture_output=True)
         subprocess.run(["git", "-C", state.REPO, "branch", "-D", temp], capture_output=True)
         raise
-    return {"ok": True, "message": with_stash_note(stash, tr("rebase_equivalent_done", **{"from": a[:7], "to": new_tip[:7]}, matched=1))}
+    moved = move_tags(tag_mapping(old_ids, f"{matched_b}..{new_tip}")) if old_ids else 0
+    return {"ok": True, "message": with_tags_note(with_stash_note(stash, tr("rebase_equivalent_done", **{"from": a[:7], "to": new_tip[:7]}, matched=1)), moved)}
 
 @route("/api/find-equivalent-branch", method="POST")
 def api_find_equivalent_branch(body):
