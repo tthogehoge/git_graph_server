@@ -63,6 +63,14 @@ def api_shutdown(body):
     """終了要求を返す。サーバーの停止は HTTP 応答の送信後に行う。"""
     return {"ok": True}
 
+def exec_argv(argv):
+    """os.execv に渡す引数。Windows の os.execv は引数をクォートせずに空白でつなぐので、
+    空白を含む引数 (--font "Yu Gothic" など) が分割されてしまう。Windows ではあらかじめ1つずつクォートしておく。"""
+    if os.name != "nt":
+        return argv
+    return [subprocess.list2cmdline([a]) for a in argv]
+
+
 @route("/api/restart", method="POST")
 def api_restart(body):
     """再起動要求を返す。サーバーの停止と os.execv による再起動は HTTP 応答の送信後に行う。"""
@@ -183,7 +191,7 @@ class Handler(BaseHTTPRequestHandler):
                         args = [a for a in sys.argv[1:] if a != "--open"]
                         if "--port" not in args and "-port" not in args:
                             args = ["--port", str(state.OPTS.port)] + args
-                        os.execv(sys.executable, [sys.executable] + sys.argv[:1] + args)
+                        os.execv(sys.executable, exec_argv([sys.executable] + sys.argv[:1] + args))
                     threading.Thread(target=_do_restart, daemon=False).start()
                 else:
                     threading.Thread(target=state.SERVER.shutdown, daemon=True).start()
@@ -291,4 +299,4 @@ def main():
 
 
 __all__ = ["DEFAULT_PORT", "Forbidden", "Handler", "POST_ROUTES", "QuietServer", "ROUTES",
-           "api_restart", "api_shutdown", "cleanup_engine", "main", "route"]
+           "api_restart", "api_shutdown", "cleanup_engine", "exec_argv", "main", "route"]

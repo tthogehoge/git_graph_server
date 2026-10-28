@@ -82,6 +82,17 @@ class RouteRegistrationTests(unittest.TestCase):
         )
 
 
+class RestartArgvTests(unittest.TestCase):
+    def test_exec_argv_quotes_arguments_with_spaces_on_windows(self):
+        from git_graph import server
+        argv = ["C:\\Program Files\\Python\\python.exe", "git_graph_server.py", "--font", "Yu Gothic", "-C", "C:\\my repo"]
+        with mock.patch.object(server, "os", SimpleNamespace(name="nt")):
+            self.assertEqual(server.exec_argv(argv), [
+                '"C:\\Program Files\\Python\\python.exe"', "git_graph_server.py", "--font", '"Yu Gothic"', "-C", '"C:\\my repo"'])
+        with mock.patch.object(server, "os", SimpleNamespace(name="posix")):
+            self.assertEqual(server.exec_argv(argv), argv)  # POSIX の execv はそのまま渡せる
+
+
 class GitOutputParserTests(unittest.TestCase):
     def test_parse_name_status_handles_rename_and_regular_changes(self):
         raw = "M\0modified.txt\0R100\0old.txt\0new.txt\0A\0added.txt\0"
