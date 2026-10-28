@@ -216,7 +216,7 @@ def api_rebase_range(body):
 
 @route("/api/rebase-descendants", method="POST")
 def api_rebase_descendants(body):
-    """A の子孫にある全ローカルブランチを、分岐構造を保って B の上へ移す。
+    """A の子孫にある全ローカルブランチとブランチのないタグ先履歴を、分岐構造を保って B の上へ移す。
 
     A / 分岐点 / ブランチ先端を境界にして線形区間を近い順に処理する。
     各区間は一時ブランチ上で rebase --onto し、全区間が成功してから
@@ -255,13 +255,25 @@ def api_rebase_descendants(body):
         tip = git("rev-parse", ref + "^{commit}").strip()
         if is_ancestor(a, tip) and not (b_descends_from_a and is_ancestor(b, tip)):
             branch_tips.append((ref, tip))
-    if not branch_tips:
-        raise ValueError(tr("rebase_failed"))
 
     commits = {a}
     for _, tip in branch_tips:
         if tip != a:
             commits.update(git("rev-list", f"{a}..{tip}").splitlines())
+    branch_commits = set(commits)
+    tag_tips = {
+        tag["commit"] for tag in tag_targets()
+        if tag["commit"] not in branch_commits
+        and is_ancestor(a, tag["commit"])
+        and not (
+            b_descends_from_a
+            and (is_ancestor(b, tag["commit"]) or is_ancestor(tag["commit"], b))
+        )
+    }
+    if not branch_tips and not tag_tips:
+        raise ValueError(tr("rebase_failed"))
+    for tip in tag_tips:
+        commits.update(git("rev-list", f"{a}..{tip}").splitlines())
     if b in commits:
         raise ValueError(tr("rebase_failed"))
 
@@ -279,9 +291,10 @@ def api_rebase_descendants(body):
     for value in children.values():
         value.sort()
 
-    # ここで止めるノードを、分岐点・末端・ブランチ参照の付いたコミットにする。
+    # ここで止めるノードを、分岐点・末端・ブランチ/タグ参照の付いたコミットにする。
     boundaries = {a}
     boundaries.update(tip for _, tip in branch_tips)
+    boundaries.update(tag_tips)
     boundaries.update(commit for commit in commits if len(children[commit]) != 1)
 
     original_branch = head["branch"]

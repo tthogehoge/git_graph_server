@@ -1445,6 +1445,30 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertNotEqual(self.git("rev-parse", "mid^{commit}").strip(), first)
         self.assertIn(tr("rebase_tags_moved", n=2), result["message"])
 
+    def test_rebase_descendants_moves_tags_on_commits_without_branches(self):
+        base = self.head
+        self.git("checkout", "-q", "-b", "tag-only")
+        first = self.commit_file("t1.txt", "one\n", "tag-only one")
+        tip = self.commit_file("t2.txt", "two\n", "tag-only two")
+        self.git("tag", "tag-only-mid", first)
+        self.git("tag", "-a", "tag-only-tip", "-m", "tag-only release", tip)
+        self.git("checkout", "-q", "main")
+        target = self.commit_file("target.txt", "target\n", "target change")
+        self.git("branch", "-D", "tag-only")
+
+        result = app.api_rebase_descendants({"from": base, "to": target})
+
+        new_first = self.git("rev-parse", "tag-only-mid^{commit}").strip()
+        new_tip = self.git("rev-parse", "tag-only-tip^{commit}").strip()
+        self.assertTrue(result["ok"])
+        self.assertNotEqual(new_first, first)
+        self.assertNotEqual(new_tip, tip)
+        self.assertEqual(self.git("rev-parse", f"{new_first}^").strip(), target)
+        self.assertEqual(self.git("rev-parse", f"{new_tip}^").strip(), new_first)
+        self.assertEqual(self.git("rev-parse", "main").strip(), target)
+        self.assertEqual(self.git("cat-file", "-t", "tag-only-tip").strip(), "tag")
+        self.assertIn(tr("rebase_tags_moved", n=2), result["message"])
+
     def test_rebase_equivalent_moves_tags_of_replayed_commits(self):
         base = self.head
         # A (topic): base -> E -> P1 -> P2、B (main): base -> E' (E と同じ変更) -> M2
@@ -2445,4 +2469,3 @@ class ExternalAppsTests(unittest.TestCase):
         self.assertLess(index.index('id="wipBtn"'), index.index('data-cact="pull"'))
         reload_btn = index[index.index('id="reload"'):]
         self.assertTrue(reload_btn[:reload_btn.index("</button>")].count("<svg") == 1)  # 更新ボタンはアイコン
-
