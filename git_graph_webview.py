@@ -253,6 +253,12 @@ def main():
     if url is None:
         raise SystemExit(f"サーバを起動できませんでした: {proc.error}")
 
+    # pywebview は既定でファイルのダウンロードを無効にしている (パッチ作成・ファイルのダウンロードが何も起きない原因)。
+    # settings は新しい pywebview のみ (6 系では dict ではなく UserDict なので isinstance(dict) では判定できない)
+    try:
+        webview.settings["ALLOW_DOWNLOADS"] = True
+    except (AttributeError, KeyError, TypeError):
+        pass
     win = webview.create_window(
         "Git Graph",
         url=url,
