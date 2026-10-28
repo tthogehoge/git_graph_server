@@ -172,9 +172,11 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
   document.getElementById("mergeBtn").disabled = !canMerge;
   document.getElementById("rebaseBtn").disabled = !canMerge;
   document.getElementById("irebaseBtn").disabled = !canMerge;
-  document.getElementById("rebaseRangeBtn").disabled = !compareAHash || !compareBHash || !canMerge;
-  document.getElementById("rebaseDescendantsBtn").disabled = !compareAHash || !compareBHash || !canMerge;
-  document.getElementById("rebaseEquivalentBtn").disabled = !compareAHash || !compareBHash || !DATA.writable || !DATA.merge;
+  // AB操作は A と B だけで決まる。操作対象 (actionHash) が選ばれていなくても使える (ドラッグ&ドロップでセットしたときなど)
+  const canMergeAB = !!DATA.writable && !!DATA.merge;
+  document.getElementById("rebaseRangeBtn").disabled = !compareAHash || !compareBHash || !canMergeAB;
+  document.getElementById("rebaseDescendantsBtn").disabled = !compareAHash || !compareBHash || !canMergeAB;
+  document.getElementById("rebaseEquivalentBtn").disabled = !compareAHash || !compareBHash || !canMergeAB;
   document.getElementById("findEquivalentParentsBtn").disabled = !compareAHash || !compareBHash;
   document.getElementById("findEquivalentBranchBtn").disabled = !compareAHash || !compareBHash;
   document.getElementById("cherryBtn").disabled = !canMerge;
