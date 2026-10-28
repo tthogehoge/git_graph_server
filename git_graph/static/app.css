@@ -25,7 +25,8 @@ html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-s
   .dropdown .menu-check { cursor: pointer; }
   #reload.busy svg { animation: spin 1s linear infinite; }
   body.node-dragging, body.node-dragging svg g.node { cursor: grabbing; user-select: none; -webkit-user-select: none; }
-  g.node.drag-src { opacity: .55; }
+  g.node.drag-src, tr.drag-src { opacity: .55; }
+  tr.drop-target { outline: 2px solid #e67e00; outline-offset: -2px; }
   g.node.drop-target { filter: drop-shadow(0 0 3px #e67e00); }
   #dragTip { position: fixed; z-index: 1000; pointer-events: none; background: #333; color: #fff; font: 12px monospace; padding: 2px 6px; border-radius: 3px; white-space: pre; }
   .sbtn.danger { background: #fde8e8; } .sbtn.danger:hover { background: #fbd3d3; }
