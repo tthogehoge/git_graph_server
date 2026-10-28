@@ -3,6 +3,24 @@ const cks = () => [...document.querySelectorAll(".wck")];
 function paths() { return [...new Set(cks().filter(x => x.checked).map(x => x.dataset.path))]; }
 // ステージ済みと未ステージは別々にチェックできる。ステージ済みだけチェックしたファイルは、ステージ済みの内容だけをコミットする
 function pathsOf(staged) { return [...new Set(cks().filter(x => x.checked && (x.dataset.kind === "staged") === staged).map(x => x.dataset.path))]; }
+// ---- 左の差分ファイルをクリックするとページごと読み込み直しになるので、チェック・コミットメッセージ・ブランチ名を
+// sessionStorage に残して復元する (コミットや破棄などの操作が成功したら消す) ----
+const KEEP_KEY = "git_graph_wip_diff";
+function keepLoad() { try { return JSON.parse(sessionStorage.getItem(KEEP_KEY)) || {}; } catch (e) { return {}; } }
+function keepSave() {
+  try {
+    const sel = keepLoad().sel || {}, m = document.getElementById("cmsg"), b = document.getElementById("cbranch");
+    cks().forEach(x => { sel[x.dataset.kind + "\0" + x.dataset.path] = x.checked; });
+    sessionStorage.setItem(KEEP_KEY, JSON.stringify({sel: sel, msg: m ? m.value : "", branch: b ? b.value : ""}));
+  } catch (e) { /* 保存できなくても動作には影響しない */ }
+}
+function keepClear() { try { sessionStorage.removeItem(KEEP_KEY); } catch (e) { /* 同上 */ } }
+function keepRestore() {
+  const k = keepLoad(), sel = k.sel || {}, m = document.getElementById("cmsg"), b = document.getElementById("cbranch");
+  cks().forEach(x => { const key = x.dataset.kind + "\0" + x.dataset.path; if (key in sel) x.checked = !!sel[key]; });
+  if (m && k.msg) m.value = k.msg;
+  if (b && k.branch) b.value = k.branch;
+}
 function sync() {
   const n = paths().length, b = document.getElementById("cbtn");
   if (b) {
@@ -37,7 +55,9 @@ document.addEventListener("change", ev => {
     .forEach(x => { x.checked = d.checked; });
   else if (!ev.target.closest(".wck")) return;
   sync();
+  keepSave();
 });
+document.addEventListener("input", ev => { if (ev.target.id === "cmsg" || ev.target.id === "cbranch") keepSave(); });
 const cbtn = document.getElementById("cbtn");
 if (cbtn) cbtn.addEventListener("click", () => {
   const out = document.getElementById("cout"), msg = document.getElementById("cmsg").value;
@@ -48,7 +68,7 @@ if (cbtn) cbtn.addEventListener("click", () => {
   cbtn.disabled = true; say(T.wip_execute, true);
   fetch("/api/wip-commit", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({paths: pathsOf(false), staged_paths: pathsOf(true), message: msg, amend: false, branch: branch})})
     .then(r => r.ok ? r.json() : r.text().then(m => { throw new Error(m || r.status); }))
-    .then(r => { say(r.message, true); setTimeout(() => location.reload(), 800); })
+    .then(r => { keepClear(); say(r.message, true); setTimeout(() => location.reload(), 800); })
     .catch(e => { say(e.message, false); sync(); });
 });
 const dbtn = document.getElementById("dbtn");
@@ -64,7 +84,7 @@ if (dbtn) dbtn.addEventListener("click", () => {
   dbtn.disabled = true; say(T.wip_execute, true);
   fetch("/api/discard", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({paths: selectedPaths})})
     .then(r => r.ok ? r.json() : r.text().then(m => { throw new Error(m || r.status); }))
-    .then(r => { say(r.message, true); setTimeout(() => location.reload(), 800); })
+    .then(r => { keepClear(); say(r.message, true); setTimeout(() => location.reload(), 800); })
     .catch(e => { say(e.message, false); sync(); });
 });
 // ---- git rm / stash / 競合の解決 / 中断 (右ペインの WIP と同じ操作) ----
@@ -75,7 +95,7 @@ function postJson(url, body) {
   return fetch(url, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)})
     .then(r => r.ok ? r.json() : r.text().then(m => { throw new Error(m || r.status); }));
 }
-function done(r) { say(r.message, true); setTimeout(() => location.reload(), 800); }
+function done(r) { keepClear(); say(r.message, true); setTimeout(() => location.reload(), 800); }
 function openDialog(title, build, submitLabel) {  // build(form): 入力欄を作る。送信で {name: 値} を返し、キャンセルで null
   return new Promise(resolve => {
     const bg = document.createElement("div"), form = document.createElement("form");
@@ -157,4 +177,5 @@ if (abtn) abtn.addEventListener("click", () => {  // マージなどの途中を
   abtn.disabled = true; say(T.wip_execute, true);
   postJson("/api/abort", {}).then(done).catch(e => { abtn.disabled = false; say(e.message, false); });
 });
+keepRestore();
 sync();
