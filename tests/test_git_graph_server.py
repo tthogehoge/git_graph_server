@@ -2314,3 +2314,15 @@ class ExternalAppsTests(unittest.TestCase):
         self.assertLess(index.index('id="backBtn"'), index.index('id="reload"'))  # 左上は戻るボタン
         self.assertEqual(index.count('id="quitBtn"'), 1)
 
+    def test_main_page_menubar_layout(self):
+        index = (Path(viewer.__file__).parent / "static" / "index.html").read_text(encoding="utf-8")
+        self.assertLess(index.index('id="topBtn"'), index.index('id="backBtn"'))  # 左上は HEAD へ戻る top ボタン
+        other = index[index.index('id="otherActions"'):]
+        other = other[:other.index("</span>")]
+        self.assertIn('id="showMerges"', other)  # マージ表示のチェックは「その他」メニューの中
+        self.assertEqual(index.count('id="showMerges"'), 1)
+        self.assertLess(index.index('id="pushBtn"'), index.index('id="wipBtn"'))  # commit は push の隣
+        self.assertLess(index.index('id="wipBtn"'), index.index('data-cact="pull"'))
+        reload_btn = index[index.index('id="reload"'):]
+        self.assertTrue(reload_btn[:reload_btn.index("</button>")].count("<svg") == 1)  # 更新ボタンはアイコン
+

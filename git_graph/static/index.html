@@ -12,11 +12,11 @@ __FAVICON__
 <div id="compareControls">
   <div id="compareToolbar" role="menubar">
     <div class="menubar-left">
+      <button id="topBtn" class="sbtn iconbtn" title="{{tip_scroll_head}}" aria-label="{{scroll_head}}"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M2 8 8 2.5 14 8M3.8 7v6.5h3V10h2.4v3.5h3V7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
       <button id="backBtn" class="sbtn iconbtn" title="{{back_prev}}" aria-label="{{back_prev}}"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M13 8H3M7.5 3.5 3 8l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
       <button id="undoBtn" class="sbtn iconbtn" disabled title="{{tip_undo}}" aria-label="{{undo}}"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M5.5 3 2.5 6l3 3M2.5 6h6.5a4 4 0 0 1 0 8H6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
       <button id="redoBtn" class="sbtn iconbtn" disabled title="{{tip_redo}}" aria-label="{{redo}}"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M10.5 3l3 3-3 3M13.5 6H7a4 4 0 0 0 0 8h3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-      <button id="reload" class="sbtn" disabled title="{{reload_title}}">{{reload}}</button>
-      <label class="sbtn menu-check" title="{{tip_show_merges}}"><input type="checkbox" id="showMerges" disabled>{{show_merges}}</label>
+      <button id="reload" class="sbtn iconbtn" disabled title="{{reload_title}}" aria-label="{{reload_title}}"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M13.5 8a5.5 5.5 0 1 1-1.7-4M13 2.5v3.2h-3.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
       <button id="graphZoomReset" class="sbtn" title="{{graph_zoom_reset}}">100%</button>
       <button type="button" class="cmp-hash cmp-hash-btn" id="actionTarget" hidden></button>
       <button type="button" class="cmp-hash cmp-hash-btn" id="cmpA" hidden></button>
@@ -57,6 +57,7 @@ __FAVICON__
     </span>
     <div class="menubar-group" id="remoteActions">
       <button class="abtn mbtn" id="pushBtn" data-cact="push" title="{{tip_push_head}}">{{push}}</button>
+      <button class="abtn mbtn" id="wipBtn" title="{{tip_wip_open}}">{{wip_commit}}</button>
       <button class="abtn mbtn" data-cact="pull">pull</button>
       <button class="abtn mbtn" data-cact="fetch">fetch</button>
     </div>
@@ -77,6 +78,7 @@ __FAVICON__
     <span class="menu-wrap" id="otherActionsWrap">
       <button class="abtn mbtn" id="otherMenuBtn" aria-haspopup="true" aria-expanded="false" aria-controls="otherActions">{{other}}</button>
       <div class="dropdown" id="otherActions" hidden>
+        <label class="abtn menu-check" title="{{tip_show_merges}}"><input type="checkbox" id="showMerges" disabled>{{show_merges}}</label>
         <button class="abtn" id="branchListBtn" title="{{tip_branch_list}}">{{branch_list}}</button>
         <button class="abtn" id="tagListBtn" title="{{tip_tag_list}}">{{tag_list}}</button>
         <button class="abtn" id="stashListBtn" title="{{tip_stash_list}}">{{stash_list}}</button>

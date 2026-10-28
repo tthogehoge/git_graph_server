@@ -1,4 +1,8 @@
 // ---- グラフの読み込み (サーバー側の作成に時間がかかるので、読み込み中画面を出す) ----
+function scrollToHead() {  // HEAD のノードをグラフの真ん中に出す
+  const head = Object.values(DATA.nodes).find(n => n.refs.some(ref => ref.kind === "head"));
+  if (head) revealHash(head.hash);
+}
 const t0 = Date.now();
 const timer = setInterval(() => {
   const el = document.getElementById("lsub");
@@ -32,8 +36,7 @@ fetch(graphUrl())
       history.replaceState({screen: "home"}, "", "/");
       showContainingBranchLog(commitHash);
     } else if (screen.screen === "home") {
-      const head = Object.values(DATA.nodes).find(n => n.refs.some(ref => ref.kind === "head"));
-      if (head) revealHash(head.hash);
+      scrollToHead();
     }
   })
   .catch(e => {
@@ -82,6 +85,9 @@ document.getElementById("quitModalQuit").addEventListener("click", () => quitMod
 document.getElementById("quitModalRestart").addEventListener("click", () => quitModalAction("restart"));
 document.getElementById("reload").addEventListener("click", ev => {  // グラフを最新の状態に更新
   const b = ev.currentTarget;
-  b.disabled = true; b.textContent = t("reload_busy");
-  refreshGraph().catch(() => {}).finally(() => { b.disabled = false; b.textContent = t("reload"); });
+  b.disabled = true; b.classList.add("busy"); b.title = t("reload_busy");
+  refreshGraph().catch(() => {}).finally(() => { b.disabled = false; b.classList.remove("busy"); b.title = t("reload_title"); });
 });
+document.getElementById("topBtn").addEventListener("click", scrollToHead);
+document.getElementById("wipBtn").hidden = !WIP_ENABLED;
+document.getElementById("wipBtn").addEventListener("click", () => { clearCmp(); showWip(); });  // グラフの WIP ノードをクリックしたときと同じ
