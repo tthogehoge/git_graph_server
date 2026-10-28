@@ -18,9 +18,9 @@
 import os
 import shutil
 import subprocess
-import tempfile
 import time
 from . import app_state as state
+from . import tmpdir
 from .gitrun import HASH_RE
 from .gitstate import is_cherry_picking, is_merging, is_rebasing, is_reverting
 from .i18n import tr, UserError
@@ -110,7 +110,7 @@ def _object_env():
                 alternates += [os.path.normpath(os.path.join(real, ln.strip())) for ln in f if ln.strip() and not ln.startswith("#")]
         except OSError:
             pass
-        _SCRATCH[state.REPO] = (tempfile.mkdtemp(prefix="git_graph_objects_"), os.pathsep.join(alternates))
+        _SCRATCH[state.REPO] = (tmpdir.make_temp_dir("objects"), os.pathsep.join(alternates))
     scratch, alternates = _SCRATCH[state.REPO]
     return {"GIT_OBJECT_DIRECTORY": scratch, "GIT_ALTERNATE_OBJECT_DIRECTORIES": alternates}
 
@@ -162,7 +162,7 @@ def _worktree_snapshot(names=False):
     """作業ツリー上の追跡ファイルの内容を木 (tree) にして退避する。gc されないよう、記録するときに ref で守る。
     names が真なら管理外ファイルの名前も記録する (偽なら「管理外ファイルは追跡対象にならない」とみなして空)。
     本物の index は触らず、コピーした一時 index に add -u して木を作る (書き込まれるのは変更のあるファイルだけ)。"""
-    tmp = tempfile.mkdtemp(prefix="git_graph_snap_")
+    tmp = tmpdir.make_temp_dir("snap")
     try:
         env = dict(os.environ, GIT_INDEX_FILE=os.path.join(tmp, "index"))
         real_index = _git_path("index")
@@ -373,7 +373,7 @@ def _restore_worktree(target):
         except OSError:
             pass
     if changed:  # 退避した内容を一時 index 経由で書き出す (フィルターや実行権限も通常のチェックアウトと同じ)
-        tmp = tempfile.mkdtemp(prefix="git_graph_restore_")
+        tmp = tmpdir.make_temp_dir("restore")
         try:
             env = dict(os.environ, GIT_INDEX_FILE=os.path.join(tmp, "index"))
             _run(["read-tree", target["tree"]], env=env)
@@ -406,7 +406,7 @@ def _restore_stash_untracked(entry, t):
     root = os.path.realpath(state.REPO)
     if t == 0:
         shas = [sha for sha, _ in entry["stash"][1] if sha not in {x for x, _ in entry["stash"][0]}]
-        tmp = tempfile.mkdtemp(prefix="git_graph_restore_")
+        tmp = tmpdir.make_temp_dir("restore")
         try:
             env = dict(os.environ, GIT_INDEX_FILE=os.path.join(tmp, "index"))
             for sha in shas:

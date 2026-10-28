@@ -21,6 +21,7 @@ import git_graph_server as app
 from git_graph import app_state as state
 from git_graph import graph as graph_module
 from git_graph import pages as viewer
+from git_graph import tmpdir
 from git_graph.i18n import tr
 from git_graph.graph import MERGE_EDGE_COLOR as MERGE_COLOR
 
@@ -81,6 +82,82 @@ class RouteRegistrationTests(unittest.TestCase):
             {path: handler for (method, path), handler in app.ROUTES.items()
              if method == "POST"},
         )
+
+
+class InstanceTempDirTests(unittest.TestCase):
+    def tearDown(self):
+        tmpdir.remove_instance_dir()
+
+    def test_temp_dirs_are_grouped_under_one_instance_directory(self):
+        a, b = tmpdir.make_temp_dir("diff"), tmpdir.make_temp_dir("snap")
+
+        root = tmpdir.instance_dir()
+        self.assertEqual(os.path.dirname(a), root)
+        self.assertEqual(os.path.dirname(b), root)
+        self.assertTrue(os.path.basename(a).startswith("diff_") and os.path.basename(b).startswith("snap_"))
+        self.assertTrue(os.path.basename(root).startswith(f"git_graph_{os.getpid()}_"))
+        self.assertEqual(os.path.dirname(root), tempfile.gettempdir())
+
+    def test_remove_instance_dir_removes_everything_and_a_new_one_is_made_on_demand(self):
+        leftover = tmpdir.make_temp_dir("restore")
+        open(os.path.join(leftover, "index"), "w").close()
+        root = tmpdir.instance_dir()
+
+        tmpdir.remove_instance_dir()
+
+        self.assertFalse(os.path.exists(root))
+        self.assertTrue(os.path.isdir(tmpdir.make_temp_dir("diff")))
+
+    def test_cleanup_stale_removes_only_dead_instances_and_old_legacy_dirs(self):
+        with tempfile.TemporaryDirectory() as root:
+            def make(name, age=0):
+                path = os.path.join(root, name)
+                os.makedirs(path)
+                if age:
+                    old = time.time() - age
+                    os.utime(path, (old, old))
+                return path
+            dead = make("git_graph_111_abc")
+            alive = make("git_graph_222_abc")
+            mine = make(f"git_graph_{os.getpid()}_abc")
+            legacy_old = make("git_graph_diff_xyz", age=tmpdir.LEGACY_KEEP_SECONDS + 60)
+            legacy_new = make("git_graph_objects_xyz")
+            other = make("unrelated_dir", age=10 * tmpdir.LEGACY_KEEP_SECONDS)
+            with mock.patch.object(tmpdir, "pid_alive", lambda pid: pid == 222):
+                tmpdir.cleanup_stale(root)
+
+            self.assertFalse(os.path.exists(dead))
+            self.assertFalse(os.path.exists(legacy_old))
+            for kept in (alive, mine, legacy_new, other):
+                self.assertTrue(os.path.exists(kept), kept)
+
+    def test_pid_alive(self):
+        self.assertTrue(tmpdir.pid_alive(os.getpid()))
+        self.assertFalse(tmpdir.pid_alive(0))
+
+    @unittest.skipUnless(os.path.isdir("/proc/self"), "/proc があるときだけ")
+    def test_pid_alive_treats_an_unreaped_child_as_dead(self):
+        child = subprocess.Popen([sys.executable, "-c", "pass"])
+        try:
+            for _ in range(100):  # 終了して、まだ wait していない (ゾンビの) 状態になるまで待つ
+                with open(f"/proc/{child.pid}/stat", encoding="utf-8") as f:
+                    if f.read().rpartition(")")[2].split()[0] == "Z":
+                        break
+                time.sleep(0.05)
+            self.assertFalse(tmpdir.pid_alive(child.pid))
+        finally:
+            child.wait()
+
+    def test_external_diff_temp_dirs_live_in_instance_dir_and_old_ones_are_removed(self):
+        from git_graph import external
+        old, fresh = tmpdir.make_temp_dir("diff"), tmpdir.make_temp_dir("diff")
+        past = time.time() - external.TEMP_KEEP_SECONDS - 60
+        os.utime(old, (past, past))
+
+        external._cleanup_old_temp_dirs()
+
+        self.assertFalse(os.path.exists(old))
+        self.assertTrue(os.path.exists(fresh))
 
 
 class RestartArgvTests(unittest.TestCase):

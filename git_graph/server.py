@@ -41,7 +41,7 @@ from .history import (  # noqa: F401
     api_reflog, api_stash_list, api_tags,
 )
 from .external import DEFAULT_CONFIG_PATH, load_config
-from . import engine
+from . import engine, tmpdir
 from .pages import render_diff_page, render_files_page
 from .wip import api_status, api_wip_commit  # noqa: F401
 
@@ -268,6 +268,7 @@ def main():
         return
 
     cleanup_engine()  # 前回の異常終了などで残った退避 ref を片付ける
+    tmpdir.cleanup_stale()  # 異常終了したインスタンスの一時ディレクトリも片付ける
     fill_template(HTML_TEMPLATE), fill_template(FILES_PAGE)  # 未定義の翻訳キーがあれば、起動時に KeyError で気づけるようにする
     wanted = state.OPTS.port if state.OPTS.port is not None else DEFAULT_PORT
     try:
@@ -296,6 +297,7 @@ def main():
     finally:
         server.server_close()
         cleanup_engine()
+        tmpdir.remove_instance_dir()
 
 
 __all__ = ["DEFAULT_PORT", "Forbidden", "Handler", "POST_ROUTES", "QuietServer", "ROUTES",

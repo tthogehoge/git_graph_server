@@ -5,7 +5,7 @@ import unittest
 
 import git_graph_server as app  # noqa: F401  (各モジュールの @route 登録を実行させる)
 from git_graph import app_state as state
-from git_graph import engine
+from git_graph import engine, tmpdir
 from git_graph.i18n import UserError
 from git_graph.routing import ROUTES
 
@@ -312,6 +312,7 @@ class EngineTests(unittest.TestCase):
         env = engine._object_env()
         self.assertIn("/some/other/objects", env["GIT_ALTERNATE_OBJECT_DIRECTORIES"].split(os.pathsep))
         self.assertTrue(env["GIT_OBJECT_DIRECTORY"].startswith(tempfile.gettempdir()))
+        self.assertEqual(os.path.dirname(env["GIT_OBJECT_DIRECTORY"]), tmpdir.instance_dir())  # インスタンスの一時ディレクトリの中
 
     def test_no_undo_option_bypasses_recording(self):
         class Opts:

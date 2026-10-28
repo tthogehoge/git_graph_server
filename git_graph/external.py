@@ -6,17 +6,16 @@
 #   diff_tool: {left} {right} {left_title} {right_title}
 # 文字列 1 つで書いたときは、実行ファイルだけを指定したことになり、引数は上の既定の並びになる。
 # editor を書かないときは OS の標準の編集アプリで開く。
-import atexit
 import json
 import os
 import re
 import shutil
 import subprocess
 import sys
-import tempfile
 import time
 from pathlib import Path
 from . import app_state as state
+from . import tmpdir
 from .files import validate_file_path, worktree_target
 from .gitrun import git_bytes, HASH_RE, is_loopback
 from .i18n import tr, UserError
@@ -26,9 +25,7 @@ from .wip import amend_base
 CONFIG_NAME = "git_graph_server.json"
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent.parent / CONFIG_NAME
 DEFAULT_COMMANDS = {"editor": ["{exe}", "{path}"], "diff_tool": ["{exe}", "{left}", "{right}"]}
-TEMP_PREFIX = "git_graph_diff_"
 TEMP_KEEP_SECONDS = 24 * 3600
-_temp_dirs = []
 
 
 def load_config(path, required):
@@ -123,19 +120,13 @@ def api_open_editor(body):
 
 
 def _cleanup_old_temp_dirs():
-    root, now = tempfile.gettempdir(), time.time()
+    """差分用のサブディレクトリのうち、古いものを消す (長く起動したままでも溜まらないように)。
+    インスタンスの一時ディレクトリごと終了時に消えるので、ここで消すのは起動中に溜まった分だけ。"""
+    root, now = tmpdir.instance_dir(), time.time()
     for name in os.listdir(root):
         full = os.path.join(root, name)
-        if name.startswith(TEMP_PREFIX) and os.path.isdir(full) and now - os.path.getmtime(full) > TEMP_KEEP_SECONDS:
-            shutil.rmtree(full, ignore_errors=True)  # 前回の実行の残り (アプリがまだ開いていて消せなければ、次の機会に)
-
-
-def _remove_temp_dirs():
-    for d in _temp_dirs:
-        shutil.rmtree(d, ignore_errors=True)
-
-
-atexit.register(_remove_temp_dirs)
+        if name.startswith("diff_") and os.path.isdir(full) and now - os.path.getmtime(full) > TEMP_KEEP_SECONDS:
+            shutil.rmtree(full, ignore_errors=True)  # 外部ツールがまだ開いていて消せなければ、次の機会に
 
 
 def blob_or_empty(spec):
@@ -230,8 +221,7 @@ def api_open_diff(body):
     q = {k: [v] for k, v in body.items() if isinstance(v, str)}
     left, right = diff_sides(q)
     _cleanup_old_temp_dirs()
-    directory = tempfile.mkdtemp(prefix=TEMP_PREFIX)
-    _temp_dirs.append(directory)
+    directory = tmpdir.make_temp_dir("diff")
     name = os.path.basename(q["path"][0])
     left_title = f"{left[2]}:{q.get('old', [''])[0] or q['path'][0]}" if left[2] else ""
     right_title = f"{right[2]}:{q['path'][0]}" if right[2] else ""
