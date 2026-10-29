@@ -8,7 +8,7 @@ from .gitrun import (
 from .gitstate import branch_config, has_head, is_merging, is_rebasing
 from .i18n import tr, UserError
 from .rebase import api_head
-from .refops import run_resolving, with_stash_note
+from .engine.dirty import run_resolving, with_stash_note
 from .routing import route
 
 

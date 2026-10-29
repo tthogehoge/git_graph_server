@@ -2,28 +2,45 @@ import os
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 
 import git_graph_server as app  # noqa: F401  (各モジュールの @route 登録を実行させる)
 from git_graph import app_state as state
 from git_graph import engine, tmpdir
 from git_graph.i18n import UserError
-from git_graph.routing import ROUTES
+from git_graph.routing import ENGINE_ROUTES, ROUTES
 
 
 class RouteTableTests(unittest.TestCase):
     def test_every_post_route_is_classified(self):
-        """新しい書き込み API を足したら、engine.WRITE_OPS か engine.IGNORED に登録する (登録漏れの検出)。"""
+        """新しい書き込み API を足したら、engine の操作を呼ぶ route (engine=True) にするか、engine.WRITE_OPS / engine.IGNORED に登録する (登録漏れの検出)。"""
         posts = {path for (method, path) in ROUTES if method == "POST"}
-        unknown = posts - set(engine.WRITE_OPS) - engine.IGNORED
+        unknown = posts - set(engine.WRITE_OPS) - engine.IGNORED - ENGINE_ROUTES
         self.assertEqual(unknown, set())
-        stale = (set(engine.WRITE_OPS) | engine.IGNORED) - posts
+        stale = (set(engine.WRITE_OPS) | engine.IGNORED | ENGINE_ROUTES) - posts
         self.assertEqual(stale, set())
+        self.assertEqual(set(engine.WRITE_OPS) & ENGINE_ROUTES, set())  # 二重に記録しない
+        self.assertEqual(engine.IGNORED & ENGINE_ROUTES, set())
 
     def test_remote_side_operations_are_not_recorded(self):
         self.assertIsNone(engine.write_op_for("/api/push", {}))
-        self.assertIsNone(engine.write_op_for("/api/ref-delete", {"kind": "remote-branch", "name": "origin/x"}))
-        self.assertEqual(engine.write_op_for("/api/ref-delete", {"kind": "branch"}), ("delete_ref", False))
         self.assertEqual(engine.write_op_for("/api/not-listed", {}), ("other", "names"))  # 未登録は安全側 (作業ツリーも管理外ファイルの名前も記録)
+
+    def test_route_modules_that_use_the_engine_do_not_run_git_themselves(self):
+        """engine を呼ぶ route のモジュールは、git を直接実行しない (git の処理は engine に置く)。"""
+        package = Path(engine.__file__).parent.parent
+        forbidden = ("subprocess", "run_git_write", "run_git_net", "git_c_locale", "gitrun")
+        for name in ROUTE_ONLY_MODULES:
+            text = (package / name).read_text(encoding="utf-8")
+            used = [word for word in forbidden if word in text]
+            self.assertEqual(used, [], f"{name} は git を直接実行している")
+
+    def test_every_operation_has_a_history_label(self):
+        for name in engine.OPERATIONS:
+            self.assertIn(name, engine.LABEL_KEYS)
+
+
+ROUTE_ONLY_MODULES = ["refops.py"]  # engine に移し終えて、route だけになったモジュール (移すたびに足す)
 
 
 class EngineTests(unittest.TestCase):
@@ -399,6 +416,82 @@ class EngineTests(unittest.TestCase):
             self.redo()
             self.assertIn("up", self.git("remote").split())
             self.assertTrue(self.ref_exists("refs/remotes/up/main"))
+
+
+class EngineOperationTests(EngineTests):
+    """engine の操作 (git_graph.engine.refs / worktree) を、HTTP を通さずに直接呼ぶ。"""
+
+    def entries(self):
+        return engine._load()["entries"]
+
+    def test_operation_records_itself_and_can_be_undone(self):
+        from git_graph.engine import refs
+        result = refs.create_branch(self.head, "feature")
+
+        self.assertEqual(result, {"name": "feature", "checked_out": False, "stashed": None})
+        self.assertEqual([(e["op"], e["detail"]) for e in self.entries()], [("branch", "feature")])
+        self.assertTrue(self.undo()["ok"])
+        self.assertEqual(self.git("branch", "--list", "feature").strip(), "")
+
+    def test_operation_detail_uses_short_hash(self):
+        from git_graph.engine import refs
+        second = self.commit_file("two.txt", "two\n", "second")
+
+        refs.reset(self.head, "hard")
+
+        self.assertEqual([e["detail"] for e in self.entries()], [self.head[:7]])
+        self.assertNotEqual(self.git("rev-parse", "HEAD").strip(), second)
+
+    def test_nested_operations_are_recorded_as_one_entry(self):
+        from git_graph.engine import refs
+        saved = dict(engine.OPERATIONS)
+        try:
+            outer = engine.operation("tag", touches_worktree=False, detail=lambda *_: "outer")(
+                lambda: (refs.create_branch(self.head, "inner-branch"), refs.create_tag(self.head, "inner-tag")))
+            outer()
+        finally:
+            engine.OPERATIONS.clear()
+            engine.OPERATIONS.update(saved)
+
+        self.assertEqual([(e["op"], e["detail"]) for e in self.entries()], [("tag", "outer")])
+        self.assertTrue(self.undo()["ok"])  # 1回の取り消しで両方戻る
+        self.assertEqual(self.git("branch", "--list", "inner-branch").strip(), "")
+        self.assertEqual(self.git("tag", "--list", "inner-tag").strip(), "")
+
+    def test_failed_operation_still_raises_and_records_partial_changes_only_when_something_changed(self):
+        from git_graph.engine import refs
+        with self.assertRaises(UserError):
+            refs.create_branch(self.head, "bad name with spaces")
+        self.assertEqual(self.entries(), [])
+
+    def test_operation_without_label_is_rejected(self):
+        with self.assertRaises(ValueError):
+            engine.operation("no_such_operation", touches_worktree=False)(lambda: None)
+
+    def test_no_undo_option_runs_the_operation_without_recording(self):
+        from git_graph.engine import refs
+        class Opts:
+            no_undo = True
+        saved, state.OPTS = getattr(state, "OPTS", None), Opts()
+        try:
+            refs.create_tag(self.head, "quiet")
+        finally:
+            state.OPTS = saved
+        self.assertEqual(self.entries(), [])
+        self.assertEqual(self.git("tag", "--list", "quiet").strip(), "quiet")
+
+    def test_blocked_checkout_is_returned_not_raised(self):
+        from git_graph.engine import refs
+        self.git("checkout", "-q", "-b", "other")
+        self.commit_file("tracked.txt", "other side\n", "other change")
+        self.git("checkout", "-q", "main")
+        self.write("tracked.txt", "local edit\n")
+
+        result = refs.checkout("other", branch=True)
+
+        self.assertTrue(result["blocked"])
+        self.assertEqual(result["modified"], ["tracked.txt"])
+        self.assertEqual(self.git("branch", "--show-current").strip(), "main")
 
 
 if __name__ == "__main__":

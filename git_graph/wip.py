@@ -8,7 +8,7 @@ from .gitstate import (
 )
 from .i18n import tr, UserError
 from .rebase import api_head
-from .refops import checkout_resolving
+from .engine.dirty import checkout_resolving
 from .routing import route
 
 

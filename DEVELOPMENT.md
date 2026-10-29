@@ -62,7 +62,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.test_git_graph_server.InputV
 | `git_graph/app_state.py` | 対象リポジトリ、起動オプション、書き込み可否、worktree 状態、HTTP サーバーなどのプロセス共有状態。 |
 | `git_graph/gitrun.py` | Git コマンド実行、コミット/ref/ホストの検証、書き込みコマンド、リモート通信と認証情報の処理。 |
 | `git_graph/gitstate.py` | マージ中・HEAD の有無・`git status` / `--numstat` の解析など、リポジトリの状態を調べる共通関数。機能モジュールから共通で使われる低レベルの層。 |
-| `git_graph/engine.py` | git 操作エンジン。リポジトリを変更する POST API はすべて `server.py` の `do_POST` からここの `engine.run()` を通り、操作の前後で ref / HEAD / stash 一覧 / ローカル config / 作業ツリーと index の状態を記録して、その差分をメモリ上の履歴に積みます (ファイルには保存せず、再起動すると消えます)。元に戻す・やり直し (`/api/undo`、`/api/redo`、`/api/undo-history`) はこの差分を逆向き・順方向に適用するだけなので、操作ごとに逆操作を書く必要はありません。作業ツリーの退避 (blob / tree) は `GIT_OBJECT_DIRECTORY` を一時ディレクトリにして書き (本物の objects は `GIT_ALTERNATE_OBJECT_DIRECTORIES` で読み取り専用に見せます)、`.git` には objects も ref も残しません。一時ディレクトリは起動時・終了時・再起動時に `cleanup()` で消します。作業ツリーが操作後に変わっているのを確認のうえ上書きして戻したときは、上書きされる現在の状態を履歴側の反対向きの行き先にするので、やり直し (または元に戻す) で戻せます。エンジン内で git を呼ぶときは `_run()` を使ってください (書き込まれるオブジェクトが一時ディレクトリに入ります)。 |
+| `git_graph/engine/` | git 操作エンジン (パッケージ)。リポジトリを変更する git の処理はここに置き、route (`api_*`) は body を読んで engine を呼び、結果を画面用のレスポンスに整える薄い層にします。`__init__.py` は操作の記録と `operation` デコレーターで、`refs.py` (ブランチ・タグ・checkout・reset)、`worktree.py` (stash・破棄・git rm)、`dirty.py` (編集中のファイルに邪魔されたときの stash / 破棄) に git の操作があります (移行中で、順次これらに移しています)。engine の操作は `@operation` で登録し、呼ぶと操作の前後で ref / HEAD / stash 一覧 / ローカル config / 作業ツリーと index の状態を記録して、その差分をメモリ上の履歴に積みます (ファイルには保存せず、再起動すると消えます)。元に戻す・やり直し (`/api/undo`、`/api/redo`、`/api/undo-history`) はこの差分を逆向き・順方向に適用するだけなので、操作ごとに逆操作を書く必要はありません。作業ツリーの退避 (blob / tree) は `GIT_OBJECT_DIRECTORY` を一時ディレクトリにして書き (本物の objects は `GIT_ALTERNATE_OBJECT_DIRECTORIES` で読み取り専用に見せます)、`.git` には objects も ref も残しません。一時ディレクトリは起動時・終了時・再起動時に `cleanup()` で消します。作業ツリーが操作後に変わっているのを確認のうえ上書きして戻したときは、上書きされる現在の状態を履歴側の反対向きの行き先にするので、やり直し (または元に戻す) で戻せます。エンジン内で git を呼ぶときは `_run()` を使ってください (書き込まれるオブジェクトが一時ディレクトリに入ります)。 |
 | `git_graph/tmpdir.py` | アプリのインスタンスごとの一時ディレクトリ (`git_graph_<PID>_xxxx`)。差分用 (外部差分ツールに渡すファイル。`diff_*`) と undo 用 (退避したオブジェクトと一時 index。`objects_*` / `snap_*` / `restore_*`) の一時ファイルをここにまとめ、終了時に丸ごと消します。異常終了で残ったものは、PID のプロセスがもう居なければ次の起動時に消します (`cleanup_stale`)。 |
 | `git_graph/graph.py` | Git の履歴・ref を読み込み、表示対象ノードとエッジを決定し、Graphviz の DOT/SVG 情報を生成。 |
 | `git_graph/history.py` | ログ・ブランチ・タグ・reflog・stash 一覧・コミット詳細・比較・差分を返すデータ API。 |
@@ -115,8 +115,9 @@ GET は JSON を返し、POST も JSON オブジェクトを受け取って JSON
 - パスを扱う処理では `validate_file_path` や `git_graph/gitrun.py` の literal path 対応を確認し、リポジトリ外のファイルへアクセスしないようにしてください。
 - 読み取りには `git()` / `git_bytes()`、エラーをユーザーへ返す書き込みには `run_git_write()`、ロケール依存の出力を解析する場合には `git_c_locale()` を用途に合わせて使ってください。リモート通信には `run_git_net()` のタイムアウト・認証処理を使います。
 - 履歴を書き換える・ref を移動する処理では、対象・副作用・失敗時の状態を明確にし、関連する既存の排他制御やエラー処理に従ってください。履歴操作の画面表示だけでなく、途中失敗・競合・中断の経路も確認してください。
-- **元に戻す (undo) への対応**: 書き込み API を追加したら、`git_graph/engine.py` の `WRITE_OPS` に (操作名, 作業ツリーに触れるか) を登録し、履歴に出す文言の翻訳キー (`op_label_*`) を `LABEL_KEYS` と `ja.json` / `en.json` に足してください。リポジトリを変更しない API やリモート側だけを変える API (push など) は `IGNORED` に入れます。登録漏れは `tests/test_engine.py` が検出します。ハンドラー内で操作の途中状態 (競合による停止など) を残す場合も、エンジンが完了または中断までを1件にまとめるので、個別の対応は不要です。
-- `engine.py` は ref / HEAD / stash / ローカル config / 作業ツリーと index だけを戻します。それ以外 (リモート側の状態、`.gitignore` で無視されたファイル、git 管理外の設定ファイルなど) は戻せません。
+- **書き込み API の足し方 (engine への移行後の形)**: git の処理は `git_graph/engine/` に `@operation("操作名", touches_worktree=..., detail=...)` を付けた関数として書きます。関数は引数を受け取って git を実行し、結果を dict で返します (HTTP の body も画面用の文言も知りません。エラーは `UserError(キー, ...)`、止まったときは `{"blocked": True, ...}` を返します)。route 側は `@route(パス, method="POST", engine=True)` で、body を読んで engine の関数を呼び、`tr()` でメッセージを組み立てます。`engine=True` の route は、操作が自分で履歴に記録するので、`server.py` 側では包みません。履歴に出す文言の翻訳キー (`op_label_*`) は `LABEL_KEYS` と `ja.json` / `en.json` に足してください。engine に移し終えた route のモジュールは、`subprocess` や `run_git_write` などを直接使えません (`tests/test_engine.py` の `ROUTE_ONLY_MODULES` に足すと検査されます)。
+- **まだ engine に移していない書き込み API (移行中)**: `git_graph/engine/__init__.py` の `WRITE_OPS` に (操作名, 作業ツリーに触れるか) を登録し、`LABEL_KEYS` に文言のキーを足してください。リポジトリを変更しない API やリモート側だけを変える API (push など) は `IGNORED` に入れます。登録漏れは `tests/test_engine.py` が検出します。ハンドラー内で操作の途中状態 (競合による停止など) を残す場合も、エンジンが完了または中断までを1件にまとめるので、個別の対応は不要です。
+- `engine/` の記録 (undo) は ref / HEAD / stash / ローカル config / 作業ツリーと index だけを戻します。それ以外 (リモート側の状態、`.gitignore` で無視されたファイル、git 管理外の設定ファイルなど) は戻せません。
 - POST API は `git_graph/server.py` の書き込み制御を通します。新しい書き込み API を別経路で呼び出す設計にしないでください。書き込みは localhost でも明示的な共通チェックを経て実行されます。
 - `--lan` や `--allow-write` は認証を提供しません。ネットワーク公開を前提とした機能を追加する場合は、既存の Host/Origin 検査だけで十分とみなさず、設計とアクセス制御を改めて検討してください。
 
@@ -141,7 +142,7 @@ app_state, routing
       └ gitrun
           ├ files
           └ gitstate
-              ├ engine  (server からだけ呼ばれる)
+              ├ engine  (操作の記録と git の処理。refops などの route と server から呼ばれる)
               ├ rebase, refops
               │   ├ remote
               │   └ wip

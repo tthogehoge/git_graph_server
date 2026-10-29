@@ -115,7 +115,7 @@ def check_i18n():
             problems += [f"[en] contains CJK text: {k}" for k, v in table.items() if _CJK.search(v)]
 
     src = "\n".join(path.read_text(encoding="utf-8")
-                    for path in sorted(Path(__file__).resolve().parent.glob("*.py")))
+                    for path in sorted(Path(__file__).resolve().parent.rglob("*.py")))  # engine/ などのサブパッケージも含む
     assets = "\n".join(path.read_text(encoding="utf-8")
                        for ext in ("html", "js", "css") for path in sorted(STATIC_DIR.rglob(f"*.{ext}")))
     tree = ast.parse(src)

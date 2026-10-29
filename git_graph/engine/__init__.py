@@ -15,21 +15,24 @@
 #   一時ディレクトリは起動時・終了時に cleanup() で消す。
 #   作業ツリーが操作後に変わっているのを確認のうえ上書きして戻すときは、上書きされる現在の状態を履歴側の
 #   「反対向きの行き先」にする (元に戻す → やり直しで、上書きされた状態に戻れる)。ref も退避ファイルも作らない。
+import functools
 import os
 import shutil
 import subprocess
+import threading
 import time
-from . import app_state as state
-from . import tmpdir
-from .gitrun import HASH_RE
-from .gitstate import is_cherry_picking, is_merging, is_rebasing, is_reverting
-from .i18n import tr, UserError
-from .routing import route
+from .. import app_state as state
+from .. import tmpdir
+from ..gitrun import HASH_RE
+from ..gitstate import is_cherry_picking, is_merging, is_rebasing, is_reverting
+from ..i18n import tr, UserError
+from ..routing import ENGINE_ROUTES, route
 
 HIST_LIMIT = 30                       # 残す履歴の数 (古いものから捨てる)
 UNTRACKED_NAMES_LIMIT = 5000          # 管理外ファイルの名前をこれ以上記録しない (超えたら、元に戻すときに何も消さない)
 
-# 書き込み API ごとの扱い: パス -> (操作名, 作業ツリーに触れるか)。作業ツリーに触れるかは False / True /
+# engine の操作 (operation) に移した API は、操作が自分で記録するので、ここには載せない (routing.ENGINE_ROUTES)。
+# まだ移していない書き込み API ごとの扱い: パス -> (操作名, 作業ツリーに触れるか)。作業ツリーに触れるかは False / True /
 # "names" (管理外ファイルが追跡対象になりうる操作。管理外ファイルの名前も記録する。コミットなど)。
 # 履歴に積まない API は IGNORED に入れる。どちらにも無い POST API は、安全側に倒して「作業ツリーに触れる操作」とみなす
 # (新しい書き込み API を足したらここへ登録すること。tests が登録漏れを検出する)。
@@ -44,16 +47,6 @@ WRITE_OPS = {
     "/api/revert": ("revert", True),
     "/api/abort": ("abort", True),
     "/api/resolve": ("resolve", "names"),
-    "/api/stash": ("stash", True),
-    "/api/stash-push": ("stash_push", True),
-    "/api/branch": ("branch", False),
-    "/api/tag": ("tag", False),
-    "/api/ref-delete": ("delete_ref", False),
-    "/api/branch-rename": ("branch_rename", False),
-    "/api/checkout": ("checkout", True),
-    "/api/reset": ("reset", True),
-    "/api/discard": ("discard", True),
-    "/api/rm": ("rm", True),
     "/api/wip-commit": ("commit", "names"),
     "/api/fetch": ("fetch", False),
     "/api/pull": ("pull", True),
@@ -90,8 +83,6 @@ def write_op_for(path, body):
     """(操作名, 作業ツリーに触れるか) を返す。履歴に積まない操作は None。"""
     if path in IGNORED:
         return None
-    if path == "/api/ref-delete" and isinstance(body, dict) and body.get("kind") == "remote-branch":
-        return None  # git push --delete: リモート側が変わるので戻せない
     return WRITE_OPS.get(path, ("other", "names"))
 
 
@@ -277,30 +268,72 @@ def _detail(body):
 
 # ---------------------------------------------------------------- 実行
 
-def run(path, handler, body):
-    """書き込み API の handler を実行し、状態の変化を履歴に積む。履歴の記録に失敗しても操作そのものは妨げない。"""
-    spec = write_op_for(path, body)
-    if spec is None or getattr(state.OPTS, "no_undo", False):
-        return handler(body)
-    op, touches_wt = spec
+_local = threading.local()  # 操作の入れ子の深さ。入れ子の内側の操作は記録せず、いちばん外側の操作でまとめて1つに記録する
+
+
+def _recorded(op, touches_wt, detail, call):
+    """call() を実行し、その前後の状態の変化を履歴に積む。履歴の記録に失敗しても操作そのものは妨げない。"""
+    if getattr(state.OPTS, "no_undo", False) or getattr(_local, "depth", 0) > 0:
+        return call()
     try:
         hist = _load()
         busy_before = in_progress()
         before = take(False if busy_before else touches_wt)  # 途中状態では index が競合を含むので、作業ツリーは退避しない
     except Exception:
-        return handler(body)
+        return call()
     error = None
+    _local.depth = 1
     try:
-        result = handler(body)
+        result = call()
     except BaseException as e:  # 途中まで変更された状態も履歴に積むため、いったん受ける
         error = e
+    finally:
+        _local.depth = 0
     try:
-        _finish(hist, {"op": op, "detail": _detail(body), "touches_wt": touches_wt}, busy_before, before)
+        _finish(hist, {"op": op, "detail": detail, "touches_wt": touches_wt}, busy_before, before)
     except Exception:
         pass
     if error is not None:
         raise error
     return result
+
+
+def run(path, handler, body):
+    """(engine を使っていない) 書き込み API の handler を実行し、状態の変化を履歴に積む。
+    engine の操作を呼ぶ route (ENGINE_ROUTES) は、操作が自分で記録するので、そのまま実行する。"""
+    spec = None if path in ENGINE_ROUTES else write_op_for(path, body)
+    if spec is None:
+        return handler(body)
+    op, touches_wt = spec
+    return _recorded(op, touches_wt, _detail(body), lambda: handler(body))
+
+
+OPERATIONS = {}  # 操作名 -> 作業ツリーに触れるか (登録された engine の操作)
+
+
+def operation(name, *, touches_worktree, detail=None):
+    """git の操作を engine の操作として登録する。呼ぶと、状態の前後を履歴 (undo) に記録しながら実行する。
+    name は LABEL_KEYS の操作名、touches_worktree は False / True / "names" (WRITE_OPS と同じ意味)。
+    detail は、呼び出しと同じ引数を受け取って、履歴に出す対象 (ブランチ名やハッシュなど) を文字列で返す関数。
+    操作の関数は、HTTP の body も画面用の文言も知らない。引数を受け取って git を実行し、結果を dict で返す。"""
+    def register(fn):
+        if name not in LABEL_KEYS:
+            raise ValueError(f"operation {name!r} has no label in LABEL_KEYS")
+        OPERATIONS[name] = touches_worktree
+
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            text = ""
+            if detail is not None:
+                try:
+                    text = detail(*args, **kwargs) or ""
+                except Exception:
+                    text = ""
+            text = text[:7] if HASH_RE.fullmatch(text) else text[:60]  # ハッシュは短くして履歴に出す
+            return _recorded(name, touches_worktree, text, lambda: fn(*args, **kwargs))
+        wrapper.operation_name = name
+        return wrapper
+    return register
 
 
 def _finish(hist, meta, busy_before, before):

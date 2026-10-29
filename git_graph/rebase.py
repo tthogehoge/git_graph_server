@@ -13,7 +13,7 @@ from .gitstate import (
     read_status_raw,
 )
 from .i18n import tr, UserError
-from .refops import resolve_dirty_worktree, run_resolving, with_stash_note
+from .engine.dirty import resolve_dirty_worktree, run_resolving, with_stash_note
 from .routing import route
 
 
