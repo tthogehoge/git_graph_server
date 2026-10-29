@@ -637,6 +637,54 @@ class EngineOperationTests(EngineTests):
         self.assertFalse(Auth().retrying_for("origin"))
         self.assertEqual(auth.for_remote("origin"), {"username": "u", "password": "p"})  # 明示された認証情報を優先する
 
+    def patch_for(self, name, content, message):
+        """別のコミットとして作って format-patch に出し、元に戻した状態のパッチ (bytes) を返す。"""
+        self.commit_file(name, content, message)
+        raw = subprocess.run(["git", "-C", self.repo, "format-patch", "-1", "--stdout"], check=True, capture_output=True).stdout
+        self.git("reset", "-q", "--hard", "HEAD~1")
+        return raw
+
+    def test_apply_patch_changes_the_worktree_only_and_is_recorded(self):
+        from git_graph.engine import patch
+        original = self.read("tracked.txt")
+        raw = self.patch_for("tracked.txt", "patched\n", "to apply")
+
+        result = patch.apply_patch(raw)
+
+        self.assertEqual(result, {"files": 1})
+        self.assertEqual(self.read("tracked.txt"), "patched\n")
+        self.assertEqual(self.git("rev-parse", "HEAD").strip(), self.head)  # コミットもステージもしない
+        self.assertEqual(self.git("diff", "--cached", "--name-only").strip(), "")
+        self.assertEqual([e["op"] for e in self.entries()], ["patch_apply"])
+        self.assertTrue(self.undo()["ok"])
+        self.assertEqual(self.read("tracked.txt"), original)
+
+    def test_am_patch_adds_commits_and_a_failure_leaves_nothing_behind(self):
+        from git_graph.engine import patch
+        raw = self.patch_for("amed.txt", "amed\n", "to am")
+
+        result = patch.am_patch(raw)
+
+        self.assertEqual(result, {"commits": 1})
+        self.assertEqual(self.git("log", "-1", "--format=%s").strip(), "to am")
+        self.assertEqual([e["op"] for e in self.entries()], ["patch_am"])
+        head = self.git("rev-parse", "HEAD").strip()
+        with self.assertRaises(ValueError):
+            patch.am_patch(raw)  # もう適用済みなので失敗する
+        self.assertEqual(self.git("rev-parse", "HEAD").strip(), head)
+        self.assertFalse(os.path.exists(os.path.join(self.repo, ".git", "rebase-apply")))
+
+    def test_patch_operations_reject_empty_input_and_am_refuses_during_another_operation(self):
+        from git_graph.engine import patch
+        for fn in (patch.apply_patch, patch.am_patch):
+            with self.assertRaises(UserError):
+                fn(b"  \n")
+        busy = os.path.join(self.repo, ".git", "rebase-apply")
+        os.makedirs(busy)  # 別の rebase / am の途中。am --abort がこれを壊してはいけない
+        with self.assertRaises(UserError):
+            patch.am_patch(b"From x\n")
+        self.assertTrue(os.path.isdir(busy))
+
     def test_blocked_checkout_is_returned_not_raised(self):
         from git_graph.engine import refs
         self.git("checkout", "-q", "-b", "other")

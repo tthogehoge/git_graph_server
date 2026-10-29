@@ -47,8 +47,6 @@ WRITE_OPS = {
     "/api/revert": ("revert", True),
     "/api/abort": ("abort", True),
     "/api/resolve": ("resolve", "names"),
-    "/api/patch-apply": ("patch_apply", "names"),
-    "/api/patch-am": ("patch_am", True),
     "/api/file-save": ("file_save", True),
 }
 IGNORED = {

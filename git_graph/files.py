@@ -9,8 +9,9 @@ import subprocess
 from datetime import datetime, timedelta, timezone
 from . import app_state as state
 from . import tmpdir
+from .engine import patch
 from .gitrun import git, git_bytes, resolve_commit
-from .gitstate import CONFLICT_CODES, has_head, is_cherry_picking, is_merging, is_rebasing, is_reverting
+from .gitstate import CONFLICT_CODES
 from .i18n import tr, UserError
 from .routing import route
 
@@ -445,44 +446,18 @@ def _patch_data(body):
     return data
 
 
-@route("/api/patch-apply", method="POST")
+@route("/api/patch-apply", method="POST", engine=True)
 def api_patch_apply(body):
-    """アップロードされたパッチを作業ツリーに git apply する (ステージ・コミットはしない)。先に解析と適用の確認をして、失敗したら何も変えない。"""
-    if not state.WIP_ENABLED:
-        raise UserError("wip_disabled")
-    data = _patch_data(body)
-
-    def run_apply(*opts):
-        r = subprocess.run(["git", "-C", state.REPO, "apply", "--whitespace=nowarn", *opts, "-"], input=data, capture_output=True)
-        if r.returncode != 0:
-            raise ValueError(r.stderr.decode("utf-8", "replace").strip() or tr("git_command_failed"))
-        return r.stdout.decode("utf-8", "replace")
-
-    n = len([line for line in run_apply("--numstat").splitlines() if line.strip()])  # 壊れたパッチはここで失敗する
-    if n == 0:
-        raise UserError("patch_empty")
-    run_apply("--check")
-    run_apply()
-    return {"ok": True, "message": tr("patch_applied", n=n)}
+    """アップロードされたパッチを作業ツリーに git apply する (ステージ・コミットはしない)。"""
+    r = patch.apply_patch(_patch_data(body))
+    return {"ok": True, "message": tr("patch_applied", n=r["files"])}
 
 
-@route("/api/patch-am", method="POST")
+@route("/api/patch-am", method="POST", engine=True)
 def api_patch_am(body):
-    """アップロードされたパッチ (git format-patch の出力) を git am で適用し、パッチのコミットを現在のブランチに積む。
-    途中で失敗したら git am --abort で元の状態に戻す。マージなどの途中のときは、その操作を壊さないよう何もしない。"""
-    if not state.WIP_ENABLED:
-        raise UserError("wip_disabled")
-    data = _patch_data(body)
-    if is_merging() or is_rebasing() or is_cherry_picking() or is_reverting():
-        raise UserError("patch_am_busy")  # rebase-apply が残っていると、am --abort が別の操作を中断してしまう
-    old = git("rev-parse", "HEAD").strip() if has_head() else ""
-    r = subprocess.run(["git", "-C", state.REPO, "am", "--quiet", "--whitespace=nowarn"], input=data, capture_output=True)
-    if r.returncode != 0:
-        subprocess.run(["git", "-C", state.REPO, "am", "--abort"], capture_output=True)
-        text = (r.stderr + r.stdout).decode("utf-8", "replace").strip()
-        raise ValueError(text or tr("git_command_failed"))
-    n = int(git("rev-list", "--count", f"{old}..HEAD" if old else "HEAD").strip() or 0)
-    return {"ok": True, "message": tr("patch_am_applied", n=n)}
+    """アップロードされたパッチ (git format-patch の出力) を git am で適用し、パッチのコミットを現在のブランチに積む。"""
+    r = patch.am_patch(_patch_data(body))
+    return {"ok": True, "message": tr("patch_am_applied", n=r["commits"])}
 
 
 @route("/api/blame")

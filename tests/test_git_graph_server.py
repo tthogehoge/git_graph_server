@@ -22,6 +22,7 @@ from git_graph import app_state as state
 from git_graph import graph as graph_module
 from git_graph import pages as viewer
 from git_graph import tmpdir
+from git_graph.routing import ENGINE_ROUTES
 from git_graph.i18n import tr
 from git_graph.graph import MERGE_EDGE_COLOR as MERGE_COLOR
 
@@ -1151,7 +1152,8 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
 
     def test_patch_am_is_a_write_operation_for_the_engine(self):
         from git_graph import engine
-        self.assertEqual(engine.write_op_for("/api/patch-am", {}), ("patch_am", True))
+        self.assertEqual(engine.OPERATIONS["patch_am"], True)
+        self.assertIn("/api/patch-am", ENGINE_ROUTES)  # engine の操作が自分で記録する
         self.assertIn("patch_am", engine.LABEL_KEYS)
         self.assertIs(app.ROUTES[("POST", "/api/patch-am")], app.api_patch_am)
 
