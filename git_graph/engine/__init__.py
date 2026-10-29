@@ -37,16 +37,11 @@ UNTRACKED_NAMES_LIMIT = 5000          # 管理外ファイルの名前をこれ�
 # 履歴に積まない API は IGNORED に入れる。どちらにも無い POST API は、安全側に倒して「作業ツリーに触れる操作」とみなす
 # (新しい書き込み API を足したらここへ登録すること。tests が登録漏れを検出する)。
 WRITE_OPS = {
-    "/api/merge": ("merge", True),
     "/api/rebase": ("rebase", True),
     "/api/rebase-range": ("rebase", True),
     "/api/rebase-descendants": ("rebase", True),
     "/api/rebase-equivalent": ("rebase", True),
     "/api/rebase-i": ("rebase_i", True),
-    "/api/cherry-pick": ("cherry_pick", True),
-    "/api/revert": ("revert", True),
-    "/api/abort": ("abort", True),
-    "/api/resolve": ("resolve", "names"),
     "/api/file-save": ("file_save", True),
 }
 IGNORED = {

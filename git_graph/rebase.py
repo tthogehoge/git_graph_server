@@ -13,7 +13,9 @@ from .gitstate import (
     read_status_raw,
 )
 from .i18n import tr, UserError
-from .engine.dirty import resolve_dirty_worktree, run_resolving, with_stash_note
+from .engine import integrate
+from .engine.dirty import git_run as _git_run, resolve_dirty_worktree, run_resolving, with_stash_note
+from .engine.integrate import unmerged_stages  # noqa: F401  (互換のため再公開)
 from .routing import route
 
 
@@ -184,48 +186,16 @@ def rebase_tag_only_tips(base, onto, tips):
 def api_head(q=None):
     return head_state()
 
-@route("/api/merge", method="POST")
+@route("/api/merge", method="POST", engine=True)
 def api_merge(body):
-    """選んだコミットを、いまチェックアウトしている HEAD にマージする。
-    競合したときはマージ途中の状態で止める (WIP の一覧に競合ファイルが出るので、解決してコミットする)。
-    編集中のファイルや同名の管理外ファイルに邪魔されてマージできないときは、止めているファイルを返す ({blocked, modified, untracked})。
-    on_conflict="stash" で再実行すると全変更を stash してから、"discard" で再実行すると止めているファイルだけ破棄してからマージする。"""
-    if not state.HAS_WORKTREE:
-        raise UserError("merge_no_worktree")
-    h = resolve_commit(body.get("hash", ""))
-    if is_merging():
-        raise UserError("merge_in_progress")
-    if not has_head():
-        raise UserError("merge_no_commits")
-    before = git("rev-parse", "HEAD").strip()
-    args = ["merge", "--no-edit"]
-    if body.get("no_ff"):
-        args.append("--no-ff")
-    def run(c_locale):
-        env = dict(os.environ, LC_ALL="C", LANGUAGE="C") if c_locale else None
-        return subprocess.run(["git", "-C", state.REPO, *args, h], capture_output=True, text=True,
-                              encoding="utf-8", errors="replace", env=env)
+    """選んだコミットを、いまチェックアウトしている HEAD にマージする。競合したときはマージ途中の状態で止める。"""
+    r = integrate.merge(body.get("hash", ""), no_ff=bool(body.get("no_ff")), on_conflict=body.get("on_conflict"))
+    if r.get("blocked"):
+        return r
+    if r.get("conflict"):
+        return {"ok": True, "conflict": True, "message": with_stash_note(r, tr("merge_conflict", target=r["hash"][:7]))}
+    return {"ok": True, "message": with_stash_note(r, tr("merge_done" if r["updated"] else "merge_uptodate", hash=r["hash"][:7]))}
 
-    r, blocked, stashed = run_resolving(run, body.get("on_conflict"))
-    if blocked:
-        return blocked
-    stash = {"stashed": stashed}
-    out = (r.stdout + r.stderr).strip()
-    if r.returncode != 0:
-        if is_merging():  # 競合 (自動マージできなかった)
-            return {"ok": True, "conflict": True,
-                    "message": with_stash_note(stash, tr("merge_conflict", target=h[:7]))}
-        raise ValueError(with_stash_note(stash, out or tr("merge_failed")))
-    if git("rev-parse", "HEAD").strip() == before:  # git の出力文言 (ロケールで変わる) ではなく、HEAD が動いたかで判定する
-        return {"ok": True, "message": with_stash_note(stash, tr("merge_uptodate", hash=h[:7]))}
-    return {"ok": True, "message": with_stash_note(stash, tr("merge_done", hash=h[:7]))}
-
-def _git_run(args, c_locale=False, env=None):
-    env = dict(os.environ if env is None else env)
-    if c_locale:
-        env.update(LC_ALL="C", LANGUAGE="C")
-    return subprocess.run(["git", "-C", state.REPO, *args], capture_output=True, text=True,
-                          encoding="utf-8", errors="replace", env=env)
 
 @route("/api/rebase", method="POST")
 def api_rebase(body):
@@ -678,113 +648,37 @@ def api_find_equivalent_branch(body):
     return {"to": best[0]["tip"],
             "message": tr("find_equivalent_branch_found", branches=labels, remaining=nearest)}
 
-@route("/api/cherry-pick", method="POST")
+@route("/api/cherry-pick", method="POST", engine=True)
 def api_cherry_pick(body):
-    """選んだコミットを、いまチェックアウトしている HEAD にチェリーピックする。
-    競合したときと、変更が空になるとき (既に取り込み済み) は、中止して元に戻す。
-    編集中のファイルや同名の管理外ファイルに邪魔されたときは、止めているファイルを返す ({blocked, modified, untracked})。"""
-    if not state.HAS_WORKTREE:
-        raise UserError("cherry_no_worktree")
-    h = resolve_commit(body.get("hash", ""))
-    if is_merging() or is_rebasing() or is_cherry_picking() or is_reverting():
-        raise UserError("op_in_progress")
-    if not has_head():
-        raise UserError("cherry_no_commits")
-    if len(git("rev-list", "--parents", "-n", "1", h).split()) > 2:
-        raise UserError("cherry_merge_commit")
-    before = git("rev-parse", "HEAD").strip()
-    r, blocked, stashed = run_resolving(lambda c: _git_run(["cherry-pick", h], c), body.get("on_conflict"))
-    if blocked:
-        return blocked
-    stash = {"stashed": stashed}
-    out = (r.stdout + r.stderr).strip()
-    if r.returncode != 0:
-        if is_cherry_picking():
-            unmerged = subprocess.run(["git", "-C", state.REPO, "-c", "core.quotepath=false", "diff", "--name-only", "--diff-filter=U"],
-                                      capture_output=True, text=True, encoding="utf-8", errors="replace").stdout.strip()
-            subprocess.run(["git", "-C", state.REPO, "cherry-pick", "--abort"], capture_output=True)
-            if not unmerged:  # 競合ではなく、変更が空になった
-                raise UserError("cherry_empty", hash=h[:7])
-            raise UserError("cherry_conflict", hash=h[:7])
-        raise ValueError(with_stash_note(stash, out or tr("cherry_failed")))
-    if git("rev-parse", "HEAD").strip() == before:
-        return {"ok": True, "message": with_stash_note(stash, tr("cherry_noop", hash=h[:7]))}
-    return {"ok": True, "message": with_stash_note(stash, tr("cherry_done", hash=h[:7]))}
+    """選んだコミットを、いまチェックアウトしている HEAD にチェリーピックする。"""
+    r = integrate.cherry_pick(body.get("hash", ""), on_conflict=body.get("on_conflict"))
+    if r.get("blocked"):
+        return r
+    return {"ok": True, "message": with_stash_note(r, tr("cherry_noop" if r["noop"] else "cherry_done", hash=r["hash"][:7]))}
 
-@route("/api/revert", method="POST")
+
+@route("/api/revert", method="POST", engine=True)
 def api_revert(body):
-    """選んだコミットの変更を打ち消すコミットを、いまの HEAD の上に作る (git revert)。
-    競合したときと、変更が空になるとき (既に打ち消し済み) は、中止して元に戻す。マージコミットは第1親を基準にする。
-    編集中のファイルや同名の管理外ファイルに邪魔されたときは、止めているファイルを返す ({blocked, modified, untracked})。"""
-    if not state.HAS_WORKTREE:
-        raise UserError("revert_no_worktree")
-    h = resolve_commit(body.get("hash", ""))
-    if is_merging() or is_rebasing() or is_cherry_picking() or is_reverting():
-        raise UserError("op_in_progress")
-    if not has_head():
-        raise UserError("revert_no_commits")
-    is_merge = len(git("rev-list", "--parents", "-n", "1", h).split()) > 2
-    args = ["revert", "--no-edit"] + (["-m", "1"] if is_merge else []) + [h]
-    r, blocked, stashed = run_resolving(lambda c: _git_run(args, c), body.get("on_conflict"))
-    if blocked:
-        return blocked
-    stash = {"stashed": stashed}
-    out = (r.stdout + r.stderr).strip()
-    if r.returncode != 0:
-        if is_reverting():
-            unmerged = subprocess.run(["git", "-C", state.REPO, "-c", "core.quotepath=false", "diff", "--name-only", "--diff-filter=U"],
-                                      capture_output=True, text=True, encoding="utf-8", errors="replace").stdout.strip()
-            subprocess.run(["git", "-C", state.REPO, "revert", "--abort"], capture_output=True)
-            if not unmerged:  # 競合ではなく、変更が空になった
-                raise UserError("revert_empty", hash=h[:7])
-            raise UserError("revert_conflict", hash=h[:7])
-        raise ValueError(with_stash_note(stash, out or tr("revert_failed")))
-    return {"ok": True, "message": with_stash_note(stash, tr("revert_done_merge" if is_merge else "revert_done", hash=h[:7]))}
+    """選んだコミットの変更を打ち消すコミットを、いまの HEAD の上に作る (git revert)。"""
+    r = integrate.revert(body.get("hash", ""), on_conflict=body.get("on_conflict"))
+    if r.get("blocked"):
+        return r
+    return {"ok": True, "message": with_stash_note(r, tr("revert_done_merge" if r["merge"] else "revert_done", hash=r["hash"][:7]))}
 
-@route("/api/abort", method="POST")
+
+@route("/api/abort", method="POST", engine=True)
 def api_abort(body):
     """進行中のマージ / リベース / チェリーピック / リバートを中断して、開始前の状態に戻す。"""
-    if not state.HAS_WORKTREE:
-        raise UserError("abort_no_worktree")
-    for cmd, active in (("merge", is_merging), ("rebase", is_rebasing),
-                        ("cherry-pick", is_cherry_picking), ("revert", is_reverting)):
-        if active():
-            run_git_write(cmd, "--abort")
-            return {"ok": True, "message": tr("aborted", cmd=cmd)}
-    raise UserError("nothing_to_abort")
+    r = integrate.abort_operation()
+    return {"ok": True, "message": tr("aborted", cmd=r["cmd"])}
 
-def unmerged_stages(path):
-    """競合しているファイルが持つインデックスのステージ番号 (2 = ours, 3 = theirs)。片側で削除されていると、その番号がない。"""
-    out = git("ls-files", "-u", "-z", "--", path, literal=True)
-    return {rec.split("\t", 1)[0].split()[-1] for rec in out.split("\0") if "\t" in rec}
 
-@route("/api/resolve", method="POST")
+@route("/api/resolve", method="POST", engine=True)
 def api_resolve(body):
-    """競合しているファイルを、ours か theirs の内容で丸ごと置き換えて解決済みにする (片側で削除されていたら削除する)。"""
-    if not state.WIP_ENABLED:
-        raise UserError("wip_disabled")
-    side = body.get("side")
-    if side not in ("ours", "theirs"):
-        raise UserError("resolve_side_invalid")
-    paths = body.get("paths")
-    if not isinstance(paths, list) or not paths or not all(isinstance(p, str) for p in paths):
-        raise UserError("select_files")
-    s = parse_status(read_status_raw(), limit=10 ** 9)
-    bad = set(paths) - {f["path"] for f in s["conflicts"]}  # 任意のパスを触らせない。いま競合と報告されているものだけ
-    if bad:
-        raise UserError("resolve_not_conflict", files=", ".join(sorted(bad)[:3]))
-    stage = "2" if side == "ours" else "3"
-    keep, remove = [], []
-    for p in sorted(set(paths)):
-        (keep if stage in unmerged_stages(p) else remove).append(p)
-    step = 200
-    for i in range(0, len(keep), step):
-        part = keep[i:i + step]
-        run_git_write("checkout", "--" + side, "--", *part, literal=True)
-        run_git_write("add", "--", *part, literal=True)
-    for i in range(0, len(remove), step):
-        run_git_write("rm", "-q", "-f", "--", *remove[i:i + step], literal=True)
-    return {"ok": True, "message": tr("resolved", n=len(keep) + len(remove), side=side)}
+    """競合しているファイルを、ours か theirs の内容で丸ごと置き換えて解決済みにする。"""
+    r = integrate.resolve_conflicts(body.get("side"), body.get("paths"))
+    return {"ok": True, "message": tr("resolved", n=r["count"], side=r["side"])}
+
 
 REBASE_I_MAX = 200
 

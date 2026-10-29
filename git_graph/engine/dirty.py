@@ -175,3 +175,12 @@ def with_stash_note(res, msg):
     if res and res.get("stashed"):
         msg += tr("stash_note", stash=res["stashed"])
     return msg
+
+
+def git_run(args, c_locale=False, env=None):
+    """git を実行して CompletedProcess を返す (失敗しても例外にしない)。c_locale=True なら、出力を解析できるよう C ロケールで実行する。"""
+    env = dict(os.environ if env is None else env)
+    if c_locale:
+        env.update(LC_ALL="C", LANGUAGE="C")
+    return subprocess.run(["git", "-C", state.REPO, *args], capture_output=True, text=True,
+                          encoding="utf-8", errors="replace", env=env)

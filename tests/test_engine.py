@@ -685,6 +685,81 @@ class EngineOperationTests(EngineTests):
             patch.am_patch(b"From x\n")
         self.assertTrue(os.path.isdir(busy))
 
+    def diverged_branch(self, name="other", content="other side\n"):
+        """main から分かれて tracked.txt を変えたブランチを作って、main に戻る。"""
+        self.git("checkout", "-q", "-b", name)
+        tip = self.commit_file("tracked.txt", content, f"{name} change")
+        self.git("checkout", "-q", "main")
+        return tip
+
+    def test_merge_reports_updated_uptodate_and_conflict(self):
+        from git_graph.engine import integrate
+        side = self.diverged_branch("side")
+        merged = integrate.merge(side)
+        self.assertEqual((merged["hash"], merged["updated"]), (side, True))
+        self.assertEqual(self.entries()[-1]["op"], "merge")
+        self.assertFalse(integrate.merge(side)["updated"])  # もう取り込み済み
+
+        self.git("reset", "-q", "--hard", self.head)
+        self.commit_file("tracked.txt", "main side\n", "main change")
+        clash = integrate.merge(side)
+        self.assertTrue(clash["conflict"])
+        self.assertTrue(os.path.exists(os.path.join(self.repo, ".git", "MERGE_HEAD")))  # マージ途中で止まる
+        with self.assertRaises(UserError):
+            integrate.merge(side)  # マージ中は、さらにマージできない
+
+    def test_abort_operation_returns_the_aborted_command(self):
+        from git_graph.engine import integrate
+        side = self.diverged_branch("side")
+        self.commit_file("tracked.txt", "main side\n", "main change")
+        integrate.merge(side)
+
+        self.assertEqual(integrate.abort_operation(), {"cmd": "merge"})
+        self.assertFalse(os.path.exists(os.path.join(self.repo, ".git", "MERGE_HEAD")))
+        with self.assertRaises(UserError):
+            integrate.abort_operation()
+
+    def test_resolve_conflicts_takes_one_side_and_rejects_non_conflicts(self):
+        from git_graph.engine import integrate
+        side = self.diverged_branch("side", "their side\n")
+        self.commit_file("tracked.txt", "our side\n", "main change")
+        integrate.merge(side)
+
+        with self.assertRaises(UserError):
+            integrate.resolve_conflicts("middle", ["tracked.txt"])
+        with self.assertRaises(UserError):
+            integrate.resolve_conflicts("theirs", ["not-a-conflict.txt"])
+        result = integrate.resolve_conflicts("theirs", ["tracked.txt"])
+
+        self.assertEqual(result, {"count": 1, "side": "theirs"})
+        self.assertEqual(self.read("tracked.txt"), "their side\n")
+        self.assertEqual(self.git("diff", "--name-only", "--diff-filter=U").strip(), "")
+
+    def test_cherry_pick_and_revert_report_what_happened(self):
+        from git_graph.engine import integrate
+        picked = self.diverged_branch("pick", "picked\n")
+
+        result = integrate.cherry_pick(picked)
+        self.assertEqual((result["noop"], self.read("tracked.txt")), (False, "picked\n"))
+        with self.assertRaises(UserError):
+            integrate.cherry_pick(picked)  # 変更が空になる (既に取り込み済み): 中止して元に戻す
+        self.assertFalse(os.path.exists(os.path.join(self.repo, ".git", "CHERRY_PICK_HEAD")))
+
+        head = self.git("rev-parse", "HEAD").strip()
+        undone = integrate.revert(head)
+        self.assertEqual((undone["merge"], self.read("tracked.txt") != "picked\n"), (False, True))
+        self.assertEqual([e["op"] for e in self.entries()], ["cherry_pick", "revert"])
+
+    def test_integration_operations_stop_when_a_local_edit_blocks_them(self):
+        from git_graph.engine import integrate
+        side = self.diverged_branch("side")
+        self.write("tracked.txt", "local edit\n")
+
+        blocked = integrate.merge(side)
+
+        self.assertTrue(blocked["blocked"])
+        self.assertEqual(self.read("tracked.txt"), "local edit\n")  # 何も壊さない
+
     def test_blocked_checkout_is_returned_not_raised(self):
         from git_graph.engine import refs
         self.git("checkout", "-q", "-b", "other")
