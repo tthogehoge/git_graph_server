@@ -9,7 +9,7 @@ from . import app_state as state
 from . import tmpdir
 from .gitrun import git, resolve_commit, run_git_write
 from .gitstate import (
-    has_head, is_cherry_picking, is_merging, is_rebasing, is_reverting, parse_status,
+    has_head, head_state, is_cherry_picking, is_merging, is_rebasing, is_reverting, parse_status,
     read_status_raw,
 )
 from .i18n import tr, UserError
@@ -182,9 +182,7 @@ def rebase_tag_only_tips(base, onto, tips):
 
 @route("/api/head")
 def api_head(q=None):
-    r = subprocess.run(["git", "-C", state.REPO, "symbolic-ref", "--short", "-q", "HEAD"],
-                       capture_output=True, text=True, encoding="utf-8", errors="replace")
-    return {"branch": r.stdout.strip() or None, "merging": (is_merging() or is_rebasing()) if state.HAS_WORKTREE else False}
+    return head_state()
 
 @route("/api/merge", method="POST")
 def api_merge(body):

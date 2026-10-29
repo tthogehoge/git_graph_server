@@ -480,6 +480,52 @@ class EngineOperationTests(EngineTests):
         self.assertEqual(self.entries(), [])
         self.assertEqual(self.git("tag", "--list", "quiet").strip(), "quiet")
 
+    def test_commit_operation_commits_checked_files_and_records_history(self):
+        from git_graph.engine import commit
+        self.write("a.txt", "a\n")
+        self.write("b.txt", "b\n")
+
+        result = commit.commit("add a", ["a.txt"])
+
+        self.assertEqual(result["amend"], False)
+        self.assertEqual(result["count"], 1)
+        self.assertEqual(result["hash"], self.git("rev-parse", "HEAD").strip())
+        self.assertEqual(self.git("show", "--name-only", "--format=", "HEAD").strip(), "a.txt")
+        self.assertEqual([e["op"] for e in self.entries()], ["commit"])
+        self.assertTrue(self.undo()["ok"])
+        self.assertEqual(self.git("rev-parse", "HEAD").strip(), self.head)
+
+    def test_commit_operation_to_new_branch_records_branch_name(self):
+        from git_graph.engine import commit
+        self.write("a.txt", "a\n")
+
+        commit.commit("on feature", ["a.txt"], branch="feature")
+
+        self.assertEqual(self.git("branch", "--show-current").strip(), "feature")
+        self.assertEqual([e["detail"] for e in self.entries()], ["feature"])
+
+    def test_commit_operation_amend_reports_dropped_files(self):
+        from git_graph.engine import commit
+        self.write("one.txt", "1\n")
+        self.write("two.txt", "2\n")
+        self.git("add", "one.txt", "two.txt")
+        self.git("commit", "-q", "-m", "add both")
+
+        result = commit.commit("only one", ["one.txt"], amend=True)  # two.txt はチェックを外す = コミットから外す
+
+        self.assertEqual((result["amend"], result["count"], result["dropped"]), (True, 1, 1))
+        self.assertEqual(self.git("show", "--name-only", "--format=", "HEAD").strip(), "one.txt")
+        self.assertEqual(self.git("log", "-1", "--format=%s").strip(), "only one")
+
+    def test_commit_operation_validates_before_touching_anything(self):
+        from git_graph.engine import commit
+        self.write("a.txt", "a\n")
+        for kwargs, args in (({}, ("", ["a.txt"])), ({}, ("m", [])), ({}, ("m", "a.txt")), ({"amend": True, "branch": "x"}, ("m", ["a.txt"]))):
+            with self.assertRaises(UserError):
+                commit.commit(*args, **kwargs)
+        self.assertEqual(self.git("rev-parse", "HEAD").strip(), self.head)
+        self.assertEqual(self.entries(), [])
+
     def test_blocked_checkout_is_returned_not_raised(self):
         from git_graph.engine import refs
         self.git("checkout", "-q", "-b", "other")

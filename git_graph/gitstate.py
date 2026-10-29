@@ -129,8 +129,64 @@ def parse_numstat(raw):
     return files
 
 
+
+def head_state():
+    """現在のブランチ名 (切り離されていれば None) と、マージ / リベースの途中かどうか。"""
+    r = subprocess.run(["git", "-C", state.REPO, "symbolic-ref", "--short", "-q", "HEAD"],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    return {"branch": r.stdout.strip() or None, "merging": (is_merging() or is_rebasing()) if state.HAS_WORKTREE else False}
+
+
+def amend_base():
+    """amend 後のコミットの親 (HEAD^)。最初のコミットなら空ツリー。"""
+    try:
+        return git("rev-parse", "--verify", "--quiet", "HEAD^").strip()
+    except subprocess.CalledProcessError:
+        return git("hash-object", "-t", "tree", "/dev/null").strip()
+
+def parse_name_status(raw):
+    """--name-status -z の出力を {新しいパス: (変更の種類(M/A/D/R...), 元のパス or None)} にする。"""
+    toks = raw.split("\0")
+    out, i = {}, 0
+    while i < len(toks):
+        t = toks[i].lstrip("\n")
+        if not t:
+            i += 1
+            continue
+        if t[0] in "RC":
+            if i + 2 >= len(toks):
+                break
+            out[toks[i + 2]] = (t[0], toks[i + 1])
+            i += 3
+        else:
+            if i + 1 >= len(toks):
+                break
+            out[toks[i + 1]] = (t[0], None)
+            i += 2
+    return out
+
+def amend_head_changes(base):
+    """直前のコミット (HEAD) が変更したファイル {新しいパス: 元のパス or None}。"""
+    names = parse_name_status(git("diff", "--name-status", "-z", "-M", base, "HEAD", "--"))
+    return {path: old for path, (_, old) in names.items()}
+
+def addable_paths(paths, step=200):
+    """add -A できるパスだけにする。作業ツリーにもインデックスにも無いパス (直前のコミットで git rm 済みのファイルなど) は、
+    add -A が「pathspec が見つからない」で失敗する。そのパスはインデックスの状態のままコミットに入る。"""
+    paths = sorted(paths)
+    in_index = set()
+    for i in range(0, len(paths), step):
+        out = git("ls-files", "-z", "--", *paths[i:i + step], literal=True)
+        in_index.update(p for p in out.split("\0") if p)
+    return [p for p in paths if p in in_index or os.path.lexists(os.path.join(state.REPO, p))]
+
 __all__ = [
     "CONFLICT_CODES",
+    "addable_paths",
+    "amend_base",
+    "amend_head_changes",
+    "head_state",
+    "parse_name_status",
     "branch_config",
     "commit_info",
     "has_head",

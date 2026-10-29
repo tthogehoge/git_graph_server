@@ -47,7 +47,6 @@ WRITE_OPS = {
     "/api/revert": ("revert", True),
     "/api/abort": ("abort", True),
     "/api/resolve": ("resolve", "names"),
-    "/api/wip-commit": ("commit", "names"),
     "/api/fetch": ("fetch", False),
     "/api/pull": ("pull", True),
     "/api/remote-add": ("remote_add", False),
