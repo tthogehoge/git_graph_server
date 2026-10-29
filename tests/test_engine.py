@@ -647,12 +647,12 @@ class EngineOperationTests(EngineTests):
     def test_apply_patch_changes_the_worktree_only_and_is_recorded(self):
         from git_graph.engine import patch
         original = self.read("tracked.txt")
-        raw = self.patch_for("tracked.txt", "patched\n", "to apply")
+        raw = self.patch_for("tracked.txt", "patched: a much longer line than the original\n", "to apply")  # 元と同じ長さだと、同じ秒の変更を git の stat が見落とすことがある
 
         result = patch.apply_patch(raw)
 
         self.assertEqual(result, {"files": 1})
-        self.assertEqual(self.read("tracked.txt"), "patched\n")
+        self.assertEqual(self.read("tracked.txt"), "patched: a much longer line than the original\n")
         self.assertEqual(self.git("rev-parse", "HEAD").strip(), self.head)  # コミットもステージもしない
         self.assertEqual(self.git("diff", "--cached", "--name-only").strip(), "")
         self.assertEqual([e["op"] for e in self.entries()], ["patch_apply"])
@@ -759,6 +759,74 @@ class EngineOperationTests(EngineTests):
 
         self.assertTrue(blocked["blocked"])
         self.assertEqual(self.read("tracked.txt"), "local edit\n")  # 何も壊さない
+
+    def topic_on_old_base(self):
+        """base から分かれた topic (2コミット) と、その後に進んだ main を作って topic に切り替える。"""
+        base = self.head
+        self.git("checkout", "-q", "-b", "topic")
+        first = self.commit_file("t1.txt", "one\n", "topic one")
+        second = self.commit_file("t2.txt", "two\n", "topic two")
+        self.git("checkout", "-q", "main")
+        target = self.commit_file("target.txt", "target\n", "target change")
+        self.git("checkout", "-q", "topic")
+        return base, first, second, target
+
+    def test_rebase_operations_return_facts_and_record_one_entry_each(self):
+        from git_graph.engine import rebase
+        base, first, second, target = self.topic_on_old_base()
+
+        done = rebase.rebase(target)
+        self.assertEqual((done["branch"], done["hash"], done["noop"]), ("topic", target, False))
+        self.assertEqual(self.git("rev-parse", "HEAD~2").strip(), target)
+        self.assertTrue(rebase.rebase(target)["noop"])  # もう載っている
+
+        self.assertEqual([e["op"] for e in self.entries()], ["rebase"])  # noop は状態が変わらないので記録されない
+
+    def test_rebase_range_returns_moved_tag_count_and_noop_flag(self):
+        from git_graph.engine import rebase
+        base, first, second, target = self.topic_on_old_base()
+        self.git("tag", "mid", first)
+
+        result = rebase.rebase_range(base, target)
+
+        self.assertEqual((result["branch"], result["from"], result["to"], result["noop"], result["moved_tags"]),
+                         ("topic", base, target, False, 1))
+        self.assertEqual(self.git("rev-parse", "mid^{commit}").strip(), self.git("rev-parse", "HEAD~1").strip())
+
+    def test_rebase_conflict_is_aborted_and_reported_as_an_error(self):
+        from git_graph.engine import rebase
+        self.git("checkout", "-q", "-b", "topic")
+        self.commit_file("tracked.txt", "topic side\n", "topic change")
+        self.git("checkout", "-q", "main")
+        target = self.commit_file("tracked.txt", "main side\n", "main change")
+        self.git("checkout", "-q", "topic")
+        before = self.git("rev-parse", "HEAD").strip()
+
+        with self.assertRaises(UserError):
+            rebase.rebase(target)
+
+        self.assertEqual(self.git("rev-parse", "HEAD").strip(), before)  # 元に戻っている
+        self.assertFalse(os.path.isdir(os.path.join(self.repo, ".git", "rebase-merge")))
+
+    def test_rebase_descendants_and_equivalent_noop_results(self):
+        from git_graph.engine import rebase
+        base, first, second, target = self.topic_on_old_base()
+
+        same = rebase.rebase_descendants(base, base)
+        self.assertEqual((same["noop"], same["branches"], same["moved_tags"]), (True, 0, 0))
+        moved = rebase.rebase_descendants(base, target)
+        self.assertEqual((moved["noop"], moved["branches"]), (False, 1))
+
+        self.assertTrue(rebase.rebase_equivalent(second, second)["noop"])
+
+    def test_rebase_operations_refuse_detached_head_and_missing_worktree(self):
+        from git_graph.engine import rebase
+        base, first, second, target = self.topic_on_old_base()
+        self.git("checkout", "-q", "--detach")
+        for call in (lambda: rebase.rebase(target), lambda: rebase.rebase_range(base, target),
+                     lambda: rebase.rebase_descendants(base, target), lambda: rebase.rebase_equivalent(second, target)):
+            with self.assertRaises(UserError):
+                call()
 
     def test_blocked_checkout_is_returned_not_raised(self):
         from git_graph.engine import refs
