@@ -4,13 +4,14 @@
 import subprocess
 from .. import app_state as state
 from ..gitrun import (
-    auth_for_remote, check_ref_name, git, HTTP_AUTH_CACHE, is_http_auth_error, net_error, remember_auth,
-    resolve_commit, run_git_net, run_git_write,
+    check_ref_name, git, HTTP_AUTH_CACHE, is_http_auth_error, net_error, remember_auth, resolve_commit, run_git_net,
+    run_git_write,
 )
 from ..gitstate import branch_config, has_head, is_cherry_picking, is_merging, is_rebasing, is_reverting
 from ..i18n import tr, UserError
 from . import operation
 from .dirty import checkout_resolving
+from .remote import Auth
 
 
 def _git_ok(*args):
@@ -82,21 +83,22 @@ def delete_ref(kind, name, *, force=False):
     return {"kind": kind, "name": name}
 
 
-def delete_remote_branch(name, *, auth=None, auth_remote=None, auth_retry=False):
+def delete_remote_branch(name, *, auth=None):
     """リモートのブランチを消す (git push --delete)。リモート側が変わって元に戻せないので、履歴には記録しない。
     認証が必要なときは {"auth_required": True, "auth_remote": リモート名}。戻り値: {"name"}。"""
+    auth = auth or Auth()
     name = str(name).strip()
     remote = next((r for r in sorted(git("remote").split(), key=len, reverse=True) if name.startswith(r + "/")), None)
     branch = name[len(remote) + 1:] if remote else ""
     if not remote or not branch:
         raise UserError("remote_branch_not_found")
     check_ref_name("branch", branch)
-    credentials = auth_for_remote(remote, {"auth": auth, "auth_remote": auth_remote})
+    credentials = auth.for_remote(remote)
     r = run_git_net("push", remote, "--delete", branch, auth=credentials)
     if r.returncode != 0:
-        if is_http_auth_error(r) and not auth_retry:
+        if is_http_auth_error(r) and not auth.retry:
             return {"auth_required": True, "auth_remote": remote}
-        if auth_retry:
+        if auth.retry:
             HTTP_AUTH_CACHE.pop(remote, None)
         raise ValueError(net_error(r, tr("git_command_failed")))
     remember_auth(remote, credentials)

@@ -47,16 +47,11 @@ WRITE_OPS = {
     "/api/revert": ("revert", True),
     "/api/abort": ("abort", True),
     "/api/resolve": ("resolve", "names"),
-    "/api/fetch": ("fetch", False),
-    "/api/pull": ("pull", True),
-    "/api/remote-add": ("remote_add", False),
-    "/api/remote-remove": ("remote_remove", False),
     "/api/patch-apply": ("patch_apply", "names"),
     "/api/patch-am": ("patch_am", True),
     "/api/file-save": ("file_save", True),
 }
 IGNORED = {
-    "/api/push", "/api/push-tag",                          # リモート側を変えるので戻せない
     "/api/shutdown", "/api/restart",
     "/api/open-editor", "/api/open-diff", "/api/file-copy",  # リポジトリを変更しない
     "/api/find-equivalent-parents", "/api/find-equivalent-branch",  # POST だが読み取りだけ

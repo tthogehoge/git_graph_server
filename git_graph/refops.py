@@ -8,6 +8,7 @@ from .engine.dirty import (  # noqa: F401  (他の route や git_graph_server.py
     with_stash_note,
 )
 from .engine import refs, worktree
+from .engine.remote import Auth
 from .i18n import tr, UserError
 from .routing import route
 
@@ -53,8 +54,8 @@ def api_tag(body):
 def api_delete_ref(body):
     kind = body.get("kind")
     if kind == "remote-branch":  # リモート側が変わって戻せないので、履歴に記録しない操作
-        r = refs.delete_remote_branch(body.get("name", ""), auth=body.get("auth"), auth_remote=body.get("auth_remote"),
-                                      auth_retry=bool(body.get("auth_retry")))
+        r = refs.delete_remote_branch(body.get("name", ""),
+                                      auth=Auth(body.get("auth"), body.get("auth_remote"), body.get("auth_retry")))
         if r.get("auth_required"):
             return r
         return {"ok": True, "message": tr("remote_branch_deleted", name=r["name"])}

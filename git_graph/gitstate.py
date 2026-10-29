@@ -1,6 +1,7 @@
 # リポジトリの状態を調べる低レベルの関数 (マージ中か、HEAD があるか、status / numstat の解析など)。
 # 他の機能モジュールから共通で使われる。gitrun / i18n より上、機能モジュール (rebase, refops, wip ...) より下の層。
 import os
+import re
 import subprocess
 from . import app_state as state
 
@@ -180,9 +181,43 @@ def addable_paths(paths, step=200):
         in_index.update(p for p in out.split("\0") if p)
     return [p for p in paths if p in in_index or os.path.lexists(os.path.join(state.REPO, p))]
 
+def refs_snapshot():
+    r = subprocess.run(["git", "-C", state.REPO, "for-each-ref", "--format=%(objectname) %(refname)", "refs/remotes", "refs/tags"],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    return {name: oid for oid, _, name in (l.partition(" ") for l in r.stdout.splitlines())}
+
+def count_changed_refs(before, after):
+    return sum(1 for k in set(before) | set(after) if before.get(k) != after.get(k))
+
+def upstream_of_head():
+    r = subprocess.run(["git", "-C", state.REPO, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    return r.stdout.strip() if r.returncode == 0 else None
+
+def list_remotes():
+    """登録済みのリモート [{name, url}] (url は fetch 用)。"""
+    out = {}
+    for line in git("remote", "-v").splitlines():
+        m = re.fullmatch(r"(\S+)\t(.*) \((fetch|push)\)", line)
+        if m and (m.group(3) == "fetch" or m.group(1) not in out):
+            out[m.group(1)] = m.group(2)
+    for name in git("remote").split():  # url が無いリモートも出す
+        out.setdefault(name, "")
+    return [{"name": n, "url": u} for n, u in out.items()]
+
+def git_config(key):
+    r = subprocess.run(["git", "-C", state.REPO, "config", "--get", key],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    return r.stdout.strip() if r.returncode == 0 else None
+
 __all__ = [
     "CONFLICT_CODES",
     "addable_paths",
+    "count_changed_refs",
+    "git_config",
+    "list_remotes",
+    "refs_snapshot",
+    "upstream_of_head",
     "amend_base",
     "amend_head_changes",
     "head_state",

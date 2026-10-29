@@ -1,4 +1,5 @@
 import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -23,7 +24,12 @@ class RouteTableTests(unittest.TestCase):
         self.assertEqual(engine.IGNORED & ENGINE_ROUTES, set())
 
     def test_remote_side_operations_are_not_recorded(self):
-        self.assertIsNone(engine.write_op_for("/api/push", {}))
+        # push などリモート側を変える操作は、engine の関数でも @operation にしない (元に戻せないので履歴に積まない)
+        from git_graph.engine import refs, remote
+        for fn in (remote.push, remote.push_tag, refs.delete_remote_branch):
+            self.assertFalse(hasattr(fn, "operation_name"), fn.__name__)
+        for fn in (remote.fetch, remote.pull, remote.add_remote, remote.remove_remote):
+            self.assertTrue(hasattr(fn, "operation_name"), fn.__name__)
         self.assertEqual(engine.write_op_for("/api/not-listed", {}), ("other", "names"))  # 未登録は安全側 (作業ツリーも管理外ファイルの名前も記録)
 
     def test_route_modules_that_use_the_engine_do_not_run_git_themselves(self):
@@ -40,7 +46,7 @@ class RouteTableTests(unittest.TestCase):
             self.assertIn(name, engine.LABEL_KEYS)
 
 
-ROUTE_ONLY_MODULES = ["refops.py"]  # engine に移し終えて、route だけになったモジュール (移すたびに足す)
+ROUTE_ONLY_MODULES = ["refops.py", "remote.py"]  # engine に移し終えて、route だけになったモジュール (移すたびに足す)
 
 
 class EngineTests(unittest.TestCase):
@@ -525,6 +531,111 @@ class EngineOperationTests(EngineTests):
                 commit.commit(*args, **kwargs)
         self.assertEqual(self.git("rev-parse", "HEAD").strip(), self.head)
         self.assertEqual(self.entries(), [])
+
+    def make_bare_remote(self):
+        bare = tempfile.mkdtemp(prefix="git_graph_test_bare_")
+        self.addCleanup(shutil.rmtree, bare, True)
+        subprocess.run(["git", "init", "-q", "--bare", "-b", "main", bare], check=True)
+        return bare
+
+    def clone_of(self, bare):
+        path = tempfile.mkdtemp(prefix="git_graph_test_clone_")
+        self.addCleanup(shutil.rmtree, path, True)
+        subprocess.run(["git", "clone", "-q", bare, path], check=True, capture_output=True)
+        for k, v in (("user.name", "Other"), ("user.email", "other@example.com")):
+            subprocess.run(["git", "-C", path, "config", k, v], check=True)
+        return path
+
+    def test_add_remote_is_recorded_and_undoable(self):
+        from git_graph.engine import remote
+        bare = self.make_bare_remote()
+
+        result = remote.add_remote("origin", bare, fetch=True)
+
+        self.assertEqual((result["name"], result["fetched"]), ("origin", True))
+        self.assertEqual([(e["op"], e["detail"]) for e in self.entries()], [("remote_add", "origin")])
+        self.assertTrue(self.undo()["ok"])
+        self.assertEqual(self.git("remote").strip(), "")
+
+    def test_add_remote_validates_and_remove_remote_only_removes_registered_names(self):
+        from git_graph.engine import remote
+        for name, url in (("-bad", "x"), ("ok", ""), ("ok", "ext::sh -c id"), ("ok", "-oops")):
+            with self.assertRaises(UserError):
+                remote.add_remote(name, url)
+        with self.assertRaises(UserError):
+            remote.remove_remote("nope")
+        self.assertEqual(self.entries(), [])
+
+    def test_push_fetch_and_pull_round_trip_with_a_bare_remote(self):
+        from git_graph.engine import remote
+        bare = self.make_bare_remote()
+        remote.add_remote("origin", bare)
+
+        needs = remote.push()
+        self.assertTrue(needs["needs_upstream"])
+        pushed = remote.push(set_upstream=True)
+        self.assertEqual((pushed["branch"], pushed["remote"], pushed["changed"]), ("main", "origin", True))
+        self.assertFalse(remote.push()["changed"])  # もう送るものがない
+
+        other = self.clone_of(bare)
+        subprocess.run(["git", "-C", other, "commit", "--allow-empty", "-q", "-m", "from other"], check=True)
+        subprocess.run(["git", "-C", other, "push", "-q", "origin", "HEAD:main"], check=True, capture_output=True)
+
+        fetched = remote.fetch()
+        self.assertEqual(fetched["changed"], 1)
+        pulled = remote.pull()
+        self.assertEqual((pulled["branch"], pulled["up"], pulled["updated"]), ("main", "origin/main", True))
+        self.assertEqual(self.git("log", "-1", "--format=%s").strip(), "from other")
+        self.assertFalse(remote.pull()["updated"])
+        ops = [e["op"] for e in self.entries()]
+        self.assertIn("fetch", ops)
+        self.assertIn("pull", ops)
+        self.assertNotIn("push", ops)  # push はリモート側を変えるので記録しない
+
+    def test_pull_conflict_keeps_merge_state_and_reports_it(self):
+        from git_graph.engine import remote
+        bare = self.make_bare_remote()
+        remote.add_remote("origin", bare)
+        remote.push(set_upstream=True)
+        other = self.clone_of(bare)
+        with open(os.path.join(other, "tracked.txt"), "w", encoding="utf-8") as f:
+            f.write("remote side\n")
+        subprocess.run(["git", "-C", other, "commit", "-aq", "-m", "remote change"], check=True)
+        subprocess.run(["git", "-C", other, "push", "-q", "origin", "HEAD:main"], check=True, capture_output=True)
+        self.commit_file("tracked.txt", "local side\n", "local change")
+
+        result = remote.pull(mode="merge")
+
+        self.assertTrue(result["conflict"])
+        self.assertEqual(result["up"], "origin/main")
+        self.assertTrue(os.path.exists(os.path.join(self.repo, ".git", "MERGE_HEAD")))
+
+    def test_push_tag_needs_a_remote_when_ambiguous(self):
+        from git_graph.engine import remote
+        a, b = self.make_bare_remote(), self.make_bare_remote()
+        remote.add_remote("origin", a)
+        remote.add_remote("backup", b)
+        self.git("tag", "v1")
+
+        ask = remote.push_tag("v1")
+        self.assertEqual((ask["needs_remote"], ask["remote"], sorted(ask["remotes"])), (True, "origin", ["backup", "origin"]))
+        done = remote.push_tag("v1", remote="backup")
+
+        self.assertEqual((done["remote"], done["up_to_date"]), ("backup", False))
+        self.assertEqual(subprocess.run(["git", "-C", b, "tag", "--list"], capture_output=True, text=True).stdout.strip(), "v1")
+        self.assertTrue(remote.push_tag("v1", remote="backup")["up_to_date"])
+        with self.assertRaises(UserError):
+            remote.push_tag("-x")
+        with self.assertRaises(UserError):
+            remote.push_tag("missing", remote="origin")
+
+    def test_auth_retry_semantics(self):
+        from git_graph.engine.remote import Auth
+        auth = Auth({"username": "u", "password": "p"}, "origin", True)
+        self.assertTrue(auth.retrying_for("origin"))
+        self.assertFalse(auth.retrying_for("backup"))
+        self.assertFalse(Auth().retrying_for("origin"))
+        self.assertEqual(auth.for_remote("origin"), {"username": "u", "password": "p"})  # 明示された認証情報を優先する
 
     def test_blocked_checkout_is_returned_not_raised(self):
         from git_graph.engine import refs
