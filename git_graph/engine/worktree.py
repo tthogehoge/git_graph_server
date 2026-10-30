@@ -6,8 +6,8 @@ import subprocess
 from .. import app_state as state
 from ..gitrun import git, git_c_locale, resolve_commit, run_git_write
 from ..gitstate import (
-    has_head, is_cherry_picking, is_merging, is_rebasing, is_reverting, parse_status, paths_in_head, read_status_raw,
-    stash_marker_path,
+    has_head, is_cherry_picking, is_merging, is_rebasing, is_reverting, paths_in_head, stash_marker_path,
+    status_lists,
 )
 from ..i18n import tr, UserError
 from . import operation
@@ -101,7 +101,7 @@ def stash_save(*, message="", paths=None, untracked=True):
     if paths is not None:
         if not isinstance(paths, list) or not paths or not all(isinstance(p, str) and p and "\0" not in p for p in paths):
             raise UserError("select_files")
-        s = parse_status(read_status_raw(), limit=10 ** 9)
+        s = status_lists(limit=10 ** 9)
         untracked_paths = {f["path"] for f in s["untracked"]}
         known = untracked_paths | {f["path"] for k in ("staged", "unstaged") for f in s[k]}
         bad = set(paths) - known  # 任意のパスを指定させない。いま変更ありと報告されているものだけ
@@ -128,7 +128,7 @@ def discard_changes(paths):
     if not isinstance(paths, list) or not paths or not all(isinstance(p, str) for p in paths):
         raise UserError("select_files")
     checked = set(paths)
-    s = parse_status(read_status_raw(), limit=10 ** 9)
+    s = status_lists(limit=10 ** 9)
     conflict = checked & {f["path"] for f in s["conflicts"]}
     if conflict:
         raise UserError("discard_conflict", files=", ".join(sorted(conflict)[:3]))

@@ -5,7 +5,7 @@ from .. import app_state as state
 from ..gitrun import check_ref_name, git, run_git_write
 from ..gitstate import (
     addable_paths, amend_base, amend_head_changes, has_head, has_parent, head_state, is_merging, is_rebasing,
-    parse_status, read_status_raw,
+    status_lists,
 )
 from ..i18n import tr, UserError
 from . import operation
@@ -64,7 +64,7 @@ def commit(message, paths, *, staged_paths=None, amend=False, branch=""):
         raise UserError("amend_blocked")
     keep = set(staged_only) - set(paths)  # paths にもあるものは、作業ツリーの内容をコミットする
     checked = set(paths) | keep  # コミットに入れるファイル
-    s = parse_status(read_status_raw(), limit=10 ** 9)
+    s = status_lists(limit=10 ** 9)
     known = {f["path"] for k in ("staged", "unstaged", "untracked", "conflicts") for f in s[k]}
     not_staged = keep - {f["path"] for f in s["staged"]}
     if not_staged:

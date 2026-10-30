@@ -6,8 +6,8 @@ import subprocess
 from .. import app_state as state
 from ..gitrun import git, resolve_commit, run_git_write
 from ..gitstate import (
-    has_head, is_cherry_picking, is_merging, is_rebasing, is_reverting, parse_status, paths_in_head, read_status_raw,
-    stash_conflict_state,
+    has_head, is_cherry_picking, is_merging, is_rebasing, is_reverting, paths_in_head, stash_conflict_state,
+    status_lists,
 )
 from ..i18n import tr, UserError
 from . import operation
@@ -172,7 +172,7 @@ def resolve_conflicts(side, paths):
         raise UserError("resolve_side_invalid")
     if not isinstance(paths, list) or not paths or not all(isinstance(p, str) for p in paths):
         raise UserError("select_files")
-    s = parse_status(read_status_raw(), limit=10 ** 9)
+    s = status_lists(limit=10 ** 9)
     bad = set(paths) - {f["path"] for f in s["conflicts"]}  # 任意のパスを触らせない。いま競合と報告されているものだけ
     if bad:
         raise UserError("resolve_not_conflict", files=", ".join(sorted(bad)[:3]))

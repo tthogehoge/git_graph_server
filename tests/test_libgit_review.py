@@ -93,6 +93,38 @@ class LibgitReviewTests(unittest.TestCase):
         with self.assertRaises(UserError):
             qgraph.build_model(opts)
 
+    def test_status_lists_matches_porcelain_for_a_mixed_working_tree(self):
+        """engine は status を「いま変更ありと報告されているパス」の確認に使う。CLI 版 (parse_status) と同じ結果になること。"""
+        from git_graph.gitstate import parse_status, read_status_raw
+        for name in ("keep.txt", "edit.txt", "gone.txt", "staged_del.txt", "ren.txt"):
+            self.write(name, "".join(f"{name} {i}\n" for i in range(30)))
+        run(self.repo, "add", "-A")
+        run(self.repo, "commit", "-qm", "base")
+        run(self.repo, "checkout", "-qb", "side")
+        self.write("c.txt", "side\n")
+        run(self.repo, "add", "c.txt")
+        run(self.repo, "commit", "-qm", "side")
+        run(self.repo, "checkout", "-q", "main")
+        self.write("c.txt", "main\n")
+        run(self.repo, "add", "c.txt")
+        run(self.repo, "commit", "-qm", "main")
+        subprocess.run(["git", "-C", self.repo, "merge", "side"], capture_output=True)  # c.txt が競合する
+        self.write("edit.txt", "staged\n" * 30)
+        run(self.repo, "add", "edit.txt")
+        self.write("edit.txt", "staged\nunstaged\n" * 15)  # ステージ済み + 未ステージ
+        os.remove(os.path.join(self.repo, "gone.txt"))  # 未ステージの削除
+        run(self.repo, "rm", "-q", "staged_del.txt")  # ステージ済みの削除
+        run(self.repo, "mv", "ren.txt", "renamed.txt")  # ステージ済みのリネーム
+        self.write("new.txt", "untracked\n")
+        os.makedirs(os.path.join(self.repo, "dir"))
+        self.write("dir/deep.txt", "untracked in dir\n")
+        mine = libgit.status_lists(limit=10 ** 9)
+        cli = parse_status(read_status_raw(), limit=10 ** 9)
+        for key in ("staged", "unstaged", "untracked", "conflicts"):
+            norm = lambda rows: sorted((f["path"], f["st"], f.get("old_path")) for f in rows)
+            self.assertEqual(norm(mine[key]), norm(cli[key]), key)
+        self.assertEqual([f["path"] for f in mine["conflicts"]], ["c.txt"])
+
 
 if __name__ == "__main__":
     unittest.main()
