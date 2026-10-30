@@ -9,30 +9,42 @@ from . import app_state as state
 CONFLICT_CODES = {"DD", "AU", "UD", "UA", "DU", "AA", "UU"}
 from .gitrun import git, git_bytes, HASH_RE
 
+# git-dir の解決結果を REPO ごとにキャッシュし、MERGE_HEAD などの存在確認を
+# プロセス起動なしのファイルチェックにする (Windows で効く)。
+_git_dir_cache = (None, None)  # (repo, abs path)
+
+
+def git_dir():
+    """現在の state.REPO の git ディレクトリ (worktree 対応)。"""
+    global _git_dir_cache
+    repo = state.REPO
+    if _git_dir_cache[0] != repo:
+        p = git("rev-parse", "--git-dir").strip()
+        if not os.path.isabs(p):
+            p = os.path.normpath(os.path.join(repo, p))
+        _git_dir_cache = (repo, p)
+    return _git_dir_cache[1]
+
+
+def git_path(*parts):
+    """git ディレクトリ配下のパス。"""
+    return os.path.join(git_dir(), *parts)
+
 
 def is_merging():
-    return subprocess.run(["git", "-C", state.REPO, "rev-parse", "-q", "--verify", "MERGE_HEAD"],
-                          capture_output=True).returncode == 0
+    return os.path.isfile(git_path("MERGE_HEAD"))
 
 
 def is_rebasing():
-    for d in ("rebase-merge", "rebase-apply"):
-        r = subprocess.run(["git", "-C", state.REPO, "rev-parse", "--git-path", d],
-                           capture_output=True, text=True, encoding="utf-8", errors="replace")
-        path = r.stdout.strip()
-        if path and os.path.isdir(os.path.join(state.REPO, path)):
-            return True
-    return False
+    return os.path.isdir(git_path("rebase-merge")) or os.path.isdir(git_path("rebase-apply"))
 
 
 def is_cherry_picking():
-    return subprocess.run(["git", "-C", state.REPO, "rev-parse", "-q", "--verify", "CHERRY_PICK_HEAD"],
-                          capture_output=True).returncode == 0
+    return os.path.isfile(git_path("CHERRY_PICK_HEAD"))
 
 
 def is_reverting():
-    return subprocess.run(["git", "-C", state.REPO, "rev-parse", "-q", "--verify", "REVERT_HEAD"],
-                          capture_output=True).returncode == 0
+    return os.path.isfile(git_path("REVERT_HEAD"))
 
 
 def paths_in_head(paths):
@@ -215,7 +227,7 @@ STASH_MARKER = "git_graph_stash_apply"  # stash の apply / pop が競合した�
 
 
 def stash_marker_path():
-    return os.path.join(state.REPO, git("rev-parse", "--git-path", STASH_MARKER).strip())
+    return git_path(STASH_MARKER)
 
 
 def stash_conflict_state():
@@ -238,6 +250,8 @@ __all__ = [
     "addable_paths",
     "count_changed_refs",
     "git_config",
+    "git_dir",
+    "git_path",
     "list_remotes",
     "refs_snapshot",
     "STASH_MARKER",
