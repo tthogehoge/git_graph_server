@@ -14,6 +14,7 @@ from .i18n import (
 from .external import configured
 from .wip import api_status
 from .files import WIP_HASH, worktree_target
+from .query.files import file_exists_at
 
 
 def wip_file_exists(path):
@@ -44,10 +45,6 @@ def dir_of(path):
     return path.rpartition("/")[0]
 
 
-def file_exists_at(commit, path):
-    """commit にそのファイルがあるか (ファイル表示へのリンクを出すかの判定に使う)。"""
-    r = subprocess.run(["git", "-C", state.REPO, "cat-file", "-e", f"{commit}:{path}"], capture_output=True)
-    return r.returncode == 0
 
 
 def files_view_url(hash_, path):

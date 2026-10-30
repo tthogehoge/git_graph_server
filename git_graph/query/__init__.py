@@ -5,3 +5,5 @@
 # 引数を読んで query を呼び、JSON を返す薄い層にする。
 #
 # 書き込み操作は engine/ に置く。読み取りを engine に混ぜない (undo 記録の対象外のため)。
+# history / status / files / equivalent / graph
+

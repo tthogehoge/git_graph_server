@@ -8,7 +8,7 @@ from .engine.rebase import (  # noqa: F401  (互換のため再公開)
     REBASE_I_ACTIONS, REBASE_I_MAX, check_rebase_i_range, rebase_tag_only_tips, rebase_todo_hashes,
 )
 from .engine.tags import commit_patch_ids, move_tags, snapshot_for_tags, tag_mapping, tag_targets  # noqa: F401
-from .equivalent import (  # noqa: F401
+from .query.equivalent import (  # noqa: F401
     equivalent_commit_prefix, find_equivalent_branches, find_equivalent_parents, first_parent_commits,
     nearest_equivalent_parent,
 )

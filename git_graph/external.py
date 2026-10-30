@@ -17,7 +17,8 @@ from pathlib import Path
 from . import app_state as state
 from . import tmpdir
 from .files import validate_file_path, worktree_target
-from .gitrun import git_bytes, HASH_RE, is_loopback
+from .gitrun import HASH_RE, is_loopback
+from .query.files import blob_or_empty, rev_or_none
 from .i18n import tr, UserError
 from .routing import route
 from .wip import amend_base
@@ -128,19 +129,6 @@ def _cleanup_old_temp_dirs():
         if name.startswith("diff_") and os.path.isdir(full) and now - os.path.getmtime(full) > TEMP_KEEP_SECONDS:
             shutil.rmtree(full, ignore_errors=True)  # 外部ツールがまだ開いていて消せなければ、次の機会に
 
-
-def blob_or_empty(spec):
-    """git の spec (hash:path / :path / :2:path) の内容。無ければ空。"""
-    try:
-        return git_bytes("cat-file", "blob", spec, literal=True)
-    except subprocess.CalledProcessError:
-        return b""
-
-
-def rev_or_none(rev):
-    r = subprocess.run(["git", "-C", state.REPO, "rev-parse", "--verify", "--quiet", rev + "^{commit}"],
-                       capture_output=True, text=True)
-    return r.stdout.strip() or None
 
 
 def diff_sides(q):

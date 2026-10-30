@@ -10,7 +10,7 @@ import threading
 from collections import Counter, defaultdict
 from .. import app_state as state
 from .. import tmpdir
-from ..equivalent import nearest_equivalent_parent
+from ..query.equivalent import nearest_equivalent_parent
 from ..gitrun import git, resolve_commit, run_git_write
 from ..gitstate import has_head, head_state, is_merging, is_rebasing
 from ..i18n import tr, UserError

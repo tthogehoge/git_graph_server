@@ -2195,13 +2195,14 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         subprocess.run(["git", "-C", self.repo, "update-ref", "--stdin"], check=True, text=True,
                        input="".join(f"update {n} {self.head}\n" for n in names))
         calls = []
-        real_git = graph_module.git
+        from git_graph.query import graph as query_graph
+        real_git = query_graph.git
 
         def spy(*args, **kwargs):
             calls.append((args, kwargs))
             return real_git(*args, **kwargs)
 
-        with mock.patch.object(graph_module, "git", side_effect=spy):
+        with mock.patch.object(query_graph, "git", side_effect=spy):
             model = app.build_model(self.graph_opts())
 
         rev_list = [c for c in calls if c[0][:1] == ("rev-list",)][0]

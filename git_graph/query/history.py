@@ -2,7 +2,7 @@
 import re
 import subprocess
 from .. import app_state as state
-from ..files import decode_text
+from ..textcodec import decode_text
 from ..gitrun import check_ref_name, git, git_bytes, HASH_RE, resolve_commit
 from ..gitstate import commit_info, parse_numstat
 from ..i18n import tr, UserError
