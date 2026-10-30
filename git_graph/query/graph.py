@@ -141,8 +141,9 @@ def build_model(opts):
     # 件名はグラフに出す少数のコミット分だけ後で取る (全コミットぶん整形・解析すると遅い)
     if not revs:
         pass
-    elif libgit.available():
-        for h, ps, ct in libgit.rev_list_topo_parents(revs):
+    elif libgit.available() and (revs_by_stdin or all(libgit.is_plain_rev(x) for x in revs)):
+        # ユーザーが指定した rev は、解決できなければエラーにする。A..B などの rev-list 構文は下の CLI に任せる
+        for h, ps, ct in libgit.rev_list_topo_parents(revs, strict=not revs_by_stdin):
             parents[h] = ps
             dates[h] = ct
             order.append(h)

@@ -302,6 +302,7 @@
   "branch_not_found": "ブランチが見つかりません",
   "remote_branch_not_found": "remoteブランチが見つかりません",
   "commit_not_found": "コミットが見つかりません",
+  "rev_not_found": "リビジョンが見つかりません: {rev}",
   "dir_not_found": "ディレクトリが見つかりません",
   "not_a_file": "ファイルではありません",
   "amend_unavailable": "amend できる状態ではありません (コミットがない、またはマージ・リベース中です)",

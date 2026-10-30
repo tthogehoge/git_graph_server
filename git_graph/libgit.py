@@ -135,9 +135,16 @@ def refs_key():
     return "\n".join(sorted(parts))
 
 
-def rev_list_topo_parents(tips):
+def is_plain_rev(rev):
+    """revparse_single で解釈できる単純な rev か。A..B / ^A / A^@ / --all など rev-list 専用の構文は False (CLI に任せる)。"""
+    return (bool(rev) and not rev.startswith(("-", "^")) and ".." not in rev
+            and not rev.endswith(("^@", "^!", "^-")) and "\0" not in rev)
+
+
+def rev_list_topo_parents(tips, strict=False):
     """tips (refname or hex) から到達するコミットを topo+time 順 (子が先) で列挙。
     各要素: (hex, [parent_hex, ...], commit_time)。
+    strict=True (ユーザーが指定した rev) のときは、解決できない rev を黙って無視せず UserError にする。
     """
     r = repo()
     sort = pygit2.GIT_SORT_TOPOLOGICAL | pygit2.GIT_SORT_TIME
@@ -148,10 +155,13 @@ def rev_list_topo_parents(tips):
             obj = r.revparse_single(tip)
             c = peel_commit(obj)
             if c is None:
-                continue
+                raise KeyError(tip)
             walker.push(c.id)
             pushed = True
         except (KeyError, ValueError, pygit2.GitError):
+            if strict:
+                from .i18n import UserError
+                raise UserError("rev_not_found", rev=tip) from None
             continue
     if not pushed:
         return []
@@ -314,7 +324,38 @@ def status_lists(limit=5000):
             res["unstaged"].append({"path": path, "old_path": None, "st": "D"})
         elif flags & WT_RENAMED:
             res["unstaged"].append({"path": path, "old_path": None, "st": "R"})
+    _pair_staged_renames(r, res)
     return res
+
+
+def _pair_staged_renames(r, res):
+    """libgit2 の status はリネームを「削除 + 追加」に分けて返すため、git status と同じく 1 件の R (旧パス付き) にまとめる。
+    ステージ済みに追加と削除が両方あるときだけ、HEAD と index の差分でリネーム検出する (普段は何もしない)。"""
+    staged = res["staged"]
+    if not (any(f["st"] == "A" for f in staged) and any(f["st"] == "D" for f in staged)):
+        return
+    try:
+        if r.head_is_unborn:
+            return
+        diff = r.index.diff_to_tree(r.head.peel(pygit2.GIT_OBJECT_TREE))
+        diff.find_similar()
+    except pygit2.GitError:
+        return
+    renames = {}  # 新パス -> 旧パス
+    for delta in diff.deltas:
+        if delta.status_char() == "R":
+            renames[delta.new_file.path] = delta.old_file.path
+    if not renames:
+        return
+    olds = set(renames.values())
+    merged = []
+    for f in staged:
+        if f["st"] == "D" and f["path"] in olds:
+            continue  # 旧パス側の削除は R に含める
+        if f["st"] == "A" and f["path"] in renames:
+            f = {"path": f["path"], "old_path": renames[f["path"]], "st": "R"}
+        merged.append(f)
+    res["staged"] = merged
 
 
 def merge_base(a, b):
@@ -779,7 +820,7 @@ __all__ = [
     "EMPTY_TREE", "available", "blob_at", "commit_message", "commit_parents", "commit_subjects",
     "git_dir_path", "head_commit_and_branch", "list_ref_infos", "list_stashes", "merge_base",
     "path_in_tree", "peel_commit", "repo", "require_pygit2", "reset_cache", "resolve_commit",
-    "rev_list_topo_parents", "refs_key", "stash_key", "status_lists",
+    "rev_list_topo_parents", "is_plain_rev", "refs_key", "stash_key", "status_lists",
     "diff_name_numstat_trees", "diff_index_workdir", "blame_lines",
     "unified_diff", "unified_diff_no_index",
     "is_ancestor", "first_parent_chain", "first_parent_path_from_base",

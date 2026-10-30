@@ -302,6 +302,7 @@
   "branch_not_found": "Branch not found",
   "remote_branch_not_found": "Remote branch not found",
   "commit_not_found": "Commit not found",
+  "rev_not_found": "Revision not found: {rev}",
   "dir_not_found": "Directory not found",
   "not_a_file": "Not a file",
   "amend_unavailable": "Cannot amend (there are no commits, or a merge/rebase is in progress)",
