@@ -1,7 +1,7 @@
 # 「同じ変更を持つコミット」の探索 (読み取りだけ)。リベースの操作 (engine/rebase.py) と、探索の API (rebase.py) が使う。
 import subprocess
 from . import app_state as state
-from .gitrun import git
+from .gitrun import git, resolve_commit
 from .i18n import UserError
 
 
@@ -73,4 +73,39 @@ def nearest_equivalent_parent(a, b):
     return a_commits, b_commits, None, None
 
 
-__all__ = ["equivalent_commit_prefix", "first_parent_commits", "nearest_equivalent_parent"]
+def find_equivalent_parents(a, b):
+    """A/B の先端から親へたどって、件名と親相対差分が一致する最も近いコミットの組を返す (無ければ None)。
+    戻り値: {"from": A 側のコミット, "to": B 側のコミット}。"""
+    a = resolve_commit(a)
+    b = resolve_commit(b)
+    try:
+        a_commits, b_commits, a_index, b_index = nearest_equivalent_parent(a, b)
+    except UserError:
+        return None
+    if a_index is None:
+        return None
+    return {"from": a_commits[a_index]["hash"], "to": b_commits[b_index]["hash"]}
+
+
+def find_equivalent_branches(a, b):
+    """B の子孫のローカルブランチのうち、A の先端から親へたどって同一差分を持つ履歴があるものを返す。
+    戻り値: [{"branch", "tip", "commit" (一致した B 側のコミット), "matched", "remaining" (A 側の残りコミット数)}]。"""
+    a = resolve_commit(a)
+    b = resolve_commit(b)
+    candidates = []
+    for ref in git("for-each-ref", "--format=%(refname)", "refs/heads").splitlines():
+        name = ref.removeprefix("refs/heads/")
+        tip = git("rev-parse", ref + "^{commit}").strip()
+        if subprocess.run(["git", "-C", state.REPO, "merge-base", "--is-ancestor", b, tip],
+                          capture_output=True).returncode != 0:
+            continue
+        if tip == a:
+            continue
+        a_commits, b_commits, a_index, b_index = nearest_equivalent_parent(a, tip)
+        if a_index is not None:
+            candidates.append({"branch": name, "tip": tip, "commit": b_commits[b_index]["hash"], "matched": 1,
+                               "remaining": a_index})
+    return candidates
+
+
+__all__ = ["equivalent_commit_prefix", "find_equivalent_branches", "find_equivalent_parents", "first_parent_commits", "nearest_equivalent_parent"]

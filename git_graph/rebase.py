@@ -1,24 +1,19 @@
-import os
-import re
-import shutil
-import subprocess
-import sys
-import threading
-from collections import Counter, defaultdict
-from . import app_state as state
-from . import tmpdir
-from .gitrun import git, resolve_commit, run_git_write
-from .gitstate import (
-    has_head, head_state, is_cherry_picking, is_merging, is_rebasing, is_reverting, parse_status,
-    read_status_raw,
-)
-from .i18n import tr, UserError
+# マージ・リベース・チェリーピック・リバート・競合の解決・中断の API。
+# git の処理は git_graph.engine (integrate / rebase) に任せ、ここは body を読んで engine を呼び、
+# 結果を画面用のレスポンスに整える薄い route だけを置く。等価コミットの探索 (読み取りだけ) は equivalent.py。
 from .engine import integrate, rebase
-from .engine.tags import commit_patch_ids, move_tags, snapshot_for_tags, tag_mapping, tag_targets  # noqa: F401  (互換のため再公開)
-from .engine.rebase import rebase_tag_only_tips  # noqa: F401
-from .equivalent import equivalent_commit_prefix, first_parent_commits, nearest_equivalent_parent  # noqa: F401
-from .engine.dirty import git_run as _git_run, resolve_dirty_worktree, run_resolving, with_stash_note
+from .engine.dirty import with_stash_note
 from .engine.integrate import unmerged_stages  # noqa: F401  (互換のため再公開)
+from .engine.rebase import (  # noqa: F401  (互換のため再公開)
+    REBASE_I_ACTIONS, REBASE_I_MAX, check_rebase_i_range, rebase_tag_only_tips, rebase_todo_hashes,
+)
+from .engine.tags import commit_patch_ids, move_tags, snapshot_for_tags, tag_mapping, tag_targets  # noqa: F401
+from .equivalent import (  # noqa: F401
+    equivalent_commit_prefix, find_equivalent_branches, find_equivalent_parents, first_parent_commits,
+    nearest_equivalent_parent,
+)
+from .gitstate import head_state
+from .i18n import tr
 from .routing import route
 
 
@@ -79,17 +74,12 @@ def api_rebase_descendants(body):
 @route("/api/find-equivalent-parents", method="POST")
 def api_find_equivalent_parents(body):
     """A/B の先端から親へ探し、件名と親相対差分が一致するコミットを返す。"""
-    a = resolve_commit(body.get("from", ""))
-    b = resolve_commit(body.get("to", ""))
-    try:
-        a_commits, b_commits, a_index, b_index = nearest_equivalent_parent(a, b)
-    except UserError:
+    found = find_equivalent_parents(body.get("from", ""), body.get("to", ""))
+    if found is None:
         return {"message": tr("find_equivalent_parents_none")}
-    if a_index is None:
-        return {"message": tr("find_equivalent_parents_none")}
-    new_a, new_b = a_commits[a_index]["hash"], b_commits[b_index]["hash"]
-    return {"from": new_a, "to": new_b,
-            "message": tr("find_equivalent_parents_found", a=new_a[:7], b=new_b[:7])}
+    return {"from": found["from"], "to": found["to"],
+            "message": tr("find_equivalent_parents_found", a=found["from"][:7], b=found["to"][:7])}
+
 
 @route("/api/rebase-equivalent", method="POST", engine=True)
 def api_rebase_equivalent(body):
@@ -106,36 +96,18 @@ def api_rebase_equivalent(body):
 @route("/api/find-equivalent-branch", method="POST")
 def api_find_equivalent_branch(body):
     """B の子孫ブランチから、A と最も近い連続同一差分の履歴を探す。"""
-    a = resolve_commit(body.get("from", ""))
-    b = resolve_commit(body.get("to", ""))
-    candidates = []
-    for ref in git("for-each-ref", "--format=%(refname)", "refs/heads").splitlines():
-        name = ref.removeprefix("refs/heads/")
-        tip = git("rev-parse", ref + "^{commit}").strip()
-        if subprocess.run(["git", "-C", state.REPO, "merge-base", "--is-ancestor", b, tip],
-                          capture_output=True).returncode != 0:
-            continue
-        if tip == a:
-            continue
-        a_commits, b_commits, a_index, b_index = nearest_equivalent_parent(a, tip)
-        if a_index is not None:
-            candidates.append({
-                "branch": name,
-                "tip": tip,
-                "commit": b_commits[b_index]["hash"],
-                "matched": 1,
-                "remaining": a_index,
-            })
-
+    a, b = body.get("from", ""), body.get("to", "")
+    candidates = find_equivalent_branches(a, b)
     if not candidates:
         return {"message": tr("find_equivalent_branch_none", **{"from": a[:7], "to": b[:7]})}
     nearest = min(c["remaining"] for c in candidates)
     best = [c for c in candidates if c["remaining"] == nearest]
     best.sort(key=lambda c: (-c["matched"], c["branch"]))
     labels = ", ".join(tr("find_equivalent_branch_candidate", branch=c["branch"],
-                         commit=c["commit"][:7], matched=c["matched"]) for c in best)
+                          commit=c["commit"][:7], matched=c["matched"]) for c in best)
     return {"to": best[0]["tip"],
             "message": tr("find_equivalent_branch_found", branches=labels, remaining=nearest)}
+
 
 @route("/api/cherry-pick", method="POST", engine=True)
 def api_cherry_pick(body):
@@ -169,137 +141,26 @@ def api_resolve(body):
     return {"ok": True, "message": tr("resolved", n=r["count"], side=r["side"])}
 
 
-REBASE_I_MAX = 200
-
-REBASE_I_ACTIONS = ("pick", "reword", "squash", "fixup", "drop")
-
-def rebase_todo_hashes(base):
-    """git rebase -i <base> が最初に作る todo と同じコミット列 (古い順)。"""
-    out = git("rev-list", "--reverse", "--topo-order", "--right-only", "--cherry-pick",
-              "--no-merges", base + "...HEAD")
-    return out.split()
-
-def check_rebase_i_range(base):
-    """対話的リベースできる範囲か調べて、対象コミットのハッシュ (古い順) を返す。"""
-    r = subprocess.run(["git", "-C", state.REPO, "rev-list", "--count", "--merges", base + "..HEAD"],
-                       capture_output=True, text=True, encoding="utf-8", errors="replace")
-    if r.returncode == 0 and r.stdout.strip() not in ("", "0"):
-        raise UserError("ri_merges")
-    hashes = rebase_todo_hashes(base)
-    if not hashes:
-        raise UserError("ri_nothing", base=base[:7])
-    if len(hashes) > REBASE_I_MAX:
-        raise UserError("ri_too_many", n=len(hashes), max=REBASE_I_MAX)
-    return hashes
-
 @route("/api/rebase-todo")
 def api_rebase_todo(q):
     """対話的リベースの対象コミット一覧 (画面の編集ダイアログに出す)。"""
-    if not state.HAS_WORKTREE:
-        raise UserError("rebase_no_worktree")
-    base = resolve_commit((q.get("hash") or [""])[0])
-    head = api_head()
-    if not head["branch"]:
-        raise UserError("detached_rebase")
-    hashes = check_rebase_i_range(base)
-    out = git("log", "--no-walk=unsorted", "--date=short", "--format=%H%x1f%an%x1f%ad%x1f%s%x1f%B%x1e", *hashes)
-    commits = []
-    for rec in out.split("\x1e"):
-        rec = rec.lstrip("\n")
-        if not rec:
-            continue
-        h, an, ad, subj, msg = rec.split("\x1f", 4)
-        commits.append({"hash": h, "short": h[:7], "author": an, "date": ad, "subject": subj, "message": msg.strip()})
-    return {"base": base, "branch": head["branch"], "commits": commits}
+    return rebase.rebase_todo((q.get("hash") or [""])[0])
 
-@route("/api/rebase-i", method="POST")
+
+@route("/api/rebase-i", method="POST", engine=True)
 def api_rebase_i(body):
-    """git rebase -i 相当。画面で編集した todo (順序と pick/reword/squash/fixup/drop) をそのまま実行する。
-    エディタは起こさず、todo は GIT_SEQUENCE_EDITOR で差し替える。reword は、そのコミット (squash/fixup を
-    まとめた後) に exec で commit --amend -F を挟んで新しいメッセージにする。
-    競合やエラーで止まったときは自動で rebase --abort して元に戻す。"""
-    if not state.HAS_WORKTREE:
-        raise UserError("rebase_no_worktree")
-    base = resolve_commit(body.get("hash", ""))
-    if is_merging() or is_rebasing():
-        raise UserError("merge_or_rebase_in_progress")
-    head = api_head()
-    if not head["branch"]:
-        raise UserError("detached_rebase")
-    if not has_head():
-        raise UserError("rebase_no_commits")
-    items = body.get("todo")
-    if not isinstance(items, list) or not items or not all(isinstance(i, dict) for i in items):
-        raise UserError("todo_invalid")
-    todo = []
-    for it in items:
-        act, h = it.get("action"), str(it.get("hash", ""))
-        if act not in REBASE_I_ACTIONS or not re.fullmatch(r"[0-9a-f]{40}", h):
-            raise UserError("todo_invalid")
-        msg = str(it.get("message") or "").strip()
-        if act == "reword" and not msg:
-            raise UserError("ri_reword_msg_required", hash=h[:7])
-        todo.append((act, h, msg))
-    expected = check_rebase_i_range(base)
-    if sorted(h for _, h, _ in todo) != sorted(expected):
-        raise UserError("ri_changed")
-    kept = [t for t in todo if t[0] != "drop"]
-    if kept and kept[0][0] in ("squash", "fixup"):
-        raise UserError("ri_first_squash")
-
-    def fwd(path):  # sh から使うので区切りは / にそろえる (Windows 対策)
-        return path.replace("\\", "/")
-
-    before = git("rev-parse", "HEAD").strip()
-    tmp = tmpdir.make_temp_dir("rebase")
-    try:
-        lines, pending = [], None  # pending: 直前のグループの reword 用 exec 行
-        for act, h, msg in todo:
-            if act in ("pick", "reword"):
-                if pending:
-                    lines.append(pending)
-                    pending = None
-                lines.append(f"pick {h}")
-                if act == "reword":
-                    mp = os.path.join(tmp, f"msg{len(lines)}.txt")
-                    with open(mp, "w", encoding="utf-8", newline="\n") as f:
-                        f.write(msg + "\n")
-                    pending = f'exec git commit --amend -q -F "{fwd(mp)}"'
-            else:  # squash / fixup / drop
-                lines.append(f"{act} {h}")
-        if pending:
-            lines.append(pending)
-        todo_path = os.path.join(tmp, "todo.txt")
-        with open(todo_path, "w", encoding="utf-8", newline="\n") as f:
-            f.write("\n".join(lines) + "\n")
-        # todo の差し替えは python ではなく cp で行う。PyInstaller の exe などでは sys.executable が
-        # アプリ自身なので、python のスクリプトのつもりで起動すると、引数がアプリのリポジトリ指定として
-        # 解釈されて「seq_editor.py は git リポジトリではありません」になる。git は sh 経由で editor を呼ぶので、
-        # Windows でも Git for Windows 付属の cp が使える (git が todo のパスを最後に付ける)。
-        env = dict(os.environ, GIT_EDITOR=":", GIT_TERMINAL_PROMPT="0",
-                   GIT_SEQUENCE_EDITOR=f'cp "{fwd(todo_path)}"')
-        r, blocked, stashed = run_resolving(
-            lambda c: _git_run(["rebase", "-i", base], c, env), body.get("on_conflict"), rebase_dirty=True)
-        if blocked:
-            return blocked
-        stash = {"stashed": stashed}
-        out = (r.stdout + r.stderr).strip()
-        if r.returncode != 0:
-            if is_rebasing():  # 競合など → 元に戻す
-                subprocess.run(["git", "-C", state.REPO, "rebase", "--abort"], capture_output=True)
-                tail = "\n".join(out.splitlines()[-6:])
-                raise UserError("ri_aborted", tail=tail)
-            raise ValueError(with_stash_note(stash, out or tr("rebase_failed")))
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
-    if git("rev-parse", "HEAD").strip() == before:
-        return {"ok": True, "message": with_stash_note(stash, tr("ri_noop", branch=head["branch"]))}
-    n = Counter(a for a, _, _ in todo)
+    """git rebase -i 相当。画面で編集した todo (順序と pick/reword/squash/fixup/drop) をそのまま実行する。"""
+    r = rebase.rebase_interactive(body.get("hash", ""), body.get("todo"), on_conflict=body.get("on_conflict"))
+    if r.get("blocked"):
+        return r
+    if r["noop"]:
+        return {"ok": True, "message": with_stash_note(r, tr("ri_noop", branch=r["branch"]))}
+    n = r["counts"]
     parts = [tr(key, n=n[k]) for k, key in (("reword", "ri_part_reword"), ("squash", "ri_part_squash"),
-                                           ("fixup", "ri_part_fixup"), ("drop", "ri_part_drop")) if n[k]]
+                                           ("fixup", "ri_part_fixup"), ("drop", "ri_part_drop")) if n.get(k)]
     if parts:
-        return {"ok": True, "message": with_stash_note(stash, tr("ri_done_parts", branch=head["branch"], base=base[:7], parts=" / ".join(parts)))}
-    return {"ok": True, "message": with_stash_note(stash, tr("ri_done", branch=head["branch"], base=base[:7]))}
+        return {"ok": True, "message": with_stash_note(r, tr("ri_done_parts", branch=r["branch"], base=r["base"][:7], parts=" / ".join(parts)))}
+    return {"ok": True, "message": with_stash_note(r, tr("ri_done", branch=r["branch"], base=r["base"][:7]))}
 
 
 __all__ = [

@@ -46,7 +46,7 @@ class RouteTableTests(unittest.TestCase):
             self.assertIn(name, engine.LABEL_KEYS)
 
 
-ROUTE_ONLY_MODULES = ["refops.py", "remote.py"]  # engine に移し終えて、route だけになったモジュール (移すたびに足す)
+ROUTE_ONLY_MODULES = ["refops.py", "remote.py", "rebase.py"]  # engine に移し終えて、route だけになったモジュール (移すたびに足す)
 
 
 class EngineTests(unittest.TestCase):
@@ -827,6 +827,59 @@ class EngineOperationTests(EngineTests):
                      lambda: rebase.rebase_descendants(base, target), lambda: rebase.rebase_equivalent(second, target)):
             with self.assertRaises(UserError):
                 call()
+
+    def todo_for(self, hashes, actions, messages=None):
+        return [{"action": a, "hash": h, "message": (messages or {}).get(h, "")} for h, a in zip(hashes, actions)]
+
+    def test_rebase_todo_lists_commits_and_interactive_rebase_squashes_and_rewords(self):
+        from git_graph.engine import rebase
+        base, first, second, target = self.topic_on_old_base()
+        third = self.commit_file("t3.txt", "three\n", "topic three")
+
+        listing = rebase.rebase_todo(base)
+        self.assertEqual((listing["branch"], [c["hash"] for c in listing["commits"]]), ("topic", [first, second, third]))
+
+        todo = self.todo_for([first, second, third], ["pick", "squash", "reword"], {third: "reworded three"})
+        result = rebase.rebase_interactive(base, todo)
+
+        self.assertEqual((result["branch"], result["noop"], result["counts"]), ("topic", False, {"pick": 1, "squash": 1, "reword": 1}))
+        self.assertEqual(self.git("log", "--format=%s", f"{base}..HEAD").split("\n")[:2], ["reworded three", "topic one"])
+        self.assertEqual(self.git("rev-list", "--count", f"{base}..HEAD").strip(), "2")
+        self.assertEqual([(e["op"], e["detail"]) for e in self.entries()], [("rebase_i", base[:7])])
+
+    def test_interactive_rebase_validates_the_todo_before_running_git(self):
+        from git_graph.engine import rebase
+        base, first, second, target = self.topic_on_old_base()
+        head = self.git("rev-parse", "HEAD").strip()
+        bad_todos = [
+            [],
+            "pick",
+            [{"action": "pick", "hash": "abc"}],
+            self.todo_for([first, second], ["pick", "explode"]),
+            self.todo_for([first, second], ["pick", "reword"]),            # reword はメッセージ必須
+            self.todo_for([first], ["pick"]),                              # 対象のコミットが足りない
+            self.todo_for([first, second], ["squash", "pick"]),            # 先頭は squash / fixup にできない
+        ]
+        for todo in bad_todos:
+            with self.assertRaises(UserError):
+                rebase.rebase_interactive(base, todo)
+        self.assertEqual(self.git("rev-parse", "HEAD").strip(), head)
+        self.assertEqual(self.entries(), [])
+
+    def test_interactive_rebase_reports_noop_and_aborts_on_conflict(self):
+        from git_graph.engine import rebase
+        base, first, second, target = self.topic_on_old_base()
+        same = rebase.rebase_interactive(base, self.todo_for([first, second], ["pick", "pick"]))
+        self.assertTrue(same["noop"])
+
+        self.git("checkout", "-q", "-b", "clash", base)
+        a = self.commit_file("tracked.txt", "first edit\n", "edit 1")
+        b = self.commit_file("tracked.txt", "second edit\n", "edit 2")
+        before = self.git("rev-parse", "HEAD").strip()
+        with self.assertRaises(UserError):  # 順序を入れ替えると競合する → 中止して元に戻す
+            rebase.rebase_interactive(base, self.todo_for([b, a], ["pick", "pick"]))
+        self.assertEqual(self.git("rev-parse", "HEAD").strip(), before)
+        self.assertFalse(os.path.isdir(os.path.join(self.repo, ".git", "rebase-merge")))
 
     def test_blocked_checkout_is_returned_not_raised(self):
         from git_graph.engine import refs
