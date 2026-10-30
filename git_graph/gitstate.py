@@ -198,6 +198,42 @@ def parse_numstat(raw):
     return files
 
 
+def parse_raw_and_numstat(raw):
+    """`git diff --raw --numstat -z` の出力を (name_status辞書, numstatリスト) に分ける。
+    name_status: {新パス: (種類文字, 旧パス or None)} — parse_name_status と同じ形。
+    1 回の git 呼び出しで status 文字と行数の両方を取るために使う。"""
+    toks = raw.split("\0")
+    letters, i = {}, 0
+    while i < len(toks):
+        t = toks[i].lstrip("\n")
+        if not t:
+            i += 1
+            continue
+        if not t.startswith(":"):  # raw 部は ':' で始まる。終わったら numstat
+            break
+        status = t.split()[-1]  # M / A / D / R100 / C50 ...
+        st = status[0]
+        if st in "RC":
+            if i + 2 >= len(toks):
+                break
+            old_path, path = toks[i + 1], toks[i + 2]
+            letters[path] = (st, old_path)
+            i += 3
+        else:
+            if i + 1 >= len(toks):
+                break
+            path = toks[i + 1]
+            letters[path] = (st, None)
+            i += 2
+    return letters, parse_numstat("\0".join(toks[i:]))
+
+
+def diff_name_numstat(*rev_and_paths):
+    """`git diff --raw --numstat -z -M ...` を 1 プロセスで実行し (name_status, numstat) を返す。"""
+    raw = git("diff", "--raw", "--numstat", "-z", "-M", *rev_and_paths)
+    return parse_raw_and_numstat(raw)
+
+
 
 def head_state():
     """現在のブランチ名 (切り離されていれば None) と、マージ / リベースの途中かどうか。
@@ -335,6 +371,8 @@ __all__ = [
     "is_rebasing",
     "is_reverting",
     "parse_numstat",
+    "parse_raw_and_numstat",
+    "diff_name_numstat",
     "parse_status",
     "paths_in_head",
     "read_status_raw",

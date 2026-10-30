@@ -4,8 +4,8 @@ import subprocess
 from .. import app_state as state
 from ..gitrun import git, git_bytes
 from ..gitstate import (
-    amend_base, amend_head_changes, commit_info, is_cherry_picking, is_merging, is_rebasing,
-    is_reverting, parse_name_status, parse_numstat, parse_status, read_head, read_status_raw,
+    amend_base, amend_head_changes, commit_info, diff_name_numstat, is_cherry_picking, is_merging,
+    is_rebasing, is_reverting, parse_numstat, parse_status, read_head, read_status_raw,
     stash_conflict_state,
 )
 from ..i18n import tr, UserError
@@ -17,23 +17,21 @@ def wip_count(status):
 
 def amend_files(s):
     """amend 後のコミットの内容 = 「直前のコミットの親」と作業ツリーの差分のファイル一覧。
-    直前のコミットで変更したファイルは in_head=True (チェックを外すとコミットから外れる)。WIP の変更があるものは tag=WIP。"""
+    直前のコミットで変更したファイルは in_head=True (チェックを外すとコミットから外れる)。WIP の変更があるものは tag=WIP。
+    作業ツリーとの差分は --raw --numstat を 1 プロセスで取る。"""
     base = amend_base()
-    letters = parse_name_status(git("diff", "--name-status", "-z", "-M", base, "--"))
+    letters, numstat = diff_name_numstat(base, "--")
     in_head = amend_head_changes(base)
     pending = {f["path"] for k in ("staged", "unstaged") for f in s[k]}
     out = []
-    # name-status が空で untracked も無ければ numstat は不要
-    if letters or s["untracked"]:
-        numstat = parse_numstat(git("diff", "--numstat", "-z", "-M", base, "--")) if letters else []
-        for f in numstat:
-            f["st"] = letters.get(f["path"], ("M", None))[0]
-            f["wip"] = "amend"
-            if f["path"] in in_head:
-                f["in_head"] = True
-            if f["path"] in pending:
-                f["tag"] = "WIP"
-            out.append(f)
+    for f in numstat:
+        f["st"] = letters.get(f["path"], ("M", None))[0]
+        f["wip"] = "amend"
+        if f["path"] in in_head:
+            f["in_head"] = True
+        if f["path"] in pending:
+            f["tag"] = "WIP"
+        out.append(f)
     for f in s["untracked"]:
         out.append(dict(f, wip="amend", tag="WIP"))
     return out
