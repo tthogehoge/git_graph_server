@@ -344,3 +344,25 @@ __all__ = [
     "validate_file_path", "wip_file", "wip_head", "wip_patch", "wip_status_marks", "wip_tree",
     "worktree_target",
 ]
+
+
+def commit_of(hash_):
+    """リビジョン (ハッシュなど) をコミットのハッシュにする (無ければ UserError)。"""
+    return resolve_commit(hash_)
+
+
+def require_blob(commit, path):
+    """commit の path がファイル (blob) であることを確かめる (違えば UserError)。"""
+    if git("cat-file", "-t", commit + ":" + path).strip() != "blob":
+        raise UserError("not_a_file")
+
+
+def blob_for_worktree(commit, path):
+    """commit の path の内容を、作業ツリーに置くときの形 (改行コードなど。autocrlf など) で返す。--filters が使えない git では素のまま。"""
+    spec = commit + ":" + path
+    r = subprocess.run(["git", "-C", state.REPO, "cat-file", "--filters", spec], capture_output=True)
+    if r.returncode != 0:
+        r = subprocess.run(["git", "-C", state.REPO, "cat-file", "blob", spec], capture_output=True)
+        if r.returncode != 0:
+            raise ValueError(r.stderr.decode("utf-8", errors="replace").strip() or tr("git_command_failed"))
+    return r.stdout

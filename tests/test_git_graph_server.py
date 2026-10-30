@@ -1184,6 +1184,17 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertIn('href="/files?hash=WIP&amp;path=&amp;file=tracked.txt"', page)
         self.assertNotIn('id="pbtn"', viewer.render_diff_page({"path": ["tracked.txt"], "wip": ["amend"]}))
 
+    def test_query_blob_helpers_for_file_copy(self):
+        from git_graph.query import files as qf
+        commit = self.commit_file("copied.txt", "to copy\n", "add copied")
+        self.assertEqual(qf.commit_of(commit), commit)
+        qf.require_blob(commit, "copied.txt")
+        with self.assertRaises(app.UserError):
+            qf.require_blob(commit, "")  # コミット直下はディレクトリ (tree) なので、コピーできない
+        self.assertEqual(qf.blob_for_worktree(commit, "copied.txt"), b"to copy\n")
+        with self.assertRaises(ValueError):
+            qf.blob_for_worktree(commit, "missing.txt")
+
     def test_files_page_has_patch_buttons(self):
         page = viewer.render_files_page()
 

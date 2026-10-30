@@ -33,7 +33,7 @@ class RouteTableTests(unittest.TestCase):
         self.assertEqual(engine.write_op_for("/api/not-listed", {}), ("other", "names"))  # 未登録は安全側 (作業ツリーも管理外ファイルの名前も記録)
 
     def test_route_modules_that_use_the_engine_do_not_run_git_themselves(self):
-        """engine を呼ぶ route のモジュールは、git を直接実行しない (git の処理は engine に置く)。"""
+        """route のモジュールは、git を直接実行しない (書き込みは engine、読み取りは query に置く)。"""
         package = Path(engine.__file__).parent.parent
         forbidden = ("subprocess", "run_git_write", "run_git_net", "git_c_locale", "gitrun")
         for name in ROUTE_ONLY_MODULES:
@@ -46,7 +46,7 @@ class RouteTableTests(unittest.TestCase):
             self.assertIn(name, engine.LABEL_KEYS)
 
 
-ROUTE_ONLY_MODULES = ["refops.py", "remote.py", "rebase.py"]  # engine に移し終えて、route だけになったモジュール (移すたびに足す)
+ROUTE_ONLY_MODULES = ["refops.py", "remote.py", "rebase.py", "history.py", "wip.py", "files.py"]  # engine に移し終えて、route だけになったモジュール (移すたびに足す)
 
 
 class EngineTests(unittest.TestCase):

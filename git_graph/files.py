@@ -5,11 +5,9 @@ import hashlib
 import os
 import shutil
 import tempfile
-import subprocess
 from . import app_state as state
 from . import tmpdir
 from .engine import patch
-from .gitrun import git, resolve_commit
 from .i18n import tr, UserError
 from .query import files as qf
 from .routing import route
@@ -133,7 +131,7 @@ def api_file_copy(body):
     """コミット内のファイルを、作業ツリーの別のパスにコピーする。既存のファイルは上書きしない。"""
     if not state.HAS_WORKTREE:
         raise UserError("copy_no_worktree")
-    h = resolve_commit(body.get("hash", ""))
+    h = qf.commit_of(body.get("hash", ""))
     path = validate_file_path(body.get("path", ""), allow_empty=False)
     dest = body.get("dest", "")
     if not isinstance(dest, str):
@@ -153,21 +151,14 @@ def api_file_copy(body):
         inside = False
     if not inside or target == root:
         raise UserError("copy_dest_invalid")
-    spec = h + ":" + path
-    if git("cat-file", "-t", spec).strip() != "blob":
-        raise UserError("not_a_file")
+    qf.require_blob(h, path)
     if os.path.lexists(target):
         raise UserError("copy_dest_exists", path=dest)
-    # --filters で改行コードなどを作業ツリーでの形 (autocrlf など) にそろえる。使えない git では素のまま
-    r = subprocess.run(["git", "-C", state.REPO, "cat-file", "--filters", spec], capture_output=True)
-    if r.returncode != 0:
-        r = subprocess.run(["git", "-C", state.REPO, "cat-file", "blob", spec], capture_output=True)
-        if r.returncode != 0:
-            raise ValueError(r.stderr.decode("utf-8", errors="replace").strip() or tr("git_command_failed"))
+    data = qf.blob_for_worktree(h, path)  # 改行コードなどは作業ツリーでの形にそろえる
     try:
         os.makedirs(os.path.dirname(target), exist_ok=True)
         with open(target, "xb") as f:
-            f.write(r.stdout)
+            f.write(data)
     except OSError as e:
         raise ValueError(str(e))
     return {"ok": True, "message": tr("file_copied", path=dest)}
