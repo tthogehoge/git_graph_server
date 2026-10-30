@@ -951,6 +951,54 @@ class EngineOperationTests(EngineTests):
 
         self.assertTrue(ROUTES[("GET", "/api/status")]({})["stash_conflict"])
 
+    def sha_of(self, name):
+        import hashlib
+        with open(os.path.join(self.repo, name), "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()
+
+    def test_save_file_writes_records_and_can_be_undone(self):
+        from git_graph.engine import files
+        original = self.read("tracked.txt")
+
+        result = files.save_file("tracked.txt", "edited in the app\n", self.sha_of("tracked.txt"))
+
+        self.assertEqual((result["path"], result["unchanged"]), ("tracked.txt", False))
+        self.assertEqual(result["sha"], self.sha_of("tracked.txt"))
+        self.assertEqual(self.read("tracked.txt"), "edited in the app\n")
+        self.assertEqual([e["op"] for e in self.entries()], ["file_save"])
+        self.assertTrue(self.undo()["ok"])
+        self.assertEqual(self.read("tracked.txt"), original)
+
+    def test_save_file_keeps_crlf_and_reports_unchanged_without_recording(self):
+        from git_graph.engine import files
+        with open(os.path.join(self.repo, "crlf.txt"), "wb") as f:
+            f.write(b"one\r\ntwo\r\n")
+        sha = self.sha_of("crlf.txt")
+
+        same = files.save_file("crlf.txt", "one\ntwo\n", sha)  # 改行コードは元に合わせて戻すので、内容は変わらない
+        self.assertEqual((same["unchanged"], same["sha"]), (True, sha))
+        self.assertEqual(self.entries(), [])
+
+        files.save_file("crlf.txt", "one\nthree\n", sha)
+        with open(os.path.join(self.repo, "crlf.txt"), "rb") as f:
+            self.assertEqual(f.read(), b"one\r\nthree\r\n")
+
+    def test_save_file_refuses_stale_or_invalid_requests_and_leaves_the_file_alone(self):
+        from git_graph.engine import files
+        before = self.read("tracked.txt")
+        stale = "0" * 64
+        for args, error in (
+            (("tracked.txt", "x\n", stale), UserError),             # 開いた後に別の場所で変更された
+            (("missing.txt", "x\n", stale), UserError),             # ファイルでない
+            (("tracked.txt", None, stale), ValueError),              # 不正な本文
+            (("../outside.txt", "x\n", stale), ValueError),         # リポジトリの外
+        ):
+            with self.assertRaises(error):
+                files.save_file(*args)
+        self.assertEqual(self.read("tracked.txt"), before)
+        self.assertEqual(self.entries(), [])
+        self.assertEqual([n for n in os.listdir(self.repo) if n.startswith(".git_graph_edit_")], [])  # 一時ファイルも残らない
+
     def test_blocked_checkout_is_returned_not_raised(self):
         from git_graph.engine import refs
         self.git("checkout", "-q", "-b", "other")

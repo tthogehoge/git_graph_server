@@ -2,7 +2,6 @@
 import html
 import json
 import os
-import subprocess
 from collections import Counter
 from urllib.parse import urlencode
 from . import app_state as state
