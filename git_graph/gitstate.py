@@ -17,12 +17,16 @@ _git_dir_cache = (None, None)  # (repo, abs path)
 def git_dir():
     """現在の state.REPO の git ディレクトリ (worktree 対応)。"""
     global _git_dir_cache
-    repo = state.REPO
-    if _git_dir_cache[0] != repo:
-        p = git("rev-parse", "--git-dir").strip()
-        if not os.path.isabs(p):
-            p = os.path.normpath(os.path.join(repo, p))
-        _git_dir_cache = (repo, p)
+    repo_path = state.REPO
+    if _git_dir_cache[0] != repo_path:
+        from . import libgit
+        if libgit.available():
+            p = libgit.git_dir_path()
+        else:
+            p = git("rev-parse", "--git-dir").strip()
+            if not os.path.isabs(p):
+                p = os.path.normpath(os.path.join(repo_path, p))
+        _git_dir_cache = (repo_path, p)
     return _git_dir_cache[1]
 
 
@@ -117,6 +121,9 @@ def has_parent():
     h, _ = read_head()
     if not h:
         return False
+    from . import libgit
+    if libgit.available():
+        return bool(libgit.commit_parents(h))
     try:
         return bool(git("log", "-1", "--format=%P", h).strip())
     except subprocess.CalledProcessError:
@@ -130,7 +137,16 @@ def branch_config(branch, key):
 
 
 def read_status_raw():
+    """互換用: porcelain 文字列。可能なら status_lists() を直接使うこと。"""
     return git("status", "--porcelain=v1", "-z", "--untracked-files=all")
+
+
+def status_lists(limit=5000):
+    """作業ツリー状態。pygit2 があればプロセスなし、なければ porcelain を parse。"""
+    from . import libgit
+    if libgit.available():
+        return libgit.status_lists(limit=limit)
+    return parse_status(read_status_raw(), limit=limit)
 
 
 def parse_status(raw, limit=5000):
@@ -229,7 +245,17 @@ def parse_raw_and_numstat(raw):
 
 
 def diff_name_numstat(*rev_and_paths):
-    """`git diff --raw --numstat -z -M ...` を 1 プロセスで実行し (name_status, numstat) を返す。"""
+    """`git diff --raw --numstat -z -M ...` 相当。(name_status, numstat) を返す。
+    pygit2 が使え、典型的な形 (base / base HEAD) ならプロセスなし。"""
+    from . import libgit
+    if libgit.available():
+        args = list(rev_and_paths)
+        if args and args[-1] == "--":
+            args = args[:-1]
+        if len(args) == 1:
+            return libgit.diff_name_numstat_trees(args[0], None)
+        if len(args) == 2:
+            return libgit.diff_name_numstat_trees(args[0], args[1])
     raw = git("diff", "--raw", "--numstat", "-z", "-M", *rev_and_paths)
     return parse_raw_and_numstat(raw)
 
@@ -244,17 +270,23 @@ def head_state():
 
 def amend_base():
     """amend 後のコミットの親 (HEAD^)。最初のコミットなら空ツリー。"""
+    from . import libgit
     head, _ = read_head()
+    if libgit.available():
+        if not head:
+            return libgit.EMPTY_TREE
+        parents = libgit.commit_parents(head)
+        return parents[0] if parents else libgit.EMPTY_TREE
     if not head:
         return git("hash-object", "-t", "tree", "/dev/null").strip()
     try:
-        # %P = 親ハッシュ一覧。空ならルートコミット
         parents = git("log", "-1", "--format=%P", head).strip()
     except subprocess.CalledProcessError:
         return git("hash-object", "-t", "tree", "/dev/null").strip()
     if not parents:
         return git("hash-object", "-t", "tree", "/dev/null").strip()
     return parents.split()[0]
+
 
 def parse_name_status(raw):
     """--name-status -z の出力を {新しいパス: (変更の種類(M/A/D/R...), 元のパス or None)} にする。"""
@@ -376,4 +408,5 @@ __all__ = [
     "parse_status",
     "paths_in_head",
     "read_status_raw",
+    "status_lists",
 ]

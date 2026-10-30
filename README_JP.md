@@ -8,8 +8,9 @@ Linux 向けのローカルサーバーです。Git のコミットグラフ、�
 
 対応プラットフォームは Linux です。
 
-- Python 3（標準ライブラリのみ）
-- Git
+- Python 3
+- [pygit2](https://www.pygit2.org/)（libgit2。`pip install pygit2`）
+- Git（書き込み操作とフォールバック）
 - Graphviz の `dot`
 
 コピー・配置するときは、`git_graph_server.py` と `git_graph/` パッケージ(Python モジュール、`static/`、`locales/`)をこの構成のまま一緒に置いてください。`git_graph_server.py` は自分のあるディレクトリを `sys.path` に追加するので、Windows の embeddable 版 Python でも動きます。リポジトリのルートで `python -m git_graph` として起動することもできます。API のルートは各ハンドラーの近くで `@route` デコレーターを使って登録します。

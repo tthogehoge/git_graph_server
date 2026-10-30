@@ -3,6 +3,7 @@ import re
 import subprocess
 from .. import app_state as state
 from ..textcodec import decode_text
+from .. import libgit
 from ..gitrun import check_ref_name, git, git_bytes, HASH_RE, resolve_commit
 from ..gitstate import commit_info, parse_numstat
 from ..i18n import tr, UserError
@@ -70,15 +71,28 @@ def log(rev, path="", skip=0, limit=500, graph=False):
 
 def stash_list():
     """stash の一覧 (新しい順)。log と同じ [hash, short, 選択子, 日時, 件名] の形で返す。"""
+    if libgit.available():
+        from datetime import datetime, timezone, timedelta
+        commits = []
+        for h, base, name, subject in libgit.list_stashes():
+            try:
+                c = libgit.repo()[h]
+                off = getattr(c, "commit_time_offset", 0) or 0
+                date = datetime.fromtimestamp(c.commit_time, timezone(timedelta(minutes=off))).strftime("%Y-%m-%d %H:%M")
+            except Exception:
+                date = ""
+            commits.append([h, h[:7], name, date, subject])
+        return {"commits": commits, "has_more": False, "total": len(commits)}
     try:
         out = git("stash", "list", "--format=%H%x1f%h%x1f%gd%x1f%ci%x1f%gs")
     except subprocess.CalledProcessError:
         out = ""
     commits = []
     for l in out.splitlines():
-        h, short, sel, date, subj = (l.split("\x1f") + [""] * 5)[:5]
+        h, short, sel, date, subj = (l.split("") + ["", "", "", "", ""])[:5]
         commits.append([h, short, sel, date[:16], subj])
     return {"commits": commits, "has_more": False, "total": len(commits)}
+
 
 
 def _ref_list(refs, fmt):
@@ -127,6 +141,28 @@ def branches_containing(hash_):
 
 def tags():
     """タグの一覧 (新しい順)。注釈付きタグは指しているコミットを使う。"""
+    if libgit.available():
+        from datetime import datetime, timezone, timedelta
+        rows = []
+        for ref, target, peeled, is_head in libgit.list_ref_infos():
+            if not ref.startswith("refs/tags/"):
+                continue
+            h = peeled or target
+            try:
+                c = libgit.repo()[h]
+                if not hasattr(c, "commit_time"):
+                    c = libgit.peel_commit(c)
+                if c is None or not hasattr(c, "commit_time"):
+                    continue
+                off = getattr(c, "commit_time_offset", 0) or 0
+                date = datetime.fromtimestamp(c.commit_time, timezone(timedelta(minutes=off))).date().isoformat()
+                subj = (c.message or "").split("\n", 1)[0]
+            except Exception:
+                continue
+            rows.append((c.commit_time, [h, h[:7], ref[len("refs/tags/"):], date, subj]))
+        rows.sort(key=lambda x: -x[0])
+        commits = [r[1] for r in rows]
+        return {"commits": commits, "has_more": False, "total": len(commits)}
     fmt = "%(refname)%1f%(creatordate:short)%1f%(*subject)%1f%(subject)"
     out = git("for-each-ref", "--sort=-creatordate", "--format=" + fmt, "refs/tags")
     commits = []
@@ -134,10 +170,11 @@ def tags():
         ref, date, psubj, subj = (l.split("\x1f") + [""] * 4)[:4]
         try:
             h = git("rev-parse", "--verify", "--quiet", ref + "^{commit}").strip()
-        except subprocess.CalledProcessError:  # コミットを指さないタグ (ツリーなど) は出さない
+        except subprocess.CalledProcessError:
             continue
         commits.append([h, h[:7], ref[len("refs/tags/"):], date, psubj or subj])
     return {"commits": commits, "has_more": False, "total": len(commits)}
+
 
 
 def reflog(branch="", skip=0, limit=500):
@@ -169,9 +206,16 @@ def reflog(branch="", skip=0, limit=500):
 
 def commit(hash_):
     info = commit_info(hash_)
-    raw = git("show", "--numstat", "-z", "-M", "--first-parent", "--format=", info["hash"], "--")
-    info["files"] = parse_numstat(raw)
+    if libgit.available():
+        parents = libgit.commit_parents(info["hash"])
+        base = parents[0] if parents else libgit.EMPTY_TREE
+        letters, files = libgit.diff_name_numstat_trees(base, info["hash"])
+        info["files"] = files
+    else:
+        raw = git("show", "--numstat", "-z", "-M", "--first-parent", "--format=", info["hash"], "--")
+        info["files"] = parse_numstat(raw)
     return info
+
 
 
 def compare(from_hash, to_hash):
@@ -181,37 +225,47 @@ def compare(from_hash, to_hash):
         if not state.WIP_ENABLED or not state.HAS_WORKTREE:
             raise UserError("wip_disabled")
         st = worktree_status()
-        files = parse_numstat(git("diff", "--numstat", "-z", "-M", a["hash"], "--"))
+        if libgit.available():
+            files = libgit.diff_name_numstat_trees(a["hash"], None)[1]
+            base_paths = libgit.tree_paths(a["hash"])
+        else:
+            files = parse_numstat(git("diff", "--numstat", "-z", "-M", a["hash"], "--"))
+            base_paths = set(git("ls-tree", "-r", "--name-only", "-z", a["hash"]).split("\0"))
         included = {f["path"] for f in files}
-        base_paths = set(git("ls-tree", "-r", "--name-only", "-z", a["hash"]).split("\0"))
         for f in st["untracked"]:
             path = f["path"]
             if path in included or path in base_paths:
                 continue
-            result = subprocess.run(
-                ["git", "-C", state.REPO, "diff", "--no-index", "--numstat", "-z",
-                 "--", "/dev/null", path],
-                capture_output=True,
-            )
-            if result.returncode not in (0, 1):
-                raise ValueError(result.stderr.decode("utf-8", errors="replace").strip() or tr("git_diff_failed"))
-            for added in parse_numstat(result.stdout.decode("utf-8", errors="replace")):
-                added["wip"] = "compare"
-                files.append(added)
+            # untracked: count lines as added
+            full = __import__("os").path.join(state.REPO, path)
+            try:
+                with open(full, "rb") as fh:
+                    n = sum(1 for _ in fh)
+            except OSError:
+                n = 0
+            files.append({"path": path, "old_path": None, "added": n, "deleted": 0, "wip": "compare"})
         return {"from": a, "to": {"hash": "WIP"}, "files": files}
     b = commit_info(to_hash)
-    raw = git("diff", "--numstat", "-z", "-M", a["hash"], b["hash"], "--")
-    return {"from": a, "to": b, "files": parse_numstat(raw)}
+    if libgit.available():
+        files = libgit.diff_name_numstat_trees(a["hash"], b["hash"])[1]
+    else:
+        raw = git("diff", "--numstat", "-z", "-M", a["hash"], b["hash"], "--")
+        files = parse_numstat(raw)
+    return {"from": a, "to": b, "files": files}
+
 
 
 def merge_base(from_hash, to_hash):
     """2つのコミットの共通祖先 (最も新しいもの)。"""
     a = resolve_commit(from_hash)
     b = resolve_commit(to_hash)
-    try:
-        base = git("merge-base", a, b).strip()
-    except subprocess.CalledProcessError:
-        base = ""
+    if libgit.available():
+        base = libgit.merge_base(a, b) or ""
+    else:
+        try:
+            base = git("merge-base", a, b).strip()
+        except subprocess.CalledProcessError:
+            base = ""
     return {"hash": base}
 
 
@@ -226,11 +280,16 @@ def diff(path, old="", hash_="", from_hash="", to_hash="", wip=""):
         if not state.WIP_ENABLED or not state.HAS_WORKTREE:
             raise UserError("wip_disabled")
         untracked = {f["path"] for f in worktree_status()["untracked"]}
-        tracked_in_base = bool(git(
-            "ls-tree", "-r", "--name-only", "-z", from_hash, "--", path, literal=True
-        ).strip("\0"))
+        if libgit.available():
+            tracked_in_base = libgit.path_in_tree(from_hash, path)
+        else:
+            tracked_in_base = bool(git(
+                "ls-tree", "-r", "--name-only", "-z", from_hash, "--", path, literal=True
+            ).strip("\0"))
         if path in untracked and not tracked_in_base:
             out = wip_diff("untracked", path, specs)
+        elif libgit.available():
+            out = libgit.unified_diff(from_hash, paths=[path] if not old else specs)
         else:
             out = git_bytes("diff", "--no-color", "-M", from_hash, "--", *specs, literal=True)
     elif wip:  # 作業ツリーの変更
@@ -238,11 +297,21 @@ def diff(path, old="", hash_="", from_hash="", to_hash="", wip=""):
     elif from_hash or to_hash:
         if not (HASH_RE.fullmatch(from_hash) and HASH_RE.fullmatch(to_hash)):
             raise ValueError("bad hash")
-        out = git_bytes("diff", "--no-color", "-M", from_hash, to_hash, "--", *specs, literal=True)
+        if libgit.available():
+            out = libgit.unified_diff(from_hash, to_hash, paths=specs)
+        else:
+            out = git_bytes("diff", "--no-color", "-M", from_hash, to_hash, "--", *specs, literal=True)
     else:
         if not HASH_RE.fullmatch(hash_):
             raise ValueError("bad hash")
-        out = git_bytes("show", "--format=", "--first-parent", "-M", "--no-color", hash_, "--", *specs, literal=True)
+        if libgit.available():
+            parents = libgit.commit_parents(hash_)
+            if parents:
+                out = libgit.unified_diff(parents[0], hash_, paths=specs)
+            else:
+                out = libgit.unified_diff(libgit.EMPTY_TREE, hash_, paths=specs)
+        else:
+            out = git_bytes("show", "--format=", "--first-parent", "-M", "--no-color", hash_, "--", *specs, literal=True)
     truncated = len(out) > DIFF_LIMIT
     text, encoding = decode_text(out[:DIFF_LIMIT], truncated=truncated)
     if text is None:

@@ -2,12 +2,41 @@
 # リベースの操作 (engine/rebase.py) と探索 API の route (rebase.py) が使う。
 import subprocess
 from .. import app_state as state
+from .. import libgit
 from ..gitrun import git, resolve_commit
 from ..i18n import UserError
 
 
 def equivalent_commit_prefix(a, b, allow_merges=False):
     """A/B の共通親から、親相対の差分が連続して一致するコミット数を返す。"""
+    if libgit.available():
+        base = libgit.merge_base(a, b)
+        if not base:
+            raise UserError("rebase_equivalent_no_base")
+
+        def path_from_base(tip):
+            path = libgit.first_parent_path_from_base(base, tip)
+            previous = base
+            for commit in path:
+                ps = libgit.commit_parents(commit)
+                if not ps or ps[0] != previous or (len(ps) != 1 and not allow_merges):
+                    raise UserError("rebase_equivalent_merges")
+                previous = commit
+            return path
+
+        a_path = path_from_base(a)
+        b_path = path_from_base(b)
+        matched = 0
+        while matched < len(a_path) and matched < len(b_path):
+            old_parent = base if matched == 0 else a_path[matched - 1]
+            b_parent = base if matched == 0 else b_path[matched - 1]
+            a_diff = libgit.unified_diff(old_parent, a_path[matched], binary=True)
+            b_diff = libgit.unified_diff(b_parent, b_path[matched], binary=True)
+            if a_diff != b_diff:
+                break
+            matched += 1
+        return base, a_path, b_path, matched
+
     try:
         base = git("merge-base", a, b).strip()
     except subprocess.CalledProcessError as e:
@@ -39,8 +68,21 @@ def equivalent_commit_prefix(a, b, allow_merges=False):
         matched += 1
     return base, a_path, b_path, matched
 
+
 def first_parent_commits(tip):
     """先端からルートまでの first-parent コミットを新しい順に返す。"""
+    if libgit.available():
+        empty_tree = libgit.EMPTY_TREE
+        commits = []
+        for h in libgit.first_parent_chain(tip):
+            ps = libgit.commit_parents(h)
+            subj = libgit.commit_subjects([h]).get(h, "")
+            commits.append({
+                "hash": h,
+                "parent": ps[0] if ps else empty_tree,
+                "subject": subj,
+            })
+        return commits
     out = git("log", "--first-parent", "--format=%H%x1f%P%x1f%s", tip)
     empty_tree = subprocess.check_output(
         ["git", "-C", state.REPO, "hash-object", "-t", "tree", "--stdin"], input=b""
@@ -53,6 +95,7 @@ def first_parent_commits(tip):
                         "subject": subject})
     return commits
 
+
 def nearest_equivalent_parent(a, b):
     """両方の先端から親へ探し、件名とコミット時点のツリーが一致する最初の組を返す。"""
     a_commits = first_parent_commits(a)
@@ -60,6 +103,10 @@ def nearest_equivalent_parent(a, b):
     for a_index, a_commit in enumerate(a_commits):
         for b_index, b_commit in enumerate(b_commits):
             if a_commit["subject"] != b_commit["subject"]:
+                continue
+            if libgit.available():
+                if libgit.commits_equal_trees(a_commit["hash"], b_commit["hash"]):
+                    return a_commits, b_commits, a_index, b_index
                 continue
             comparison = subprocess.run(
                 ["git", "-C", state.REPO, "diff", "--quiet", "--no-ext-diff",
@@ -94,6 +141,23 @@ def find_equivalent_branches(a, b):
     a = resolve_commit(a)
     b = resolve_commit(b)
     candidates = []
+    if libgit.available():
+        for ref, target, peeled, is_head in libgit.list_ref_infos():
+            if not ref.startswith("refs/heads/"):
+                continue
+            name = ref[len("refs/heads/"):]
+            tip = peeled or target
+            if not libgit.is_ancestor(b, tip):
+                continue
+            if tip == a:
+                continue
+            a_commits, b_commits, a_index, b_index = nearest_equivalent_parent(a, tip)
+            if a_index is not None:
+                candidates.append({
+                    "branch": name, "tip": tip, "commit": b_commits[b_index]["hash"],
+                    "matched": 1, "remaining": a_index,
+                })
+        return candidates
     for ref in git("for-each-ref", "--format=%(refname)", "refs/heads").splitlines():
         name = ref.removeprefix("refs/heads/")
         tip = git("rev-parse", ref + "^{commit}").strip()
@@ -109,4 +173,7 @@ def find_equivalent_branches(a, b):
     return candidates
 
 
-__all__ = ["equivalent_commit_prefix", "find_equivalent_branches", "find_equivalent_parents", "first_parent_commits", "nearest_equivalent_parent"]
+__all__ = [
+    "equivalent_commit_prefix", "find_equivalent_branches", "find_equivalent_parents",
+    "first_parent_commits", "nearest_equivalent_parent",
+]

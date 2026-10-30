@@ -10,8 +10,9 @@ A Linux-oriented local browser UI for viewing Git commit graphs, logs, diffs, an
 
 Linux is the supported platform.
 
-- Python 3 (standard library only)
-- Git
+- Python 3
+- [pygit2](https://www.pygit2.org/) (libgit2; `pip install pygit2`)
+- Git (write operations and fallbacks)
 - Graphviz `dot`
 
 Keep `git_graph_server.py` and the `git_graph/` package (Python modules, `static/`, and `locales/`) together when copying or deploying the application. `git_graph_server.py` adds its own directory to `sys.path`, so it also works with the Windows embeddable Python. You can also run `python -m git_graph` from the repository root. API endpoints are registered next to their handlers with the `@route` decorator.

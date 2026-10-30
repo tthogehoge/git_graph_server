@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from .. import app_state as state
 from .. import tmpdir
 from ..gitrun import git, git_bytes, resolve_commit
+from .. import libgit
 from ..gitstate import CONFLICT_CODES
 from ..i18n import tr, UserError
 from ..textcodec import decode_text, edit_info
@@ -151,6 +152,15 @@ def tree(hash_, path=""):
     if hash_ == WIP_HASH:
         return wip_tree(path)
     h = resolve_commit(hash_)
+    if libgit.available():
+        rows = libgit.list_tree(h, path)
+        if rows is None:
+            raise UserError("dir_not_found")
+        entries = []
+        for name, kind, size in rows:
+            mode = "040000" if kind == "tree" else ("120000" if kind == "link" else "100644")
+            entries.append({"name": name, "type": kind, "size": size, "mode": mode})
+        return {"hash": h, "path": path, "entries": sorted(entries, key=lambda x: (x["type"] != "tree", x["name"]))}
     treeish = h if not path else h + ":" + path
     try:
         raw = git("ls-tree", "-z", "-l", treeish)
@@ -166,6 +176,7 @@ def tree(hash_, path=""):
     return {"hash": h, "path": path, "entries": sorted(entries, key=lambda x: (x["type"] != "tree", x["name"]))}
 
 
+
 def file_content(hash_, path):
     """コミットまたは WIP のファイル内容。"""
     path = validate_file_path(path, allow_empty=False)
@@ -173,10 +184,13 @@ def file_content(hash_, path):
         return wip_file(path)
     h = resolve_commit(hash_)
     spec = h + ":" + path
-    kind = git("cat-file", "-t", spec).strip()
-    if kind != "blob":
+    if libgit.available():
+        kind, raw = libgit.blob_at(spec)
+    else:
+        kind = git("cat-file", "-t", spec).strip()
+        raw = subprocess.check_output(["git", "-C", state.REPO, "cat-file", "blob", spec]) if kind == "blob" else None
+    if kind != "blob" or raw is None:
         raise UserError("not_a_file")
-    raw = subprocess.check_output(["git", "-C", state.REPO, "cat-file", "blob", spec])
     truncated = len(raw) > FILE_CONTENT_LIMIT
     data = raw[:FILE_CONTENT_LIMIT]
     text, encoding = decode_text(data, truncated)
@@ -198,6 +212,10 @@ def blame(hash_, path):
         out = r.stdout
     else:
         h = resolve_commit(hash_)
+        if libgit.available():
+            lines = libgit.blame_lines(path, h)
+            if lines is not None:
+                return {"hash": h, "path": path, "lines": lines}
         out = git("blame", "--line-porcelain", h, "--", path, literal=True)
     raw_lines = out.splitlines()
     lines, i = [], 0
@@ -254,9 +272,14 @@ def file_bytes(hash_, path):
     else:
         h = resolve_commit(hash_)
         spec = h + ":" + path
-        if git("cat-file", "-t", spec).strip() != "blob":
-            raise UserError("not_a_file")
-        raw = subprocess.check_output(["git", "-C", state.REPO, "cat-file", "blob", spec])
+        if libgit.available():
+            kind, raw = libgit.blob_at(spec)
+            if kind != "blob" or raw is None:
+                raise UserError("not_a_file")
+        else:
+            if git("cat-file", "-t", spec).strip() != "blob":
+                raise UserError("not_a_file")
+            raw = subprocess.check_output(["git", "-C", state.REPO, "cat-file", "blob", spec])
     return path.rsplit("/", 1)[-1], raw
 
 
@@ -295,14 +318,21 @@ def patch_bytes(hash_="", from_hash="", to_hash="", has_from=False):
             name, raw = a[:7] + "..wip.patch", wip_patch(a)
         else:
             b = resolve_commit(to_hash)
-            name, raw = f"{a[:7]}..{b[:7]}.patch", git_bytes("diff", "--binary", "-M", a, b)
+            if libgit.available():
+                raw = libgit.unified_diff(a, b, binary=True)
+            else:
+                raw = git_bytes("diff", "--binary", "-M", a, b)
+            name = f"{a[:7]}..{b[:7]}.patch"
     elif hash_ == WIP_HASH:
         name, raw = "wip.patch", wip_patch()
     else:
         h = resolve_commit(hash_)
         parents = git("rev-list", "--parents", "-n", "1", h).split()[1:]
         if len(parents) > 1:  # マージは format-patch が出力しないので、最初の親との差分にする
-            raw = git_bytes("diff", "--binary", "-M", parents[0], h)
+            if libgit.available():
+                raw = libgit.unified_diff(parents[0], h, binary=True)
+            else:
+                raw = git_bytes("diff", "--binary", "-M", parents[0], h)
         else:
             raw = git_bytes("format-patch", "-1", "--stdout", "--binary", *(["--root"] if not parents else []), h)
         name = h[:7] + ".patch"
@@ -324,6 +354,9 @@ def file_exists_at(commit, path):
 
 def blob_or_empty(spec):
     """git の spec (hash:path / :path / :2:path) の内容。無ければ空。"""
+    if libgit.available() and not spec.startswith(":"):
+        kind, data = libgit.blob_at(spec)
+        return data if kind == "blob" and data is not None else b""
     try:
         return git_bytes("cat-file", "blob", spec, literal=True)
     except subprocess.CalledProcessError:
@@ -353,7 +386,11 @@ def commit_of(hash_):
 
 def require_blob(commit, path):
     """commit の path がファイル (blob) であることを確かめる (違えば UserError)。"""
-    if git("cat-file", "-t", commit + ":" + path).strip() != "blob":
+    if libgit.available():
+        kind, _ = libgit.blob_at(commit + ":" + path)
+        if kind != "blob":
+            raise UserError("not_a_file")
+    elif git("cat-file", "-t", commit + ":" + path).strip() != "blob":
         raise UserError("not_a_file")
 
 

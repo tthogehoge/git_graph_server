@@ -2205,8 +2205,14 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         names = [f"refs/tags/release-{i:05d}-" + "x" * 40 for i in range(900)]  # 全部並べると Windows の上限 (約 32,000 文字) を超える
         subprocess.run(["git", "-C", self.repo, "update-ref", "--stdin"], check=True, text=True,
                        input="".join(f"update {n} {self.head}\n" for n in names))
-        calls = []
+        from git_graph import libgit
         from git_graph.query import graph as query_graph
+        if libgit.available():
+            # pygit2 経路ではコマンドライン長の問題は起きない。多数 ref でもモデルが組めることだけ確認。
+            model = app.build_model(self.graph_opts())
+            self.assertIn(self.head, model["keep"])
+            return
+        calls = []
         real_git = query_graph.git
 
         def spy(*args, **kwargs):

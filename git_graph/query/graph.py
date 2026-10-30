@@ -5,11 +5,14 @@ import subprocess
 import sys
 from collections import defaultdict
 from ..gitrun import git
+from .. import libgit
 
 DEFAULT_MERGE_MAX_NODES = 2200  # マージ表示でグラフ全体のノード数がこれを超えない範囲で、新しいマージから出す (dot は 2,500 ノード前後から急に遅くなる)
 
 def stash_key():
     """stash の一覧が変わったか調べるための文字列。refs/stash は先頭の stash しか指さないので、一覧全体を見る。"""
+    if libgit.available():
+        return libgit.stash_key()
     try:
         return git("stash", "list", "--format=%H")
     except subprocess.CalledProcessError:
@@ -19,13 +22,19 @@ def list_stashes(shown):
     """グラフに出す stash を [(stash のハッシュ, 基点コミット, "stash@{n}", 件名)] で返す (新しい順)。
     stash のコミットは、親に index 用 (と --include-untracked の管理外ファイル用) のコミットを持つ。
     それらは出さず、stash を第1親 (stash した時点の HEAD) の子として表示する。基点がグラフに無い stash は出さない。"""
+    if libgit.available():
+        return [
+            (h, base, name, subject)
+            for h, base, name, subject in libgit.list_stashes()
+            if base in shown and h not in shown
+        ]
     try:
         out = git("stash", "list", "--format=%H%x09%P%x09%gd%x09%s")
     except subprocess.CalledProcessError:
         return []
     res = []
     for line in out.splitlines():
-        h, p, name, subject = (line.split("\t", 3) + ["", "", ""])[:4]
+        h, p, name, subject = (line.split("	", 3) + ["", "", ""])[:4]
         ps = p.split()
         if ps and ps[0] in shown and h not in shown:
             res.append((h, ps[0], name, subject))
@@ -92,39 +101,66 @@ def build_model(opts):
     sys.setrecursionlimit(100000)
     revs = opts.revs
     revs_by_stdin = not revs  # 自動で集めた ref が何千もあると、Windows のコマンドライン長 (約 32,000 文字) を超えるので標準入力で渡す
+    ref_infos = libgit.list_ref_infos() if libgit.available() else None
+    head_pre, branch_pre = (libgit.head_commit_and_branch() if libgit.available() else ("", ""))
     if not revs:
-        refs = git("for-each-ref", "--format=%(refname)").splitlines()
-        revs = [
-            ref for ref in refs
-            if not ref.endswith("/HEAD")
-            and ref != "refs/stash"  # stash は下で別扱いにする (親の index / untracked 用コミットまで出さない)
-            and (getattr(opts, "include_tips", False)
-                 or ref.startswith(("refs/heads/", "refs/remotes/", "refs/tags/")))
-            and (not opts.no_remotes or not ref.startswith("refs/remotes/"))
-            and (not opts.no_tags or not ref.startswith("refs/tags/"))
-        ]
-        try:
-            git("rev-parse", "--verify", "--quiet", "HEAD")
-            revs.append("HEAD")
-        except subprocess.CalledProcessError:
-            pass
+        if ref_infos is not None:
+            revs = []
+            for ref, target, peeled, is_head in ref_infos:
+                if ref.endswith("/HEAD") or ref == "refs/stash":
+                    continue  # stash は下で別扱い
+                if not (getattr(opts, "include_tips", False)
+                        or ref.startswith(("refs/heads/", "refs/remotes/", "refs/tags/"))):
+                    continue
+                if opts.no_remotes and ref.startswith("refs/remotes/"):
+                    continue
+                if opts.no_tags and ref.startswith("refs/tags/"):
+                    continue
+                revs.append(ref)
+            if head_pre:
+                revs.append("HEAD")
+        else:
+            refs = git("for-each-ref", "--format=%(refname)").splitlines()
+            revs = [
+                ref for ref in refs
+                if not ref.endswith("/HEAD")
+                and ref != "refs/stash"
+                and (getattr(opts, "include_tips", False)
+                     or ref.startswith(("refs/heads/", "refs/remotes/", "refs/tags/")))
+                and (not opts.no_remotes or not ref.startswith("refs/remotes/"))
+                and (not opts.no_tags or not ref.startswith("refs/tags/"))
+            ]
+            try:
+                git("rev-parse", "--verify", "--quiet", "HEAD")
+                revs.append("HEAD")
+            except subprocess.CalledProcessError:
+                pass
 
     parents, subjects, order, dates = {}, {}, [], {}  # order: 子が親より先 (--topo-order)
     children = defaultdict(list)
     # 件名はグラフに出す少数のコミット分だけ後で取る (全コミットぶん整形・解析すると遅い)
     if not revs:
-        log = ""
-    elif revs_by_stdin:
-        log = git("rev-list", "--stdin", "--topo-order", "--parents", "--timestamp", input="\n".join(revs) + "\n")
+        pass
+    elif libgit.available():
+        for h, ps, ct in libgit.rev_list_topo_parents(revs):
+            parents[h] = ps
+            dates[h] = ct
+            order.append(h)
+            for x in ps:
+                children[x].append(h)
     else:
-        log = git("rev-list", *revs, "--topo-order", "--parents", "--timestamp")
-    for line in log.splitlines():
-        ct, h, *ps = line.split()
-        parents[h] = ps
-        dates[h] = int(ct) if ct.isdigit() else 0
-        order.append(h)
-        for x in ps:
-            children[x].append(h)
+        if revs_by_stdin:
+            log = git("rev-list", "--stdin", "--topo-order", "--parents", "--timestamp",
+                      input="\n".join(revs) + "\n")
+        else:
+            log = git("rev-list", *revs, "--topo-order", "--parents", "--timestamp")
+        for line in log.splitlines():
+            ct, h, *ps = line.split()
+            parents[h] = ps
+            dates[h] = int(ct) if ct.isdigit() else 0
+            order.append(h)
+            for x in ps:
+                children[x].append(h)
 
     stashes = list_stashes(parents) if not getattr(opts, "no_stash", False) else []
     for h, base_commit, name, subject in stashes:  # 子は親より先の順なので、先頭に足す (stash は誰の親にもならない)
@@ -135,37 +171,57 @@ def build_model(opts):
         children[base_commit].append(h)
 
     labels = defaultdict(list)  # commit -> [(name, kind)]
-    try:
-        current_branch = git("symbolic-ref", "--short", "-q", "HEAD").strip()
-    except subprocess.CalledProcessError:
-        current_branch = ""
-    # %(HEAD) は現在 checkout 中の ref だけ "*" になるため、
-    # symbolic-ref の名前比較よりも ref 自体を確実に判定できる。
-    fmt = "%(objectname)%09%(refname)%09%(*objectname)%09%(HEAD)"
-    for line in git("for-each-ref", f"--format={fmt}").splitlines():
-        obj, ref, peeled, head_mark = (line.split("\t") + [""])[:4]
-        target = peeled or obj
-        if target not in parents:
-            continue
-        if ref.startswith("refs/heads/"):
-            name = ref[len("refs/heads/"):]
-            is_current = name == current_branch or head_mark == "*"
-            labels[target].append((name, "current" if is_current else "branch"))
-        elif ref.startswith("refs/remotes/"):
-            if opts.no_remotes or ref.endswith("/HEAD"):
+    if ref_infos is not None:
+        current_branch = branch_pre
+        head = head_pre
+        for ref, target, peeled, is_head in ref_infos:
+            target_c = peeled or target
+            if target_c not in parents:
                 continue
-            labels[target].append((ref[len("refs/remotes/"):], "remote"))
-        elif ref.startswith("refs/tags/"):
-            if opts.no_tags:
-                continue
-            labels[target].append((ref[len("refs/tags/"):], "tag"))
-    head = ""
-    try:
-        head = git("rev-parse", "HEAD").strip()
-        if head in parents:
+            if ref.startswith("refs/heads/"):
+                name = ref[len("refs/heads/"):]
+                is_current = name == current_branch or is_head
+                labels[target_c].append((name, "current" if is_current else "branch"))
+            elif ref.startswith("refs/remotes/"):
+                if opts.no_remotes or ref.endswith("/HEAD"):
+                    continue
+                labels[target_c].append((ref[len("refs/remotes/"):], "remote"))
+            elif ref.startswith("refs/tags/"):
+                if opts.no_tags:
+                    continue
+                labels[target_c].append((ref[len("refs/tags/"):], "tag"))
+        if head and head in parents:
             labels[head].append(("HEAD", "head"))
-    except subprocess.CalledProcessError:
-        pass
+    else:
+        try:
+            current_branch = git("symbolic-ref", "--short", "-q", "HEAD").strip()
+        except subprocess.CalledProcessError:
+            current_branch = ""
+        fmt = "%(objectname)%09%(refname)%09%(*objectname)%09%(HEAD)"
+        for line in git("for-each-ref", f"--format={fmt}").splitlines():
+            obj, ref, peeled, head_mark = (line.split("\t") + [""])[:4]
+            target = peeled or obj
+            if target not in parents:
+                continue
+            if ref.startswith("refs/heads/"):
+                name = ref[len("refs/heads/"):]
+                is_current = name == current_branch or head_mark == "*"
+                labels[target].append((name, "current" if is_current else "branch"))
+            elif ref.startswith("refs/remotes/"):
+                if opts.no_remotes or ref.endswith("/HEAD"):
+                    continue
+                labels[target].append((ref[len("refs/remotes/"):], "remote"))
+            elif ref.startswith("refs/tags/"):
+                if opts.no_tags:
+                    continue
+                labels[target].append((ref[len("refs/tags/"):], "tag"))
+        head = ""
+        try:
+            head = git("rev-parse", "HEAD").strip()
+            if head in parents:
+                labels[head].append(("HEAD", "head"))
+        except subprocess.CalledProcessError:
+            pass
     for h, _, name, _ in stashes:
         labels[h].append((name, "stash"))
 
@@ -237,9 +293,13 @@ def build_model(opts):
 
     need = [h for h in keep if h not in subjects]  # 残したコミットの件名だけ取る
     if need:
-        for line in git("log", "--no-walk=unsorted", "--stdin", "--format=%H%x09%s", input="\n".join(need) + "\n").splitlines():
-            h, _, s = line.partition("\t")
-            subjects[h] = s
+        if libgit.available():
+            subjects.update(libgit.commit_subjects(need))
+        else:
+            for line in git("log", "--no-walk=unsorted", "--stdin", "--format=%H%x09%s",
+                            input="\n".join(need) + "\n").splitlines():
+                h, _, s = line.partition("\t")
+                subjects[h] = s
     keep_order = [h for h in reversed(order) if h in keep]  # 親が先
     edges = []  # (祖先, 子, 経由した親)。経由した親はマージコミットの親ごとの線だけ入り、それ以外は None
     counts = {}  # 線ごとの、間で省略されるコミット数
@@ -317,6 +377,8 @@ def build_model(opts):
 
 def head_and_branch():
     """現在の HEAD ハッシュとブランチ名 (detached ならブランチは "")。"""
+    if libgit.available():
+        return libgit.head_commit_and_branch()
     try:
         head = git("rev-parse", "HEAD").strip()
     except subprocess.CalledProcessError:
@@ -330,11 +392,16 @@ def head_and_branch():
 
 def commit_timestamp(h):
     """コミットの author/committer 時刻 (unix)。無いときは例外。"""
+    if libgit.available():
+        return int(libgit.repo()[h].commit_time)
     return int(git("log", "-1", "--format=%ct", h).strip())
 
 
 def model_cache_key(head, branch):
     """作業ツリー以外 (ref / HEAD / 現在ブランチ / stash) の変化を見るキー。"""
+    if libgit.available():
+        refs = "\n".join(f"{t}\t{n}" for n, t, p, _ in libgit.list_ref_infos())
+        return refs + "\0" + head + "\0" + branch + "\0" + stash_key()
     return git("for-each-ref") + "\0" + head + "\0" + branch + "\0" + stash_key()
 
 

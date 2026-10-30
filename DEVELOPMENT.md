@@ -4,7 +4,7 @@
 
 ## 開発環境
 
-対応環境は Linux です。実行時に必要なものは Python 3、Git、Graphviz の `dot` です。Python は標準ライブラリのみを使用し、依存パッケージのインストールは不要です。Graphviz はコミットグラフのレイアウトと描画に使われます。
+対応環境は Linux です。実行時に必要なものは Python 3、[pygit2](https://www.pygit2.org/)（`pip install pygit2`）、Git、Graphviz の `dot` です。読み取りのホットパス（グラフモデル・blob・commit 解決など）は pygit2 を使い、書き込みや複雑な porcelain は Git CLI にフォールバックします。Graphviz はコミットグラフのレイアウトと描画に使われます。
 
 開発対象のソースツリーと、画面に表示する Git リポジトリは分けて指定できます。引数なしで起動するとカレントディレクトリが表示対象です。開発中は専用のテスト用リポジトリを `-C` で指定すると、作業ツリーへの誤操作を避けられます。
 
@@ -61,6 +61,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.test_git_graph_server.InputV
 | `git_graph/routing.py` | `@route` による API ルート登録。HTTP メソッドとパスの組み合わせで管理し、重複登録を拒否します。 |
 | `git_graph/app_state.py` | 対象リポジトリ、起動オプション、書き込み可否、worktree 状態、HTTP サーバーなどのプロセス共有状態。 |
 | `git_graph/gitrun.py` | Git コマンド実行、コミット/ref/ホストの検証、書き込みコマンド、リモート通信と認証情報の処理。 |
+| `git_graph/libgit.py` | pygit2 によるリポジトリ読み取り（Repository キャッシュ、rev-list 相当、ref 列挙、blob）。 |
 | `git_graph/gitstate.py` | マージ中・HEAD の有無・`git status` / `--numstat` の解析など、リポジトリの状態を調べる共通関数。機能モジュールから共通で使われる低レベルの層。 |
 | `git_graph/equivalent.py` | 互換の再公開。本体は `query/equivalent.py`。 |
 | `git_graph/engine/` | git 操作エンジン (パッケージ)。リポジトリを変更する git の処理はここに置き、route (`api_*`) は body を読んで engine を呼び、結果を画面用のレスポンスに整える薄い層にします。`__init__.py` は操作の記録と `operation` デコレーターで、`refs.py` (ブランチ・タグ・checkout・reset)、`worktree.py` (stash・破棄・git rm)、`commit.py` (WIP からのコミット)、`remote.py` (fetch・pull・push・リモートの追加と削除。HTTP 認証の指定は `Auth`)、`patch.py` (git apply / git am)、`files.py` (編集したファイルの保存)、`integrate.py` (merge・cherry-pick・revert・競合の解決・中断)、`rebase.py` (rebase・rebase-range・rebase-descendants・rebase-equivalent・対話的リベース)、`tags.py` (リベース時のタグの付け替え)、`dirty.py` (編集中のファイルに邪魔されたときの stash / 破棄) に git の操作があります。リポジトリを変更する git の処理はすべて engine に移してあります。engine の操作は `@operation` で登録し、呼ぶと操作の前後で ref / HEAD / stash 一覧 / ローカル config / 作業ツリーと index の状態を記録して、その差分をメモリ上の履歴に積みます (ファイルには保存せず、再起動すると消えます)。元に戻す・やり直し (`/api/undo`、`/api/redo`、`/api/undo-history`) はこの差分を逆向き・順方向に適用するだけなので、操作ごとに逆操作を書く必要はありません。作業ツリーの退避 (blob / tree) は `GIT_OBJECT_DIRECTORY` を一時ディレクトリにして書き (本物の objects は `GIT_ALTERNATE_OBJECT_DIRECTORIES` で読み取り専用に見せます)、`.git` には objects も ref も残しません。一時ディレクトリは起動時・終了時・再起動時に `cleanup()` で消します。作業ツリーが操作後に変わっているのを確認のうえ上書きして戻したときは、上書きされる現在の状態を履歴側の反対向きの行き先にするので、やり直し (または元に戻す) で戻せます。エンジン内で git を呼ぶときは `_run()` を使ってください (書き込まれるオブジェクトが一時ディレクトリに入ります)。 |
@@ -116,7 +117,7 @@ GET は JSON を返し、POST も JSON オブジェクトを受け取って JSON
 
 - Git への入力は引数配列で渡し、シェル文字列として組み立てないでください。Git の引数もオプションとして誤解される可能性があるため、既存処理と同様に ref 名・コミットハッシュ・パスを検証してください。
 - パスを扱う処理では `validate_file_path` や `git_graph/gitrun.py` の literal path 対応を確認し、リポジトリ外のファイルへアクセスしないようにしてください。
-- 読み取りには `git()` / `git_bytes()`、エラーをユーザーへ返す書き込みには `run_git_write()`、ロケール依存の出力を解析する場合には `git_c_locale()` を用途に合わせて使ってください。リモート通信には `run_git_net()` のタイムアウト・認証処理を使います。
+- 履歴の列挙・ref・blob などホットな読み取りは `libgit`（pygit2）を優先します。フォールバックや書き込みには `git()` / `git_bytes()`、エラーをユーザーへ返す書き込みには `run_git_write()`、ロケール依存の出力を解析する場合には `git_c_locale()` を用途に合わせて使ってください。リモート通信には `run_git_net()` のタイムアウト・認証処理を使います。
 - 履歴を書き換える・ref を移動する処理では、対象・副作用・失敗時の状態を明確にし、関連する既存の排他制御やエラー処理に従ってください。履歴操作の画面表示だけでなく、途中失敗・競合・中断の経路も確認してください。
 - **分離の基準**: git を実行してデータを取る処理は `query/`（または既存の `gitstate`）へ。git を使わない処理（DOT/SVG 描画、HTML 組み立て、文字コード変換など）はそのモジュールに残す。
 - **読み取り API の足し方 (query)**: git からデータを取る処理は `git_graph/query/` に関数として書く。関数は引数を受け取って git を実行し、結果を dict で返す (HTTP の query も画面用の文言も知りません。エラーは `UserError` / `ValueError`)。route 側 (`history.py` や `wip.py` など) は query 文字列を読んで query の関数を呼ぶ薄い層にする。書き込み用の `engine` に読み取りを入れない (undo 記録の対象外のため)。
@@ -145,7 +146,7 @@ UI/API を変更した場合は、テストに加えて専用のテスト用リ�
 ```
 app_state, routing
   └ i18n
-      └ gitrun
+      └ gitrun / libgit
           ├ textcodec  (文字コード判別。git 非依存)
           ├ files      (route: tree/file/blame は query、保存・パッチはここ)
           └ gitstate

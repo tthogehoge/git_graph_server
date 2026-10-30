@@ -22,6 +22,12 @@ HASH_RE = re.compile(r"[0-9a-f]{7,40}")
 def resolve_commit(h):
     if not HASH_RE.fullmatch(h or ""):
         raise ValueError("bad hash")
+    from . import libgit
+    if libgit.available():
+        full = libgit.resolve_commit(h)
+        if full:
+            return full
+        raise UserError("commit_not_found")
     try:
         return git("rev-parse", "--verify", "--quiet", h + "^{commit}").strip()
     except subprocess.CalledProcessError:
