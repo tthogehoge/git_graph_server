@@ -202,7 +202,11 @@ def reflog(branch="", skip=0, limit=500):
     if branch:
         check_ref_name("branch", branch)
         ref, label = "refs/heads/" + branch, branch
-        if subprocess.run(["git", "-C", state.REPO, "show-ref", "--verify", "--quiet", ref]).returncode != 0:
+        if libgit.available():
+            exists = libgit.repo().references.get(ref) is not None
+        else:
+            exists = subprocess.run(["git", "-C", state.REPO, "show-ref", "--verify", "--quiet", ref]).returncode == 0
+        if not exists:
             raise UserError("branch_not_found")
     else:
         ref, label = "HEAD", "HEAD"

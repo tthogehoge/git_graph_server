@@ -123,6 +123,114 @@ def list_ref_infos():
     return out
 
 
+def config_get(key):
+    """git config --get 相当。無い / キーが不正なら None。"""
+    try:
+        return repo().config[key]
+    except (KeyError, ValueError, pygit2.GitError):
+        return None
+
+
+def upstream_of_head():
+    """現在のブランチの upstream の短い名前 ("origin/main")。切り離し / 未設定 / リモートの ref が無いときは None。"""
+    r = repo()
+    try:
+        if r.head_is_unborn or r.head_is_detached:
+            return None
+        branch = r.branches.local.get(r.head.shorthand)
+        up = branch.upstream if branch is not None else None
+    except (KeyError, ValueError, pygit2.GitError):
+        return None
+    return up.shorthand if up is not None else None
+
+
+def remotes_list():
+    """登録済みのリモート [(name, fetch url)] (名前順)。"""
+    return sorted((rm.name, rm.url or "") for rm in repo().remotes)
+
+
+def refs_snapshot(prefixes):
+    """{refname: 指し先の object id (注釈付きタグはタグオブジェクト)}。for-each-ref の objectname と同じ。"""
+    r = repo()
+    out = {}
+    for name in r.listall_references():
+        if not name.startswith(tuple(prefixes)):
+            continue
+        try:
+            out[name] = str(r.references[name].resolve().target)
+        except (KeyError, pygit2.GitError):
+            continue
+    return out
+
+
+def has_conflicts():
+    """index に未解決の競合 (unmerged) があるか。"""
+    idx = repo().index
+    try:
+        idx.read()
+    except pygit2.GitError:
+        pass
+    conflicts = idx.conflicts
+    return conflicts is not None and any(True for _ in conflicts)
+
+
+def index_contains(paths):
+    """paths のうち index にあるもの (git ls-files 相当)。"""
+    idx = repo().index
+    try:
+        idx.read()
+    except pygit2.GitError:
+        pass
+    return {p for p in paths if p in idx}
+
+
+def paths_in_tree(treeish, paths):
+    """paths のうち treeish のツリーにあるもの。ディレクトリを指すパスは、配下のファイルを返す (ls-tree -r と同じ)。"""
+    r = repo()
+    try:
+        tree = peel_commit(r.revparse_single(treeish)).tree
+    except (KeyError, ValueError, AttributeError, pygit2.GitError):
+        return set()
+    found = set()
+
+    def walk(t, prefix):
+        for e in t:
+            p = f"{prefix}/{e.name}"
+            if e.type == pygit2.GIT_OBJECT_TREE:
+                walk(r[e.id], p)
+            else:
+                found.add(p)
+
+    for p in paths:
+        try:
+            entry = tree[p]
+        except (KeyError, ValueError, pygit2.GitError):
+            continue
+        if entry.type == pygit2.GIT_OBJECT_TREE:
+            walk(r[entry.id], p)
+        else:
+            found.add(p)
+    return found
+
+
+def read_head():
+    """(HEAD のコミット, ブランチ名)。ブランチがまだ無い (最初のコミット前) ときはコミットが "" でブランチ名は返す。
+    linked worktree でも正しく解決できる (.git を直接読むと worktree の ref を見落とす)。"""
+    r = repo()
+    try:
+        head = r.lookup_reference("HEAD")
+    except (KeyError, pygit2.GitError):
+        return "", ""
+    target = head.target
+    if isinstance(target, str):  # シンボリック参照
+        branch = target[len("refs/heads/"):] if target.startswith("refs/heads/") else ""
+        try:
+            return str(r.lookup_reference(target).resolve().target), branch
+        except (KeyError, pygit2.GitError):
+            return "", branch
+    return str(target), ""  # 切り離し
+
+
 def refs_key():
     """ref の変化検出用の文字列。peel せず ref の直接の指し先だけを見る (タグが多くても軽い)。"""
     r = repo()
@@ -820,7 +928,8 @@ __all__ = [
     "EMPTY_TREE", "available", "blob_at", "commit_message", "commit_parents", "commit_subjects",
     "git_dir_path", "head_commit_and_branch", "list_ref_infos", "list_stashes", "merge_base",
     "path_in_tree", "peel_commit", "repo", "require_pygit2", "reset_cache", "resolve_commit",
-    "rev_list_topo_parents", "is_plain_rev", "refs_key", "stash_key", "status_lists",
+    "rev_list_topo_parents", "is_plain_rev", "refs_key", "config_get", "upstream_of_head", "remotes_list", "refs_snapshot",
+    "has_conflicts", "index_contains", "paths_in_tree", "read_head", "stash_key", "status_lists",
     "diff_name_numstat_trees", "diff_index_workdir", "blame_lines",
     "unified_diff", "unified_diff_no_index",
     "is_ancestor", "first_parent_chain", "first_parent_path_from_base",

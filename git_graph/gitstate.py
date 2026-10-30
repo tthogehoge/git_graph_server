@@ -85,6 +85,9 @@ def read_ref(ref):
 
 def read_head():
     """(commit_hash, branch_name_or_empty)。git プロセスは使わない。HEAD が無い / 無効なら ("", "")。"""
+    from . import libgit
+    if libgit.available():
+        return libgit.read_head()  # linked worktree でも正しく解決できる
     try:
         with open(git_path("HEAD"), encoding="utf-8") as f:
             line = f.read().strip()
@@ -104,6 +107,9 @@ def paths_in_head(paths):
     found = set()
     if not has_head():
         return found
+    from . import libgit
+    if libgit.available():
+        return libgit.paths_in_tree("HEAD", paths)
     for i in range(0, len(paths), 200):
         out = git_bytes("ls-tree", "-r", "-z", "--name-only", "HEAD", "--", *paths[i:i + 200], literal=True)
         found.update(x for x in out.decode("utf-8", errors="replace").split("\0") if x)
@@ -131,9 +137,7 @@ def has_parent():
 
 
 def branch_config(branch, key):
-    r = subprocess.run(["git", "-C", state.REPO, "config", "--get", f"branch.{branch}.{key}"],
-                       capture_output=True, text=True, encoding="utf-8", errors="replace")
-    return r.stdout.strip() if r.returncode == 0 else None
+    return git_config(f"branch.{branch}.{key}")
 
 
 def read_status_raw():
@@ -311,6 +315,10 @@ def parse_name_status(raw):
 
 def amend_head_changes(base):
     """直前のコミット (HEAD) が変更したファイル {新しいパス: 元のパス or None}。"""
+    from . import libgit
+    if libgit.available():
+        letters, _ = libgit.diff_name_numstat_trees(base, "HEAD")
+        return {path: old for path, (_, old) in letters.items()}
     names = parse_name_status(git("diff", "--name-status", "-z", "-M", base, "HEAD", "--"))
     return {path: old for path, (_, old) in names.items()}
 
@@ -318,6 +326,10 @@ def addable_paths(paths, step=200):
     """add -A できるパスだけにする。作業ツリーにもインデックスにも無いパス (直前のコミットで git rm 済みのファイルなど) は、
     add -A が「pathspec が見つからない」で失敗する。そのパスはインデックスの状態のままコミットに入る。"""
     paths = sorted(paths)
+    from . import libgit
+    if libgit.available():
+        in_index = libgit.index_contains(paths)
+        return [p for p in paths if p in in_index or os.path.lexists(os.path.join(state.REPO, p))]
     in_index = set()
     for i in range(0, len(paths), step):
         out = git("ls-files", "-z", "--", *paths[i:i + step], literal=True)
@@ -325,6 +337,9 @@ def addable_paths(paths, step=200):
     return [p for p in paths if p in in_index or os.path.lexists(os.path.join(state.REPO, p))]
 
 def refs_snapshot():
+    from . import libgit
+    if libgit.available():
+        return libgit.refs_snapshot(("refs/remotes", "refs/tags"))
     r = subprocess.run(["git", "-C", state.REPO, "for-each-ref", "--format=%(objectname) %(refname)", "refs/remotes", "refs/tags"],
                        capture_output=True, text=True, encoding="utf-8", errors="replace")
     return {name: oid for oid, _, name in (l.partition(" ") for l in r.stdout.splitlines())}
@@ -333,12 +348,18 @@ def count_changed_refs(before, after):
     return sum(1 for k in set(before) | set(after) if before.get(k) != after.get(k))
 
 def upstream_of_head():
+    from . import libgit
+    if libgit.available():
+        return libgit.upstream_of_head()
     r = subprocess.run(["git", "-C", state.REPO, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
                        capture_output=True, text=True, encoding="utf-8", errors="replace")
     return r.stdout.strip() if r.returncode == 0 else None
 
 def list_remotes():
     """登録済みのリモート [{name, url}] (url は fetch 用)。"""
+    from . import libgit
+    if libgit.available():
+        return [{"name": n, "url": u} for n, u in libgit.remotes_list()]
     out = {}
     for line in git("remote", "-v").splitlines():
         m = re.fullmatch(r"(\S+)\t(.*) \((fetch|push)\)", line)
@@ -349,6 +370,10 @@ def list_remotes():
     return [{"name": n, "url": u} for n, u in out.items()]
 
 def git_config(key):
+    from . import libgit
+    if libgit.available():
+        value = libgit.config_get(key)
+        return value.strip() if value is not None else None
     r = subprocess.run(["git", "-C", state.REPO, "config", "--get", key],
                        capture_output=True, text=True, encoding="utf-8", errors="replace")
     return r.stdout.strip() if r.returncode == 0 else None
@@ -370,6 +395,9 @@ def stash_conflict_state():
         return None
     if not isinstance(marker, dict) or not HASH_RE.fullmatch(str(marker.get("stash", ""))):
         return None
+    from . import libgit
+    if libgit.available():
+        return marker if libgit.has_conflicts() else None
     unmerged = subprocess.run(["git", "-C", state.REPO, "diff", "--name-only", "--diff-filter=U"],
                               capture_output=True, text=True, encoding="utf-8", errors="replace").stdout.strip()
     return marker if unmerged else None

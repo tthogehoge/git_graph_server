@@ -49,7 +49,7 @@ def fetch(*, prune=False, auth=None):
     auth = auth or Auth()
     before = refs_snapshot()
     errors = []
-    for remote in git("remote").split():
+    for remote in (x["name"] for x in list_remotes()):
         args = ["fetch", remote] + (["--prune"] if prune else [])
         credentials = auth.for_remote(remote)
         r = run_git_net(*args, auth=credentials)
@@ -172,7 +172,7 @@ def push(*, branch=None, remote=None, remote_branch=None, force=False, push_tags
         args.append("--force-with-lease")
     if push_tags:  # ブランチと一緒に全タグも push する (--tags)
         args.append("--tags")
-    remotes = git("remote").split()
+    remotes = [x["name"] for x in list_remotes()]
     if not remotes:
         raise UserError("no_remotes")
     upstream_remote, merge = branch_config(branch, "remote"), branch_config(branch, "merge")
@@ -229,7 +229,7 @@ def push_tag(tag, *, remote=None, auth=None):
     if subprocess.run(["git", "-C", state.REPO, "rev-parse", "-q", "--verify", f"refs/tags/{tag}"],
                       capture_output=True).returncode != 0:
         raise UserError("tag_missing", tag=tag)
-    remotes = git("remote").split()
+    remotes = [x["name"] for x in list_remotes()]
     if not remotes:
         raise UserError("no_remotes")
     chosen = remote

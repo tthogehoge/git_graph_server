@@ -128,3 +128,124 @@ class LibgitReviewTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(libgit.available(), "pygit2 is not installed")
+class GitstateReadParityTests(unittest.TestCase):
+    """gitstate の読み取りは pygit2 があれば pygit2、無ければ CLI。両方が同じ答えを返すこと。"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        base = self.tmp.name
+        self.remote = os.path.join(base, "remote.git")
+        self.repo = os.path.join(base, "repo")
+        subprocess.run(["git", "init", "-q", "--bare", "-b", "main", self.remote], check=True)
+        subprocess.run(["git", "init", "-q", "-b", "main", self.repo], check=True)
+        for k, v in (("user.email", "t@example.com"), ("user.name", "t")):
+            run(self.repo, "config", k, v)
+        with open(os.path.join(self.repo, "a.txt"), "w") as f:
+            f.write("1\n")
+        run(self.repo, "add", "a.txt")
+        run(self.repo, "commit", "-qm", "c1")
+        run(self.repo, "remote", "add", "origin", self.remote)
+        run(self.repo, "push", "-q", "-u", "origin", "main")
+        run(self.repo, "tag", "-a", "v1", "-m", "annotated")
+        run(self.repo, "tag", "light")
+        run(self.repo, "push", "-q", "origin", "v1")
+        run(self.repo, "config", "url.https://example.com/.insteadOf", "git@example.com:")
+        run(self.repo, "remote", "add", "rw", "git@example.com:x/y.git")
+        run(self.repo, "branch", "no-up")
+        run(self.repo, "config", "branch.no-up.remote", "origin")
+        run(self.repo, "config", "branch.no-up.merge", "refs/heads/no-up")  # upstream の設定はあるが、リモートに ref が無い
+        self.old_repo = state.REPO
+        state.REPO = self.repo
+        libgit.reset_cache()
+
+    def tearDown(self):
+        state.REPO = self.old_repo
+        libgit.reset_cache()
+        self.tmp.cleanup()
+
+    def both(self, fn, *args):
+        """(pygit2 の結果, CLI の結果)。"""
+        fast = fn(*args)
+        real = libgit.available
+        libgit.available = lambda: False
+        try:
+            slow = fn(*args)
+        finally:
+            libgit.available = real
+        return fast, slow
+
+    def test_config_upstream_remotes_and_refs_match_the_cli(self):
+        from git_graph import gitstate as gs
+        for args in ((gs.git_config, "remote.pushDefault"), (gs.git_config, "user.name"),
+                     (gs.branch_config, "main", "remote"), (gs.branch_config, "main", "merge"),
+                     (gs.branch_config, "main", "pushRemote"), (gs.branch_config, "no-such", "remote"),
+                     (gs.list_remotes,), (gs.refs_snapshot,), (gs.upstream_of_head,)):
+            fast, slow = self.both(*args)
+            self.assertEqual(fast, slow, args[0].__name__ + str(args[1:]))
+        self.assertEqual(gs.upstream_of_head(), "origin/main")
+        self.assertEqual([r["name"] for r in gs.list_remotes()], ["origin", "rw"])
+        self.assertEqual(dict((r["name"], r["url"]) for r in gs.list_remotes())["rw"], "https://example.com/x/y.git")
+
+    def test_upstream_is_none_when_detached_or_remote_ref_is_missing(self):
+        from git_graph import gitstate as gs
+        run(self.repo, "checkout", "-q", "no-up")
+        self.assertEqual(self.both(gs.upstream_of_head), (None, None))
+        run(self.repo, "checkout", "-q", "--detach")
+        self.assertEqual(self.both(gs.upstream_of_head), (None, None))
+
+    def test_config_is_not_stale_after_a_cli_write(self):
+        from git_graph import gitstate as gs
+        self.assertIsNone(gs.git_config("remote.pushDefault"))
+        run(self.repo, "config", "remote.pushDefault", "rw")
+        self.assertEqual(gs.git_config("remote.pushDefault"), "rw")
+
+    def test_paths_addable_and_amend_changes_match_the_cli(self):
+        from git_graph import gitstate as gs
+        with open(os.path.join(self.repo, "b.txt"), "w") as f:
+            f.write("2\n")
+        os.makedirs(os.path.join(self.repo, "d"))
+        with open(os.path.join(self.repo, "d", "x.txt"), "w") as f:
+            f.write("3\n")
+        run(self.repo, "add", "-A")
+        run(self.repo, "commit", "-qm", "c2")
+        run(self.repo, "rm", "-q", "b.txt")
+        paths = ["a.txt", "b.txt", "d", "d/x.txt", "missing.txt"]
+        for args in ((gs.paths_in_head, paths), (gs.addable_paths, set(paths)),
+                     (gs.amend_head_changes, gs.amend_base())):
+            fast, slow = self.both(*args)
+            self.assertEqual(fast, slow, args[0].__name__)
+        self.assertEqual(gs.paths_in_head(paths), {"a.txt", "b.txt", "d/x.txt"})  # d はディレクトリなので配下のファイルになる
+
+    def test_read_head_in_a_linked_worktree_and_before_the_first_commit(self):
+        from git_graph import gitstate as gs
+        wt = os.path.join(self.tmp.name, "wt")
+        run(self.repo, "worktree", "add", "-q", wt, "-b", "wtb")
+        head = subprocess.check_output(["git", "-C", self.repo, "rev-parse", "HEAD"], text=True).strip()
+        state.REPO = wt
+        libgit.reset_cache()
+        gs._git_dir_cache = (None, None)
+        self.assertEqual(gs.read_head(), (head, "wtb"))
+        empty = os.path.join(self.tmp.name, "empty")
+        subprocess.run(["git", "init", "-q", "-b", "trunk", empty], check=True)
+        state.REPO = empty
+        libgit.reset_cache()
+        gs._git_dir_cache = (None, None)
+        self.assertEqual(gs.read_head(), ("", "trunk"))  # コミット前でもブランチ名は分かる
+        gs._git_dir_cache = (None, None)
+
+    def test_stash_conflict_state_needs_a_marker_and_an_unresolved_conflict(self):
+        from git_graph import gitstate as gs
+        self.assertFalse(libgit.has_conflicts())
+        run(self.repo, "checkout", "-qb", "side")
+        with open(os.path.join(self.repo, "a.txt"), "w") as f:
+            f.write("side\n")
+        run(self.repo, "commit", "-qam", "side")
+        run(self.repo, "checkout", "-q", "main")
+        with open(os.path.join(self.repo, "a.txt"), "w") as f:
+            f.write("main\n")
+        run(self.repo, "commit", "-qam", "main")
+        subprocess.run(["git", "-C", self.repo, "merge", "side"], capture_output=True)
+        self.assertTrue(libgit.has_conflicts())
