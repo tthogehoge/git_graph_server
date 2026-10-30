@@ -5,7 +5,8 @@ from .. import app_state as state
 from ..gitrun import git, git_bytes
 from ..gitstate import (
     amend_base, amend_head_changes, commit_info, is_cherry_picking, is_merging, is_rebasing,
-    is_reverting, parse_name_status, parse_numstat, parse_status, read_status_raw, stash_conflict_state,
+    is_reverting, parse_name_status, parse_numstat, parse_status, read_head, read_status_raw,
+    stash_conflict_state,
 )
 from ..i18n import tr, UserError
 
@@ -22,14 +23,17 @@ def amend_files(s):
     in_head = amend_head_changes(base)
     pending = {f["path"] for k in ("staged", "unstaged") for f in s[k]}
     out = []
-    for f in parse_numstat(git("diff", "--numstat", "-z", "-M", base, "--")):
-        f["st"] = letters.get(f["path"], ("M", None))[0]
-        f["wip"] = "amend"
-        if f["path"] in in_head:
-            f["in_head"] = True
-        if f["path"] in pending:
-            f["tag"] = "WIP"
-        out.append(f)
+    # name-status が空で untracked も無ければ numstat は不要
+    if letters or s["untracked"]:
+        numstat = parse_numstat(git("diff", "--numstat", "-z", "-M", base, "--")) if letters else []
+        for f in numstat:
+            f["st"] = letters.get(f["path"], ("M", None))[0]
+            f["wip"] = "amend"
+            if f["path"] in in_head:
+                f["in_head"] = True
+            if f["path"] in pending:
+                f["tag"] = "WIP"
+            out.append(f)
     for f in s["untracked"]:
         out.append(dict(f, wip="amend", tag="WIP"))
     return out
@@ -49,17 +53,18 @@ def status(amend=False):
             st = stats.get(f["path"])
             if st:
                 f["added"], f["deleted"] = st["added"], st["deleted"]
-    try:
-        s["head"] = git("rev-parse", "--verify", "--quiet", "HEAD").strip()
-    except subprocess.CalledProcessError:
-        s["head"] = ""
+    # HEAD はファイルを読むだけ。メッセージが要るときだけ log を 1 回 (rev-parse + show の 2 回を避ける)
+    s["head"], _ = read_head()
     s["merging"] = is_merging()
     s["rebasing"] = is_rebasing()
     s["cherry_picking"] = is_cherry_picking()
     s["reverting"] = is_reverting()
     s["stash_conflict"] = stash_conflict_state() is not None  # stash の apply / pop が競合したまま (中断できる)
     if s["head"]:
-        s["head_message"] = commit_info(s["head"])["message"]  # amend のときにメッセージの初期値にする
+        try:
+            s["head_message"] = git("log", "-1", "--format=%B", s["head"]).strip()
+        except subprocess.CalledProcessError:
+            s["head_message"] = commit_info(s["head"])["message"]
         if amend and not s["merging"] and not s["rebasing"]:
             s["amend_files"] = amend_files(s)
     return s

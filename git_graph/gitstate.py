@@ -47,6 +47,54 @@ def is_reverting():
     return os.path.isfile(git_path("REVERT_HEAD"))
 
 
+def read_ref(ref):
+    """refs/... を解決して object id を返す。無ければ ""。git プロセスは使わない。"""
+    # loose ref (シンボリック ref は再帰)
+    seen = set()
+    while ref and ref not in seen:
+        seen.add(ref)
+        path = os.path.join(git_dir(), *ref.split("/"))
+        try:
+            with open(path, encoding="utf-8") as f:
+                val = f.read().strip()
+        except OSError:
+            val = None
+        if val is None:
+            break
+        if val.startswith("ref: "):
+            ref = val[5:].strip()
+            continue
+        return val if HASH_RE.fullmatch(val) else ""
+    # packed-refs
+    try:
+        with open(git_path("packed-refs"), encoding="utf-8") as f:
+            for line in f:
+                if not line or line[0] in " #^":
+                    continue
+                parts = line.split()
+                if len(parts) >= 2 and parts[1] == ref and HASH_RE.fullmatch(parts[0]):
+                    return parts[0]
+    except OSError:
+        pass
+    return ""
+
+
+def read_head():
+    """(commit_hash, branch_name_or_empty)。git プロセスは使わない。HEAD が無い / 無効なら ("", "")。"""
+    try:
+        with open(git_path("HEAD"), encoding="utf-8") as f:
+            line = f.read().strip()
+    except OSError:
+        return "", ""
+    if line.startswith("ref: "):
+        ref = line[5:].strip()
+        branch = ref[len("refs/heads/"):] if ref.startswith("refs/heads/") else ""
+        return read_ref(ref), branch
+    if HASH_RE.fullmatch(line):
+        return line, ""
+    return "", ""
+
+
 def paths_in_head(paths):
     """paths のうち HEAD に存在するもの。"""
     found = set()
@@ -59,13 +107,20 @@ def paths_in_head(paths):
 
 
 def has_head():
-    return subprocess.run(["git", "-C", state.REPO, "rev-parse", "-q", "--verify", "HEAD"],
-                          capture_output=True).returncode == 0
+    """HEAD がコミットを指しているか。.git を読むだけ (プロセス起動なし)。"""
+    h, _ = read_head()
+    return bool(h)
 
 
 def has_parent():
-    return subprocess.run(["git", "-C", state.REPO, "rev-parse", "-q", "--verify", "HEAD^"],
-                          capture_output=True).returncode == 0
+    """HEAD に親があるか。ルートコミットなら False。"""
+    h, _ = read_head()
+    if not h:
+        return False
+    try:
+        return bool(git("log", "-1", "--format=%P", h).strip())
+    except subprocess.CalledProcessError:
+        return False
 
 
 def branch_config(branch, key):
@@ -145,18 +200,25 @@ def parse_numstat(raw):
 
 
 def head_state():
-    """現在のブランチ名 (切り離されていれば None) と、マージ / リベースの途中かどうか。"""
-    r = subprocess.run(["git", "-C", state.REPO, "symbolic-ref", "--short", "-q", "HEAD"],
-                       capture_output=True, text=True, encoding="utf-8", errors="replace")
-    return {"branch": r.stdout.strip() or None, "merging": (is_merging() or is_rebasing()) if state.HAS_WORKTREE else False}
+    """現在のブランチ名 (切り離されていれば None) と、マージ / リベースの途中かどうか。
+    ブランチ名は .git/HEAD を読むだけ (プロセス起動なし)。"""
+    _, branch = read_head()
+    return {"branch": branch or None, "merging": (is_merging() or is_rebasing()) if state.HAS_WORKTREE else False}
 
 
 def amend_base():
     """amend 後のコミットの親 (HEAD^)。最初のコミットなら空ツリー。"""
+    head, _ = read_head()
+    if not head:
+        return git("hash-object", "-t", "tree", "/dev/null").strip()
     try:
-        return git("rev-parse", "--verify", "--quiet", "HEAD^").strip()
+        # %P = 親ハッシュ一覧。空ならルートコミット
+        parents = git("log", "-1", "--format=%P", head).strip()
     except subprocess.CalledProcessError:
         return git("hash-object", "-t", "tree", "/dev/null").strip()
+    if not parents:
+        return git("hash-object", "-t", "tree", "/dev/null").strip()
+    return parents.split()[0]
 
 def parse_name_status(raw):
     """--name-status -z の出力を {新しいパス: (変更の種類(M/A/D/R...), 元のパス or None)} にする。"""
@@ -265,6 +327,8 @@ __all__ = [
     "branch_config",
     "commit_info",
     "has_head",
+    "read_ref",
+    "read_head",
     "has_parent",
     "is_cherry_picking",
     "is_merging",
