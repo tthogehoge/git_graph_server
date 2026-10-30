@@ -5,7 +5,7 @@ from .engine import commit
 from .gitrun import git, git_bytes
 from .gitstate import (  # noqa: F401  (読み取りだけのヘルパーは gitstate に移した。互換のため再公開する)
     addable_paths, amend_base, amend_head_changes, commit_info, is_cherry_picking, is_merging, is_rebasing,
-    is_reverting, parse_name_status, parse_numstat, parse_status, read_status_raw,
+    is_reverting, parse_name_status, parse_numstat, parse_status, read_status_raw, stash_conflict_state,
 )
 from .i18n import tr, UserError
 from .routing import route
@@ -56,6 +56,7 @@ def api_status(q):
     s["rebasing"] = is_rebasing()
     s["cherry_picking"] = is_cherry_picking()
     s["reverting"] = is_reverting()
+    s["stash_conflict"] = stash_conflict_state() is not None  # stash の apply / pop が競合したまま (中断できる)
     if s["head"]:
         s["head_message"] = commit_info(s["head"])["message"]  # amend のときにメッセージの初期値にする
         if q.get("amend", [""])[0] == "1" and not s["merging"] and not s["rebasing"]:

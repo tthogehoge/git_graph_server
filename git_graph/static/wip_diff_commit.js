@@ -179,7 +179,7 @@ document.querySelectorAll("[data-resolve]").forEach(b => b.addEventListener("cli
 }));
 const abtn = document.getElementById("abtn");
 if (abtn) abtn.addEventListener("click", () => {  // マージなどの途中を中断する
-  if (!confirm(fmt(T.confirm_abort, {cmd: abtn.dataset.cmd}))) return;
+  if (!confirm(abtn.dataset.cmd === "stash" ? T.confirm_abort_stash : fmt(T.confirm_abort, {cmd: abtn.dataset.cmd}))) return;
   abtn.disabled = true; say(T.wip_execute, true);
   postJson("/api/abort", {}).then(done).catch(e => { abtn.disabled = false; say(e.message, false); });
 });

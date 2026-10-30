@@ -1,5 +1,6 @@
 # リポジトリの状態を調べる低レベルの関数 (マージ中か、HEAD があるか、status / numstat の解析など)。
 # 他の機能モジュールから共通で使われる。gitrun / i18n より上、機能モジュール (rebase, refops, wip ...) より下の層。
+import json
 import os
 import re
 import subprocess
@@ -210,6 +211,28 @@ def git_config(key):
                        capture_output=True, text=True, encoding="utf-8", errors="replace")
     return r.stdout.strip() if r.returncode == 0 else None
 
+STASH_MARKER = "git_graph_stash_apply"  # stash の apply / pop が競合したときに .git に残す目印 (どの stash を適用したか)
+
+
+def stash_marker_path():
+    return os.path.join(state.REPO, git("rev-parse", "--git-path", STASH_MARKER).strip())
+
+
+def stash_conflict_state():
+    """stash の apply / pop が競合したまま残っているときの {"stash": 適用した stash のコミット, "action"}。
+    競合が解決済み (未解決の競合ファイルがない) なら None (目印が古いだけなので無視する)。"""
+    try:
+        with open(stash_marker_path(), encoding="utf-8") as f:
+            marker = json.load(f)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(marker, dict) or not HASH_RE.fullmatch(str(marker.get("stash", ""))):
+        return None
+    unmerged = subprocess.run(["git", "-C", state.REPO, "diff", "--name-only", "--diff-filter=U"],
+                              capture_output=True, text=True, encoding="utf-8", errors="replace").stdout.strip()
+    return marker if unmerged else None
+
+
 __all__ = [
     "CONFLICT_CODES",
     "addable_paths",
@@ -217,6 +240,9 @@ __all__ = [
     "git_config",
     "list_remotes",
     "refs_snapshot",
+    "STASH_MARKER",
+    "stash_conflict_state",
+    "stash_marker_path",
     "upstream_of_head",
     "amend_base",
     "amend_head_changes",

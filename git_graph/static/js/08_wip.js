@@ -136,8 +136,9 @@ function resolveBarHtml() {  // 競合ファイルを ours / theirs で解決す
 }
 function opBannerHtml(cmd, canWrite) {  // マージなどの途中であることと、中断ボタン
   if (!cmd) return "";
-  return '<div class="wipop"><span>' + esc(t("op_banner", {cmd: cmd})) + '</span>' +
-    (canWrite ? '<button class="abtn danger" id="wipAbort" data-cmd="' + esc(cmd) + '">' + esc(t("abort_button", {cmd: cmd})) + '</button>' : "") + '</div>';
+  const stash = cmd === "stash";  // stash の適用が競合したまま (git の操作の途中ではないので、文言が違う)
+  return '<div class="wipop"><span>' + esc(stash ? t("op_banner_stash") : t("op_banner", {cmd: cmd})) + '</span>' +
+    (canWrite ? '<button class="abtn danger" id="wipAbort" data-cmd="' + esc(cmd) + '">' + esc(stash ? t("abort_button_stash") : t("abort_button", {cmd: cmd})) + '</button>' : "") + '</div>';
 }
 function doWipResolve(side) {
   const paths = wipCks("conflict").filter(x => x.checked).map(x => x.dataset.path);
@@ -214,7 +215,7 @@ detailView.addEventListener("click", ev => {
 function doWipAbort() {
   const b = detailView.querySelector("#wipAbort");
   if (!b) return;
-  if (!confirm(t("confirm_abort", {cmd: b.dataset.cmd}))) return;
+  if (!confirm(b.dataset.cmd === "stash" ? t("confirm_abort_stash") : t("confirm_abort", {cmd: b.dataset.cmd}))) return;
   b.disabled = true;
   post("/api/abort", {})
     .then(r => { wipSel = {}; wipKeepClear(); wipMsg = ""; wipMsgNormal = ""; wipAmendOn = false; showWip(true, r.message); return refreshGraph().catch(() => {}); })
@@ -236,7 +237,7 @@ function showWip(fromHistory, okMsg) {
     }
     if (!wipAmendOn) wipKeepPull();
     const canCommit = !!DATA.writable;  // 書き込みが無効 (--read-only など) のときはチェック欄を出さない
-    const opCmd = s.merging ? "merge" : s.rebasing ? "rebase" : s.cherry_picking ? "cherry-pick" : s.reverting ? "revert" : null;
+    const opCmd = s.merging ? "merge" : s.rebasing ? "rebase" : s.cherry_picking ? "cherry-pick" : s.reverting ? "revert" : s.stash_conflict ? "stash" : null;
     const sections = wipAmendOn
       ? [["amend", t("amend_content"), s.amend_files]]
       : [["conflict", t("conflict"), s.conflicts], ["staged", t("staged"), s.staged],

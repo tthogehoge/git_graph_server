@@ -1,15 +1,18 @@
 # 他のコミットの取り込み (merge / cherry-pick / revert) と、競合の解決・途中の操作の中断 (resolve / abort)。
 # 引数を受け取って git を実行し、結果を dict で返す。HTTP の body も、画面に出す文言の組み立ても route 側の仕事。
 # 編集中のファイルに邪魔されて止まったときは {"blocked": True, ...} を返し、route がそのまま画面へ返す (ユーザーが選んだ方法で再度呼ぶ)。
+import os
 import subprocess
 from .. import app_state as state
 from ..gitrun import git, resolve_commit, run_git_write
 from ..gitstate import (
-    has_head, is_cherry_picking, is_merging, is_rebasing, is_reverting, parse_status, read_status_raw,
+    has_head, is_cherry_picking, is_merging, is_rebasing, is_reverting, parse_status, paths_in_head, read_status_raw,
+    stash_conflict_state,
 )
 from ..i18n import tr, UserError
 from . import operation
 from .dirty import git_run, run_resolving, with_stash_note
+from .worktree import clear_stash_marker
 
 _STEP = 200  # コマンドラインが長くなりすぎないよう、ファイルはこの数ずつ git に渡す
 
@@ -119,7 +122,38 @@ def abort_operation():
         if active():
             run_git_write(cmd, "--abort")
             return {"cmd": cmd}
+    marker = stash_conflict_state()
+    if marker:  # stash の apply / pop が競合したまま (git には中断の仕組みがない)
+        _abort_stash_apply(marker["stash"])
+        return {"cmd": "stash"}
     raise UserError("nothing_to_abort")
+
+
+def _abort_stash_apply(stash):
+    """stash の適用で変わったファイルを、適用前の状態 (HEAD) に戻す。
+    stash の適用は、変更先のファイルがきれいなとき (HEAD と同じとき) だけ始まる (編集中なら適用前に止まる) ので、
+    stash が触るファイルを HEAD の内容に戻せば、適用前の状態に戻る。stash 自体は残る (pop が競合したときも消えていない)。"""
+    names = set()
+    for rev in (f"{stash}^1", f"{stash}"):
+        if subprocess.run(["git", "-C", state.REPO, "rev-parse", "-q", "--verify", rev + "^{commit}"], capture_output=True).returncode != 0:
+            raise UserError("stash_not_found")
+    names.update(p for p in git("diff", "--name-only", "-z", "--no-renames", f"{stash}^1", stash).split("\0") if p)
+    if subprocess.run(["git", "-C", state.REPO, "rev-parse", "-q", "--verify", f"{stash}^3"], capture_output=True).returncode == 0:
+        names.update(p for p in git("ls-tree", "-r", "--name-only", "-z", f"{stash}^3").split("\0") if p)  # 未追跡ファイルの分
+    paths = sorted(names)
+    in_head = paths_in_head(paths)
+    restore = [p for p in paths if p in in_head]
+    remove = [p for p in paths if p not in in_head]  # stash が新しく作ったファイル
+    for i in range(0, len(restore), _STEP):
+        run_git_write("checkout", "HEAD", "--", *restore[i:i + _STEP], literal=True)
+    for i in range(0, len(remove), _STEP):
+        part = remove[i:i + _STEP]
+        subprocess.run(["git", "-C", state.REPO, "rm", "-q", "-f", "--ignore-unmatch", "--", *part], capture_output=True)
+        for p in part:  # 未追跡のまま作られたファイルは git rm では消えない
+            full = os.path.join(state.REPO, p)
+            if os.path.isfile(full):
+                os.remove(full)
+    clear_stash_marker()
 
 
 def unmerged_stages(path):

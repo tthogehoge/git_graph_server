@@ -881,6 +881,76 @@ class EngineOperationTests(EngineTests):
         self.assertEqual(self.git("rev-parse", "HEAD").strip(), before)
         self.assertFalse(os.path.isdir(os.path.join(self.repo, ".git", "rebase-merge")))
 
+    def conflicting_stash(self, with_new_file=False):
+        """tracked.txt を変えた stash を作り、HEAD 側でも tracked.txt を変えて、stash の適用が競合する状態にする。"""
+        self.write("tracked.txt", "stashed edit\n")
+        if with_new_file:
+            self.write("brand-new.txt", "new in stash\n")
+            self.git("add", "brand-new.txt")
+        self.git("stash", "push", "-q", "--include-untracked" if not with_new_file else "--keep-index")
+        if with_new_file:
+            self.git("reset", "-q", "--hard", "HEAD")
+        self.commit_file("tracked.txt", "head side edit\n", "head change")
+        return self.git("rev-parse", "stash@{0}").strip()
+
+    def test_stash_pop_conflict_can_be_aborted_back_to_the_state_before(self):
+        from git_graph.engine import integrate, worktree
+        from git_graph.gitstate import stash_conflict_state
+        stash = self.conflicting_stash()
+        before_head = self.git("rev-parse", "HEAD").strip()
+
+        with self.assertRaises(ValueError):
+            worktree.stash_apply(stash, "pop")
+
+        self.assertEqual(stash_conflict_state()["stash"], stash)  # 競合が残っていて、中断できる状態
+        self.assertIn("<<<<<<<", self.read("tracked.txt"))
+        self.assertEqual(self.git("stash", "list", "--format=%H").strip(), stash)  # pop が競合したので stash は残っている
+
+        result = integrate.abort_operation()
+
+        self.assertEqual(result, {"cmd": "stash"})
+        self.assertEqual(self.read("tracked.txt"), "head side edit\n")  # HEAD の内容に戻っている
+        self.assertEqual(self.git("status", "--porcelain").strip(), "")  # 競合の印も残らない
+        self.assertEqual(self.git("rev-parse", "HEAD").strip(), before_head)
+        self.assertEqual(self.git("stash", "list", "--format=%H").strip(), stash)  # stash はそのまま
+        self.assertIsNone(stash_conflict_state())
+        with self.assertRaises(UserError):
+            integrate.abort_operation()  # もう中断するものはない
+
+    def test_abort_stash_conflict_removes_files_the_stash_added(self):
+        from git_graph.engine import integrate, worktree
+        stash = self.conflicting_stash(with_new_file=True)
+
+        with self.assertRaises(ValueError):
+            worktree.stash_apply(stash, "apply")
+        self.assertTrue(os.path.exists(os.path.join(self.repo, "brand-new.txt")))  # stash が作ったファイル
+
+        integrate.abort_operation()
+
+        self.assertFalse(os.path.exists(os.path.join(self.repo, "brand-new.txt")))
+        self.assertEqual(self.git("status", "--porcelain").strip(), "")
+
+    def test_stash_conflict_marker_is_ignored_once_conflicts_are_resolved(self):
+        from git_graph.engine import integrate, worktree
+        from git_graph.gitstate import stash_conflict_state
+        stash = self.conflicting_stash()
+        with self.assertRaises(ValueError):
+            worktree.stash_apply(stash, "apply")
+        integrate.resolve_conflicts("ours", ["tracked.txt"])  # 競合を解決した
+
+        self.assertIsNone(stash_conflict_state())  # 目印が残っていても、未解決の競合がなければ中断の対象にならない
+        with self.assertRaises(UserError):
+            integrate.abort_operation()
+
+    def test_wip_status_reports_stash_conflict(self):
+        from git_graph.engine import worktree
+        stash = self.conflicting_stash()
+        self.assertFalse(ROUTES[("GET", "/api/status")]({})["stash_conflict"])
+        with self.assertRaises(ValueError):
+            worktree.stash_apply(stash, "apply")
+
+        self.assertTrue(ROUTES[("GET", "/api/status")]({})["stash_conflict"])
+
     def test_blocked_checkout_is_returned_not_raised(self):
         from git_graph.engine import refs
         self.git("checkout", "-q", "-b", "other")

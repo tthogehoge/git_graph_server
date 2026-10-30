@@ -1,16 +1,35 @@
 # 作業ツリーと stash に対する git 操作 (stash の apply / pop / drop / push、変更の破棄、git rm)。
 # 引数を受け取って git を実行し、結果を dict で返す。HTTP の body も、画面に出す文言の組み立ても route 側の仕事。
+import json
+import os
 import subprocess
 from .. import app_state as state
 from ..gitrun import git, git_c_locale, resolve_commit, run_git_write
 from ..gitstate import (
     has_head, is_cherry_picking, is_merging, is_rebasing, is_reverting, parse_status, paths_in_head, read_status_raw,
+    stash_marker_path,
 )
 from ..i18n import tr, UserError
 from . import operation
 from .dirty import discard_blockers, parse_checkout_blockers, stash_push
 
 _STEP = 200  # コマンドラインが長くなりすぎないよう、ファイルはこの数ずつ git に渡す
+
+
+def write_stash_marker(commit, action):
+    """stash の適用が競合したことを .git に残す (WIP に「中断」を出し、中断で適用前の状態に戻すために使う)。"""
+    try:
+        with open(stash_marker_path(), "w", encoding="utf-8") as f:
+            json.dump({"stash": commit, "action": action}, f)
+    except OSError:
+        pass  # 目印が書けなくても、競合の解決はできる
+
+
+def clear_stash_marker():
+    try:
+        os.remove(stash_marker_path())
+    except OSError:
+        pass
 
 
 def _operation_in_progress():
@@ -45,6 +64,7 @@ def stash_apply(commit, action, *, on_conflict=None):
         raise UserError("stash_no_worktree")
     if _operation_in_progress():
         raise UserError("op_in_progress")
+    clear_stash_marker()  # 前回の競合の目印は、新しい適用では不要
     for _ in range(3):  # 止めているファイルを破棄して再実行する (1回で済むはずだが、念のため数回まで)
         r = git_c_locale("stash", action, sel)  # 止めているファイルを解析するため、C ロケールで実行する
         if r.returncode == 0:
@@ -52,6 +72,7 @@ def stash_apply(commit, action, *, on_conflict=None):
         unmerged = subprocess.run(["git", "-C", state.REPO, "-c", "core.quotepath=false", "diff", "--name-only", "--diff-filter=U"],
                                   capture_output=True, text=True, encoding="utf-8", errors="replace").stdout.strip()
         if unmerged:
+            write_stash_marker(h, action)  # 競合を残したまま止まる。WIP の「中断」で適用前の状態に戻せるようにする
             raise ValueError(tr("stash_conflict_pop" if action == "pop" else "stash_conflict", sel=sel) + "\n" + unmerged)
         text = (r.stderr + r.stdout).strip()
         blockers = parse_checkout_blockers(text)

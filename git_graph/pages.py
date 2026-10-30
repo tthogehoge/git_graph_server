@@ -199,10 +199,10 @@ def render_diff_page(q):
     can_commit = bool(wip_status is not None and state.WRITABLE and state.WIP_ENABLED)  # amend の差分ページには出さない
     merging = bool(wip_status and wip_status.get("merging"))
     op_in_progress = bool(wip_status and any(
-        wip_status.get(key) for key in ("merging", "rebasing", "cherry_picking", "reverting")
+        wip_status.get(key) for key in ("merging", "rebasing", "cherry_picking", "reverting", "stash_conflict")
     ))
     op_cmd = next((cmd for key, cmd in (("merging", "merge"), ("rebasing", "rebase"), ("cherry_picking", "cherry-pick"),
-                                        ("reverting", "revert")) if wip_status and wip_status.get(key)), None)
+                                        ("reverting", "revert"), ("stash_conflict", "stash")) if wip_status and wip_status.get(key)), None)
 
     # WIP: ディレクトリごとの件数・行数 (右ペインの filesHtml と同じ集計)
     dir_count, dir_stat = Counter(), {}
@@ -282,15 +282,17 @@ def render_diff_page(q):
                       + '<span class="hint">' + html.escape(tr("wip_hint")) + '</span></div>'
                       '<div id="cout" class="hint"></div></div>')
         if op_cmd:  # マージなどの途中であることと、中断ボタン (右ペインと同じ)
-            commit_box = (f'<div class="wipop"><span>{html.escape(tr("op_banner", cmd=op_cmd))}</span>'
+            banner = tr("op_banner_stash") if op_cmd == "stash" else tr("op_banner", cmd=op_cmd)
+            abort_text = tr("abort_button_stash") if op_cmd == "stash" else tr("abort_button", cmd=op_cmd)
+            commit_box = (f'<div class="wipop"><span>{html.escape(banner)}</span>'
                           f'<button class="wbtn danger" id="abtn" data-cmd="{html.escape(op_cmd, quote=True)}">'
-                          f'{html.escape(tr("abort_button", cmd=op_cmd))}</button></div>') + commit_box
+                          f'{html.escape(abort_text)}</button></div>') + commit_box
         texts = {k: tr(k) for k in (
             "wip_commit", "message_required", "select_files", "wip_execute",
             "wip_discard", "confirm_discard", "discard_conflict", "cancel",
             "wip_rm", "rm_dialog_note", "rm_cached_label", "rm_force_label", "rm_untracked",
             "wip_stash", "stash_message", "stash_scope", "stash_scope_all", "stash_scope_selected", "stash_include_untracked",
-            "confirm_resolve", "confirm_abort",
+            "confirm_resolve", "confirm_abort", "confirm_abort_stash",
         )}
         commit_js = "const T = " + json.dumps(texts, ensure_ascii=False).replace("</", "<\\/") + ";\n" + WIP_DIFF_COMMIT_JS
     return f"""<!DOCTYPE html>
