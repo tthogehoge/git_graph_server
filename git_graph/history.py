@@ -44,7 +44,7 @@ def api_branches_containing(q):
 
 @route("/api/tags")
 def api_tags(q):
-    """タグの一覧 (新しい順)。注采付きタグは指しているコミットを使う。"""
+    """タグの一覧 (新しい順)。注釈付きタグは指しているコミットを使う。"""
     return qh.tags()
 
 
@@ -77,8 +77,10 @@ def api_merge_base(q):
 
 def api_diff(q):
     """1ファイルの差分。hash、from/to のコミット間、または from/WIP の比較を指定する。"""
+    # from/to の有無でコミット間差分かどうかを判定する (空文字でもキーがあればコミット間)
     from_hash = q.get("from", [""])[0] if "from" in q else ""
     to_hash = q.get("to", [""])[0] if "to" in q else ""
+    # wip=compare のときは from が base。通常の from/to とは別経路
     wip = q.get("wip", [""])[0]
     if wip == "compare":
         return qh.diff(
