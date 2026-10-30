@@ -400,8 +400,7 @@ def commit_timestamp(h):
 def model_cache_key(head, branch):
     """作業ツリー以外 (ref / HEAD / 現在ブランチ / stash) の変化を見るキー。"""
     if libgit.available():
-        refs = "\n".join(f"{t}\t{n}" for n, t, p, _ in libgit.list_ref_infos())
-        return refs + "\0" + head + "\0" + branch + "\0" + stash_key()
+        return libgit.refs_key() + "\0" + head + "\0" + branch + "\0" + stash_key()
     return git("for-each-ref") + "\0" + head + "\0" + branch + "\0" + stash_key()
 
 

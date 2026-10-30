@@ -152,15 +152,8 @@ def tree(hash_, path=""):
     if hash_ == WIP_HASH:
         return wip_tree(path)
     h = resolve_commit(hash_)
-    if libgit.available():
-        rows = libgit.list_tree(h, path)
-        if rows is None:
-            raise UserError("dir_not_found")
-        entries = []
-        for name, kind, size in rows:
-            mode = "040000" if kind == "tree" else ("120000" if kind == "link" else "100644")
-            entries.append({"name": name, "type": kind, "size": size, "mode": mode})
-        return {"hash": h, "path": path, "entries": sorted(entries, key=lambda x: (x["type"] != "tree", x["name"]))}
+    # pygit2 の Blob.size はオブジェクト全体を読み込むため、大きいファイルがあるディレクトリで遅い。
+    # ls-tree -l はヘッダだけでサイズを返すので、ここは 1 回だけ git を起動する方が速い。
     treeish = h if not path else h + ":" + path
     try:
         raw = git("ls-tree", "-z", "-l", treeish)

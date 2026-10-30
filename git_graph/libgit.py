@@ -123,6 +123,18 @@ def list_ref_infos():
     return out
 
 
+def refs_key():
+    """ref の変化検出用の文字列。peel せず ref の直接の指し先だけを見る (タグが多くても軽い)。"""
+    r = repo()
+    parts = []
+    for name in r.listall_references():
+        try:
+            parts.append(f"{r.references[name].target}\t{name}")
+        except (KeyError, pygit2.GitError):
+            continue
+    return "\n".join(sorted(parts))
+
+
 def rev_list_topo_parents(tips):
     """tips (refname or hex) から到達するコミットを topo+time 順 (子が先) で列挙。
     各要素: (hex, [parent_hex, ...], commit_time)。
@@ -145,7 +157,7 @@ def rev_list_topo_parents(tips):
         return []
     result = []
     for c in walker:
-        result.append((str(c.id), [str(p.id) for p in c.parents], int(c.commit_time)))
+        result.append((str(c.id), [str(p) for p in c.parent_ids], int(c.commit_time)))
     return result
 
 
@@ -325,7 +337,7 @@ def commit_parents(h):
         c = repo()[h]
         if not isinstance(c, pygit2.Commit):
             c = peel_commit(c)
-        return [str(p.id) for p in c.parents] if c else []
+        return [str(p) for p in c.parent_ids] if c else []
     except (KeyError, ValueError, pygit2.GitError):
         return []
 
@@ -459,28 +471,32 @@ def blame_lines(path, commit_hex=None):
         data = blob.data
     except (KeyError, ValueError, pygit2.GitError):
         return None
-    try:
-        text = data.decode("utf-8")
-    except UnicodeDecodeError:
-        text = data.decode("utf-8", errors="replace")
-    content_lines = text.splitlines()
-    # splitlines は末尾改行なし。空ファイル
-    if text.endswith("\n") and (not content_lines or content_lines[-1] != ""):
-        pass  # git blame は行ごとに内容
+    from .textcodec import decode_text
+    text, _ = decode_text(data)
+    if text is None:  # バイナリ
+        return None
+    # git は \n だけを行区切りにする (str.splitlines は \f, \x0b, \x85, \u2028 なども区切るので行番号がずれる)
+    content_lines = text.split("\n")
+    if content_lines and content_lines[-1] == "":
+        content_lines.pop()
+    content_lines = [ln[:-1] if ln.endswith("\r") else ln for ln in content_lines]
 
     out = []
+    meta = {}  # commit -> (author, date)
     for hunk in blame:
         oid = str(hunk.final_commit_id)
-        # zero oid = not committed (shouldn't happen for commit blame)
-        try:
-            hc = r[hunk.final_commit_id]
-            author = hc.author.name if hc.author else ""
-            # author time with tz
-            ts = hc.author.time
-            off = hc.author.offset  # minutes
-            date = datetime.fromtimestamp(ts, timezone(timedelta(minutes=off))).date().isoformat()
-        except (KeyError, ValueError, pygit2.GitError):
-            author, date = "", "1970-01-01"
+        if oid not in meta:
+            # zero oid = not committed (shouldn't happen for commit blame)
+            try:
+                hc = r[hunk.final_commit_id]
+                author = hc.author.name if hc.author else ""
+                ts = hc.author.time
+                off = hc.author.offset  # minutes
+                date = datetime.fromtimestamp(ts, timezone(timedelta(minutes=off))).date().isoformat()
+            except (KeyError, ValueError, pygit2.GitError):
+                author, date = "", "1970-01-01"
+            meta[oid] = (author, date)
+        author, date = meta[oid]
         start = hunk.final_start_line_number  # 1-based
         for i in range(hunk.lines_in_hunk):
             line_no = start + i
@@ -738,7 +754,7 @@ def log_commits(tips, skip=0, limit=500, topo=False, path=None):
             "author": c.author.name if c.author else "",
             "date": date,
             "subject": msg,
-            "parents": [str(p.id) for p in c.parents],
+            "parents": [str(p) for p in c.parent_ids],
         })
     return rows
 
@@ -763,7 +779,7 @@ __all__ = [
     "EMPTY_TREE", "available", "blob_at", "commit_message", "commit_parents", "commit_subjects",
     "git_dir_path", "head_commit_and_branch", "list_ref_infos", "list_stashes", "merge_base",
     "path_in_tree", "peel_commit", "repo", "require_pygit2", "reset_cache", "resolve_commit",
-    "rev_list_topo_parents", "stash_key", "status_lists",
+    "rev_list_topo_parents", "refs_key", "stash_key", "status_lists",
     "diff_name_numstat_trees", "diff_index_workdir", "blame_lines",
     "unified_diff", "unified_diff_no_index",
     "is_ancestor", "first_parent_chain", "first_parent_path_from_base",

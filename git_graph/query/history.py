@@ -107,6 +107,26 @@ def _ref_list(refs, fmt):
 
 def branches():
     """ローカルブランチ → リモート追跡ブランチの順の一覧。現在のブランチには ★ を付ける。"""
+    if libgit.available():  # ブランチごとに rev-parse を起動しない
+        from datetime import datetime, timezone, timedelta
+        local, remote = [], []
+        for ref, target, peeled, is_head in libgit.list_ref_infos():
+            if ref.startswith("refs/heads/"):
+                bucket, name = local, ref[len("refs/heads/"):]
+            elif ref.startswith("refs/remotes/") and not ref.endswith("/HEAD") and not state.OPTS.no_remotes:
+                bucket, name = remote, ref[len("refs/remotes/"):]
+            else:
+                continue
+            c = libgit.peel_commit(libgit.repo()[peeled or target])
+            if c is None:
+                continue
+            off = getattr(c, "commit_time_offset", 0) or 0
+            date = datetime.fromtimestamp(c.commit_time, timezone(timedelta(minutes=off))).date().isoformat()
+            h = str(c.id)
+            bucket.append((ref, [h, h[:7], ("★ " if is_head and bucket is local else "") + name,
+                                 date, (c.message or "").split("\n", 1)[0]]))
+        commits = [row for _, row in sorted(local)] + [row for _, row in sorted(remote)]
+        return {"commits": commits, "has_more": False, "total": len(commits)}
     fmt = "%(refname)%1f%(objectname)%1f%(HEAD)%1f%(committerdate:short)%1f%(subject)"
     commits = []
     for ref, name_, head, date, subj in (r[:5] for r in _ref_list(["refs/heads"], fmt)):

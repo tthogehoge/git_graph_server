@@ -9,7 +9,7 @@ import unicodedata
 from collections import Counter, defaultdict
 from . import app_state as state
 from .gitrun import git
-from .gitstate import parse_status, read_status_raw
+from .gitstate import status_lists
 from .i18n import tr
 from .query.graph import (
     DEFAULT_MERGE_MAX_NODES, build_model, head_and_branch, is_ancestor, list_stashes,
@@ -342,7 +342,7 @@ def _is_clustered(model, opts):
     return bool(threshold) and len(model["keep"]) > threshold
 
 
-def _dot_for(model, opts, head, raw, requested, minimal=False):
+def _dot_for(model, opts, head, wip_n, requested, minimal=False):
     """サーバーが描くのと同じ dot / ノード情報 / エッジ情報と、クラスター表示のときの追加情報を返す。"""
     clustered = _is_clustered(model, opts)
     extra, anchor = {}, head
@@ -359,8 +359,8 @@ def _dot_for(model, opts, head, raw, requested, minimal=False):
                  "clusterOf": cluster_of, "open": open_ids}
     else:
         dot_text, nodes, edges = render_plain(model, opts)
-    if raw is not None and head in model["keep"]:  # raw が None のときは WIP が無効。"" は変更なし (それでも WIP ノードは出す: パッチ適用などでファイル表示に入れるように)
-        dot_text, nodes = add_wip(dot_text, nodes, head, wip_count(parse_status(raw)), anchor)
+    if wip_n is not None and head in model["keep"]:  # wip_n が None のときは WIP が無効。0 は変更なし (それでも WIP ノードは出す: パッチ適用などでファイル表示に入れるように)
+        dot_text, nodes = add_wip(dot_text, nodes, head, wip_n, anchor)
     return dot_text, nodes, edges, extra
 
 
@@ -370,9 +370,9 @@ def dot_text_for_cli(opts):
     return _dot_for(build_model(opts), opts, head, None, [])[0]
 
 
-def _render_payload(model, opts, head, raw, requested, minimal=False):
+def _render_payload(model, opts, head, wip_n, requested, minimal=False):
     """モデルから dot を作り、SVG にして返す (dot が失敗したときは例外)。"""
-    dot_text, nodes, edges, extra = _dot_for(model, opts, head, raw, requested, minimal)
+    dot_text, nodes, edges, extra = _dot_for(model, opts, head, wip_n, requested, minimal)
     svg = render_dot(dot_text)
     return {"svg": center_node_text(svg[svg.index("<svg"):]), "nodes": nodes, "edges": edges,
             "writable": state.WRITABLE, "merge": state.WRITABLE and state.HAS_WORKTREE, **extra}
@@ -388,13 +388,13 @@ def graph_payload(q=None):
     requested = [x for x in (q.get("open", [""])[0].split(",") if q else []) if x]
     with _lock:  # 同時に複数回作らない (2つ目以降はキャッシュを使う)
         cache, opts, head, key = _model_for(merges)
-        raw = None  # None: WIP を出さない / "": 変更なしの WIP
+        wip_n = None  # None: WIP を出さない / 0: 変更なしの WIP (ノードに出すのは変更ファイル数だけ)
         if state.WIP_ENABLED:
             try:
-                raw = read_status_raw()
+                wip_n = wip_count(status_lists())
             except subprocess.CalledProcessError:
-                raw = None
-        if cache["payload_key"] == (key, raw, tuple(requested)):
+                wip_n = None
+        if cache["payload_key"] == (key, wip_n, tuple(requested)):
             return cache["payload"]
 
         # dot が落ちる / 終わらないほど大きいときは、表示を減らして描き直す (通知を付けて返す)
@@ -415,7 +415,7 @@ def graph_payload(q=None):
             # 描き方だけ変えるときは、残すコミットの決定 (重い) をやり直さない
             model = cache["model"] if set(overrides) <= {"cluster_min_nodes"} else build_model(vopts)
             try:
-                payload = _render_payload(model, vopts, head, raw, requested, minimal)
+                payload = _render_payload(model, vopts, head, wip_n, requested, minimal)
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
                 error = e
                 continue
@@ -425,7 +425,7 @@ def graph_payload(q=None):
             break
         else:
             raise error
-        cache.update(payload_key=(key, raw, tuple(requested)), payload=payload)
+        cache.update(payload_key=(key, wip_n, tuple(requested)), payload=payload)
         return payload
 
 
