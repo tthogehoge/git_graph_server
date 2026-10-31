@@ -314,8 +314,8 @@ function selectCmpA(hash) {
   if (compareBHash === hash) compareBHash = null;
   if (compareAHash && compareBHash) { abActOpen = true; cmpActOpen = false; abMenuHash = null; setOtherMenu(false); }
   updateCmpClasses();
+  if (nodeEl[hash]) ensureGraphVisible(nodeEl[hash], true);
   saveUiState();
-  revealHash(hash);
 }
 function selectCompareHash(slot, hash) {
   if (slot === "A") selectCmpA(hash);
@@ -326,8 +326,8 @@ function selectCmpB(hash) {
   if (compareAHash === hash) compareAHash = null;
   if (compareAHash && compareBHash) { abActOpen = true; cmpActOpen = false; abMenuHash = null; setOtherMenu(false); }
   updateCmpClasses();
+  if (nodeEl[hash]) ensureGraphVisible(nodeEl[hash], true);
   saveUiState();
-  revealHash(hash);
 }
 
 // ---- 元に戻す / やり直し / 操作履歴 (engine.py) ----

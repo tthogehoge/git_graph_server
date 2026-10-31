@@ -209,6 +209,18 @@ html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-s
   g.node.locate polygon { stroke: #e8590c; stroke-width: 3.5; fill: #fff; }
   g.node.locate ellipse { stroke: #e8590c; stroke-width: 3.5; fill: #fff; }
   g.node.locate text { fill: #e8590c; }
+  g.edge.locate-cmpA path { stroke: #06c; stroke-width: 3.5; }
+  g.edge.locate-cmpA polygon { stroke: #06c; fill: #06c; }
+  g.node.locate-cmpA polygon, g.node.locate-cmpA ellipse { stroke: #06c; stroke-width: 3.5; fill: #fff; }
+  g.cluster.locate-cmpA polygon { stroke: #06c; stroke-width: 3.5; }
+  g.node.locate-cmpA text, g.locate-mark.locate-cmpA text { fill: #06c; }
+  g.locate-mark.locate-cmpA circle { fill: #06c; }
+  g.edge.locate-cmpB path { stroke: #1a7f37; stroke-width: 3.5; }
+  g.edge.locate-cmpB polygon { stroke: #1a7f37; fill: #1a7f37; }
+  g.node.locate-cmpB polygon, g.node.locate-cmpB ellipse { stroke: #1a7f37; stroke-width: 3.5; fill: #fff; }
+  g.cluster.locate-cmpB polygon { stroke: #1a7f37; stroke-width: 3.5; }
+  g.node.locate-cmpB text, g.locate-mark.locate-cmpB text { fill: #1a7f37; }
+  g.locate-mark.locate-cmpB circle { fill: #1a7f37; }
   g.node.cluster-node:hover polygon { fill: #dde8f4; }
   g.node.actionTarget ellipse { fill: #e8590c; stroke: #e8590c; }
   g.node.sel ellipse { fill: #d22; stroke: #d22; }

@@ -127,6 +127,8 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
     if (nodeEl[compareBHash]) nodeEl[compareBHash].classList.add("cmpB");
     rowsFor(compareBHash, "B").forEach(tr => tr.classList.add("cmpB"));
   }
+  syncCompareLocation(compareAHash, "cmpA");
+  syncCompareLocation(compareBHash, "cmpB");
   if (actionHash) {
     if (nodeEl[actionHash]) nodeEl[actionHash].classList.add("actionTarget");
     listView.querySelectorAll('tr[data-h="' + actionHash + '"]').forEach(tr => tr.classList.add("actionTarget"));
@@ -213,12 +215,26 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
   document.getElementById("pushSelBtn").disabled = !canWrite || !actionHash || isStash || !localBranches(actionHash).length;
   document.getElementById("renameBranchBtn").disabled = !canWrite || !actionHash || isStash || !localBranches(actionHash).length;
 }
+function syncCompareLocation(hash, kind) {
+  if (!hash) {
+    clearLocate(kind);
+  } else if (nodeEl[hash]) {
+    if (revealTargets.get(kind) !== hash) {
+      clearLocate(kind);
+      revealTargets.set(kind, hash);
+    }
+  } else if (revealTargets.get(kind) !== hash) {
+    revealHash(hash, kind);
+  }
+}
 
 // ---- クラスター表示 (ノードが多いとき、サーバーが時期ごとにまとめて返す。クリックで展開する) ----
 function setGraphData(r) {
   DATA = {nodes: r.nodes, edges: r.edges, writable: r.writable, merge: r.merge,
           clusters: r.clusters, clusterOf: r.clusterOf, open: r.open};
   openClusters = r.open || [];  // サーバーが数を絞った後の、開いているクラスター
+  revealTargets.delete("cmpA");
+  revealTargets.delete("cmpB");
   locateCache.clear();
 }
 let clusterBusy = false;
@@ -273,21 +289,21 @@ function graphElementFor(r) {  // 描いてあるものを、線 -> 両端のノ
   }
   return null;
 }
-let revealTarget = "";
-function revealHash(h) {
+const revealTargets = new Map();
+function revealHash(h, kind = "actionTarget") {
   // 選んだコミットをグラフの真ん中に表示する: ノードならそのノード、ノードでないコミットはそれが省略されている線
   // (描いていなければ両端のノード / 含むクラスター)。含むクラスターが閉じていたら先に開く
   if (!h) return;
-  revealTarget = h;
-  clearLocate();
+  clearLocate(kind);
+  revealTargets.set(kind, h);
   if (nodeEl[h]) { ensureGraphVisible(nodeEl[h], true); return; }
   locateCommit(h).then(r => {
-    if (!r || revealTarget !== h) return;
+    if (!r || revealTargets.get(kind) !== h) return;
     const show = () => {
       const el = graphElementFor(r);
-      if (!el || revealTarget !== h) return;
+      if (!el || revealTargets.get(kind) !== h) return;
       ensureGraphVisible(el, true);
-      markLocated(el, h);
+      markLocated(el, h, kind);
     };
     if (DATA.clusters) {
       const want = [];
@@ -308,19 +324,28 @@ function revealHash(h) {
 }
 
 // ---- ノードでないコミットを選んだとき、グラフ上のどの線かを示す ----
-function clearLocate() {
-  document.querySelectorAll("#graph .locate, #graph g.locate-mark").forEach(e => {
-    if (e.classList.contains("locate-mark")) e.remove(); else e.classList.remove("locate");
-  });
+function clearLocate(kind) {
+  const kinds = kind ? [kind] : ["actionTarget", "cmpA", "cmpB"];
+  for (const name of kinds) {
+    revealTargets.delete(name);
+    document.querySelectorAll("#graph .locate-" + name + ", #graph g.locate-mark.locate-" + name).forEach(e => {
+      if (e.classList.contains("locate-mark")) e.remove();
+      else {
+        e.classList.remove("locate-" + name);
+        if (!["actionTarget", "cmpA", "cmpB"].some(other => e.classList.contains("locate-" + other))) {
+          e.classList.remove("locate");
+        }
+      }
+    });
+  }
 }
-function markLocated(el, h) {  // 線を目立たせ、そのコミットがある位置 (線の真ん中) に印とハッシュを出す
-  clearLocate();
-  el.classList.add("locate");
+function markLocated(el, h, kind) {  // 線を目立たせ、そのコミットがある位置 (線の真ん中) に印とハッシュを出す
+  el.classList.add("locate", "locate-" + kind);
   const path = el.classList.contains("edge") ? el.querySelector("path") : null;
   if (!path || !path.getTotalLength) return;
   const pt = path.getPointAtLength(path.getTotalLength() / 2), NS = "http://www.w3.org/2000/svg";
   const mark = document.createElementNS(NS, "g");
-  mark.setAttribute("class", "locate-mark");
+  mark.setAttribute("class", "locate-mark locate-" + kind);
   const dot = document.createElementNS(NS, "circle");
   dot.setAttribute("cx", pt.x); dot.setAttribute("cy", pt.y); dot.setAttribute("r", 5);
   const label = document.createElementNS(NS, "text");

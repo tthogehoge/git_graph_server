@@ -449,4 +449,4 @@ function clearCmp() {
   updateCmpClasses();
   saveUiState();
 }
-function selectActionTarget(hash, reveal = true) { actionHash = hash; updateCmpClasses(); saveUiState(); if (reveal) revealHash(hash); else clearLocate(); }
+function selectActionTarget(hash, reveal = true) { actionHash = hash; updateCmpClasses(); saveUiState(); if (reveal) revealHash(hash); else clearLocate("actionTarget"); }
