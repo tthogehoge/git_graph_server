@@ -1029,6 +1029,68 @@ class EngineOperationTests(EngineTests):
         integrate.abort_operation()
         self.assertEqual(self.git("status", "--porcelain").strip(), "")
 
+    def stash_with_new_file(self):
+        self.write("brand-new.txt", "new in stash\n")
+        self.git("add", "brand-new.txt")
+        self.write("tracked.txt", "edit\n")
+        self.git("stash", "push", "-q")
+        return self.git("rev-parse", "stash@{0}").strip()
+
+    def test_redo_of_stash_apply_runs_it_again_so_the_staged_new_file_stays_staged(self):
+        from git_graph.engine import worktree
+        stash = self.stash_with_new_file()
+        worktree.stash_apply(stash, "apply")
+        applied = self.git("status", "--porcelain")
+        self.assertIn("A  brand-new.txt", applied)
+        entries = len(engine._load()["entries"])
+
+        self.undo()
+        self.assertEqual(self.git("status", "--porcelain").strip(), "")
+        self.redo()
+
+        self.assertEqual(self.git("status", "--porcelain"), applied)  # ?? ではなく A (ステージ済み) のまま
+        self.assertEqual(len(engine._load()["entries"]), entries)  # 再実行は新しい履歴として積まれない
+        self.assertEqual(engine._load()["cursor"], entries)
+
+    def test_redo_of_stash_pop_drops_the_stash_again(self):
+        from git_graph.engine import worktree
+        stash = self.stash_with_new_file()
+        worktree.stash_apply(stash, "pop")
+        self.assertEqual(self.git("stash", "list").strip(), "")
+
+        self.undo()
+        self.assertEqual(self.git("stash", "list", "--format=%H").strip(), stash)  # stash が戻る
+        self.redo()
+
+        self.assertEqual(self.git("stash", "list").strip(), "")
+        self.assertIn("A  brand-new.txt", self.git("status", "--porcelain"))
+
+    def test_redo_falls_back_to_the_saved_state_when_running_again_gives_a_different_result(self):
+        from git_graph.engine import worktree
+        stash = self.conflicting_stash()
+        with self.assertRaises(ValueError):
+            worktree.stash_apply(stash, "apply")
+        conflicted = self.git("ls-files", "-u")
+        self.undo()
+        original = engine.REPLAYABLE["stash"]
+        engine.REPLAYABLE["stash"] = lambda *a, **k: None  # 再実行しても何も起きない (結果が記録と違う) 状況にする
+        self.addCleanup(engine.REPLAYABLE.__setitem__, "stash", original)
+
+        self.assertTrue(self.redo()["ok"])
+
+        self.assertEqual(self.git("ls-files", "-u"), conflicted)  # 退避からの復元で、競合の状態まで合わせる
+        self.assertIn("<<<<<<<", self.read("tracked.txt"))
+
+    def test_entry_without_replay_info_still_redoes_from_the_saved_state(self):
+        from git_graph.engine import worktree
+        stash = self.stash_with_new_file()
+        worktree.stash_apply(stash, "apply")
+        for entry in engine._load()["entries"]:
+            entry.pop("replay", None)  # 引数を記録できなかった操作と同じ扱い
+        self.undo()
+        self.assertTrue(self.redo()["ok"])
+        self.assertEqual(self.read("tracked.txt"), "edit\n")
+
     def test_undo_redo_cycle_of_a_conflicting_stash_apply_is_stable(self):
         from git_graph.engine import worktree
         stash = self.conflicting_stash()

@@ -16,6 +16,7 @@
 #   作業ツリーが操作後に変わっているのを確認のうえ上書きして戻すときは、上書きされる現在の状態を履歴側の
 #   「反対向きの行き先」にする (元に戻す → やり直しで、上書きされた状態に戻れる)。ref も退避ファイルも作らない。
 import functools
+import json
 import os
 import shutil
 import subprocess
@@ -232,7 +233,7 @@ def _make_entry(before, after, meta):
     problem = next((w["problem"] for w in (bw, aw) if w and w["problem"]), None)
     return {"id": f"{int(time.time() * 1000):x}", "ts": int(time.time()), "op": meta["op"], "detail": meta["detail"],
             "refs": refs, "config": config, "head": head, "stash": stash, "wt": wt,
-            "undoable": problem is None, "problem": problem}
+            "undoable": problem is None, "problem": problem, **({"replay": meta["replay"]} if meta.get("replay") else {})}
 
 
 # ---------------------------------------------------------------- 履歴の保存
@@ -273,7 +274,7 @@ def _detail(body):
 _local = threading.local()  # 操作の入れ子の深さ。入れ子の内側の操作は記録せず、いちばん外側の操作でまとめて1つに記録する
 
 
-def _recorded(op, touches_wt, detail, call):
+def _recorded(op, touches_wt, detail, call, replay=None):
     """call() を実行し、その前後の状態の変化を履歴に積む。履歴の記録に失敗しても操作そのものは妨げない。"""
     if getattr(state.OPTS, "no_undo", False) or getattr(_local, "depth", 0) > 0:
         return call()
@@ -292,7 +293,7 @@ def _recorded(op, touches_wt, detail, call):
     finally:
         _local.depth = 0
     try:
-        _finish(hist, {"op": op, "detail": detail, "touches_wt": touches_wt}, busy_before, before)
+        _finish(hist, {"op": op, "detail": detail, "touches_wt": touches_wt, "replay": replay}, busy_before, before)
     except Exception:
         pass
     if error is not None:
@@ -311,17 +312,23 @@ def run(path, handler, body):
 
 
 OPERATIONS = {}  # 操作名 -> 作業ツリーに触れるか (登録された engine の操作)
+REPLAYABLE = {}  # 操作名 -> 関数。やり直し (redo) を「同じ操作をもう一度実行する」で行う操作 (replay=True で登録)
 
 
-def operation(name, *, touches_worktree, detail=None):
+def operation(name, *, touches_worktree, detail=None, replay=False):
     """git の操作を engine の操作として登録する。呼ぶと、状態の前後を履歴 (undo) に記録しながら実行する。
     name は LABEL_KEYS の操作名、touches_worktree は False / True / "names" (WRITE_OPS と同じ意味)。
     detail は、呼び出しと同じ引数を受け取って、履歴に出す対象 (ブランチ名やハッシュなど) を文字列で返す関数。
-    操作の関数は、HTTP の body も画面用の文言も知らない。引数を受け取って git を実行し、結果を dict で返す。"""
+    操作の関数は、HTTP の body も画面用の文言も知らない。引数を受け取って git を実行し、結果を dict で返す。
+    replay が真の操作は、引数も履歴に残し、やり直し (redo) で同じ操作をもう一度実行する (index のステージ状態や競合のように、
+    作業ツリーの退避からは戻せない状態まで、git が同じように作るため)。結果が記録と違ったときは、従来の退避からの復元に切り替える。
+    同じ引数・同じ状態から同じ結果になる操作 (ローカルだけで完結し、時刻や乱数に依存しないもの) にだけ使う。"""
     def register(fn):
         if name not in LABEL_KEYS:
             raise ValueError(f"operation {name!r} has no label in LABEL_KEYS")
         OPERATIONS[name] = touches_worktree
+        if replay:
+            REPLAYABLE[name] = fn
 
         @functools.wraps(fn)
         def wrapper(*args, **kwargs):
@@ -332,7 +339,13 @@ def operation(name, *, touches_worktree, detail=None):
                 except Exception:
                     text = ""
             text = text[:7] if HASH_RE.fullmatch(text) else text[:60]  # ハッシュは短くして履歴に出す
-            return _recorded(name, touches_worktree, text, lambda: fn(*args, **kwargs))
+            spec = None
+            if replay:
+                try:
+                    spec = json.loads(json.dumps({"args": list(args), "kwargs": kwargs}))
+                except (TypeError, ValueError):
+                    spec = None  # 記録できない引数のときは、退避からの復元になる
+            return _recorded(name, touches_worktree, text, lambda: fn(*args, **kwargs), spec)
         wrapper.operation_name = name
         return wrapper
     return register
@@ -506,6 +519,34 @@ def _apply(entry, t, cur):
         _restore_unmerged(entry["wt"][t].get("unmerged"))
 
 
+def _replay(entry):
+    """やり直し (redo): 記録した操作を同じ引数でもう一度実行する。記録と同じ結果になったら True。
+    競合などで操作が例外で終わるのは、最初の実行と同じ (状態は残る)。結果が違うときは False (呼び出し側が退避から合わせ直す)。"""
+    fn, spec = REPLAYABLE.get(entry["op"]), entry.get("replay")
+    if fn is None or not spec:
+        return False
+    _local.depth = 1  # この再実行は、新しい履歴としては記録しない
+    try:
+        try:
+            fn(*spec.get("args", []), **spec.get("kwargs", {}))
+        except ValueError:  # UserError を含む。競合で止まる操作は、最初も例外で終わっている
+            pass
+    except Exception:
+        return False
+    finally:
+        _local.depth = 0
+    try:
+        now = take(False)
+        for ref, pair in entry["refs"].items():
+            if now["refs"].get(ref) != pair[1]:
+                return False
+        if (entry["head"] and now["head"] != entry["head"][1]) or (entry["stash"] and now["stash"] != entry["stash"][1]):
+            return False
+        return not entry["wt"] or _worktree_snapshot()["tree"] == entry["wt"][1]["tree"]
+    except Exception:
+        return False
+
+
 def _move(direction, force):
     h = _load()
     if h["pending"]:
@@ -526,7 +567,8 @@ def _move(direction, force):
     if force and entry["wt"]:  # 上書きされる作業ツリーは、反対向き (やり直し / 元に戻す) の行き先にして、あとから戻せるようにする
         now = _worktree_snapshot()
         overwritten = now["tree"] != entry["wt"][e]["tree"]
-    _apply(entry, t, cur)
+    if not (t == 1 and not force and _replay(entry)):  # redo は同じ操作の再実行を先に試す。違う結果になったときは退避から合わせる
+        _apply(entry, t, cur)
     if overwritten:
         entry["wt"][e] = {"tree": now["tree"], "protect": entry["wt"][e]["protect"]}
     h["cursor"] += direction

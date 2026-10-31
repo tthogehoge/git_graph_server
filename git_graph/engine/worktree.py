@@ -36,7 +36,7 @@ def _operation_in_progress():
     return is_merging() or is_rebasing() or is_cherry_picking() or is_reverting()
 
 
-@operation("stash", touches_worktree=True, detail=lambda commit, *_, **__: commit)
+@operation("stash", touches_worktree=True, detail=lambda commit, *_, **__: commit, replay=True)
 def stash_apply(commit, action, *, on_conflict=None):
     """stash の apply / pop / drop。stash の位置 (stash@{n}) は変わるので、コミットのハッシュから毎回引き直す。
     apply / pop で競合したときは、git の通常の動作どおり作業ツリーに競合を残す (pop は stash も残る)。
