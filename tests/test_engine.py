@@ -1146,6 +1146,39 @@ class EngineOperationTests(EngineTests):
         with self.assertRaises(UserError):
             integrate.abort_operation()
 
+    def test_stash_conflict_marker_lives_in_the_temp_dir_not_in_dot_git(self):
+        from git_graph import tmpdir
+        from git_graph.engine import integrate, worktree
+        from git_graph.gitstate import legacy_stash_marker_path, stash_marker_path
+        legacy = legacy_stash_marker_path()
+        with open(legacy, "w", encoding="utf-8") as f:  # 以前の版が .git に残した目印
+            f.write("{}")
+        stash = self.conflicting_stash()
+
+        with self.assertRaises(ValueError):
+            worktree.stash_apply(stash, "apply")
+
+        marker = stash_marker_path()
+        self.assertTrue(os.path.isfile(marker))
+        self.assertTrue(os.path.realpath(marker).startswith(os.path.realpath(tmpdir.instance_dir()) + os.sep))
+        self.assertFalse(os.path.exists(legacy))  # .git には作らず、古い版の目印も片付ける
+        self.assertEqual(self.git("status", "--porcelain", "--ignored").count("git_graph"), 0)
+
+        integrate.abort_operation()
+
+        self.assertFalse(os.path.exists(marker))  # 中断すると目印も消える
+
+    def test_reading_the_stash_marker_does_not_create_the_temp_dir(self):
+        from git_graph import tmpdir
+        from git_graph.gitstate import stash_conflict_state
+        saved = tmpdir._dir
+        tmpdir._dir = None
+        try:
+            self.assertIsNone(stash_conflict_state())
+            self.assertIsNone(tmpdir._dir)  # 状態を調べるだけでは一時ディレクトリを作らない
+        finally:
+            tmpdir._dir = saved
+
     def test_wip_status_reports_stash_conflict(self):
         from git_graph.engine import worktree
         stash = self.conflicting_stash()

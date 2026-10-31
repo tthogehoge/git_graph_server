@@ -1,5 +1,6 @@
 # リポジトリの状態を調べる低レベルの関数 (マージ中か、HEAD があるか、status / numstat の解析など)。
 # 他の機能モジュールから共通で使われる。gitrun / i18n より上、機能モジュール (rebase, refops, wip ...) より下の層。
+import hashlib
 import json
 import os
 import re
@@ -378,18 +379,33 @@ def git_config(key):
                        capture_output=True, text=True, encoding="utf-8", errors="replace")
     return r.stdout.strip() if r.returncode == 0 else None
 
-STASH_MARKER = "git_graph_stash_apply"  # stash の apply / pop が競合したときに .git に残す目印 (どの stash を適用したか)
+STASH_MARKER = "git_graph_stash_apply"  # 以前の版が .git に作っていた目印のファイル名 (いまは一時ディレクトリを使う。古いものを消すためだけに残す)
 
 
-def stash_marker_path():
+def stash_marker_path(create=False):
+    """stash の apply / pop が競合したときの目印 (どの stash を適用したか) を置くファイル。.git は汚さず、アプリの一時ディレクトリに置く
+    (リポジトリごとにファイル名を分ける。アプリを終了すると消えるので、再起動後は「中断」は出ない。競合そのものは残る)。
+    create が偽で、一時ディレクトリがまだ無いときは None (読むだけで一時ディレクトリを作らない)。"""
+    from . import tmpdir
+    root = tmpdir.instance_dir() if create else tmpdir.existing_instance_dir()
+    if root is None:
+        return None
+    digest = hashlib.sha1(os.path.realpath(state.REPO).encode("utf-8", errors="surrogateescape")).hexdigest()[:16]
+    return os.path.join(root, f"stash_apply_{digest}.json")
+
+
+def legacy_stash_marker_path():
     return git_path(STASH_MARKER)
 
 
 def stash_conflict_state():
     """stash の apply / pop が競合したまま残っているときの {"stash": 適用した stash のコミット, "action"}。
     競合が解決済み (未解決の競合ファイルがない) なら None (目印が古いだけなので無視する)。"""
+    path = stash_marker_path()
+    if path is None:
+        return None
     try:
-        with open(stash_marker_path(), encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             marker = json.load(f)
     except (OSError, ValueError):
         return None
@@ -414,6 +430,7 @@ __all__ = [
     "refs_snapshot",
     "STASH_MARKER",
     "stash_conflict_state",
+    "legacy_stash_marker_path",
     "stash_marker_path",
     "upstream_of_head",
     "amend_base",

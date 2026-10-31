@@ -27,6 +27,11 @@ def instance_dir():
     return _dir
 
 
+def existing_instance_dir():
+    """インスタンスの一時ディレクトリがすでにあれば、そのパス。無ければ None (読むだけのときに、作らずに済ませる)。"""
+    return _dir if _dir and os.path.isdir(_dir) else None
+
+
 def make_temp_dir(kind):
     """インスタンスの一時ディレクトリの中に、用途 (kind) の名前のサブディレクトリを作って返す。"""
     return tempfile.mkdtemp(prefix=kind + "_", dir=instance_dir())

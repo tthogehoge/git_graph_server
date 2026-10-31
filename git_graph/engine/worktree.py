@@ -6,7 +6,7 @@ import subprocess
 from .. import app_state as state
 from ..gitrun import git, git_c_locale, resolve_commit, run_git_write
 from ..gitstate import (
-    has_head, is_cherry_picking, is_merging, is_rebasing, is_reverting, paths_in_head, stash_marker_path,
+    has_head, is_cherry_picking, is_merging, is_rebasing, is_reverting, legacy_stash_marker_path, paths_in_head, stash_marker_path,
     status_lists,
 )
 from ..i18n import tr, UserError
@@ -17,19 +17,21 @@ _STEP = 200  # コマンドラインが長くなりすぎないよう、ファ�
 
 
 def write_stash_marker(commit, action):
-    """stash の適用が競合したことを .git に残す (WIP に「中断」を出し、中断で適用前の状態に戻すために使う)。"""
+    """stash の適用が競合したことを、アプリの一時ディレクトリに残す (WIP に「中断」を出し、中断で適用前の状態に戻すために使う。.git には書かない)。"""
     try:
-        with open(stash_marker_path(), "w", encoding="utf-8") as f:
+        with open(stash_marker_path(create=True), "w", encoding="utf-8") as f:
             json.dump({"stash": commit, "action": action}, f)
     except OSError:
         pass  # 目印が書けなくても、競合の解決はできる
 
 
 def clear_stash_marker():
-    try:
-        os.remove(stash_marker_path())
-    except OSError:
-        pass
+    for path in (stash_marker_path(), legacy_stash_marker_path()):  # 以前の版が .git に残したものも片付ける
+        if path:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
 
 
 def _operation_in_progress():
