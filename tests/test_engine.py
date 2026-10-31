@@ -793,6 +793,96 @@ class EngineOperationTests(EngineTests):
                          ("topic", base, target, False, 1))
         self.assertEqual(self.git("rev-parse", "mid^{commit}").strip(), self.git("rev-parse", "HEAD~1").strip())
 
+    def test_rebase_range_ignores_untracked_files_that_nothing_will_overwrite(self):
+        from git_graph.engine import rebase
+        base, first, second, target = self.topic_on_old_base()
+        self.write("scratch.txt", "unrelated\n")  # 付け替えで作られるどのパスとも重ならない管理外ファイル
+        os.makedirs(os.path.join(self.repo, "notes"))
+        self.write("notes/todo.txt", "unrelated too\n")
+
+        result = rebase.rebase_range(base, target)
+
+        self.assertNotIn("blocked", result)
+        self.assertEqual(self.git("rev-parse", "HEAD~2").strip(), target)
+        self.assertEqual(self.read("scratch.txt"), "unrelated\n")  # 管理外ファイルはそのまま
+        self.assertEqual(self.read("notes/todo.txt"), "unrelated too\n")
+
+    def test_rebase_range_blocks_only_on_untracked_files_it_would_overwrite(self):
+        from git_graph.engine import rebase
+        base, first, second, target = self.topic_on_old_base()
+        self.write("scratch.txt", "unrelated\n")
+        self.write("target.txt", "mine\n")  # B (target) が追加するファイルと同名
+
+        blocked = rebase.rebase_range(base, target)
+
+        self.assertTrue(blocked["blocked"])
+        self.assertEqual(blocked["untracked"], ["target.txt"])  # scratch.txt は含まれない
+        self.assertEqual(self.git("rev-parse", "HEAD").strip(), second)  # まだ何も変わっていない
+
+        done = rebase.rebase_range(base, target, on_conflict="discard")  # 止めているファイルだけ破棄して進む
+
+        self.assertNotIn("blocked", done)
+        self.assertEqual(self.read("target.txt"), "target\n")  # B の内容になった (管理外の同名ファイルは破棄された)
+        self.assertEqual(self.read("scratch.txt"), "unrelated\n")  # 関係ないファイルは残る
+        self.assertEqual(self.git("rev-parse", "HEAD~2").strip(), target)
+
+    def test_rebase_descendants_ignores_unrelated_untracked_files_but_blocks_on_overwritten_ones(self):
+        from git_graph.engine import rebase
+        base, first, second, target = self.topic_on_old_base()
+        self.write("scratch.txt", "unrelated\n")
+        self.write("target.txt", "mine\n")
+        blocked = rebase.rebase_descendants(base, target)
+        self.assertEqual(blocked["untracked"], ["target.txt"])
+        os.remove(os.path.join(self.repo, "target.txt"))
+
+        moved = rebase.rebase_descendants(base, target)
+
+        self.assertNotIn("blocked", moved)
+        self.assertEqual(self.read("scratch.txt"), "unrelated\n")
+
+    def test_rebase_descendants_blocks_on_files_added_by_other_branches_too(self):
+        from git_graph.engine import rebase
+        base, first, second, target = self.topic_on_old_base()  # HEAD は topic
+        self.git("checkout", "-q", "-b", "side", base)
+        self.commit_file("side.txt", "side\n", "side adds a file")
+        self.git("checkout", "-q", "topic")  # side.txt は topic では管理外 (side ブランチだけが持つ)
+        self.write("side.txt", "mine\n")
+        self.write("scratch.txt", "unrelated\n")
+
+        blocked = rebase.rebase_descendants(base, target)
+
+        self.assertEqual(blocked["untracked"], ["side.txt"])  # HEAD 以外のブランチが追加するファイルとの衝突も拾う
+        done = rebase.rebase_descendants(base, target, on_conflict="discard")
+
+        self.assertNotIn("blocked", done)
+        self.assertEqual(done["branches"], 2)
+        self.assertEqual(self.read("scratch.txt"), "unrelated\n")
+        self.assertEqual(self.git("rev-parse", "side~1").strip(), target)
+
+    def test_rebase_range_still_blocks_on_edited_tracked_files(self):
+        from git_graph.engine import rebase
+        base, first, second, target = self.topic_on_old_base()
+        self.write("t1.txt", "edited\n")
+
+        blocked = rebase.rebase_range(base, target)
+
+        self.assertEqual(blocked["modified"], ["t1.txt"])
+
+    def test_untracked_file_in_the_way_of_a_directory_is_detected(self):
+        from git_graph.engine import rebase
+        base = self.head
+        self.git("checkout", "-q", "-b", "topic")
+        self.commit_file("t1.txt", "one\n", "topic one")
+        self.git("checkout", "-q", "main")
+        os.makedirs(os.path.join(self.repo, "lib"))
+        target = self.commit_file("lib/mod.txt", "target\n", "target adds lib/")
+        self.git("checkout", "-q", "topic")
+        self.write("lib", "a file where B has a directory\n")  # 管理外のファイル lib と、B のディレクトリ lib/ が衝突する
+
+        blocked = rebase.rebase_range(base, target)
+
+        self.assertEqual(blocked["untracked"], ["lib"])
+
     def test_rebase_conflict_is_aborted_and_reported_as_an_error(self):
         from git_graph.engine import rebase
         self.git("checkout", "-q", "-b", "topic")

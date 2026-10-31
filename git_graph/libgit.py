@@ -231,6 +231,16 @@ def read_head():
     return str(target), ""  # 切り離し
 
 
+def tree_entry_kind(treeish, path):
+    """treeish のツリーにある path の種類: "tree" / "blob" / None (無い)。"""
+    r = repo()
+    try:
+        obj = peel_commit(r.revparse_single(treeish)).tree[path]
+    except (KeyError, ValueError, AttributeError, pygit2.GitError):
+        return None
+    return "tree" if isinstance(obj, pygit2.Tree) else "blob"
+
+
 def refs_key():
     """ref の変化検出用の文字列。peel せず ref の直接の指し先だけを見る (タグが多くても軽い)。"""
     r = repo()
@@ -928,7 +938,7 @@ __all__ = [
     "EMPTY_TREE", "available", "blob_at", "commit_message", "commit_parents", "commit_subjects",
     "git_dir_path", "head_commit_and_branch", "list_ref_infos", "list_stashes", "merge_base",
     "path_in_tree", "peel_commit", "repo", "require_pygit2", "reset_cache", "resolve_commit",
-    "rev_list_topo_parents", "is_plain_rev", "refs_key", "config_get", "upstream_of_head", "remotes_list", "refs_snapshot",
+    "rev_list_topo_parents", "is_plain_rev", "tree_entry_kind", "refs_key", "config_get", "upstream_of_head", "remotes_list", "refs_snapshot",
     "has_conflicts", "index_contains", "paths_in_tree", "read_head", "stash_key", "status_lists",
     "diff_name_numstat_trees", "diff_index_workdir", "blame_lines",
     "unified_diff", "unified_diff_no_index",

@@ -120,6 +120,11 @@ def rebase_tag_only_tips(base, onto, tips):
     return {old: new for old, new in mapping.items() if old != base}
 
 
+def _replayed_revs(a):
+    """A より後のコミット (HEAD と、A を祖先に持つ全ブランチ・タグの先端まで) を選ぶ git log の引数。付け替えの対象になりうる範囲。"""
+    return ["--ancestry-path", f"^{a}", "HEAD", "--branches", "--tags"]
+
+
 @operation("rebase", touches_worktree=True, detail=lambda commit, *_, **__: commit)
 def rebase(commit, *, on_conflict=None):
     """現在のブランチを、選んだコミットの上にリベースする。競合したら自動で中止して元に戻す。
@@ -151,7 +156,7 @@ def rebase_range(a, b, *, on_conflict=None):
     a = resolve_commit(a)
     b = resolve_commit(b)
     branch = _current_branch()
-    blocked, stashed = resolve_dirty_worktree(on_conflict)
+    blocked, stashed = resolve_dirty_worktree(on_conflict, onto=b, revs=_replayed_revs(a))
     if blocked:
         return blocked
     before = git("rev-parse", "HEAD").strip()
@@ -202,7 +207,7 @@ def rebase_descendants(a, b, *, on_conflict=None):
     a = resolve_commit(a)
     b = resolve_commit(b)
     branch = _current_branch()
-    blocked, stashed = resolve_dirty_worktree(on_conflict)
+    blocked, stashed = resolve_dirty_worktree(on_conflict, onto=b, revs=_replayed_revs(a))
     if blocked:
         return blocked
     if a == b:
@@ -339,7 +344,7 @@ def rebase_equivalent(a, b, *, on_conflict=None):
     a = resolve_commit(a)
     b = resolve_commit(b)
     branch = _current_branch()
-    blocked, stashed = resolve_dirty_worktree(on_conflict)
+    blocked, stashed = resolve_dirty_worktree(on_conflict, onto=b, revs=[f"^{b}", a])  # B 側に無い A のコミットが付け替え対象
     if blocked:
         return blocked
     nothing = {"from": a, "to": b, "noop": True, "stashed": stashed, "moved_tags": 0}

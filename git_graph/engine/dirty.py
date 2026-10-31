@@ -119,12 +119,55 @@ def dirty_worktree_blockers():
     untracked = [p for p in r.stdout.split("\0") if p] if r.returncode == 0 else []
     return {"modified": dirty_tracked_files(), "untracked": untracked}
 
-def resolve_dirty_worktree(mode):
+def _entry_kind(treeish, path):
+    from .. import libgit
+    if libgit.available():
+        return libgit.tree_entry_kind(treeish, path)
+    r = git_c_locale("cat-file", "-t", f"{treeish}:{path}")
+    return r.stdout.strip() if r.returncode == 0 else None
+
+
+def untracked_overwritten_by(untracked, onto, revs):
+    """untracked (同名の管理外ファイル) のうち、onto へのチェックアウトや revs のコミットの付け替えで上書きされるものだけを返す。
+    関係のない管理外ファイルまで止めないための絞り込み。見落とさないよう広めに判定する (チェックアウト・コミットの再適用で
+    作られうるパス = onto のツリー + revs のコミットが変更したパス。ファイルとディレクトリの入れ替わりも含む)。"""
+    if not untracked:
+        return []
+    r = git_c_locale("log", "--name-only", "--format=", "--no-renames", "-z", *revs, "--")
+    touched = {p for p in r.stdout.split("\0") if p} if r.returncode == 0 else None
+    if touched is None:  # 調べられないときは、全部を対象にして安全側に倒す
+        return list(untracked)
+    touched_dirs = set()  # 変更されたパスの祖先ディレクトリ (管理外ファイルがディレクトリに置き換わる場合)
+    for p in touched:
+        parts = p.split("/")
+        touched_dirs.update("/".join(parts[:i]) for i in range(1, len(parts)))
+    hits = []
+    for p in untracked:
+        parts = p.split("/")
+        ancestors = ["/".join(parts[:i]) for i in range(1, len(parts))]
+        if p in touched or p in touched_dirs or any(a in touched for a in ancestors):
+            hits.append(p)
+            continue
+        if _entry_kind(onto, p) is not None or any(_entry_kind(onto, a) == "blob" for a in ancestors):
+            hits.append(p)
+    return hits
+
+
+def resolve_dirty_worktree(mode, onto=None, revs=None):
     """作業ツリーがきれいである必要がある操作向け。汚れていれば checkout と同じ blocked / stash / discard で扱う。
+    onto / revs (付け替え先と、付け替えるコミットを選ぶ git log の引数) を渡すと、管理外ファイルは実際に上書きされるものだけを止める
+    (編集中の追跡ファイルは、rebase が始められないので常に止める)。
     戻り値は (blocked, stash の名前)。blocked は {blocked, modified, untracked} (mode が None のときだけ)。"""
     if mode not in (None, "stash", "discard"):
         raise UserError("on_conflict_invalid")
-    blockers = dirty_worktree_blockers()
+
+    def current():
+        found = dirty_worktree_blockers()
+        if onto is not None:
+            found["untracked"] = untracked_overwritten_by(found["untracked"], onto, revs or [])
+        return found
+
+    blockers = current()
     if not (blockers["modified"] or blockers["untracked"]):
         return None, None
     if mode is None:
@@ -132,7 +175,7 @@ def resolve_dirty_worktree(mode):
     if mode == "stash":
         return None, stash_all_changes()
     discard_blockers(blockers)
-    leftover = dirty_worktree_blockers()
+    leftover = current()
     if leftover["modified"] or leftover["untracked"]:
         raise ValueError(tr("op_still_blocked"))
     return None, None
