@@ -654,6 +654,20 @@ class WorkingTreeFilesTests(unittest.TestCase):
         self.assertIn("path=src&amp;file=src%2Fapp.py&amp;view=edit", page)
         self.assertNotIn("view=edit", viewer.render_diff_page({"path": ["gone.txt"], "wip": ["unstaged"]}))  # 作業ツリーに無いファイルは編集できない
         self.assertNotIn("view=edit", viewer.render_diff_page({"hash": [self.head], "path": ["README.md"]}))
+
+    def test_wip_diff_pages_have_a_reload_button_and_commit_diff_pages_do_not(self):
+        previous = (state.WRITABLE, state.WIP_ENABLED)
+        self.addCleanup(setattr, state, "WRITABLE", previous[0])
+        self.addCleanup(setattr, state, "WIP_ENABLED", previous[1])
+        state.WRITABLE = state.WIP_ENABLED = True
+        button = '<button type="button" class="iconbtn" id="rld"'
+        wip = viewer.render_diff_page({"path": ["README.md"], "wip": ["unstaged"]})
+        self.assertIn(button, wip)
+        self.assertIn("git-graph-diff-scroll", wip)  # スクロール位置を戻すスクリプトも入っている
+        self.assertIn(button, viewer.render_diff_page({"from": [self.head], "wip": ["compare"], "path": ["README.md"]}))
+        commit_page = viewer.render_diff_page({"hash": [self.head], "path": ["README.md"]})
+        self.assertNotIn(button, commit_page)
+        self.assertNotIn("git-graph-diff-scroll", commit_page)
         state.WRITABLE = False
         self.assertNotIn("view=edit", viewer.render_diff_page({"path": ["README.md"], "wip": ["unstaged"]}))
 

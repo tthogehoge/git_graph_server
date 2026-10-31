@@ -81,7 +81,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.test_git_graph_server.InputV
 | `git_graph/locales/ja.json`、`git_graph/locales/en.json` | 日本語・英語の翻訳辞書。 |
 | `git_graph/static/index.html` | メイン画面の HTML 骨格。 |
 | `git_graph/static/files.html` | ファイル表示ページ(`/files`)の HTML。`i18n.py` が読み込みます。 |
-| `git_graph/static/diff.css`、`files.css`、`copy.js`、`diff_fold.js`、`wip_diff_commit.js` | `/diff` ページと `/files` ページで使う CSS / JavaScript。`pages.py` が読み込みます。 |
+| `git_graph/static/diff.css`、`files.css`、`copy.js`、`diff_fold.js`、`diff_reload.js`、`wip_diff_commit.js` | `/diff` ページと `/files` ページで使う CSS / JavaScript。`pages.py` が読み込みます。 |
 | `git_graph/static/js/*.js` | ブラウザー側の動作。番号順に連結され、1つの `/static/app.js` として配られます(`01_core` 共通部、`02_log` ログ、`03_detail` 詳細、`04_graph_compare` グラフ更新と比較、`05_actions` メニューと操作、`06_git_ops` rebase / revert / merge など、`07_screens` 画面遷移と初期化、`08_wip` WIP、`09_boot` 起動)。翻訳辞書は起動時に埋め込まれます。 |
 | `git_graph/static/app.css` | メイン画面と各ビューのスタイル。 |
 | `tests/test_git_graph_server.py` | 単体テスト、API 統合テスト、HTTP/書き込み操作のテスト。 |

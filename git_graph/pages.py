@@ -26,11 +26,14 @@ def wip_file_exists(path):
 COPY_JS = read_asset("copy.js")
 DIFF_CSS = read_asset("diff.css")
 DIFF_FOLD_JS = read_asset("diff_fold.js")
+DIFF_RELOAD_JS = read_asset("diff_reload.js")
 WIP_DIFF_COMMIT_JS = read_asset("wip_diff_commit.js")
 FILES_CSS = read_asset("files.css")
 # ヘッダーのアイコンボタン (トップへ戻る / 戻る)。files.html と index.html にも同じ絵を直接書いてある
 NAV_TOP_LINK = ('<a class="iconbtn" href="/" title="{label}" aria-label="{label}">'
                 '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M2 8 8 2.5 14 8M3.8 7v6.5h3V10h2.4v3.5h3V7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></a>')
+NAV_RELOAD_BUTTON = ('<button type="button" class="iconbtn" id="rld" title="{label}" aria-label="{label}">'
+                     '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M13.5 8a5.5 5.5 0 1 1-1.7-4M13 2.5v3.2h-3.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>')
 NAV_BACK_BUTTON = ('<button type="button" class="iconbtn" onclick="history.back()" title="{label}" aria-label="{label}">'
                    '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M13 8H3M7.5 3.5 3 8l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>')
 EXT_DIFF_JS = read_asset("ext_diff.js")
@@ -297,7 +300,7 @@ def render_diff_page(q):
 {FAVICON_LINK}
 <style>{DIFF_CSS}</style></head><body>
 <div id="side">
-  <div class="navbar">{NAV_TOP_LINK.format(label=html.escape(tr("back_top"), quote=True))}{NAV_BACK_BUTTON.format(label=html.escape(tr("back_prev"), quote=True))}</div>
+  <div class="navbar">{NAV_TOP_LINK.format(label=html.escape(tr("back_top"), quote=True))}{NAV_BACK_BUTTON.format(label=html.escape(tr("back_prev"), quote=True))}{NAV_RELOAD_BUTTON.format(label=html.escape(tr("reload_page"), quote=True)) if wip else ""}</div>
   <div class="meta">{len(files)} {tr("files_changed")}</div>
   {commit_box}
   {"".join(side)}
@@ -317,6 +320,7 @@ def render_diff_page(q):
 <script>{commit_js}</script>
 <script>{EXT_DIFF_JS if ext_diff else ""}</script>
 <script>{DIFF_PATCH_JS if patch_btn else ""}</script>
+<script>{DIFF_RELOAD_JS if wip else ""}</script>
 </body></html>
 """
 
