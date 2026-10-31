@@ -1007,6 +1007,58 @@ class EngineOperationTests(EngineTests):
         with self.assertRaises(UserError):
             integrate.abort_operation()  # もう中断するものはない
 
+    def test_redo_of_a_conflicting_stash_apply_brings_back_the_conflict_state(self):
+        from git_graph.engine import integrate, worktree
+        from git_graph.gitstate import stash_conflict_state
+        stash = self.conflicting_stash()
+        with self.assertRaises(ValueError):
+            worktree.stash_apply(stash, "apply")
+        conflicted = self.git("ls-files", "-u")
+        self.assertIn("tracked.txt", conflicted)
+
+        self.assertTrue(self.undo()["ok"])
+        self.assertEqual(self.git("status", "--porcelain").strip(), "")  # 適用前に戻った
+        self.assertEqual(self.read("tracked.txt"), "head side edit\n")
+
+        self.assertTrue(self.redo()["ok"])
+
+        self.assertEqual(self.git("ls-files", "-u"), conflicted)  # 競合の状態 (base / ours / theirs) が同じに戻る
+        self.assertEqual(self.git("status", "--porcelain").strip(), "UU tracked.txt")  # M ではなく競合
+        self.assertIn("<<<<<<<", self.read("tracked.txt"))
+        self.assertEqual(stash_conflict_state()["stash"], stash)  # WIP の「中断」も使える
+        integrate.abort_operation()
+        self.assertEqual(self.git("status", "--porcelain").strip(), "")
+
+    def test_undo_redo_cycle_of_a_conflicting_stash_apply_is_stable(self):
+        from git_graph.engine import worktree
+        stash = self.conflicting_stash()
+        with self.assertRaises(ValueError):
+            worktree.stash_apply(stash, "apply")
+        conflicted = self.git("ls-files", "-u")
+        for _ in range(2):
+            self.assertTrue(self.undo()["ok"])
+            self.assertEqual(self.git("ls-files", "-u"), "")  # 元に戻すと競合の印も消える
+            self.assertTrue(self.redo()["ok"])
+            self.assertEqual(self.git("ls-files", "-u"), conflicted)
+
+    def test_redo_restores_a_modify_delete_conflict_too(self):
+        from git_graph.engine import worktree
+        self.write("tracked.txt", "stashed edit\n")
+        self.git("stash", "push", "-q")
+        self.git("rm", "-q", "tracked.txt")
+        self.git("commit", "-q", "-m", "delete tracked.txt")  # HEAD 側は削除、stash 側は変更
+        stash = self.git("rev-parse", "stash@{0}").strip()
+        with self.assertRaises(ValueError):
+            worktree.stash_apply(stash, "apply")
+        status = self.git("status", "--porcelain").strip()
+        self.assertTrue(status.startswith("UD") or status.startswith("DU"), status)
+
+        self.undo()
+        self.assertEqual(self.git("status", "--porcelain").strip(), "")
+        self.redo()
+
+        self.assertEqual(self.git("status", "--porcelain").strip(), status)
+
     def test_abort_stash_conflict_removes_files_the_stash_added(self):
         from git_graph.engine import integrate, worktree
         stash = self.conflicting_stash(with_new_file=True)

@@ -130,6 +130,23 @@ def _untracked_names():
     return names
 
 
+def _unmerged_entries():
+    """index の未解決の競合 [[mode, oid, stage, path], ...]。競合が無ければ []。数件のパスの記録だけなので小さい。"""
+    from .. import libgit
+    if libgit.available():
+        try:
+            return libgit.unmerged_entries()
+        except Exception:
+            pass
+    out = []
+    for rec in _run(["ls-files", "-u", "-z"], check=False).stdout.split(b"\0"):
+        meta, _, path = rec.partition(b"\t")
+        if path:
+            mode, oid, stage = meta.decode().split()
+            out.append([mode, oid, int(stage), os.fsdecode(path)])
+    return out
+
+
 def _worktree_snapshot(names=False):
     """作業ツリー上の追跡ファイルの内容を木 (tree) にして退避する。gc されないよう、記録するときに ref で守る。
     names が真なら管理外ファイルの名前も記録する (偽なら「管理外ファイルは追跡対象にならない」とみなして空)。
@@ -144,7 +161,7 @@ def _worktree_snapshot(names=False):
             _run(["read-tree", "--empty"], env=env)
         incomplete = _run(["add", "-u"], env=env, check=False).returncode != 0
         tree = _text(["write-tree"], env=env).strip()
-        return {"tree": tree, "untracked": _untracked_names() if names else [],
+        return {"tree": tree, "untracked": _untracked_names() if names else [], "unmerged": _unmerged_entries(),
                 "problem": "snapshot_incomplete" if incomplete else None}
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -188,8 +205,12 @@ def _slim_worktree(bw, aw):
 
     def protect(untracked, paths):
         return None if untracked is None else sorted(paths & set(untracked))
-    return [{"tree": bw["tree"], "protect": protect(bw["untracked"], added)},
-            {"tree": aw["tree"], "protect": protect(aw["untracked"], removed)}]
+    sides = [{"tree": bw["tree"], "protect": protect(bw["untracked"], added)},
+             {"tree": aw["tree"], "protect": protect(aw["untracked"], removed)}]
+    for side, snap in zip(sides, (bw, aw)):
+        if snap.get("unmerged"):  # stash の適用が競合した状態など。元に戻す / やり直すときに、競合のまま戻すための記録
+            side["unmerged"] = snap["unmerged"]
+    return sides
 
 
 def _make_entry(before, after, meta):
@@ -396,6 +417,17 @@ def _restore_worktree(target):
             shutil.rmtree(tmp, ignore_errors=True)
 
 
+def _restore_unmerged(items):
+    """退避時に index が競合 (未マージ) だったパスを、競合のまま index に戻す。ファイルの中身 (競合マーカー入り) は
+    _restore_worktree で戻してあるので、ここでは index の base / ours / theirs だけを復元する (ステージ状態は戻さない)。"""
+    if not items:
+        return
+    zero = "0" * len(items[0][1])
+    lines = [f"0 {zero} 0\t{path}" for path in dict.fromkeys(item[3] for item in items)]  # 先に消してから、段階ごとに入れ直す
+    lines += [f"{mode} {oid} {stage}\t{path}" for mode, oid, stage, path in items]
+    _run(["update-index", "-z", "--index-info"], input="\0".join(lines).encode("utf-8", errors="surrogateescape") + b"\0", check=False)
+
+
 def _stash_untracked(entry):
     """stash push で stash の第3親 (管理外ファイル) に入った {パス: blob} を、push で増えた stash ごとに集める。"""
     before = {sha for sha, _ in entry["stash"][0]}
@@ -471,6 +503,7 @@ def _apply(entry, t, cur):
         _restore_worktree(entry["wt"][t])
         if _run(["reset", "-q"], check=False).returncode != 0:  # index は HEAD に合わせる (ステージ状態は戻さない)
             _run(["read-tree", "--empty"], check=False)
+        _restore_unmerged(entry["wt"][t].get("unmerged"))
 
 
 def _move(direction, force):

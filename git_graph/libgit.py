@@ -174,6 +174,21 @@ def has_conflicts():
     return conflicts is not None and any(True for _ in conflicts)
 
 
+def unmerged_entries():
+    """index の未解決の競合 [[mode, oid, stage, path], ...] (git ls-files -u と同じ内容)。無ければ []。"""
+    idx = repo().index
+    try:
+        idx.read()
+    except pygit2.GitError:
+        pass
+    out = []
+    for ancestor, ours, theirs in idx.conflicts or []:
+        for stage, entry in ((1, ancestor), (2, ours), (3, theirs)):
+            if entry is not None:
+                out.append([f"{entry.mode:06o}", str(entry.id), stage, entry.path])
+    return out
+
+
 def index_contains(paths):
     """paths のうち index にあるもの (git ls-files 相当)。"""
     idx = repo().index
@@ -939,7 +954,7 @@ __all__ = [
     "git_dir_path", "head_commit_and_branch", "list_ref_infos", "list_stashes", "merge_base",
     "path_in_tree", "peel_commit", "repo", "require_pygit2", "reset_cache", "resolve_commit",
     "rev_list_topo_parents", "is_plain_rev", "tree_entry_kind", "refs_key", "config_get", "upstream_of_head", "remotes_list", "refs_snapshot",
-    "has_conflicts", "index_contains", "paths_in_tree", "read_head", "stash_key", "status_lists",
+    "has_conflicts", "unmerged_entries", "index_contains", "paths_in_tree", "read_head", "stash_key", "status_lists",
     "diff_name_numstat_trees", "diff_index_workdir", "blame_lines",
     "unified_diff", "unified_diff_no_index",
     "is_ancestor", "first_parent_chain", "first_parent_path_from_base",
