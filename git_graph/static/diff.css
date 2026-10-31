@@ -28,7 +28,7 @@
   .copy { cursor: pointer; font-size: 12px; margin-left: 6px; user-select: none; text-decoration: none; border-radius: 3px; padding: 0 2px; }
   .copy:hover { background: #e4e4e4; }
   .tag { display: inline-block; padding: 0 6px; border-radius: 3px; margin-right: 4px; font-weight: bold; color: #fff; }
-  .tagA { background: #06c; } .tagB { background: #e67e00; }
+  .tagA { background: #06c; } .tagB { background: #218b8f; }
   .diff { font-family: monospace; font-size: 12px; white-space: pre; margin-top: 12px; border: 1px solid #ddd; }
   .dl { padding: 0 6px; min-width: max-content; }
   .dl.ad { background: #e6ffec; } .dl.de { background: #ffebe9; }
