@@ -59,9 +59,9 @@ html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-s
   .menu-section { display: flex; flex-direction: column; gap: 4px; }
   .menu-separator { border: 0; border-top: 1px solid #ccc; width: 100%; margin: 0; }
   #compareControls .cmp-hash { font-family: monospace; white-space: nowrap; }
-  #compareControls #actionTarget { color: #e8590c; }
+  #compareControls #actionTarget { color: #d22; }
   #compareControls #cmpA { color: #06c; }
-  #compareControls #cmpB { color: #1a7f37; }
+  #compareControls #cmpB { color: #e8590c; }
   #splitter { flex: 0 0 6px; cursor: col-resize; background: #eee; border-left: 1px solid #ccc; border-right: 1px solid #ccc; box-sizing: border-box; touch-action: none; }
   #splitter:hover, body.resizing #splitter { background: #c8d8f0; }
   body.resizing { cursor: col-resize; user-select: none; }
@@ -78,7 +78,7 @@ html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-s
   .chip .ref-delete { border: 0; background: transparent; color: #555; cursor: pointer; font: inherit; font-weight: normal; line-height: inherit; margin-left: 4px; padding: 0 2px; }
   .ref-delete:hover { color: #cf222e; }
   .tag { display: inline-block; padding: 0 6px; border-radius: 3px; margin-right: 4px; font-weight: bold; color: #fff; }
-  .tagA { background: #06c; } .tagB { background: #1a7f37; }
+  .tagA { background: #06c; } .tagB { background: #e8590c; }
   .meta { color: #555; margin: 2px 0; }
   .hint { color: #777; }
   .copy { cursor: pointer; font-size: 12px; margin-left: 6px; user-select: none; text-decoration: none; border-radius: 3px; padding: 0 2px; }
@@ -140,19 +140,21 @@ html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-s
   table.log tr.cur td { background: #ffebe9; }
   table.log tr.oph-undone td { opacity: .5; }
   table.log tr.clickable.cmpA td { background: #cfe3ff; }
-  table.log tr.clickable.cmpB td { background: #d9f2df; }
+  table.log tr.clickable.cmpB td { background: #ffedd5; }
   table.log tr.clickable.cur.cmpA td { background: #cfe3ff; }
-  table.log tr.clickable.cur.cmpB td { background: #d9f2df; }
+  table.log tr.clickable.cur.cmpB td { background: #ffedd5; }
   table.log tr.cmpA td { box-shadow: inset 0 2px #06c, inset 0 -2px #06c; }
-  table.log tr.cmpB td { box-shadow: inset 0 2px #1a7f37, inset 0 -2px #1a7f37; }
+  table.log tr.cmpB td { box-shadow: inset 0 2px #e8590c, inset 0 -2px #e8590c; }
   table.log td.graph { position: relative; padding: 0; }
   table.log td.graph svg { position: absolute; top: 0; left: 0; height: calc(100% + 1px); overflow: visible; }
   table.log td.graph line { stroke-width: 2; stroke-linecap: round; }
   table.log td.graph line.sel-line { opacity: .8; }
   table.log td.graph circle { stroke-width: 2; }
   table.log td.h { width: 1%; font-family: monospace; white-space: nowrap; color: #b60; }
-  table.log tr.actionTarget td { box-shadow: inset 0 2px #e8590c, inset 0 -2px #e8590c; }
-  g.node.actionTarget polygon { stroke: #e8590c; stroke-width: 3; }
+  table.log tr.actionTarget td { box-shadow: inset 0 2px #d22, inset 0 -2px #d22; }
+  table.log tr.actionTarget.cmpA td { box-shadow: inset 0 2px #06c, inset 0 -2px #06c; }
+  table.log tr.actionTarget.cmpB td { box-shadow: inset 0 2px #e8590c, inset 0 -2px #e8590c; }
+  g.node.actionTarget polygon { stroke: #d22; stroke-width: 3; }
   table.log .meta { font-size: 12px; color: #888; margin: 0; }
   /* 幅が広いときは、件名と作者/日付を1行に並べる (比較ログは各列の幅で判定する) */
   #listView, .compare-log-col { container: loglist / inline-size; }
@@ -200,35 +202,35 @@ html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-s
   g.node:hover ellipse { fill: #e88; stroke: #e88; }
   g.node.cluster-node { cursor: pointer; }
   /* ログで選んだ (ノードでない) コミットが省略されている線 */
-  g.edge.locate path { stroke: #e8590c; stroke-width: 3.5; }
-  g.edge.locate polygon { stroke: #e8590c; fill: #e8590c; }
-  g.locate-mark circle { fill: #e8590c; stroke: #fff; stroke-width: 1.5; animation: locatePulse 1s ease-in-out 3; }
-  g.locate-mark text { font: 11px sans-serif; fill: #c2410c; text-anchor: start; paint-order: stroke; stroke: #fff; stroke-width: 3px; }
+  g.edge.locate path { stroke: #d22; stroke-width: 3.5; }
+  g.edge.locate polygon { stroke: #d22; fill: #d22; }
+  g.locate-mark circle { fill: #d22; stroke: #fff; stroke-width: 1.5; animation: locatePulse 1s ease-in-out 3; }
+  g.locate-mark text { font: 11px sans-serif; fill: #d22; text-anchor: start; paint-order: stroke; stroke: #fff; stroke-width: 3px; }
   @keyframes locatePulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
   /* 高亮ノード（省略されたエッジの代替ノード） */
-  g.node.locate polygon { stroke: #e8590c; stroke-width: 3.5; fill: #fff; }
-  g.node.locate ellipse { stroke: #e8590c; stroke-width: 3.5; fill: #fff; }
-  g.node.locate text { fill: #e8590c; }
+  g.node.locate polygon { stroke: #d22; stroke-width: 3.5; fill: #fff; }
+  g.node.locate ellipse { stroke: #d22; stroke-width: 3.5; fill: #fff; }
+  g.node.locate text { fill: #d22; }
   g.edge.locate-cmpA path { stroke: #06c; stroke-width: 3.5; }
   g.edge.locate-cmpA polygon { stroke: #06c; fill: #06c; }
   g.node.locate-cmpA polygon, g.node.locate-cmpA ellipse { stroke: #06c; stroke-width: 3.5; fill: #fff; }
   g.cluster.locate-cmpA polygon { stroke: #06c; stroke-width: 3.5; }
   g.node.locate-cmpA text, g.locate-mark.locate-cmpA text { fill: #06c; }
   g.locate-mark.locate-cmpA circle { fill: #06c; }
-  g.edge.locate-cmpB path { stroke: #1a7f37; stroke-width: 3.5; }
-  g.edge.locate-cmpB polygon { stroke: #1a7f37; fill: #1a7f37; }
-  g.node.locate-cmpB polygon, g.node.locate-cmpB ellipse { stroke: #1a7f37; stroke-width: 3.5; fill: #fff; }
-  g.cluster.locate-cmpB polygon { stroke: #1a7f37; stroke-width: 3.5; }
-  g.node.locate-cmpB text, g.locate-mark.locate-cmpB text { fill: #1a7f37; }
-  g.locate-mark.locate-cmpB circle { fill: #1a7f37; }
+  g.edge.locate-cmpB path { stroke: #e8590c; stroke-width: 3.5; }
+  g.edge.locate-cmpB polygon { stroke: #e8590c; fill: #e8590c; }
+  g.node.locate-cmpB polygon, g.node.locate-cmpB ellipse { stroke: #e8590c; stroke-width: 3.5; fill: #fff; }
+  g.cluster.locate-cmpB polygon { stroke: #e8590c; stroke-width: 3.5; }
+  g.node.locate-cmpB text, g.locate-mark.locate-cmpB text { fill: #e8590c; }
+  g.locate-mark.locate-cmpB circle { fill: #e8590c; }
   g.node.cluster-node:hover polygon { fill: #dde8f4; }
-  g.node.actionTarget ellipse { fill: #e8590c; stroke: #e8590c; }
+  g.node.actionTarget ellipse { fill: #d22; stroke: #d22; }
   g.node.sel ellipse { fill: #d22; stroke: #d22; }
   g.node.sel polygon { stroke: #d22; stroke-width: 3; }
   g.node.cmpA ellipse { fill: #06c; stroke: #06c; }
-  g.node.cmpB ellipse { fill: #1a7f37; stroke: #1a7f37; }
+  g.node.cmpB ellipse { fill: #e8590c; stroke: #e8590c; }
   g.node.cmpA polygon { stroke: #06c; stroke-width: 3; }
-  g.node.cmpB polygon { stroke: #1a7f37; stroke-width: 3; }
+  g.node.cmpB polygon { stroke: #e8590c; stroke-width: 3; }
   g.edge.sel path { stroke: #d22; stroke-width: 2.5; } g.edge.sel polygon { stroke: #d22; fill: #d22; }
   g.edge path.hit { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke; }
   .back-btn, .sbtn { background: #ddd; border: none; padding: 4px 8px; border-radius: 3px; cursor: pointer; margin: 0 6px 8px 0; }

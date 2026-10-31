@@ -312,6 +312,7 @@ async function doMerge() {
 function selectCmpA(hash) {
   compareAHash = hash;
   if (compareBHash === hash) compareBHash = null;
+  clearSelectedNode();
   if (compareAHash && compareBHash) { abActOpen = true; cmpActOpen = false; abMenuHash = null; setOtherMenu(false); }
   updateCmpClasses();
   if (nodeEl[hash]) ensureGraphVisible(nodeEl[hash], true);
@@ -324,10 +325,18 @@ function selectCompareHash(slot, hash) {
 function selectCmpB(hash) {
   compareBHash = hash;
   if (compareAHash === hash) compareAHash = null;
+  clearSelectedNode();
   if (compareAHash && compareBHash) { abActOpen = true; cmpActOpen = false; abMenuHash = null; setOtherMenu(false); }
   updateCmpClasses();
   if (nodeEl[hash]) ensureGraphVisible(nodeEl[hash], true);
   saveUiState();
+}
+function clearSelectedNode() {
+  if (selected) {
+    selected.classList.remove("sel");
+    selected = null;
+    selectedKey = null;
+  }
 }
 
 // ---- 元に戻す / やり直し / 操作履歴 (engine.py) ----
