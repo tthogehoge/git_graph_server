@@ -1,7 +1,5 @@
 # リポジトリの状態を調べる低レベルの関数 (マージ中か、HEAD があるか、status / numstat の解析など)。
 # 他の機能モジュールから共通で使われる。gitrun / i18n より上、機能モジュール (rebase, refops, wip ...) より下の層。
-import hashlib
-import json
 import os
 import re
 import subprocess
@@ -379,38 +377,32 @@ def git_config(key):
                        capture_output=True, text=True, encoding="utf-8", errors="replace")
     return r.stdout.strip() if r.returncode == 0 else None
 
-STASH_MARKER = "git_graph_stash_apply"  # 以前の版が .git に作っていた目印のファイル名 (いまは一時ディレクトリを使う。古いものを消すためだけに残す)
+STASH_MARKER = "git_graph_stash_apply"  # 以前の版が .git に作っていた目印のファイル名 (いまはメモリ上だけで持つ。古いものを消すためだけに残す)
+
+_STASH_MARKERS = {}  # リポジトリのパス -> {"stash", "action"}。stash の apply / pop が競合したときの目印 (どの stash を適用したか)。メモリ上だけ
 
 
-def stash_marker_path(create=False):
-    """stash の apply / pop が競合したときの目印 (どの stash を適用したか) を置くファイル。.git は汚さず、アプリの一時ディレクトリに置く
-    (リポジトリごとにファイル名を分ける。アプリを終了すると消えるので、再起動後は「中断」は出ない。競合そのものは残る)。
-    create が偽で、一時ディレクトリがまだ無いときは None (読むだけで一時ディレクトリを作らない)。"""
-    from . import tmpdir
-    root = tmpdir.instance_dir() if create else tmpdir.existing_instance_dir()
-    if root is None:
-        return None
-    digest = hashlib.sha1(os.path.realpath(state.REPO).encode("utf-8", errors="surrogateescape")).hexdigest()[:16]
-    return os.path.join(root, f"stash_apply_{digest}.json")
+def set_stash_marker(commit, action):
+    """stash の適用が競合したことを覚えておく (WIP に「中断」を出し、中断で適用前の状態に戻すために使う)。
+    ファイルは作らない (.git も一時ディレクトリも汚さない)。アプリを終了すると消え、再起動後は「中断」は出ない (競合そのものは残る)。"""
+    _STASH_MARKERS[state.REPO] = {"stash": commit, "action": action}
 
 
-def legacy_stash_marker_path():
-    return git_path(STASH_MARKER)
+def clear_stash_marker():
+    _STASH_MARKERS.pop(state.REPO, None)
+    try:
+        os.remove(git_path(STASH_MARKER))  # 以前の版が .git に残したものも片付ける
+    except OSError:
+        pass
 
 
 def stash_conflict_state():
     """stash の apply / pop が競合したまま残っているときの {"stash": 適用した stash のコミット, "action"}。
     競合が解決済み (未解決の競合ファイルがない) なら None (目印が古いだけなので無視する)。"""
-    path = stash_marker_path()
-    if path is None:
+    marker = _STASH_MARKERS.get(state.REPO)
+    if not marker or not HASH_RE.fullmatch(str(marker.get("stash", ""))):
         return None
-    try:
-        with open(path, encoding="utf-8") as f:
-            marker = json.load(f)
-    except (OSError, ValueError):
-        return None
-    if not isinstance(marker, dict) or not HASH_RE.fullmatch(str(marker.get("stash", ""))):
-        return None
+    marker = dict(marker)
     from . import libgit
     if libgit.available():
         return marker if libgit.has_conflicts() else None
@@ -430,8 +422,8 @@ __all__ = [
     "refs_snapshot",
     "STASH_MARKER",
     "stash_conflict_state",
-    "legacy_stash_marker_path",
-    "stash_marker_path",
+    "set_stash_marker",
+    "clear_stash_marker",
     "upstream_of_head",
     "amend_base",
     "amend_head_changes",

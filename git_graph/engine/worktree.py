@@ -1,12 +1,10 @@
 # 作業ツリーと stash に対する git 操作 (stash の apply / pop / drop / push、変更の破棄、git rm)。
 # 引数を受け取って git を実行し、結果を dict で返す。HTTP の body も、画面に出す文言の組み立ても route 側の仕事。
-import json
-import os
 import subprocess
 from .. import app_state as state
 from ..gitrun import git, git_c_locale, resolve_commit, run_git_write
 from ..gitstate import (
-    has_head, is_cherry_picking, is_merging, is_rebasing, is_reverting, legacy_stash_marker_path, paths_in_head, stash_marker_path,
+    has_head, is_cherry_picking, is_merging, is_rebasing, is_reverting, paths_in_head, set_stash_marker, clear_stash_marker,
     status_lists,
 )
 from ..i18n import tr, UserError
@@ -17,21 +15,8 @@ _STEP = 200  # コマンドラインが長くなりすぎないよう、ファ�
 
 
 def write_stash_marker(commit, action):
-    """stash の適用が競合したことを、アプリの一時ディレクトリに残す (WIP に「中断」を出し、中断で適用前の状態に戻すために使う。.git には書かない)。"""
-    try:
-        with open(stash_marker_path(create=True), "w", encoding="utf-8") as f:
-            json.dump({"stash": commit, "action": action}, f)
-    except OSError:
-        pass  # 目印が書けなくても、競合の解決はできる
-
-
-def clear_stash_marker():
-    for path in (stash_marker_path(), legacy_stash_marker_path()):  # 以前の版が .git に残したものも片付ける
-        if path:
-            try:
-                os.remove(path)
-            except OSError:
-                pass
+    """stash の適用が競合したことを覚えておく (メモリ上だけ。gitstate.set_stash_marker)。"""
+    set_stash_marker(commit, action)
 
 
 def _operation_in_progress():

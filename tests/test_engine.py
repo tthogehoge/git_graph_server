@@ -1146,11 +1146,10 @@ class EngineOperationTests(EngineTests):
         with self.assertRaises(UserError):
             integrate.abort_operation()
 
-    def test_stash_conflict_marker_lives_in_the_temp_dir_not_in_dot_git(self):
-        from git_graph import tmpdir
+    def test_stash_conflict_marker_is_kept_in_memory_and_writes_no_file(self):
+        from git_graph import gitstate
         from git_graph.engine import integrate, worktree
-        from git_graph.gitstate import legacy_stash_marker_path, stash_marker_path
-        legacy = legacy_stash_marker_path()
+        legacy = gitstate.git_path(gitstate.STASH_MARKER)
         with open(legacy, "w", encoding="utf-8") as f:  # 以前の版が .git に残した目印
             f.write("{}")
         stash = self.conflicting_stash()
@@ -1158,26 +1157,24 @@ class EngineOperationTests(EngineTests):
         with self.assertRaises(ValueError):
             worktree.stash_apply(stash, "apply")
 
-        marker = stash_marker_path()
-        self.assertTrue(os.path.isfile(marker))
-        self.assertTrue(os.path.realpath(marker).startswith(os.path.realpath(tmpdir.instance_dir()) + os.sep))
-        self.assertFalse(os.path.exists(legacy))  # .git には作らず、古い版の目印も片付ける
-        self.assertEqual(self.git("status", "--porcelain", "--ignored").count("git_graph"), 0)
-
+        self.assertEqual(gitstate.stash_conflict_state(), {"stash": stash, "action": "apply"})
+        self.assertFalse(os.path.exists(legacy))  # 古い版の目印は片付く
+        self.assertFalse([n for n in os.listdir(os.path.join(self.repo, ".git")) if "git_graph" in n])  # .git に目印のファイルは作らない
         integrate.abort_operation()
+        self.assertIsNone(gitstate.stash_conflict_state())  # 中断すると目印も消える
 
-        self.assertFalse(os.path.exists(marker))  # 中断すると目印も消える
-
-    def test_reading_the_stash_marker_does_not_create_the_temp_dir(self):
-        from git_graph import tmpdir
-        from git_graph.gitstate import stash_conflict_state
-        saved = tmpdir._dir
-        tmpdir._dir = None
+    def test_stash_conflict_marker_is_per_repository_and_ignored_once_resolved(self):
+        from git_graph import gitstate
+        gitstate.set_stash_marker("a" * 40, "pop")
+        self.addCleanup(gitstate.clear_stash_marker)
+        self.assertIsNone(gitstate.stash_conflict_state())  # 未解決の競合が無ければ、古い目印として無視する
+        old = state.REPO
+        state.REPO = os.path.join(self.repo, "other-repo-path")
         try:
-            self.assertIsNone(stash_conflict_state())
-            self.assertIsNone(tmpdir._dir)  # 状態を調べるだけでは一時ディレクトリを作らない
+            self.assertIsNone(gitstate.stash_conflict_state())
+            self.assertNotIn(state.REPO, gitstate._STASH_MARKERS)  # 別のリポジトリの目印は見えない
         finally:
-            tmpdir._dir = saved
+            state.REPO = old
 
     def test_wip_status_reports_stash_conflict(self):
         from git_graph.engine import worktree
