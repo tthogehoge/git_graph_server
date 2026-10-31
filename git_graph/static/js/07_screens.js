@@ -63,7 +63,7 @@ listView.addEventListener("click", ev => {
     cmpActOpen = false; abActOpen = false; setOtherMenu(false);
     if (curRow) curRow.classList.remove("cur");
     curRow = tr; tr.classList.add("cur");
-    if (nodeEl[h]) select(nodeEl[h]);  // グラフにもあれば、そのノードを選択状態にする
+    syncGraphSelection(h);  // グラフにもあれば、そのノードを選択状態にする (無ければ、前の選択を残さない)
     updateCmpClasses();
     saveUiState();
     revealHash(h);
@@ -72,6 +72,7 @@ listView.addEventListener("click", ev => {
   if (ev.ctrlKey || ev.metaKey) return;  // 選択中のコミット自身への ctrl+クリックでは、何もしない (詳細を開かない)
   // 1 回目のクリックは選択だけ。選択済みのコミットをもう一度クリックしたらログ詳細を開く
   const already = tr.dataset.h === actionHash;
+  syncGraphSelection(tr.dataset.h);  // グラフで選んでいたノードの赤を残さない (赤が 2 か所にならないように)
   selectActionTarget(tr.dataset.h);
   if (curRow) curRow.classList.remove("cur");
   curRow = tr; tr.classList.add("cur");
@@ -88,9 +89,11 @@ listView.addEventListener("contextmenu", ev => {  // ログ一覧の右クリッ
   const h = tr.dataset.h;
   if (compareAHash && compareBHash && (h === compareAHash || h === compareBHash)) {  // A/B の行は AB操作メニュー (グラフのノードと同じ)
     cmpActOpen = false; abActOpen = true; setOtherMenu(false); abMenuHash = h;
+    syncGraphSelection(h);
     updateCmpClasses();
     positionMenuNearPointer(document.getElementById("abActions"), ev);
   } else {
+    syncGraphSelection(h);
     selectActionTarget(h);
     cmpActOpen = true; abActOpen = false; setOtherMenu(false);
     updateCmpClasses();
@@ -340,7 +343,7 @@ function endNodeDrag(ev, cancel) {
   else {  // ログの行に落としたときは、その行を選択状態にして、グラフにもあればそのノードも選択する (ctrl+クリックと同じ)
     if (curRow) curRow.classList.remove("cur");
     curRow = hit.el; hit.el.classList.add("cur");
-    if (nodeEl[hit.hash]) select(nodeEl[hit.hash]);
+    syncGraphSelection(hit.hash);
   }
   updateCmpClasses();
   saveUiState();
