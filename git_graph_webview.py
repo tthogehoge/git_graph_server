@@ -149,24 +149,32 @@ _GESTURE_NAV_JS = """
 
     const THRESHOLD = 50;   // ドラッグ判定の最小移動量 (px)
     let startX = null;
+    let startY = null;
     let didNavigate = false;
 
     document.addEventListener('mousedown', (e) => {
         if (e.button === 2) {
             startX = e.clientX;
+            startY = e.clientY;
             didNavigate = false;
         }
     }, true);
 
     document.addEventListener('mouseup', (e) => {
-        if (e.button === 2 && startX !== null) {
+        if (e.button === 2 && startX !== null && startY !== null) {
             const dx = e.clientX - startX;
-            if (Math.abs(dx) >= THRESHOLD) {
+            const dy = e.clientY - startY;
+            if (Math.max(Math.abs(dx), Math.abs(dy)) >= THRESHOLD) {
                 didNavigate = true;
-                if (dx < 0) history.back();
-                else        history.forward();
+                if (Math.abs(dx) > Math.abs(dy)) {
+                    if (dx < 0) history.back();
+                    else        history.forward();
+                } else {
+                    location.reload();
+                }
             }
             startX = null;
+            startY = null;
         }
     }, true);
 
