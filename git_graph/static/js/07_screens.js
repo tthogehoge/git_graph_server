@@ -254,7 +254,7 @@ document.getElementById("compareToolbar").addEventListener("click", ev => {  // 
   if (ev.target.closest(".dropdown .abtn:not([data-set-cmp])")) closeMenus();  // 無効なボタンはクリック自体が発火しない
 });
 document.addEventListener("click", ev => {  // メニューの外をクリックしたら閉じる
-  if (ev.target.closest(".menu-wrap") || ev.target.closest("svg g.node") || ev.target.closest("#panel")) return;  // 右ペインのクリックでは閉じない  // ノードのクリックは onNodeClick が扱う
+  if (ev.target.closest(".menu-wrap") || ev.target.closest("svg g.node, svg g.edge") || ev.target.closest("#panel")) return;  // 右ペインのクリックでは閉じない  // ノードのクリックは onNodeClick が、線のクリックはその click ハンドラが扱う (ここで何もないところ扱いにすると、選んだ直後に選択が解除されて線が赤くならない)
   if (ev.target.closest("#graph") && !ev.target.closest("button, a, input, select, label")) { closeMenusOrClearSelection(); return; }  // グラフの何もないところをクリック: メニューを閉じる。メニューが無ければ選択を解除する
   closeMenus();
 });
@@ -417,7 +417,7 @@ function init() {
     const path = g.querySelector("path");
     if (path) { const hit = path.cloneNode(); hit.setAttribute("class", "hit"); g.appendChild(hit); }
     g.addEventListener("click", () => {
-      clearCmp(); select(g);
+      clearCmp(); closeMenus(); select(g);  // 操作対象 / A / B を解除し、開いているメニューも閉じて、この線だけを選択 (赤) にする
       // 線の両端は含めない。マージの線はその親の側 (from..親)、それ以外は from..to^@ (to の親たち)
       const rev = e.via ? e.from + ".." + e.via : e.from + ".." + e.to + "^@";
       const range = e.via ? e.from.slice(0, 7) + ".." + e.via.slice(0, 7) : "^" + e.from.slice(0, 7) + " " + e.to.slice(0, 7) + "^@";
