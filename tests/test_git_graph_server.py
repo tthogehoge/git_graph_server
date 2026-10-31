@@ -532,6 +532,12 @@ class WorkingTreeFilesTests(unittest.TestCase):
         self.assertIn("作業ツリーの変更 (WIP)", page)
         self.assertNotIn('id="cbtn"', page)
 
+    def test_files_page_has_a_reload_button_that_is_shown_only_for_the_working_tree(self):
+        page = viewer.render_files_page()
+        self.assertIn('id="reloadBtn" hidden', page)  # 最初は隠しておき、WIP 表示のときだけスクリプトが出す
+        self.assertIn("reloadBtn.hidden = !isWip", page)
+        self.assertNotIn("{{", page)  # 翻訳キーの置き換え漏れがない
+
     def test_blame_marks_uncommitted_lines(self):
         lines = app.api_blame({"hash": ["WIP"], "path": ["README.md"]})["lines"]
         self.assertEqual(lines[0]["hash"], self.head)
