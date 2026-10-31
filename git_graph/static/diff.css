@@ -4,9 +4,11 @@
   #side { width: 320px; flex: none; overflow: auto; border-right: 1px solid #ccc; background: #fafafa; padding: 10px; box-sizing: border-box; }
   #side a { display: flex; justify-content: space-between; gap: 8px; padding: 3px 6px; color: #06c; text-decoration: none;
             font-family: monospace; font-size: 12px; border-radius: 3px; word-break: break-all; }
+  #side a > span:first-child { flex: 1; min-width: 0; }
   #side a:hover { background: #eef; }
   #side a.cur { background: #ffe9a0; color: #222; font-weight: bold; }
   #side .n { white-space: nowrap; }
+  #side .n .plus, #side .n .minus { display: none; }
   #side .grp { margin: 10px 0 2px; font-weight: bold; }
   #side .srow { display: flex; align-items: center; } #side .srow a { flex: 1; min-width: 0; }
   #side input[type=checkbox] { margin: 0 6px 0 0; cursor: pointer; }
