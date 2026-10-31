@@ -522,8 +522,6 @@
   "quit_modal_title": "git_graph_server を終了または再起動しますか？",
   "quit_modal_quit": "終了",
   "quit_modal_restart": "再起動",
-  "confirm_restart": "git_graph_server を再起動しますか？ページは自動でリロードされます。",
-  "confirm_quit": "再起動せず終了しますか？ このタブは操作できなくなります。",
   "server_restarting": "サーバーを再起動しています… ページは自動でリロードされます。",
   "server_stopped": "サーバーを終了しました。このタブを閉じてください。",
   "quit_failed": "終了できませんでした: {error}",

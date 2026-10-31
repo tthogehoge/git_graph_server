@@ -522,8 +522,6 @@
   "quit_modal_title": "Stop or restart git_graph_server?",
   "quit_modal_quit": "Stop server",
   "quit_modal_restart": "Restart server",
-  "confirm_restart": "Restart git_graph_server? The page will reload automatically.",
-  "confirm_quit": "Stop git_graph_server instead? This tab will no longer work.",
   "server_restarting": "Restarting the server… The page will reload automatically.",
   "server_stopped": "The server has stopped. Please close this tab.",
   "quit_failed": "Could not quit: {error}",

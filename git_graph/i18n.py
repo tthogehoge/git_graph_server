@@ -114,26 +114,29 @@ def check_i18n():
         if lang == "en":
             problems += [f"[en] contains CJK text: {k}" for k, v in table.items() if _CJK.search(v)]
 
-    src = "\n".join(path.read_text(encoding="utf-8")
-                    for path in sorted(Path(__file__).resolve().parent.rglob("*.py")))  # engine/ などのサブパッケージも含む
+    py_files = sorted(Path(__file__).resolve().parent.rglob("*.py"))  # engine/ などのサブパッケージも含む
+    sources = {path: path.read_text(encoding="utf-8") for path in py_files}
+    src = "\n".join(sources.values())
     assets = "\n".join(path.read_text(encoding="utf-8")
                        for ext in ("html", "js", "css") for path in sorted(STATIC_DIR.rglob(f"*.{ext}")))
-    tree = ast.parse(src)
-    docstrings = set()
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.Module, ast.FunctionDef, ast.ClassDef)) and node.body:
-            first = node.body[0]
-            if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) and isinstance(first.value.value, str):
-                docstrings.add(id(first.value))
+    template_text = "\n".join(path.read_text(encoding="utf-8") for path in sorted(STATIC_DIR.rglob("*.html")))
     literals = set()
-    for node in ast.walk(tree):
-        if not (isinstance(node, ast.Constant) and isinstance(node.value, str)) or id(node) in docstrings:
-            continue
-        literals.add(node.value)
-        text = _strip_comments(node.value) if "\n" in node.value else node.value
-        for offset, line in enumerate(text.split("\n")):
-            if _CJK.search(line):
-                problems.append(f"line {node.lineno + offset}: untranslated literal: {line.strip()[:80]}")
+    for path, source in sources.items():
+        tree = ast.parse(source, filename=str(path))
+        docstrings = set()
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Module, ast.FunctionDef, ast.ClassDef, ast.AsyncFunctionDef)) and node.body:
+                first = node.body[0]
+                if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) and isinstance(first.value.value, str):
+                    docstrings.add(id(first.value))
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Constant) and isinstance(node.value, str)) or id(node) in docstrings:
+                continue
+            literals.add(node.value)
+            text = _strip_comments(node.value) if "\n" in node.value else node.value
+            for offset, line in enumerate(text.split("\n")):
+                if _CJK.search(line):
+                    problems.append(f"{path.name}:{node.lineno + offset}: untranslated literal: {line.strip()[:80]}")
 
     for offset, line in enumerate(_strip_comments(assets).split("\n"), 1):
         if _CJK.search(line):
@@ -142,8 +145,9 @@ def check_i18n():
     code = src + "\n" + assets
     used = set()
     for pattern in (r"""\bt\(\s*["'](\w+)["']""", r"""\btr\(\s*["'](\w+)["']""",
-                    r"""UserError\(\s*["'](\w+)["']""", r"\{\{(\w+)\}\}"):
+                    r"""UserError\(\s*["'](\w+)["']"""):
         used |= set(re.findall(pattern, code))
+    used |= set(re.findall(r"\{\{(\w+)\}\}", template_text))
     problems += [f"undefined key used: {k}" for k in sorted(used - set(base))]
     for k in sorted(base):
         if k not in used and k not in literals and not re.search("[\"']" + re.escape(k) + "[\"']", code):
