@@ -132,6 +132,8 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
   if (actionHash) {
     if (nodeEl[actionHash]) nodeEl[actionHash].classList.add("actionTarget");
     listView.querySelectorAll('tr[data-h="' + actionHash + '"]').forEach(tr => tr.classList.add("actionTarget"));
+  } else {
+    clearLocate("actionTarget");  // 操作対象が無くなったら、ログで選んだ (グラフに出ていない) コミットの位置表示 (線の赤と印) も消す。A / B と同じ
   }
   const actionTarget = document.getElementById("actionTarget");
   actionTarget.textContent = actionHash ? t("target_label") + ": " + actionHash.slice(0, 7) : "";
