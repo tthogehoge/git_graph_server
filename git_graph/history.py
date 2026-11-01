@@ -13,6 +13,15 @@ def paging(q):
     return qh.paging(q.get("skip", ["0"])[0], q.get("limit", ["500"])[0])
 
 
+def search_params(q):
+    """検索条件 (hash / grep / author / committer / since / until。scope=all なら全コミットが対象)。"""
+    search = {k: q.get(k, [""])[0].strip() for k in ("hash", "grep", "author", "committer", "since", "until")}
+    search = {k: v for k, v in search.items() if v}
+    if q.get("scope", [""])[0] == "all":
+        search["all"] = True
+    return search
+
+
 @route("/api/log")
 def api_log(q):
     return qh.log(
@@ -21,6 +30,7 @@ def api_log(q):
         skip=q.get("skip", ["0"])[0],
         limit=q.get("limit", ["500"])[0],
         graph=q.get("graph", [""])[0] == "1",
+        search=search_params(q),
     )
 
 
@@ -112,4 +122,5 @@ def api_diff(q):
 __all__ = [
     "DIFF_LIMIT", "api_branches", "api_branches_containing", "api_commit", "api_compare",
     "api_diff", "api_log", "api_merge_base", "api_reflog", "api_stash_list", "api_tags", "paging",
+    "search_params",
 ]

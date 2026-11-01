@@ -470,6 +470,123 @@ class GitApiIntegrationTests(unittest.TestCase):
         self.assertNotIn("style=dashed", dot)  # 省略数を数えないので線種は区別しない
 
 
+class LogSearchTests(unittest.TestCase):
+    """ログの検索 (/api/log の hash / grep / author / committer / since / until / scope)。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        cls.repo = cls.temp_dir.name
+        cls.previous_repo = state.REPO
+        state.REPO = cls.repo
+        cls.git("init", "-q")
+        cls.git("branch", "-M", "main")
+        cls.c1 = cls.commit("a.txt", "Initial import", "Set up project", "Alice", "Alice", "2026-01-10T12:00:00")
+        cls.c2 = cls.commit("a.txt", "Fix login bug", "Handles Auth token refresh", "Bob", "Carol", "2026-02-10T12:00:00")
+        cls.c3 = cls.commit("a.txt", "Add search feature", "login screen too", "Alice", "Alice", "2026-03-10T12:00:00")
+        cls.git("checkout", "-q", "-b", "other", cls.c1)  # main の履歴に無いコミット
+        cls.o1 = cls.commit("b.txt", "Experimental login rewrite", "", "Dave", "Dave", "2026-02-20T12:00:00")
+        cls.git("checkout", "-q", "main")
+
+    @classmethod
+    def tearDownClass(cls):
+        state.REPO = cls.previous_repo
+        cls.temp_dir.cleanup()
+
+    @classmethod
+    def git(cls, *args, env=None):
+        return subprocess.check_output(["git", "-C", cls.repo, *args], text=True, encoding="utf-8",
+                                       env=dict(os.environ, **(env or {})))
+
+    @classmethod
+    def commit(cls, name, subject, body, author, committer, date):
+        with open(os.path.join(cls.repo, name), "a", encoding="utf-8") as f:
+            f.write(subject + "\n")
+        cls.git("add", name)
+        cls.git("commit", "-q", "-m", subject, "-m", body or subject, env={
+            "GIT_AUTHOR_NAME": author, "GIT_AUTHOR_EMAIL": author.lower() + "@example.com",
+            "GIT_COMMITTER_NAME": committer, "GIT_COMMITTER_EMAIL": committer.lower() + "@example.com",
+            "GIT_AUTHOR_DATE": date, "GIT_COMMITTER_DATE": date,
+        })
+        return cls.git("rev-parse", "HEAD").strip()
+
+    def search(self, rev=None, **terms):
+        q = {"rev": [rev or self.c3]}
+        q.update({k: [v] for k, v in terms.items()})
+        return app.api_log(q)
+
+    def subjects(self, result):
+        return [c[4] for c in result["commits"]]
+
+    def test_subject_and_body_search_is_case_insensitive_and_literal(self):
+        result = self.search(grep="LOGIN")
+        self.assertEqual(self.subjects(result), ["Add search feature", "Fix login bug"])  # 件名と本文の両方が対象
+        self.assertEqual(result["total"], 2)
+        self.assertEqual(self.subjects(self.search(grep="login auth")), ["Fix login bug"])  # 空白で区切った語はすべて含む (AND)
+        self.assertEqual(self.search(grep="l.gin")["commits"], [])  # 正規表現ではなく、そのままの文字列
+        self.assertEqual(self.search(grep="--all")["commits"], [])  # オプションとして解釈されない
+
+    def test_author_and_committer_search(self):
+        self.assertEqual(self.subjects(self.search(author="alice")), ["Add search feature", "Initial import"])
+        self.assertEqual(self.subjects(self.search(author="bob@example")), ["Fix login bug"])  # メールアドレスも対象
+        self.assertEqual(self.subjects(self.search(committer="carol")), ["Fix login bug"])
+        self.assertEqual(self.search(author="alice", committer="carol")["commits"], [])  # 両方の条件を満たすもの
+        self.assertEqual(self.subjects(self.search(author="bob", committer="carol")), ["Fix login bug"])
+        self.assertEqual(self.subjects(self.search(author="alice", grep="login")), ["Add search feature"])
+
+    def test_period_search_includes_both_end_dates(self):
+        self.assertEqual(self.subjects(self.search(since="2026-02-01", until="2026-02-28")), ["Fix login bug"])
+        self.assertEqual(self.subjects(self.search(until="2026-02-10")), ["Fix login bug", "Initial import"])  # until の日は含む
+        self.assertEqual(self.subjects(self.search(since="2026-02-10")), ["Add search feature", "Fix login bug"])
+        with self.assertRaises(app.UserError):
+            self.search(since="2026/02/01")
+
+    def test_scope_is_the_log_range_or_all_commits(self):
+        self.assertEqual(self.search(grep="experimental")["commits"], [])  # other ブランチのコミットは main のログに無い
+        wide = self.search(grep="experimental", scope="all")
+        self.assertEqual([c[0] for c in wide["commits"]], [self.o1])
+        self.assertEqual(wide["total"], 1)
+        self.assertEqual(self.subjects(self.search(grep="login", scope="all")),
+                         ["Add search feature", "Experimental login rewrite", "Fix login bug"])
+        # 範囲指定のログ (A..B) では、A 側の履歴は検索しない
+        self.assertEqual(self.subjects(self.search(rev=self.c1 + ".." + self.c3, grep="import")), [])
+
+    def test_hash_prefix_search_respects_the_scope(self):
+        self.assertEqual([c[0] for c in self.search(hash=self.c2[:7])["commits"]], [self.c2])
+        self.assertEqual([c[0] for c in self.search(hash=self.c2[:7].upper())["commits"]], [self.c2])
+        self.assertEqual(self.search(rev=self.c2, hash=self.c3[:7])["commits"], [])  # c3 は c2 のログの範囲に無い
+        self.assertEqual([c[0] for c in self.search(rev=self.c2, hash=self.c3[:7], scope="all")["commits"]], [self.c3])
+        self.assertEqual(self.search(rev=self.c1 + ".." + self.c3, hash=self.c1[:7])["commits"], [])  # 範囲の外
+        self.assertEqual(self.search(hash=self.c2[:7], author="alice")["commits"], [])  # 他の条件とも組み合わせられる
+        self.assertEqual(self.search(hash="0" * 40)["total"], 0)
+        for bad in ("abc", "zzzz", self.c2[:6] + "g"):
+            with self.assertRaises(app.UserError):
+                self.search(hash=bad)
+
+    def test_search_paging_and_total(self):
+        first = self.search(author="alice", limit="1")
+        self.assertEqual((len(first["commits"]), first["has_more"], first["total"]), (1, True, 2))
+        rest = app.api_log({"rev": [self.c3], "author": ["alice"], "skip": ["1"], "limit": ["5"]})
+        self.assertEqual(self.subjects(rest), ["Initial import"])
+        self.assertFalse(rest["has_more"])
+
+    def test_blank_terms_are_not_a_search(self):
+        self.assertEqual(self.search(grep="  ", scope="all")["total"], 3)  # 条件が無ければ、範囲の指定も無視してログ全体
+        self.assertEqual(self.search(grep="  ")["total"], 3)
+
+    def test_search_result_has_parents_but_no_graph_ordering(self):
+        result = self.search(grep="login", graph="1")
+        self.assertEqual([c[5] for c in result["commits"]], [[self.c2], [self.c1]])
+
+    def test_search_ui_is_part_of_the_app(self):
+        js = app.render_app_js()
+        self.assertIn("log-search-btn", js)
+        self.assertIn("searchParams", js)
+        for lang in ("ja", "en"):
+            for key in ("search_hash", "search_text", "search_author", "search_committer", "search_period", "search_scope_all"):
+                self.assertIn(key, app.TRANSLATIONS[lang])
+
+
 class WorkingTreeFilesTests(unittest.TestCase):
     """/files?hash=WIP: 作業ツリーのファイル一覧・内容・blame。"""
 

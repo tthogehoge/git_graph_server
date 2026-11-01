@@ -677,5 +677,19 @@
   "tip_redo_op": "Redo: {op} (Ctrl+Y)",
   "ok": "OK",
   "dialog_suppressed_note": "Your browser is blocking confirmation dialogs, so the confirmation is shown here.",
-  "redo_rescued": "The overwritten working tree changes can be brought back with Undo."
+  "redo_rescued": "The overwritten working tree changes can be brought back with Undo.",
+  "search_open": "Search commits",
+  "search_hash": "Hash (prefix)",
+  "search_text": "Subject / body",
+  "search_text_ph": "Words separated by spaces (all must match)",
+  "search_author": "Author",
+  "search_committer": "Committer",
+  "search_period": "Period",
+  "search_scope": "Search in",
+  "search_scope_rev": "This log only",
+  "search_scope_all": "All commits (all branches and tags)",
+  "search_go": "Search",
+  "search_hits": "{n} hits",
+  "search_bad_hash": "Enter at least 4 hexadecimal digits for the hash.",
+  "search_bad_date": "Dates must be in YYYY-MM-DD format."
 }

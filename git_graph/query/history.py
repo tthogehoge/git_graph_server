@@ -15,6 +15,11 @@ REV_RE = re.compile(r"[0-9a-f]{40}(\.\.[0-9a-f]{40}(\^@)?)?")
 
 DIFF_LIMIT = 400000
 
+# ログの検索 (/api/log の hash / grep / author / committer / since / until / all)
+DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+HASH_PREFIX_RE = re.compile(r"[0-9a-f]{4,40}")
+HASH_CANDIDATES_MAX = 100  # ハッシュの前方一致で調べるコミットの上限
+
 
 def rev_args(rev):
     """rev を git に渡す引数に直す。A..B^@ は「A から見えない B の親たち」(B 自身は含めない)。"""
@@ -33,19 +38,95 @@ def paging(skip, limit):
     return skip, limit
 
 
-def log(rev, path="", skip=0, limit=500, graph=False):
+def _scope_revs(rev):
+    """ログの範囲 rev を (含める側, 除く側) の rev のリストにする。"""
+    args = rev_args(rev)
+    if len(args) == 1:
+        if ".." in args[0]:
+            a, b = args[0].split("..")
+            return [b], [a]
+        return [args[0]], []
+    return [a for a in args if not a.startswith("^")], [a[1:] for a in args if a.startswith("^")]
+
+
+def _is_ancestor(h, rev):
+    return subprocess.run(["git", "-C", state.REPO, "merge-base", "--is-ancestor", h, rev],
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+
+
+def _hash_candidates(prefix, rev, everywhere):
+    """前方一致するコミット。everywhere=False のときは、ログの範囲 rev にあるものだけ。"""
+    full = git("rev-parse", "--disambiguate=" + prefix).split()[:HASH_CANDIDATES_MAX]
+    if not full:
+        return []
+    kinds = git("cat-file", "--batch-check=%(objectname) %(objecttype)", input="\n".join(full) + "\n")
+    commits = [l.split()[0] for l in kinds.splitlines() if l.endswith(" commit")]
+    if everywhere:
+        return commits
+    pos, neg = _scope_revs(rev)
+    return [h for h in commits if any(_is_ancestor(h, p) for p in pos) and not any(_is_ancestor(h, n) for n in neg)]
+
+
+def search_plan(rev, search):
+    """検索条件 (hash / grep / author / committer / since / until と、全コミット対象の all) を、
+    git log に渡す (絞り込みオプション, 走査の対象, --no-walk にするか) にする。条件が1つも無ければ None。
+    走査の対象が空なら、ハッシュに一致するコミットが無い (結果なし)。"""
+    search = search or {}
+    terms = {k: (search.get(k) or "").strip() for k in ("hash", "grep", "author", "committer", "since", "until")}
+    if not any(terms.values()):
+        return None
+    if any("\0" in v for v in terms.values()):
+        raise ValueError("bad search")
+    opts = []
+    words = terms["grep"].split()
+    for w in words:  # 件名・本文: 空白で区切った語を、すべて含むもの (AND)
+        opts.append("--grep=" + w)
+    if words:
+        opts.append("--all-match")
+    for key in ("author", "committer"):  # 名前・メールアドレスの一部
+        if terms[key]:
+            opts.append(f"--{key}={terms[key]}")
+    if words or terms["author"] or terms["committer"]:
+        opts += ["--fixed-strings", "--regexp-ignore-case"]  # 正規表現ではなく、大文字小文字を区別しない部分一致
+    for key, time in (("since", "00:00:00"), ("until", "23:59:59")):
+        if terms[key]:
+            if not DATE_RE.fullmatch(terms[key]):
+                raise UserError("search_bad_date")
+            opts.append(f"--{key}={terms[key]} {time}")
+    everywhere = bool(search.get("all"))
+    if terms["hash"]:
+        prefix = terms["hash"].lower()
+        if not HASH_PREFIX_RE.fullmatch(prefix):
+            raise UserError("search_bad_hash")
+        return opts, _hash_candidates(prefix, rev, everywhere), True
+    if everywhere:
+        revs = ["--branches", "--tags"] + ([] if getattr(state.OPTS, "no_remotes", False) else ["--remotes"]) + ["HEAD"]
+    else:
+        revs = rev_args(rev)
+    return opts, revs, False
+
+
+def log(rev, path="", skip=0, limit=500, graph=False, search=None):
     if not REV_RE.fullmatch(rev):
         raise ValueError("bad rev")
     if "\0" in path:
         raise ValueError("bad path")
     skip, limit = paging(skip, limit)
+    plan = search_plan(rev, search)
+    if plan is not None:
+        graph = False  # 検索結果は途中のコミットが抜けるので、マージグラフは付けない
+        if not plan[1]:  # ハッシュに一致するコミットが無い
+            return {"commits": [], "has_more": False, "total": 0}
+        walk = (["--no-walk=sorted"] if plan[2] else []) + plan[0] + plan[1]
+    else:
+        walk = rev_args(rev)
     # 各行の末尾に親コミット (--parents で path 指定時は書き換え後の親) を付ける。
     # graph=True のときはマージグラフを描けるよう、git log --graph と同じく --topo-order で並べる。
     args = ["log", "--parents", "--date=short", f"--skip={skip}", "-n", str(limit),
             "--format=%H%x1f%h%x1f%an%x1f%ad%x1f%P%x1f%s"]
     if graph:
         args.append("--topo-order")
-    args += rev_args(rev) + ["--"]
+    args += walk + ["--"]
     if path:
         args.append(path)
     out = git(*args, literal=bool(path))
@@ -62,7 +143,7 @@ def log(rev, path="", skip=0, limit=500, graph=False):
             c[5] = [p for p in c[5] if p in listed]
     res = {"commits": commits, "has_more": len(commits) == limit}
     if skip == 0:
-        count_args = ["rev-list", "--count", *rev_args(rev), "--"]
+        count_args = ["rev-list", "--count", *walk, "--"]
         if path:
             count_args.append(path)
         res["total"] = int(git(*count_args, literal=bool(path)).strip())
@@ -346,5 +427,5 @@ def diff(path, old="", hash_="", from_hash="", to_hash="", wip=""):
 
 __all__ = [
     "DIFF_LIMIT", "REV_RE", "branches", "branches_containing", "commit", "compare", "diff",
-    "log", "merge_base", "paging", "reflog", "rev_args", "stash_list", "tags",
+    "log", "merge_base", "paging", "reflog", "rev_args", "search_plan", "stash_list", "tags",
 ]

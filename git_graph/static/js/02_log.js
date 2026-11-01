@@ -189,36 +189,117 @@ function logGraph() {
 
 // git log を CHUNK 件ずつ取得して、末尾が見えたら続きを読み込む (全件読むまで続く)
 // src を渡すと /api/log の代わりに src.path (src.params を付けて) から同じ形式の一覧を取る (stash 一覧 / reflog)
-function logKey(titleHtml, rev, topHtml, src, targetHash) {
-  return JSON.stringify([titleHtml, rev, topHtml, src || null, targetHash || ""]);
+function logKey(titleHtml, rev, topHtml, src, targetHash, search) {
+  return JSON.stringify([titleHtml, rev, topHtml, src || null, targetHash || "", search || null]);
 }
-function showLog(titleHtml, rev, topHtml, fromHistory, restoreScroll, src, targetHash) {
+
+// ---- ログの検索 (ハッシュ前方一致 / 件名・本文 / 作者 / コミッター / 期間 / 範囲)。見出しの検索ボタンを押したときだけ入力欄を出す ----
+const LOG_SEARCH_FIELDS = ["hash", "grep", "author", "committer", "since", "until"];
+let logCtx = null;  // いま表示しているログの引数 (検索し直すときに showLog へ渡す)
+function normSearch(o) {  // 入力が全部空なら null。キーの順は固定 (画面を戻すとき logKey で比べるため)
+  const s = {};
+  LOG_SEARCH_FIELDS.forEach(k => { s[k] = String((o && o[k]) || "").trim(); });
+  if (!LOG_SEARCH_FIELDS.some(k => s[k])) return null;
+  s.scope = o.scope === "all" ? "all" : "rev";
+  return s;
+}
+function searchParams(search) {  // /api/log に付ける検索の条件 (空の欄は付けない)
+  const p = {};
+  if (!search) return p;
+  LOG_SEARCH_FIELDS.forEach(k => { if (search[k]) p[k] = search[k]; });
+  if (search.scope === "all") p.scope = "all";
+  return p;
+}
+function logSearchHtml(search) {
+  const s = search || {}, v = k => esc(s[k] || "");
+  const field = (k, label, ph) => '<label>' + esc(t(label)) + '<input type="text" data-k="' + k + '" value="' + v(k) + '"' +
+    (ph ? ' placeholder="' + esc(t(ph)) + '"' : "") + ' autocomplete="off" spellcheck="false"></label>';
+  return '<div class="log-search" id="logSearch"' + (search ? "" : " hidden") + ">" +
+    field("hash", "search_hash") + field("grep", "search_text", "search_text_ph") +
+    field("author", "search_author") + field("committer", "search_committer") +
+    '<label>' + esc(t("search_period")) + '<span class="log-search-period"><input type="date" data-k="since" value="' + v("since") + '"> ~ ' +
+    '<input type="date" data-k="until" value="' + v("until") + '"></span></label>' +
+    '<label>' + esc(t("search_scope")) + '<select data-k="scope"><option value="rev">' + esc(t("search_scope_rev")) + '</option>' +
+    '<option value="all"' + (s.scope === "all" ? " selected" : "") + ">" + esc(t("search_scope_all")) + '</option></select></label>' +
+    '<div class="log-search-btns"><button class="sbtn" id="logSearchGo">' + esc(t("search_go")) + '</button>' +
+    '<button class="sbtn" id="logSearchClear">' + esc(t("clear")) + '</button></div></div>';
+}
+function readLogSearch() {
+  const box = listView.querySelector("#logSearch"), o = {};
+  if (!box) return null;
+  box.querySelectorAll("[data-k]").forEach(el => { o[el.dataset.k] = el.value; });
+  o.hash = (o.hash || "").toLowerCase();
+  return normSearch(o);
+}
+function applyLogSearch(search) {  // 検索し直す: 履歴は増やさず、同じログを検索条件つきで読み直す
+  const c = logCtx;
+  if (!c) return;
+  showLog(c.titleHtml, c.rev, c.topHtml, true, 0, c.src, c.targetHash, search);
+  history.replaceState(Object.assign({}, history.state, {search: search}), "");
+  if (search) return;
+  const btn = listView.querySelector(".log-search-btn");
+  if (btn) btn.focus();
+}
+listView.addEventListener("click", ev => {
+  if (ev.target.closest(".log-search-btn")) {
+    const box = listView.querySelector("#logSearch");
+    if (!box) return;
+    if (ev.target.closest(".log-search-btn").classList.contains("on")) { applyLogSearch(null); return; }  // 検索中に押したら、検索をやめて閉じる
+    box.hidden = !box.hidden;
+    if (logGraphCur) logGraphCur.sync();  // 行が下へずれる / 戻るので、選択中の線 (ログ全体にかぶせた svg) を描き直す
+    if (!box.hidden) box.querySelector("input").focus();
+  } else if (ev.target.closest("#logSearchGo")) {
+    applyLogSearch(readLogSearch());
+  } else if (ev.target.closest("#logSearchClear")) {
+    applyLogSearch(null);
+  }
+});
+listView.addEventListener("keydown", ev => {
+  if (ev.key === "Enter" && ev.target.closest && ev.target.closest("#logSearch") && ev.target.tagName !== "BUTTON") {
+    ev.preventDefault();
+    applyLogSearch(readLogSearch());
+  }
+});
+
+function showLog(titleHtml, rev, topHtml, fromHistory, restoreScroll, src, targetHash, search) {
+  search = normSearch(search);
+  // 検索できるのはコミット履歴のログだけ (stash / reflog / ブランチ・タグ一覧や、特定のコミットを探すログは対象外)
+  const searchable = (!src || src.path === "/api/log") && !targetHash;
+  if (!searchable) search = null;
   document.body.classList.remove("compare-logs-mode");
-  if (!fromHistory) pushScreen({screen: "log", titleHtml: titleHtml, rev: rev, topHtml: topHtml, src: src || null, targetHash: targetHash || ""});
+  if (!fromHistory) pushScreen({screen: "log", titleHtml: titleHtml, rev: rev, topHtml: topHtml, src: src || null, targetHash: targetHash || "", search: search});
   setDocumentTitleFromHtml(titleHtml);
   const my = ++token;
   if (observer) { observer.disconnect(); observer = null; }
   curRow = null;
-  listView.innerHTML = "<h2>" + titleHtml + "</h2>" + topHtml +
+  logCtx = searchable ? {titleHtml: titleHtml, rev: rev, topHtml: topHtml, src: src || null, targetHash: targetHash || ""} : null;
+  listView.innerHTML = "<h2>" + titleHtml +
+    (searchable ? ' <button class="sbtn iconbtn log-search-btn' + (search ? " on" : "") + '" title="' + esc(t("search_open")) + '">🔍</button>' : "") + "</h2>" +
+    (searchable ? logSearchHtml(search) : "") + topHtml +
     '<div class="meta" id="count">' + esc(t("loading")) + '</div>' +
     '<table class="log"><tbody id="rows"></tbody></table><div id="sentinel" class="hint"></div>';
   showView("list");
   listView.dataset.src = src ? src.path : "";
   const rows = listView.querySelector("#rows"), count = listView.querySelector("#count"),
         sentinel = listView.querySelector("#sentinel");
-  rows.dataset.key = logKey(titleHtml, rev, topHtml, src, targetHash);  // 詳細から戻るとき、同じログならそのまま見せる
+  rows.dataset.key = logKey(titleHtml, rev, topHtml, src, targetHash, search);  // 詳細から戻るとき、同じログならそのまま見せる
   let skip = 0, done = false, loading = false, total = null;
-  // /api/log の一覧 (コミット履歴) だけマージグラフを付ける (stash / reflog / ブランチ一覧などは付けない)
-  const graphRow = (!src || src.path === "/api/log") ? logGraph() : null;
+  // /api/log の一覧 (コミット履歴) だけマージグラフを付ける (stash / reflog / ブランチ一覧などは付けない)。検索結果は途中のコミットが抜けるので付けない
+  const graphRow = ((!src || src.path === "/api/log") && !search) ? logGraph() : null;
   logGraphCur = graphRow;
+  const searchP = searchParams(search);
+  if (search) {
+    const box = listView.querySelector("#logSearch");
+    if (box && !restoreScroll) box.querySelector("input").focus({preventScroll: true});
+  }
 
   async function more() {
     if (loading || done || my !== token) return;
     loading = true;
     try {
       const graphParam = graphRow ? {graph: 1} : {};
-      const r = src ? await api(src.path, Object.assign({}, src.params, graphParam, {skip: skip, limit: CHUNK}))
-                    : await api("/api/log", Object.assign({rev: rev, skip: skip, limit: CHUNK}, graphParam));
+      const r = src ? await api(src.path, Object.assign({}, src.params, graphParam, searchP, {skip: skip, limit: CHUNK}))
+                    : await api("/api/log", Object.assign({rev: rev, skip: skip, limit: CHUNK}, graphParam, searchP));
       if (my !== token) return;
       rows.insertAdjacentHTML("beforeend", r.commits.map(c => rowHtml(c, "", graphRow ? graphRow(c) : "")).join(""));
       updateCmpClasses();
@@ -229,7 +310,7 @@ function showLog(titleHtml, rev, topHtml, fromHistory, restoreScroll, src, targe
       done = !r.has_more;
       if (r.total !== undefined) total = r.total;
       count.textContent = total === null ? t("n_items", {n: skip})
-        : (done ? t("n_changes", {n: total}) : t("n_loaded", {skip: skip, total: total}));
+        : (done ? t(search ? "search_hits" : "n_changes", {n: total}) : t("n_loaded", {skip: skip, total: total}));
       sentinel.textContent = done ? (skip === 0 ? t("none") : "") : t("loading");
     } catch (e) {
       sentinel.textContent = t("error") + e.message; done = true;
