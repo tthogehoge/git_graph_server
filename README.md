@@ -31,6 +31,12 @@ python git_graph_server.py -C /path/to/repo --port 8080
 
 If no revisions are specified, branches, tags, and `HEAD` are shown. Press `Ctrl+C` or the Quit button at the top left of the page to stop the server.
 
+Use the following command when using it in a webview:
+
+```sh
+python git_graph_webview.py /path/to/repo
+```
+
 ## Operating the graph
 
 - Click a graph commit to show its log; clicking a log row only selects that commit (the graph scrolls to it), and clicking the selected row again opens its details.

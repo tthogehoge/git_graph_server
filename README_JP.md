@@ -29,6 +29,12 @@ python git_graph_server.py -C /path/to/repo --port 8080
 
 対象の rev を指定しない場合は、ブランチ・タグ・HEAD を表示します。終了は `Ctrl+C`、または画面左上の「終了」ボタンです。
 
+webviewで使用する場合は以下のコマンドです。
+
+```sh
+python git_graph_webview.py /path/to/repo
+```
+
 ## 使い方
 
 ### 操作について
