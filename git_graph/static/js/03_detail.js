@@ -21,7 +21,7 @@ function filesHtml(ctx, files, offset, withCheck, collapse) {
   if (!files.length) return '<p class="hint">' + esc(t("no_changed_files")) + '</p>';
   let add = 0, del = 0, max = 0;
   files.forEach(f => { add += f.added || 0; del += f.deleted || 0; max = Math.max(max, (f.added || 0) + (f.deleted || 0)); });
-  const scale = max > 40 ? 40 / max : 1;
+  const scale = max > 12 ? 12 / max : 1;
   const dirCount = {}, dirStat = {}, dirSeen = {};
   if (collapse) files.forEach(f => {
     const dir = dirOf(f.path);

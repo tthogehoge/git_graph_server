@@ -178,6 +178,9 @@ html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-s
   @media (max-width: 760px) { .compare-logs { grid-template-columns: 1fr; } }
   table.files { border-collapse: collapse; margin: 6px 0; font-family: monospace; font-size: 12px; width: 100%; }
   table.files td { padding: 2px 6px; vertical-align: top; }
+  table.files { table-layout: fixed; }
+  table.files td.fc { width: 4em; }
+  table.files td.fb { width: 7em; overflow: hidden; }
   tr.frow.dhide { display: none; }
   tr.drow { cursor: pointer; background: #f1f3f6; } tr.drow:hover td { background: #e6ebf5; }
   .dtog { display: inline-block; width: 1em; color: #666; }
