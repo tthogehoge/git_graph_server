@@ -370,6 +370,16 @@ class GitApiIntegrationTests(unittest.TestCase):
         self.assertIn('showContainingBranchLog(commitHash)', app.render_app_js())
         self.assertIn('api("/api/blame"', page)
 
+    def test_file_log_stays_in_file_view_and_can_open_graph(self):
+        page = viewer.render_files_page()
+
+        self.assertIn('id="fileGraphLogBtn" hidden', page)
+        self.assertIn("fileLogBtn.onclick = () => { if (currentFile) openView(\"log\"); };", page)
+        self.assertIn('api("/api/log", {rev: hash, path: path})', page)
+        self.assertIn('location.href = "/?file_log_hash="', page)
+        self.assertIn("グラフ画面で表示", page)
+        self.assertNotIn("function logInTab()", page)
+
     def test_api_compare_returns_file_changes_between_commits(self):
         result = app.api_compare({
             "from": [self.first_commit],

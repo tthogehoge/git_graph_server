@@ -70,7 +70,7 @@ __FAVICON__
 </style><script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script></head>
 <body><aside id="tree"><div class="navbar"><a class="iconbtn" href="/" title="{{back_top}}" aria-label="{{back_top}}"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M2 8 8 2.5 14 8M3.8 7v6.5h3V10h2.4v3.5h3V7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></a><button type="button" class="iconbtn" onclick="history.back()" title="{{back_prev}}" aria-label="{{back_prev}}"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M13 8H3M7.5 3.5 3 8l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button><button type="button" class="iconbtn" id="reloadBtn" hidden title="{{reload_page}}" aria-label="{{reload_page}}"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M13.5 8a5.5 5.5 0 1 1-1.7-4M13 2.5v3.2h-3.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div><h1>{{file_view}}</h1><div class="meta" id="commit"></div><div class="file-actions patch-bar"><button id="patchCreateBtn">{{patch_create}}</button><button id="patchApplyBtn" hidden title="{{tip_patch_apply}}">{{patch_apply}}</button><button id="patchAmBtn" hidden title="{{tip_patch_am}}">{{patch_am}}</button><input type="file" id="patchFile" hidden><span id="patchMsg" class="msg"></span></div><div id="list"></div></aside>
 <main id="main"><h2 id="title">{{select_file}}</h2>
-<div id="fileActions" class="file-actions" hidden><button id="fileLogBtn">{{file_log}}</button><button id="fileBlameBtn">{{file_blame}}</button><button id="fileDiffBtn" hidden>{{file_diff}}</button><button id="fileEditBtn" hidden>{{file_edit}}</button><button id="fileContentBtn" hidden>{{file_content}}</button><button id="fileCopyBtn" hidden>{{copy_to_work}}</button><button id="fileDownloadBtn" hidden>{{file_download}}</button><button id="fileExtEditBtn" hidden title="{{tip_open_editor}}">{{open_editor}}</button><button id="fileRmBtn" hidden title="{{tip_rm_file}}">{{rm_button}}</button><button id="fileRmCachedBtn" hidden title="{{tip_rm_cached_file}}">{{rm_cached_button}}</button><span id="fileMsg" class="msg"></span></div>
+<div id="fileActions" class="file-actions" hidden><button id="fileLogBtn">{{file_log}}</button><button id="fileBlameBtn">{{file_blame}}</button><button id="fileDiffBtn" hidden>{{file_diff}}</button><button id="fileEditBtn" hidden>{{file_edit}}</button><button id="fileContentBtn" hidden>{{file_content}}</button><button id="fileGraphLogBtn" hidden>{{file_log_graph}}</button><button id="fileCopyBtn" hidden>{{copy_to_work}}</button><button id="fileDownloadBtn" hidden>{{file_download}}</button><button id="fileExtEditBtn" hidden title="{{tip_open_editor}}">{{open_editor}}</button><button id="fileRmBtn" hidden title="{{tip_rm_file}}">{{rm_button}}</button><button id="fileRmCachedBtn" hidden title="{{tip_rm_cached_file}}">{{rm_cached_button}}</button><span id="fileMsg" class="msg"></span></div>
 <div id="content" class="hint">{{select_file_hint}}</div></main>
 <script>
 /*__FILE_I18N__*/
@@ -88,6 +88,7 @@ function setDocumentTitle(label) {
 const qs = new URLSearchParams(location.search), hash = qs.get("hash"), fileViewTab = qs.get("file_view") === "1";
 const list = document.getElementById("list"), content = document.getElementById("content"), title = document.getElementById("title");
 const fileActions = document.getElementById("fileActions"), fileLogBtn = document.getElementById("fileLogBtn"), fileBlameBtn = document.getElementById("fileBlameBtn"), fileContentBtn = document.getElementById("fileContentBtn");
+const fileGraphLogBtn = document.getElementById("fileGraphLogBtn");
 const fileDownloadBtn = document.getElementById("fileDownloadBtn"), fileExtEditBtn = document.getElementById("fileExtEditBtn");
 const fileRmBtn = document.getElementById("fileRmBtn"), fileRmCachedBtn = document.getElementById("fileRmCachedBtn");
 const fileCopyBtn = document.getElementById("fileCopyBtn"), fileMsg = document.getElementById("fileMsg");
@@ -285,6 +286,7 @@ function loadFile(path, push) {
   fileLogBtn.hidden = !logHash();
   fileBlameBtn.hidden = isWip && !wipHead;
   fileContentBtn.hidden = true;
+  fileGraphLogBtn.hidden = true;
   fileDownloadBtn.hidden = false;
   fileExtEditBtn.hidden = !(DESKTOP && isWip);  // pywebview などでは、作業ツリーのファイルを外部エディタで開ける
   updateDiffBtn();
@@ -305,7 +307,6 @@ function loadFile(path, push) {
 // ---- ファイルごとの表示 (内容 / 編集 / blame / ログ) ----
 // 表示を切り替えるたびに履歴に積む。viaPush: 同じファイルの前の表示から来た (「ファイル内容」などは履歴を戻る)
 let currentView = "", afterRestore = null;
-function logInTab() { return fileViewTab || (window.opener && !window.opener.closed); }
 function renderView(view) {
   currentView = view;
   if (view === "edit") {
@@ -313,7 +314,7 @@ function renderView(view) {
     else if (fileData && fileData.editable) startEdit();
     else if (fileData) setFileMsg(t(fileData.edit_reason || "edit_bad_encoding"), false);
   } else if (view === "blame") loadFileBlame(currentFile);
-  else if (view === "log" && logInTab()) loadFileLog(currentFile);
+  else if (view === "log") loadFileLog(currentFile);
 }
 function openView(view) {
   if (!currentFile || view === currentView) return;
@@ -342,7 +343,7 @@ function startEdit() {
   if (!fileData || !fileData.editable || !currentFile) return;
   editing = true; editDirty = false;
   setFileMsg("", true);
-  [fileLogBtn, fileBlameBtn, fileDiffBtn, fileEditBtn, fileContentBtn, fileCopyBtn, fileDownloadBtn, fileExtEditBtn, fileRmBtn, fileRmCachedBtn].forEach(b => { b.hidden = true; });
+  [fileLogBtn, fileBlameBtn, fileDiffBtn, fileEditBtn, fileContentBtn, fileGraphLogBtn, fileCopyBtn, fileDownloadBtn, fileExtEditBtn, fileRmBtn, fileRmCachedBtn].forEach(b => { b.hidden = true; });
   const eol = EOL_LABEL[fileData.eol] || t("edit_eol_none");
   title.textContent = t("file_edit_title", {path: currentFile});
   content.className = "";
@@ -386,6 +387,7 @@ function loadFileBlame(path) {
   fileLogBtn.hidden = true;
   fileBlameBtn.hidden = true;
   fileContentBtn.hidden = false;
+  fileGraphLogBtn.hidden = true;
   setDocumentTitle(t("file_blame_title", {path: path}));
   title.textContent = t("file_blame_title", {path: path});
   content.className = "";
@@ -407,30 +409,29 @@ content.addEventListener("click", ev => {
 function loadFileLog(path) {
   const hash = logHash();
   if (!hash) return;
-  if (logInTab()) {
-    // 別タブでは親のグラフへ通知せず、このファイル画面にログを表示する。
-    fileLogBtn.hidden = true;
-    fileBlameBtn.hidden = true;
-    fileContentBtn.hidden = false;
-    setDocumentTitle(t("file_history_title", {path: path}));
-    title.textContent = t("file_history_title", {path: path});
-    content.className = "hint";
-    content.textContent = t("loading");
-    api("/api/log", {rev: hash, path: path}).then(r => {
-      const rows = r.commits.map(c => '<tr><td class="hash">' + esc(c[1]) +
-        '</td><td class="date">' + esc(c[3]) + '</td><td>' + esc(c[4]) + '</td></tr>').join("");
-      content.className = "";
-      content.innerHTML = '<div class="meta">' + esc(t("n_commits", {n: r.total})) + '</div>' +
-        (rows ? '<table class="file-log"><tbody>' + rows + '</tbody></table>' : '<p class="hint">' + t("no_history") + '</p>');
-    }).catch(e => { content.className = "hint"; content.textContent = t("error") + e.message; });
-    return;
-  }
-  // 同一タブではファイル画面にログを描画せず、グラフ画面へ戻して表示する。
-  location.href = "/?file_log_hash=" + encodeURIComponent(hash) + "&file_log_path=" + encodeURIComponent(path);
+  fileLogBtn.hidden = true;
+  fileBlameBtn.hidden = true;
+  fileContentBtn.hidden = false;
+  fileGraphLogBtn.hidden = false;
+  setDocumentTitle(t("file_history_title", {path: path}));
+  title.textContent = t("file_history_title", {path: path});
+  content.className = "hint";
+  content.textContent = t("loading");
+  api("/api/log", {rev: hash, path: path}).then(r => {
+    const rows = r.commits.map(c => '<tr><td class="hash">' + esc(c[1]) +
+      '</td><td class="date">' + esc(c[3]) + '</td><td>' + esc(c[4]) + '</td></tr>').join("");
+    content.className = "";
+    content.innerHTML = '<div class="meta">' + esc(t("n_commits", {n: r.total})) + '</div>' +
+      (rows ? '<table class="file-log"><tbody>' + rows + '</tbody></table>' : '<p class="hint">' + t("no_history") + '</p>');
+  }).catch(e => { content.className = "hint"; content.textContent = t("error") + e.message; });
 }
-fileLogBtn.onclick = () => { if (currentFile) { if (logInTab()) openView("log"); else if (leaveEdit()) loadFileLog(currentFile); } };
+fileLogBtn.onclick = () => { if (currentFile) openView("log"); };
 fileBlameBtn.onclick = () => openView("blame");
 fileContentBtn.onclick = () => { if (currentFile) backToContent(); };
+fileGraphLogBtn.onclick = () => {
+  const rev = logHash();
+  if (rev && currentFile) location.href = "/?file_log_hash=" + encodeURIComponent(rev) + "&file_log_path=" + encodeURIComponent(currentFile);
+};
 const KEYWORDS = {
   python: "and as assert async await break case class continue def del elif else except finally for from global if import in is lambda match nonlocal not or pass raise return try while with yield None True False self",
   javascript: "as async await break case catch class const continue debugger default delete do else export extends false finally for from function get if import in instanceof let new null of return set static super switch this throw true try typeof undefined var void while with yield",

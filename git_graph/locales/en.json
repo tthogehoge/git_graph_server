@@ -151,6 +151,7 @@
   "compare_logs_heading": "Compare logs {from} → {to}",
   "file_log_heading": "File log: {path}",
   "file_history_title": "{path} change history",
+  "file_log_graph": "Show in graph",
   "elapsed_hint": "{sec}s elapsed (large repositories may take longer)",
   "graph_build_failed": "Failed to build the graph",
   "reload_page": "Reload",

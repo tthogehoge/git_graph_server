@@ -151,6 +151,7 @@
   "compare_logs_heading": "ログ比較 {from} → {to}",
   "file_log_heading": "ファイルログ: {path}",
   "file_history_title": "{path} の変更履歴",
+  "file_log_graph": "グラフ画面で表示",
   "elapsed_hint": "{sec} 秒経過（リポジトリが大きいと時間がかかります）",
   "graph_build_failed": "グラフの作成に失敗しました",
   "reload_page": "再読み込み",
