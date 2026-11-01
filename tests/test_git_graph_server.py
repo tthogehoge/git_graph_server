@@ -19,6 +19,7 @@ from urllib.request import Request, urlopen
 
 import git_graph_server as app
 from git_graph import app_state as state, engine
+from git_graph.query import history as qh
 from git_graph import graph as graph_module
 from git_graph import pages as viewer
 from git_graph import tmpdir
@@ -589,6 +590,20 @@ class LogSearchTests(unittest.TestCase):
         # 読み始めの位置から先は、skip で続きを読める
         tail = app.api_log({"rev": [self.c3], "graph": ["1"], "skip": ["1"]})["commits"]
         self.assertEqual([c[0] for c in tail], listed[1:])
+
+    def test_graph_log_pages_match_git_log_topo_order_and_are_cached(self):
+        # マージグラフ付きのログは、覚えておいた一覧から取る。git log --topo-order と同じ並び・同じ親になる
+        expected = [l.strip() for l in self.git("log", "--topo-order", "--parents", "--format=%H %P", self.c3).splitlines()]
+        got = []
+        for skip in (0, 1, 2):
+            res = app.api_log({"rev": [self.c3], "graph": ["1"], "skip": [str(skip)], "limit": ["1"]})
+            got += [" ".join([c[0]] + c[5]) for c in res["commits"]]
+            self.assertEqual(res["has_more"], skip < 2)
+        self.assertEqual(got, expected)
+        self.assertIs(qh.topo_list(self.c3), qh.topo_list(self.c3))  # 同じ rev の一覧は使い回す
+        ranged = app.api_log({"rev": [self.c1 + ".." + self.c3], "graph": ["1"]})
+        self.assertEqual([c[0] for c in ranged["commits"]], [self.c3, self.c2])
+        self.assertEqual([c[5] for c in ranged["commits"]], [[self.c2], []])  # 範囲外 (c1) の親へは線を伸ばさない
 
     def test_search_ui_is_part_of_the_app(self):
         js = app.render_app_js()

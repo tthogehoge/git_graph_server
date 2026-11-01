@@ -1,6 +1,8 @@
 # ログ・ブランチ・タグ・reflog・stash 一覧・コミット詳細・比較・差分の読み取り。
 import re
 import subprocess
+import threading
+from collections import OrderedDict
 from .. import app_state as state
 from ..textcodec import decode_text
 from .. import libgit
@@ -106,17 +108,94 @@ def search_plan(rev, search):
     return opts, revs, False
 
 
+class _TopoList:
+    """rev のログ全体を --topo-order で並べたハッシュの一覧 (と、その集合)。"""
+    def __init__(self, hashes):
+        self.hashes = hashes
+        self._set = None
+
+    def hash_set(self):
+        if self._set is None:
+            self._set = set(self.hashes)
+        return self._set
+
+
+# rev はコミットのハッシュ (A..B もハッシュ同士) なので、ログの中身はずっと変わらない。
+# 件数が多いと rev-list --topo-order だけで数秒かかり、--skip を付けた git log も毎回同じ歩きをやり直すので、
+# 最近使った数件の一覧を覚えておき、続きの読み込みや、対象のコミットへ飛ぶ位置の計算に使い回す
+_TOPO_CACHE = OrderedDict()
+_TOPO_CACHE_LOCK = threading.Lock()
+TOPO_CACHE_MAX = 3  # 覚えておく一覧の数 (件数が多いとメモリを使うので少なめ)
+
+
+_TOPO_INFLIGHT = {}  # 計算中の rev -> ロック (同じ一覧を同時に二重に計算しない)
+
+
+def topo_list(rev):
+    key = (state.REPO, rev)
+    with _TOPO_CACHE_LOCK:
+        hit = _TOPO_CACHE.get(key)
+        if hit is not None:
+            _TOPO_CACHE.move_to_end(key)
+            return hit
+        lock = _TOPO_INFLIGHT.setdefault(key, threading.Lock())
+    with lock:  # 先に計算している人がいれば、その完了を待って結果を使う
+        with _TOPO_CACHE_LOCK:
+            hit = _TOPO_CACHE.get(key)
+        if hit is None:
+            hit = _TopoList(git("rev-list", "--topo-order", *rev_args(rev), "--").split())
+            with _TOPO_CACHE_LOCK:
+                _TOPO_CACHE[key] = hit
+                while len(_TOPO_CACHE) > TOPO_CACHE_MAX:
+                    _TOPO_CACHE.popitem(last=False)
+        with _TOPO_CACHE_LOCK:
+            _TOPO_INFLIGHT.pop(key, None)
+    return hit
+
+
+def _warm_topo_list(rev):
+    """あとで使う一覧を、裏で先に計算しておく (失敗しても何もしない)。"""
+    try:
+        topo_list(rev)
+    except Exception:
+        pass
+
+
 def log_position(rev, h):
     """ログ (graph=1 と同じ --topo-order の並び) の中で、コミット h が先頭から何番目か。無ければ index=-1。
     対象のコミットへ飛ぶとき、そこまでのログを読まずに、その付近から読み始めるために使う。"""
     if not REV_RE.fullmatch(rev) or not re.fullmatch(r"[0-9a-f]{40,64}", h):
         raise ValueError("bad rev")
-    hashes = git("rev-list", "--topo-order", *rev_args(rev), "--").split()
+    hashes = topo_list(rev).hashes
     try:
         index = hashes.index(h)
     except ValueError:
         index = -1
     return {"index": index, "total": len(hashes)}
+
+
+def _log_from_topo_list(rev, skip, limit):
+    """マージグラフ付きのログ (--topo-order)。並びは覚えておいた一覧から取り、該当の行だけを git log で引く。"""
+    topo = topo_list(rev)
+    window = topo.hashes[skip:skip + limit]
+    commits = []
+    if window:
+        out = git("log", "--no-walk=unsorted", "--stdin", "--parents", "--date=short",
+                  "--format=%H%x1f%h%x1f%an%x1f%ad%x1f%P%x1f%s", input="\n".join(window) + "\n")
+        for l in out.splitlines():
+            if not l:
+                continue
+            h, short, author, date, parents, subj = (l.split("\x1f", 5) + [""] * 6)[:6]
+            commits.append([h, short, author, date, subj, parents.split()])
+        if ".." in rev:
+            # 範囲指定 (A..B) では範囲外の親へ線を伸ばさない (ログに現れず、線が最後まで残るため)
+            listed = topo.hash_set()
+            for c in commits:
+                c[5] = [p for p in c[5] if p in listed]
+    res = {"commits": commits, "has_more": skip + len(window) < len(topo.hashes)}
+    if skip == 0:
+        res["total"] = len(topo.hashes)
+    return res
 
 
 def log(rev, path="", skip=0, limit=500, graph=False, search=None):
@@ -126,6 +205,8 @@ def log(rev, path="", skip=0, limit=500, graph=False, search=None):
         raise ValueError("bad path")
     skip, limit = paging(skip, limit)
     plan = search_plan(rev, search)
+    if graph and plan is None and not path:
+        return _log_from_topo_list(rev, skip, limit)
     if plan is not None:
         graph = False  # 検索結果は途中のコミットが抜けるので、マージグラフは付けない
         if not plan[1]:  # ハッシュに一致するコミットが無い
@@ -241,6 +322,14 @@ def branches_containing(hash_):
     refs = ["refs/heads"]
     if not state.OPTS.no_remotes:
         refs.append("refs/remotes")
+    # このあとログを開くとき、通常は現在のブランチ (HEAD) のログを使う。ブランチを調べている間に、その一覧を裏で先に作っておく
+    # (どちらも数秒かかることがあり、続けて行うと待ちが足し算になる)
+    try:
+        head = git("rev-parse", "--verify", "--quiet", "HEAD^{commit}").strip()
+    except subprocess.CalledProcessError:  # コミットがまだ無い
+        head = ""
+    if head:
+        threading.Thread(target=_warm_topo_list, args=(head,), daemon=True).start()
     out = git("for-each-ref", "--contains=" + h, "--format=%(refname)%1f%(objectname)", *refs)
     branches_out = []
     for line in out.splitlines():
@@ -440,5 +529,5 @@ def diff(path, old="", hash_="", from_hash="", to_hash="", wip=""):
 
 __all__ = [
     "DIFF_LIMIT", "REV_RE", "branches", "branches_containing", "commit", "compare", "diff",
-    "log", "log_position", "merge_base", "paging", "reflog", "rev_args", "search_plan", "stash_list", "tags",
+    "log", "log_position", "merge_base", "topo_list", "paging", "reflog", "rev_args", "search_plan", "stash_list", "tags",
 ]
