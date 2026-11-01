@@ -9,7 +9,8 @@
 # - push / push-tag / リモートブランチ削除などリモート側を変える操作は履歴に積まない (戻せないため)。
 # - 履歴はメモリ上だけに持つ (サーバーを再起動すると消える)。
 # - 作業ツリーは「追跡ファイルの内容」だけを退避する (変更のあるファイルの blob と小さなコミット1つ。サイズは変更量に比例)。
-#   管理外ファイルの中身と index は退避しない。管理外ファイルは名前だけ記録し、元に戻すときに消してよいファイルの判定に使う。
+#   管理外ファイルの中身は退避しない。index は tree と競合 entries を記録して復元する。管理外ファイルは名前だけ記録し、
+#   元に戻すときに消してよいファイルの判定に使う。
 #   退避した blob / tree は .git/objects ではなく一時ディレクトリ (GIT_OBJECT_DIRECTORY) に書き、本物の objects は
 #   GIT_ALTERNATE_OBJECT_DIRECTORIES で読み取り専用に見せる。.git には何も残さない (ref も作らない)。
 #   一時ディレクトリは起動時・終了時に cleanup() で消す。
@@ -58,7 +59,10 @@ LABEL_KEYS = {
 }
 
 
-PROBLEM_KEYS = {"snapshot_incomplete": "undo_reason_snapshot_incomplete"}
+PROBLEM_KEYS = {
+    "snapshot_incomplete": "undo_reason_snapshot_incomplete",
+    "index_snapshot_incomplete": "undo_reason_index_snapshot_incomplete",
+}
 
 
 def write_op_for(path, body):
@@ -148,6 +152,31 @@ def _unmerged_entries():
     return out
 
 
+def _index_snapshot():
+    """index の tree と競合 entries を記録する。競合中も、競合以外の staged 内容は tree に含める。"""
+    unmerged = _unmerged_entries()
+    tmp = tmpdir.make_temp_dir("index-snapshot")
+    try:
+        index = os.path.join(tmp, "index")
+        real_index = _git_path("index")
+        env = dict(os.environ, GIT_INDEX_FILE=index)
+        if os.path.exists(real_index):
+            shutil.copyfile(real_index, index)
+        else:
+            _run(["read-tree", "--empty"], env=env)
+        if unmerged:
+            zero = "0" * len(unmerged[0][1])
+            records = [f"0 {zero} 0\t{path}" for path in dict.fromkeys(item[3] for item in unmerged)]
+            _run(["update-index", "-z", "--index-info"], env=env,
+                 input="\0".join(records).encode("utf-8", errors="surrogateescape") + b"\0")
+        result = _run(["write-tree"], env=env, check=False)
+        if result.returncode:
+            return {"tree": None, "unmerged": unmerged, "problem": "index_snapshot_incomplete"}
+        return {"tree": result.stdout.decode().strip(), "unmerged": unmerged, "problem": None}
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def _worktree_snapshot(names=False):
     """作業ツリー上の追跡ファイルの内容を木 (tree) にして退避する。gc されないよう、記録するときに ref で守る。
     names が真なら管理外ファイルの名前も記録する (偽なら「管理外ファイルは追跡対象にならない」とみなして空)。
@@ -170,7 +199,7 @@ def _worktree_snapshot(names=False):
 
 def take(with_worktree):  # with_worktree: False / True / "names"
     """現在の状態を辞書にする。with_worktree が偽、または作業ツリーが無い / 操作の途中なら wt は None。"""
-    snap = {"refs": {}, "head": None, "stash": [], "config": {}, "wt": None}
+    snap = {"refs": {}, "head": None, "stash": [], "config": {}, "wt": None, "index": _index_snapshot()}
     for line in _text(["for-each-ref", "--format=%(objectname) %(refname)"]).splitlines():
         sha, _, ref = line.partition(" ")
         if ref == "refs/stash":  # stash は一覧 (reflog) で扱う
@@ -224,15 +253,18 @@ def _make_entry(before, after, meta):
               if before["config"].get(k) != after["config"].get(k)}
     head = [before["head"], after["head"]] if before["head"] != after["head"] else None
     stash = [before["stash"], after["stash"]] if before["stash"] != after["stash"] else None
+    index = [before["index"], after["index"]]
     wt = None
     bw, aw = before["wt"], after["wt"]
     if bw and aw and bw["tree"] != aw["tree"]:
         wt = _slim_worktree(bw, aw)
-    if not (refs or config or head or stash or wt):
+    if not (refs or config or head or stash or wt or before["index"] != after["index"]):
         return None
     problem = next((w["problem"] for w in (bw, aw) if w and w["problem"]), None)
+    if problem is None:
+        problem = next((s["problem"] for s in (before["index"], after["index"]) if s["problem"]), None)
     return {"id": f"{int(time.time() * 1000):x}", "ts": int(time.time()), "op": meta["op"], "detail": meta["detail"],
-            "refs": refs, "config": config, "head": head, "stash": stash, "wt": wt,
+            "refs": refs, "config": config, "head": head, "stash": stash, "wt": wt, "index": index,
             "undoable": problem is None, "problem": problem, **({"replay": meta["replay"]} if meta.get("replay") else {})}
 
 
@@ -383,6 +415,8 @@ def _expect(entry, cur, e, force):
         raise UserError("undo_state_changed", what="HEAD")
     if entry["stash"] and cur["stash"] != entry["stash"][e]:
         raise UserError("undo_state_changed", what="stash")
+    if entry.get("index") and cur["index"] != entry["index"][e]:
+        raise UserError("undo_state_changed", what="index")
     for key, pair in entry["config"].items():
         if cur["config"].get(key) != pair[e]:
             raise UserError("undo_state_changed", what=key)
@@ -438,7 +472,15 @@ def _restore_unmerged(items):
     zero = "0" * len(items[0][1])
     lines = [f"0 {zero} 0\t{path}" for path in dict.fromkeys(item[3] for item in items)]  # 先に消してから、段階ごとに入れ直す
     lines += [f"{mode} {oid} {stage}\t{path}" for mode, oid, stage, path in items]
-    _run(["update-index", "-z", "--index-info"], input="\0".join(lines).encode("utf-8", errors="surrogateescape") + b"\0", check=False)
+    _run(["update-index", "-z", "--index-info"], input="\0".join(lines).encode("utf-8", errors="surrogateescape") + b"\0")
+
+
+def _restore_index(target):
+    """index tree と未解決競合を復元する。"""
+    if target["tree"] is None:
+        raise RuntimeError("index snapshot is incomplete")
+    _run(["read-tree", target["tree"]])
+    _restore_unmerged(target["unmerged"])
 
 
 def _stash_untracked(entry):
@@ -514,7 +556,10 @@ def _apply(entry, t, cur):
         _restore_stash_untracked(entry, t)
     if entry["wt"]:
         _restore_worktree(entry["wt"][t])
-        if _run(["reset", "-q"], check=False).returncode != 0:  # index は HEAD に合わせる (ステージ状態は戻さない)
+    if entry.get("index"):
+        _restore_index(entry["index"][t])
+    elif entry["wt"]:  # 旧形式の履歴との互換
+        if _run(["reset", "-q"], check=False).returncode != 0:
             _run(["read-tree", "--empty"], check=False)
         _restore_unmerged(entry["wt"][t].get("unmerged"))
 
@@ -541,6 +586,8 @@ def _replay(entry):
             if now["refs"].get(ref) != pair[1]:
                 return False
         if (entry["head"] and now["head"] != entry["head"][1]) or (entry["stash"] and now["stash"] != entry["stash"][1]):
+            return False
+        if entry.get("index") and now["index"] != entry["index"][1]:
             return False
         return not entry["wt"] or _worktree_snapshot()["tree"] == entry["wt"][1]["tree"]
     except Exception:

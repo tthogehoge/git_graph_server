@@ -370,7 +370,7 @@ class GitApiIntegrationTests(unittest.TestCase):
         self.assertIn('ev.target.closest("a.commit-graph")', page)
         self.assertIn('type: "git-graph-commit"', page)
         self.assertIn('showContainingBranchLog(ev.data.hash)', app.render_app_js())
-        self.assertIn('showContainingBranchLog(commitHash)', app.render_app_js())
+        self.assertIn("showContainingBranchLog(commitHash, undefined, true);", app.render_app_js())
         self.assertIn('api("/api/blame"', page)
 
     def test_file_log_stays_in_file_view_and_can_open_graph(self):
@@ -1951,7 +1951,7 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.git("tag", "v1")
 
         def remote_tags():
-            return subprocess.check_output(["git", "-C", remote, "tag"], text=True).split()
+            return subprocess.check_output(["git", f"--git-dir={remote}", "tag"], text=True).split()
 
         result = app.api_push({"branch": "main", "remote": "origin"})
         self.assertTrue(result["ok"])

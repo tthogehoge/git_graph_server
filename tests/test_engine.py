@@ -156,6 +156,32 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(self.read("tracked.txt"), "edited\n")
         self.assertIn("?? new.txt", self.git("status", "--porcelain"))
 
+    def test_commit_undo_restores_the_staged_index_and_redo_replays_it(self):
+        self.write("tracked.txt", "staged edit\n")
+        self.git("add", "tracked.txt")
+
+        self.do("/api/wip-commit", {"paths": ["tracked.txt"], "message": "staged change"})
+        self.assertEqual(self.git("status", "--porcelain").strip(), "")
+
+        self.undo()
+        self.assertEqual(self.git("rev-parse", "HEAD").strip(), self.head)
+        self.assertEqual(self.git("diff", "--cached", "--name-only").strip(), "tracked.txt")
+        self.assertEqual(self.git("status", "--porcelain").strip(), "M  tracked.txt")
+
+        self.redo()
+        self.assertEqual(self.git("status", "--porcelain").strip(), "")
+
+    def test_undo_refuses_to_overwrite_an_index_changed_after_the_operation(self):
+        self.write("tracked.txt", "commit this\n")
+        self.do("/api/wip-commit", {"paths": ["tracked.txt"], "message": "commit"})
+        self.write("tracked.txt", "different staged content\n")
+        self.git("add", "tracked.txt")
+
+        with self.assertRaises(UserError) as ctx:
+            self.undo()
+        self.assertEqual(ctx.exception.key, "undo_state_changed")
+        self.assertEqual(self.git("diff", "--cached", "--name-only").strip(), "tracked.txt")
+
     def test_hard_reset_undo_restores_modified_tracked_files(self):
         second = self.commit_file("second.txt", "two\n", "second")
         self.write("tracked.txt", "staged edit\n")
@@ -172,14 +198,14 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(self.read("tracked.txt"), "staged edit\n")
         self.assertEqual(self.read("second.txt"), "unstaged edit\n")
         self.assertEqual(self.read("scratch.txt"), "untracked\n")  # 管理外ファイルには触れない
-        # index (ステージ状態) は対象外: HEAD に合わせられ、変更は未ステージとして残る
-        self.assertEqual(self.git("diff", "--cached", "--name-only").strip(), "")
-        self.assertIn(" M tracked.txt", self.git("status", "--porcelain"))
+        self.assertEqual(self.git("diff", "--cached", "--name-only").strip(), "tracked.txt")
+        self.assertEqual(self.git("status", "--porcelain").rstrip(), " M second.txt\nM  tracked.txt\n?? scratch.txt")
 
         self.redo()
         self.assertEqual(self.git("rev-parse", "HEAD").strip(), self.head)
         self.assertFalse(self.exists("second.txt"))
         self.assertEqual(self.read("scratch.txt"), "untracked\n")
+        self.assertEqual(self.git("status", "--porcelain").strip(), "?? scratch.txt")
 
     def test_untracked_files_are_neither_restored_nor_stored(self):
         self.write("scratch.txt", "precious and unique 8c1f\n")
@@ -187,7 +213,7 @@ class EngineTests(unittest.TestCase):
         self.assertFalse(self.exists("scratch.txt"))
         self.assertEqual(engine._load()["entries"], [])  # 管理外ファイルだけの変化は履歴に積まない (戻せない)
 
-    def test_snapshot_does_not_store_untracked_content_or_index(self):
+    def test_snapshot_does_not_store_untracked_content(self):
         self.write("junk.bin", "untracked blob content 77ab\n")
         blob = subprocess.check_output(["git", "-C", self.repo, "hash-object", "junk.bin"], text=True).strip()
         self.write("tracked.txt", "edit\n")
@@ -622,7 +648,8 @@ class EngineOperationTests(EngineTests):
         done = remote.push_tag("v1", remote="backup")
 
         self.assertEqual((done["remote"], done["up_to_date"]), ("backup", False))
-        self.assertEqual(subprocess.run(["git", "-C", b, "tag", "--list"], capture_output=True, text=True).stdout.strip(), "v1")
+        self.assertEqual(subprocess.run(["git", f"--git-dir={b}", "tag", "--list"],
+                                        capture_output=True, text=True).stdout.strip(), "v1")
         self.assertTrue(remote.push_tag("v1", remote="backup")["up_to_date"])
         with self.assertRaises(UserError):
             remote.push_tag("-x")
