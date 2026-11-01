@@ -364,7 +364,10 @@ class GitApiIntegrationTests(unittest.TestCase):
 
         self.assertIn('id="fileBlameBtn"', page)
         self.assertIn(".blame-no { flex: none; width: 8ch", page)
-        self.assertIn('class="blame-commit"', page)
+        self.assertIn('class="blame-commit commit-graph"', page)
+        self.assertIn('class="blame-line" data-hash="', page)
+        self.assertIn('ev.target.closest("tr.file-log-row, .blame-line")', page)
+        self.assertIn('ev.target.closest("a.commit-graph")', page)
         self.assertIn('type: "git-graph-commit"', page)
         self.assertIn('showContainingBranchLog(ev.data.hash)', app.render_app_js())
         self.assertIn('showContainingBranchLog(commitHash)', app.render_app_js())
@@ -377,12 +380,17 @@ class GitApiIntegrationTests(unittest.TestCase):
         self.assertIn("fileLogBtn.onclick = () => { if (currentFile) openView(\"log\"); };", page)
         self.assertIn('api("/api/log", {rev: hash, path: path})', page)
         self.assertIn('class="file-log-row" data-hash="\' + esc(c[0])', page)
+        self.assertIn('class="commit-graph" href="/?commit_hash=', page)
         self.assertIn('new URLSearchParams({hash: row.dataset.hash, file: currentFile})', page)
         self.assertIn('const dir = slash < 0 ? "" : currentFile.slice(0, slash);', page)
         self.assertIn('location.href = "/files?" + params', page)
         self.assertIn('location.href = "/?file_log_hash="', page)
         self.assertIn("グラフ画面で表示", page)
         self.assertNotIn("function logInTab()", page)
+        app_js = app.render_app_js()
+        self.assertIn("showFileLogInGraph(fileLogHash, fileLogPath, true);", app_js)
+        self.assertIn("showContainingBranchLog(commitHash, undefined, true);", app_js)
+        self.assertIn("replaceHistory, 0, {path: \"/api/log\"", app_js)
 
     def test_api_compare_returns_file_changes_between_commits(self):
         result = app.api_compare({

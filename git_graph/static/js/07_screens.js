@@ -32,10 +32,10 @@ function restoreScreen(state) {
   updateCmpClasses();
 }
 window.addEventListener("popstate", ev => restoreScreen(ev.state || {screen: "home"}));
-function showFileLogInGraph(hash, path) {
+function showFileLogInGraph(hash, path, replaceHistory = false) {
   showLog(t("file_log_heading", {path: esc(path)}), hash,
           '<div class="meta"><code>git log ' + esc(hash.slice(0, 7)) + " -- " + esc(path) + "</code></div>",
-          false, 0, {path: "/api/log", params: {rev: hash, path: path}});
+          replaceHistory, 0, {path: "/api/log", params: {rev: hash, path: path}});
 }
 window.addEventListener("message", ev => {
   if (ev.origin !== location.origin || !ev.data) return;

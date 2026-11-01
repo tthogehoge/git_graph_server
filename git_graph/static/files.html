@@ -46,9 +46,11 @@ __FAVICON__
   table.file-log td.hash { width: 1%; font-family: monospace; white-space: nowrap; }
   table.file-log td.date { width: 1%; color: #777; white-space: nowrap; }
   table.file-log a { color: inherit; text-decoration: none; }
+  table.file-log a.commit-graph:hover { text-decoration: underline; }
   table.file-log tr:hover td { background: #eef; }
   table.file-log tr { cursor: pointer; }
   .blame-line { display: flex; font: 12px monospace; white-space: pre-wrap; }
+  .blame-line { cursor: pointer; }
   .blame-line:hover { background: #f6f8fa; }
   .blame-no { flex: none; width: 8ch; box-sizing: border-box; padding-right: 1ch; text-align: right; color: #8c959f; }
   .blame-meta { flex: none; width: 24em; overflow: hidden; text-overflow: ellipsis; color: #666; }
@@ -395,17 +397,29 @@ function loadFileBlame(path) {
   content.textContent = t("loading");
   api("/api/blame", {hash: hash, path: path}).then(r => {
     content.innerHTML = '<div class="meta">' + esc(t("n_lines", {n: r.lines.length})) + '</div><div class="blame">' +
-      r.lines.map(line => '<div class="blame-line"><span class="blame-no">' + line.line + '</span><span class="blame-meta">' +
-        (/^0+$/.test(line.hash) ? esc(t("not_committed_yet")) : '<a class="blame-commit" href="/?commit_hash=' +  // 未コミットの行
+      r.lines.map(line => '<div class="blame-line" data-hash="' + (/^0+$/.test(line.hash) ? "" : esc(line.hash)) + '"><span class="blame-no">' + line.line + '</span><span class="blame-meta">' +
+        (/^0+$/.test(line.hash) ? esc(t("not_committed_yet")) : '<a class="blame-commit commit-graph" href="/?commit_hash=' +  // 未コミットの行
         encodeURIComponent(line.hash) + '">' + esc(line.hash.slice(0, 7)) + '</a> ' + esc(line.author + " " + line.date)) +
         '</span><span class="blame-code">' + esc(line.content) + '</span></div>').join("") + '</div>';
   }).catch(e => { content.className = "hint"; content.textContent = t("error") + e.message; });
 }
 content.addEventListener("click", ev => {
-  const link = ev.target.closest("a.blame-commit");
-  if (!link || !window.opener || window.opener.closed) return;
-  ev.preventDefault();
-  window.opener.postMessage({type: "git-graph-commit", hash: new URL(link.href).searchParams.get("commit_hash")}, location.origin);
+  const link = ev.target.closest("a.commit-graph");
+  if (link) {
+    if (window.opener && !window.opener.closed) {
+      ev.preventDefault();
+      window.opener.postMessage({type: "git-graph-commit", hash: new URL(link.href).searchParams.get("commit_hash")}, location.origin);
+    }
+    return;
+  }
+  const row = ev.target.closest("tr.file-log-row, .blame-line");
+  if (!row || !row.dataset.hash || !currentFile) return;
+  const params = new URLSearchParams({hash: row.dataset.hash, file: currentFile});
+  const slash = currentFile.lastIndexOf("/");
+  const dir = slash < 0 ? "" : currentFile.slice(0, slash);
+  if (dir) params.set("path", dir);
+  if (fileViewTab) params.set("file_view", "1");
+  location.href = "/files?" + params;
 });
 function loadFileLog(path) {
   const hash = logHash();
@@ -419,23 +433,13 @@ function loadFileLog(path) {
   content.className = "hint";
   content.textContent = t("loading");
   api("/api/log", {rev: hash, path: path}).then(r => {
-    const rows = r.commits.map(c => '<tr class="file-log-row" data-hash="' + esc(c[0]) + '"><td class="hash">' + esc(c[1]) +
+    const rows = r.commits.map(c => '<tr class="file-log-row" data-hash="' + esc(c[0]) + '"><td class="hash"><a class="commit-graph" href="/?commit_hash=' + encodeURIComponent(c[0]) + '">' + esc(c[1]) + '</a>' +
       '</td><td class="date">' + esc(c[3]) + '</td><td>' + esc(c[4]) + '</td></tr>').join("");
     content.className = "";
     content.innerHTML = '<div class="meta">' + esc(t("n_commits", {n: r.total})) + '</div>' +
       (rows ? '<table class="file-log"><tbody>' + rows + '</tbody></table>' : '<p class="hint">' + t("no_history") + '</p>');
   }).catch(e => { content.className = "hint"; content.textContent = t("error") + e.message; });
 }
-content.addEventListener("click", ev => {
-  const row = ev.target.closest("tr.file-log-row");
-  if (!row || !row.dataset.hash || !currentFile) return;
-  const params = new URLSearchParams({hash: row.dataset.hash, file: currentFile});
-  const slash = currentFile.lastIndexOf("/");
-  const dir = slash < 0 ? "" : currentFile.slice(0, slash);
-  if (dir) params.set("path", dir);
-  if (fileViewTab) params.set("file_view", "1");
-  location.href = "/files?" + params;
-});
 fileLogBtn.onclick = () => { if (currentFile) openView("log"); };
 fileBlameBtn.onclick = () => openView("blame");
 fileContentBtn.onclick = () => { if (currentFile) backToContent(); };

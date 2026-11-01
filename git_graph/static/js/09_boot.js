@@ -31,10 +31,10 @@ fetch(graphUrl())
     if (fileLogHash && fileLogPath) {
       // 一度だけ消費し、以後の履歴には一時的なクエリを残さない。
       history.replaceState({screen: "home"}, "", "/");
-      showFileLogInGraph(fileLogHash, fileLogPath);
+      showFileLogInGraph(fileLogHash, fileLogPath, true);
     } else if (commitHash) {
       history.replaceState({screen: "home"}, "", "/");
-      showContainingBranchLog(commitHash);
+      showContainingBranchLog(commitHash, undefined, true);
     } else if (screen.screen === "home") {
       scrollToHead();
     }
