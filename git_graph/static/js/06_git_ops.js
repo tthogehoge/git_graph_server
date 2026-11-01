@@ -303,7 +303,7 @@ async function doMerge() {
       clearCmp();
       setGraphStatus(r.message, r.conflict ? "error" : "success");
       return refreshGraph().catch(() => {}).then(() => {
-        if (r.conflict) showWip();
+        if (r.conflict) openWip();
       });
     })
     .catch(e => { setGraphStatus(t("merge_error", {error: e.message}), "error"); })
