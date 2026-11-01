@@ -85,6 +85,12 @@ def cleanup_engine():
         pass
 
 POST_ROUTES = {path: handler for (method, path), handler in ROUTES.items() if method == "POST"}
+BODY_LIMITS = {
+    "/api/file-save": SAVE_BODY_LIMIT,
+    "/api/patch-apply": PATCH_BODY_LIMIT,
+    "/api/patch-am": PATCH_BODY_LIMIT,
+}
+DEFAULT_BODY_LIMIT = 100000
 
 class Handler(BaseHTTPRequestHandler):
     def _send(self, code, ctype, body):
@@ -163,13 +169,13 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         try:
             path = urlparse(self.path).path
-            handler = ROUTES.get(("POST", path))
+            handler = POST_ROUTES.get(path)
             if handler is None:
                 self._send(404, "text/plain", "not found")
                 return
             self._check_post(shutdown=path in ("/api/shutdown", "/api/restart"))
             n = int(self.headers.get("Content-Length") or 0)
-            if n > {"/api/file-save": SAVE_BODY_LIMIT, "/api/patch-apply": PATCH_BODY_LIMIT, "/api/patch-am": PATCH_BODY_LIMIT}.get(path, 100000):
+            if n > BODY_LIMITS.get(path, DEFAULT_BODY_LIMIT):
                 raise ValueError("body too large")
             body = json.loads(self.rfile.read(n) or b"{}")
             if not isinstance(body, dict):

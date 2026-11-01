@@ -292,12 +292,17 @@ def _push(h, entry):
     h["cursor"] = len(h["entries"])
 
 
+def _short_label(text):
+    text = str(text or "")
+    return text[:7] if HASH_RE.fullmatch(text) else text[:60]
+
+
 def _detail(body):
     if isinstance(body, dict):
         for k in ("name", "branch", "tag", "remote", "new_name", "hash"):
             v = body.get(k)
             if isinstance(v, str) and v:
-                return v[:7] if HASH_RE.fullmatch(v) else v[:60]
+                return _short_label(v)
     return ""
 
 
@@ -370,7 +375,7 @@ def operation(name, *, touches_worktree, detail=None, replay=False):
                     text = detail(*args, **kwargs) or ""
                 except Exception:
                     text = ""
-            text = text[:7] if HASH_RE.fullmatch(text) else text[:60]  # ハッシュは短くして履歴に出す
+            text = _short_label(text)  # ハッシュは短くして履歴に出す
             spec = None
             if replay:
                 try:
@@ -652,28 +657,29 @@ def api_undo_history(query):
     }
 
 
+def _move_api(direction, body, done_key, rescued_key):
+    try:
+        entry, overwritten = _move(direction, body.get("force") is True)
+    except UserError as e:
+        if e.key == "undo_worktree_changed":
+            return {"worktree_changed": True, "message": str(e)}
+        raise
+    message = tr(done_key, op=_label(entry))
+    if overwritten:
+        message += " " + tr(rescued_key)
+    return {"ok": True, "message": message}
+
+
 @route("/api/undo", method="POST")
 def api_undo(body):
     """直前の操作を元に戻す。作業ツリーが操作後から変わっているときは {worktree_changed: true} を返し、
     force=true で再実行すると上書きして戻す (上書きされる状態は「やり直し」で戻せる)。"""
-    try:
-        entry, overwritten = _move(-1, body.get("force") is True)
-    except UserError as e:
-        if e.key == "undo_worktree_changed":
-            return {"worktree_changed": True, "message": str(e)}
-        raise
-    return {"ok": True, "message": tr("undo_done", op=_label(entry)) + (" " + tr("undo_rescued") if overwritten else "")}
+    return _move_api(-1, body, "undo_done", "undo_rescued")
 
 
 @route("/api/redo", method="POST")
 def api_redo(body):
-    try:
-        entry, overwritten = _move(1, body.get("force") is True)
-    except UserError as e:
-        if e.key == "undo_worktree_changed":
-            return {"worktree_changed": True, "message": str(e)}
-        raise
-    return {"ok": True, "message": tr("redo_done", op=_label(entry)) + (" " + tr("redo_rescued") if overwritten else "")}
+    return _move_api(1, body, "redo_done", "redo_rescued")
 
 
 __all__ = ["cleanup", "IGNORED", "WRITE_OPS", "api_redo", "api_undo", "api_undo_history", "in_progress", "run", "take", "write_op_for"]
