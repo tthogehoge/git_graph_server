@@ -381,9 +381,21 @@ function showLog(titleHtml, rev, topHtml, fromHistory, restoreScroll, src, targe
 }
 
 async function showContainingBranchLog(hash, selectedRef, replaceHistory = false) {
+  // 対象のブランチを調べる間 (大きいリポジトリでは時間がかかる) も、すぐに画面を切り替えて「読み込み中」を見せる。
+  // 何度もクリックされたら、最後のクリックだけを有効にする (token で古い読み込みを捨てる)
+  const my = ++token;
+  if (observer) { observer.disconnect(); observer = null; }
+  curRow = null;
+  logGraphCur = null;
+  document.body.classList.remove("compare-logs-mode");
+  listView.innerHTML = '<div class="meta" id="count">' + esc(t("loading")) + '</div>';
+  listView.dataset.src = "";
+  showView("list");
   try {
     const result = await api("/api/branches-containing", {hash: hash});
+    if (my !== token) return;
     if (!result.branches.length) {
+      restoreScreen(history.state || {screen: "home"});  // 読み込み中の画面から、元の画面へ戻す
       setGraphStatus(t("branches_containing_none", {hash: hash.slice(0, 7)}), "error");
       return;
     }
@@ -397,6 +409,7 @@ async function showContainingBranchLog(hash, selectedRef, replaceHistory = false
       ': <select id="containingBranchSelect" data-h="' + esc(hash) + '">' + options + "</select></label></div>";
     showLog(esc(t("branch_log_title", {name: branch.name})), branch.tip, top, replaceHistory, 0, null, hash);
   } catch (e) {
+    if (my === token) restoreScreen(history.state || {screen: "home"});
     setGraphStatus(t("error") + e.message, "error");
   }
 }
