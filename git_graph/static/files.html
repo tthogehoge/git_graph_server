@@ -47,6 +47,7 @@ __FAVICON__
   table.file-log td.date { width: 1%; color: #777; white-space: nowrap; }
   table.file-log a { color: inherit; text-decoration: none; }
   table.file-log tr:hover td { background: #eef; }
+  table.file-log tr { cursor: pointer; }
   .blame-line { display: flex; font: 12px monospace; white-space: pre-wrap; }
   .blame-line:hover { background: #f6f8fa; }
   .blame-no { flex: none; width: 8ch; box-sizing: border-box; padding-right: 1ch; text-align: right; color: #8c959f; }
@@ -418,13 +419,23 @@ function loadFileLog(path) {
   content.className = "hint";
   content.textContent = t("loading");
   api("/api/log", {rev: hash, path: path}).then(r => {
-    const rows = r.commits.map(c => '<tr><td class="hash">' + esc(c[1]) +
+    const rows = r.commits.map(c => '<tr class="file-log-row" data-hash="' + esc(c[0]) + '"><td class="hash">' + esc(c[1]) +
       '</td><td class="date">' + esc(c[3]) + '</td><td>' + esc(c[4]) + '</td></tr>').join("");
     content.className = "";
     content.innerHTML = '<div class="meta">' + esc(t("n_commits", {n: r.total})) + '</div>' +
       (rows ? '<table class="file-log"><tbody>' + rows + '</tbody></table>' : '<p class="hint">' + t("no_history") + '</p>');
   }).catch(e => { content.className = "hint"; content.textContent = t("error") + e.message; });
 }
+content.addEventListener("click", ev => {
+  const row = ev.target.closest("tr.file-log-row");
+  if (!row || !row.dataset.hash || !currentFile) return;
+  const params = new URLSearchParams({hash: row.dataset.hash, file: currentFile});
+  const slash = currentFile.lastIndexOf("/");
+  const dir = slash < 0 ? "" : currentFile.slice(0, slash);
+  if (dir) params.set("path", dir);
+  if (fileViewTab) params.set("file_view", "1");
+  location.href = "/files?" + params;
+});
 fileLogBtn.onclick = () => { if (currentFile) openView("log"); };
 fileBlameBtn.onclick = () => openView("blame");
 fileContentBtn.onclick = () => { if (currentFile) backToContent(); };
