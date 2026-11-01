@@ -102,6 +102,12 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _send_command_error(self, error):
+        output = error.stderr or error.stdout or ""
+        if isinstance(output, bytes):
+            output = output.decode("utf-8", errors="replace")
+        self._send(500, "text/plain", f"command failed: {error.cmd}\n{output}")
+
     def _send_download(self, name, data):
         """ファイルをダウンロードとして返す。日本語などのファイル名は RFC 5987 (filename*) で渡す。"""
         fallback = "".join(c if c.isascii() and c.isprintable() and c not in '"\\/;' else "_" for c in name) or "download"
@@ -145,7 +151,7 @@ class Handler(BaseHTTPRequestHandler):
         except FileNotFoundError:
             self._send(500, "text/plain", tr("dot_missing"))
         except subprocess.CalledProcessError as e:
-            self._send(500, "text/plain", f"command failed: {e.cmd}\n{e.stderr or ''}")
+            self._send_command_error(e)
 
     def _check_post(self, shutdown=False):
         """他サイトのページからの書き込みを防ぐ (CSRF / DNS rebinding 対策)。"""
@@ -203,6 +209,8 @@ class Handler(BaseHTTPRequestHandler):
                     threading.Thread(target=state.SERVER.shutdown, daemon=True).start()
         except Forbidden as e:
             self._send(403, "text/plain", str(e))
+        except subprocess.CalledProcessError as e:
+            self._send_command_error(e)
         except ValueError as e:  # JSON の不正も含む
             self._send(400, "text/plain", str(e))
 

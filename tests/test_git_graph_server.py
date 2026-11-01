@@ -18,7 +18,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 import git_graph_server as app
-from git_graph import app_state as state
+from git_graph import app_state as state, engine
 from git_graph import graph as graph_module
 from git_graph import pages as viewer
 from git_graph import tmpdir
@@ -597,6 +597,27 @@ class WorkingTreeFilesTests(unittest.TestCase):
             urlopen(base + "/files?hash=bad")
         self.assertEqual(cm.exception.code, 400)
         cm.exception.close()
+
+    def test_post_git_command_failure_returns_http_500(self):
+        previous = (state.WRITABLE, state.OPTS)
+        state.WRITABLE, state.OPTS = True, SimpleNamespace(host="127.0.0.1")
+        self.addCleanup(lambda: (setattr(state, "WRITABLE", previous[0]), setattr(state, "OPTS", previous[1])))
+        server = app.QuietServer(("127.0.0.1", 0), app.Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+
+        error = subprocess.CalledProcessError(1, ["git", "test"], stderr=b"git failed")
+        with mock.patch.dict(app.POST_ROUTES, {"/api/test-failure": lambda body: {}}), \
+                mock.patch.object(engine, "run", side_effect=error):
+            req = Request(f"http://127.0.0.1:{server.server_address[1]}/api/test-failure",
+                          data=b"{}", headers={"Content-Type": "application/json"}, method="POST")
+            with self.assertRaises(HTTPError) as cm:
+                urlopen(req)
+            self.assertEqual(cm.exception.code, 500)
+            self.assertEqual(cm.exception.read().decode(), "command failed: ['git', 'test']\ngit failed")
+            cm.exception.close()
 
     def write_bytes(self, path, data):
         with open(os.path.join(self.repo, path), "wb") as f:
