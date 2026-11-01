@@ -26,7 +26,7 @@ python git_graph_server.py --open
 The default URL is `http://127.0.0.1:8000/`.
 
 ```sh
-python git_graph_server.py -C /path/to/repo --port 8080
+python git_graph_server.py /path/to/repo --port 8080
 ```
 
 If no revisions are specified, branches, tags, and `HEAD` are shown. Press `Ctrl+C` or the Quit button at the top left of the page to stop the server.
@@ -98,7 +98,7 @@ These buttons work only with `--desktop` on a loopback address with writing enab
 
 | Option | Description |
 | --- | --- |
-| `-C PATH` | Repository path (default: current directory) |
+| `[repo] [rev ...]` | Repository path (default: current directory), then the revisions to show (default: all). Use `.` as the repo to give only revisions |
 | `--host HOST` / `--port PORT` | Listen address / port (default 8000; if it is in use a free port is chosen automatically, but an explicit `--port` that is in use is an error) |
 | `--open` | Open the browser after startup |
 | `--no-remotes` / `--no-tags` | Hide remotes / tags |

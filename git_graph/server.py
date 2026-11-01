@@ -222,8 +222,8 @@ def main():
     pre.add_argument("--lang", choices=sorted(TRANSLATIONS))
     state.UI_LANG = detect_language(pre.parse_known_args()[0].lang)
     ap = argparse.ArgumentParser(description="git commit graph server")
+    ap.add_argument("repo", nargs="?", default=".", help=tr("cli_help_repo"))
     ap.add_argument("revs", nargs="*", help=tr("cli_help_revs"))
-    ap.add_argument("-C", dest="repo", default=".", help=tr("cli_help_repo"))
     ap.add_argument("--host", default="127.0.0.1", help=tr("cli_help_host"))
     ap.add_argument("--port", type=int, default=None, help=tr("cli_help_port"))
     ap.add_argument("--open", action="store_true", help=tr("cli_help_open"))
@@ -248,7 +248,7 @@ def main():
     ap.add_argument("--desktop", action="store_true", help=tr("cli_help_desktop"))
     ap.add_argument("--config", metavar="FILE", help=tr("cli_help_config"))
     ap.add_argument("--check-i18n", action="store_true", help=tr("cli_help_check_i18n"))
-    state.OPTS = ap.parse_args()
+    state.OPTS = ap.parse_intermixed_args()  # --font X /path --open のように、オプションと位置引数が混ざっても受け付ける
     hide_console_windows()  # Windows: git / dot の起動のたびにコンソール窓が出ないようにする
     if state.OPTS.check_i18n:
         sys.exit(check_i18n())

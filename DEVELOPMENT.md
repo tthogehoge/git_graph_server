@@ -6,16 +6,16 @@
 
 対応環境は Linux です。実行時に必要なものは Python 3、[pygit2](https://www.pygit2.org/)（`pip install pygit2`）、Git、Graphviz の `dot` です。読み取りのホットパス（グラフモデル・blob・commit 解決など）は pygit2 を使い、書き込みや複雑な porcelain は Git CLI にフォールバックします。Graphviz はコミットグラフのレイアウトと描画に使われます。
 
-開発対象のソースツリーと、画面に表示する Git リポジトリは分けて指定できます。引数なしで起動するとカレントディレクトリが表示対象です。開発中は専用のテスト用リポジトリを `-C` で指定すると、作業ツリーへの誤操作を避けられます。
+開発対象のソースツリーと、画面に表示する Git リポジトリは分けて指定できます。引数なしで起動するとカレントディレクトリが表示対象です。開発中は専用のテスト用リポジトリを第1引数で指定すると、作業ツリーへの誤操作を避けられます。
 
 ```sh
-python3 git_graph_server.py -C /path/to/test-repo --open
+python3 git_graph_server.py /path/to/test-repo --open
 ```
 
 ポートを固定したい場合は `--port` を指定します。起動時に翻訳検査を行う場合は `--check-i18n`、Graphviz に渡す DOT テキストだけを確認する場合は `--dot` を使います。全オプションは `python3 git_graph_server.py --help` で確認できます。
 
 ```sh
-python3 git_graph_server.py -C /path/to/test-repo --port 8080
+python3 git_graph_server.py /path/to/test-repo --port 8080
 python3 git_graph_server.py --check-i18n
 ```
 

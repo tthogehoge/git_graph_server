@@ -24,7 +24,7 @@ python git_graph_server.py --open
 既定の URL は `http://127.0.0.1:8000/` です。
 
 ```sh
-python git_graph_server.py -C /path/to/repo --port 8080
+python git_graph_server.py /path/to/repo --port 8080
 ```
 
 対象の rev を指定しない場合は、ブランチ・タグ・HEAD を表示します。終了は `Ctrl+C`、または画面左上の「終了」ボタンです。
@@ -96,7 +96,7 @@ LANG=en_US.UTF-8 python git_graph_server.py
 
 | オプション | 説明 |
 | --- | --- |
-| `-C PATH` | 対象リポジトリ（既定: カレントディレクトリ） |
+| `[repo] [rev ...]` | 対象リポジトリ（既定: カレントディレクトリ）、続けて表示する rev（既定: すべて）。rev だけ指定するときは repo に `.` を指定 |
 | `--host HOST` / `--port PORT` | 待ち受けアドレス / ポート (既定 8000。使用中なら空きポートを自動選択。`--port` を指定して使用中ならエラー終了) |
 | `--open` | 起動後にブラウザで開く |
 | `--no-remotes` / `--no-tags` | リモート / タグを非表示 |

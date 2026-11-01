@@ -43,8 +43,7 @@ def build_command():
         ]
 
     # 引数を渡す
-    if len(sys.argv) > 1:
-        cmd += ["-C"] + sys.argv[1:]
+    cmd += sys.argv[1:]  # [repo] [rev ...]
 
     return cmd
 
