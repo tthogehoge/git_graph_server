@@ -106,6 +106,19 @@ def search_plan(rev, search):
     return opts, revs, False
 
 
+def log_position(rev, h):
+    """ログ (graph=1 と同じ --topo-order の並び) の中で、コミット h が先頭から何番目か。無ければ index=-1。
+    対象のコミットへ飛ぶとき、そこまでのログを読まずに、その付近から読み始めるために使う。"""
+    if not REV_RE.fullmatch(rev) or not re.fullmatch(r"[0-9a-f]{40,64}", h):
+        raise ValueError("bad rev")
+    hashes = git("rev-list", "--topo-order", *rev_args(rev), "--").split()
+    try:
+        index = hashes.index(h)
+    except ValueError:
+        index = -1
+    return {"index": index, "total": len(hashes)}
+
+
 def log(rev, path="", skip=0, limit=500, graph=False, search=None):
     if not REV_RE.fullmatch(rev):
         raise ValueError("bad rev")
@@ -427,5 +440,5 @@ def diff(path, old="", hash_="", from_hash="", to_hash="", wip=""):
 
 __all__ = [
     "DIFF_LIMIT", "REV_RE", "branches", "branches_containing", "commit", "compare", "diff",
-    "log", "merge_base", "paging", "reflog", "rev_args", "search_plan", "stash_list", "tags",
+    "log", "log_position", "merge_base", "paging", "reflog", "rev_args", "search_plan", "stash_list", "tags",
 ]

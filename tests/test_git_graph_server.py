@@ -578,6 +578,18 @@ class LogSearchTests(unittest.TestCase):
         result = self.search(grep="login", graph="1")
         self.assertEqual([c[5] for c in result["commits"]], [[self.c2], [self.c1]])
 
+    def test_log_position_matches_the_graph_log_order(self):
+        # 対象のコミットへ飛ぶときの読み始めの位置: graph=1 のログ (--topo-order) の並びと同じ番号になる
+        listed = [c[0] for c in app.api_log({"rev": [self.c3], "graph": ["1"]})["commits"]]
+        for i, h in enumerate(listed):
+            self.assertEqual(app.api_log_position({"rev": [self.c3], "hash": [h]}), {"index": i, "total": len(listed)})
+        self.assertEqual(app.api_log_position({"rev": [self.c2], "hash": [self.c3]})["index"], -1)  # ログに無い
+        with self.assertRaises(ValueError):
+            app.api_log_position({"rev": [self.c3], "hash": ["abc"]})
+        # 読み始めの位置から先は、skip で続きを読める
+        tail = app.api_log({"rev": [self.c3], "graph": ["1"], "skip": ["1"]})["commits"]
+        self.assertEqual([c[0] for c in tail], listed[1:])
+
     def test_search_ui_is_part_of_the_app(self):
         js = app.render_app_js()
         self.assertIn("log-search-btn", js)

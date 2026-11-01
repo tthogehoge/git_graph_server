@@ -691,5 +691,6 @@
   "search_go": "検索",
   "search_hits": "{n} 件ヒット",
   "search_bad_hash": "ハッシュは16進数で4桁以上入力してください。",
-  "search_bad_date": "日付は YYYY-MM-DD の形式で指定してください。"
+  "search_bad_date": "日付は YYYY-MM-DD の形式で指定してください。",
+  "earlier_commits": "▲ これより前のコミットを読み込む (上にあと {n} 件)"
 }

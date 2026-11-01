@@ -261,7 +261,8 @@ listView.addEventListener("keydown", ev => {
   }
 });
 
-function showLog(titleHtml, rev, topHtml, fromHistory, restoreScroll, src, targetHash, search) {
+const TARGET_BEFORE = 100;  // 対象のコミットへ飛ぶとき、対象より前 (上) のこの件数から読み始める
+function showLog(titleHtml, rev, topHtml, fromHistory, restoreScroll, src, targetHash, search, win) {
   search = normSearch(search);
   // 検索できるのはコミット履歴のログだけ (stash / reflog / ブランチ・タグ一覧や、特定のコミットを探すログは対象外)
   const searchable = (!src || src.path === "/api/log") && !targetHash;
@@ -276,14 +277,14 @@ function showLog(titleHtml, rev, topHtml, fromHistory, restoreScroll, src, targe
   listView.innerHTML = "<h2>" + titleHtml +
     (searchable ? ' <button class="sbtn iconbtn log-search-btn' + (search ? " on" : "") + '" title="' + esc(t("search_open")) + '">🔍</button>' : "") + "</h2>" +
     (searchable ? logSearchHtml(search) : "") + topHtml +
-    '<div class="meta" id="count">' + esc(t("loading")) + '</div>' +
+    '<div class="meta" id="count">' + esc(t("loading")) + '</div><div id="earlier" class="hint"></div>' +
     '<table class="log"><tbody id="rows"></tbody></table><div id="sentinel" class="hint"></div>';
   showView("list");
   listView.dataset.src = src ? src.path : "";
   const rows = listView.querySelector("#rows"), count = listView.querySelector("#count"),
-        sentinel = listView.querySelector("#sentinel");
+        sentinel = listView.querySelector("#sentinel"), earlier = listView.querySelector("#earlier");
   rows.dataset.key = logKey(titleHtml, rev, topHtml, src, targetHash, search);  // 詳細から戻るとき、同じログならそのまま見せる
-  let skip = 0, done = false, loading = false, total = null;
+  let skip = 0, done = false, loading = false, total = null, winStart = 0;  // winStart: 読み始めた位置 (対象へ飛ぶときは先頭ではない)
   // /api/log の一覧 (コミット履歴) だけマージグラフを付ける (stash / reflog / ブランチ一覧などは付けない)。検索結果は途中のコミットが抜けるので付けない
   const graphRow = ((!src || src.path === "/api/log") && !search) ? logGraph() : null;
   logGraphCur = graphRow;
@@ -319,28 +320,62 @@ function showLog(titleHtml, rev, topHtml, fromHistory, restoreScroll, src, targe
     }
   }
 
+  // 読み始めた位置が先頭でないとき、これより前を読み込むボタンを出す (押すと、少し前から読み直す)
+  function showEarlier() {
+    earlier.innerHTML = "";
+    if (winStart <= 0) return;
+    const btn = document.createElement("button");
+    btn.className = "sbtn";
+    btn.textContent = t("earlier_commits", {n: winStart});
+    btn.onclick = () => {
+      const first = rows.firstElementChild;
+      showLog(titleHtml, rev, topHtml, true, 0, src, targetHash, search,
+              {start: Math.max(0, winStart - CHUNK / 2), focus: first ? first.dataset.h : ""});
+    };
+    earlier.appendChild(btn);
+  }
+  // 続きを読み込む: 末尾が見えたら CHUNK 件ずつ
+  function watch() {
+    if ("IntersectionObserver" in window) {
+      const recheck = () => {
+        if (!done && observer && my === token) { observer.unobserve(sentinel); observer.observe(sentinel); }
+      };
+      observer = new IntersectionObserver(es => { if (es[0].isIntersecting) more().then(recheck); },
+                                          {root: listView, rootMargin: "600px"});
+      observer.observe(sentinel);
+    } else {
+      (async () => { while (!done && my === token) await more(); })();
+    }
+  }
+
   if (targetHash) {
     (async () => {
+      // 対象まで先頭から読むと、件数が多いときに時間がかかる。対象の位置を先に調べて、その少し前から読む
+      try {
+        const pos = await api("/api/log-position", {rev: rev, hash: targetHash});
+        if (my !== token) return;
+        if (pos.index >= 0) {
+          skip = winStart = win && win.start !== undefined ? win.start : Math.max(0, pos.index - TARGET_BEFORE);
+          total = pos.total;
+        }
+      } catch (e) {
+        if (my !== token) return;  // 位置が分からなければ、先頭から読む
+      }
+      showEarlier();
+      const find = h => h ? listView.querySelector('tr[data-h="' + h + '"]') : null;
+      const goal = (win && win.focus) || targetHash;
       while (!done && my === token) {
         await more();
         if (my !== token) return;
-        const target = listView.querySelector('tr[data-h="' + targetHash + '"]');
-        if (target) {
-          target.classList.add("cur");
-          target.scrollIntoView({block: "center"});
-          break;
-        }
+        if (find(goal)) break;
       }
+      const target = find(targetHash), focus = find(goal);
+      if (target) target.classList.add("cur");
+      if (focus) focus.scrollIntoView({block: goal === targetHash ? "center" : "start"});
+      if (!done) watch();
     })();
-  } else if ("IntersectionObserver" in window) {
-    const recheck = () => {
-      if (!done && observer && my === token) { observer.unobserve(sentinel); observer.observe(sentinel); }
-    };
-    observer = new IntersectionObserver(es => { if (es[0].isIntersecting) more().then(recheck); },
-                                        {root: listView, rootMargin: "600px"});
-    observer.observe(sentinel);
   } else {
-    (async () => { while (!done && my === token) await more(); })();
+    watch();
   }
 
 }

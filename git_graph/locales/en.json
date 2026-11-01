@@ -691,5 +691,6 @@
   "search_go": "Search",
   "search_hits": "{n} hits",
   "search_bad_hash": "Enter at least 4 hexadecimal digits for the hash.",
-  "search_bad_date": "Dates must be in YYYY-MM-DD format."
+  "search_bad_date": "Dates must be in YYYY-MM-DD format.",
+  "earlier_commits": "▲ Load earlier commits ({n} above)"
 }
