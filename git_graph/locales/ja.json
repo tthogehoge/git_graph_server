@@ -566,7 +566,7 @@
   "working_tree_files": "作業ツリー",
   "not_committed_yet": "未コミット",
   "wip_dir_changed": "このディレクトリの中に変更があります",
-  "file_diff": "このファイルの差分",
+  "file_diff": "ファイル差分",
   "file_edit": "編集",
   "file_edit_title": "{path} を編集",
   "file_download": "ダウンロード",

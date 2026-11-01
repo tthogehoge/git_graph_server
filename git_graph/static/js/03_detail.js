@@ -152,6 +152,7 @@ function showDetail(h, fromHistory) {
     const parents = c.parents.map(p => esc(p.slice(0, 7))).join(", ") || t("none");
     detailView.innerHTML = back + "<h2>" + t("commit_label") + " " + esc(c.hash.slice(0, 7)) +
       ' <a class="detail-files" href="/files?hash=' + encodeURIComponent(c.hash) + '" title="' + esc(t("tip_files")) + '">' + esc(t("files")) + "</a>" +
+      (c.files.length ? ' <a class="detail-files" href="' + esc(diffUrl({hash: c.hash}, c.files[0])) + '">' + esc(t("file_diff")) + "</a>" : "") +
       ' <a class="detail-patch" href="#" data-hash="' + esc(c.hash) + '" data-name="' + esc(c.hash.slice(0, 7)) + '.patch" title="' + esc(t("tip_patch_create_commit")) + '">' + esc(t("patch_create")) + "</a></h2>" +
       '<span id="dChips">' + detailChips(c.hash) + "</span>" +
       '<div class="meta">' + esc(c.hash) + copyLink(c.hash) + "</div>" +
@@ -240,4 +241,3 @@ function doAction(btn) {  // ブランチ/タグのチップの × (削除)
     .catch(e => setGraphStatus(t("delete_failed", {error: e.message}), "error", true))
     .finally(() => { btn.disabled = false; });
 }
-
