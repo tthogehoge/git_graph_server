@@ -610,6 +610,20 @@ class LogSearchTests(unittest.TestCase):
         self.assertEqual([c[0] for c in ranged["commits"]], [self.c3, self.c2])
         self.assertEqual([c[5] for c in ranged["commits"]], [[self.c2], []])  # 範囲外 (c1) の親へは線を伸ばさない
 
+    def test_graph_first_page_avoids_total_walk_and_knows_exact_page_boundary(self):
+        with mock.patch.object(qh, "_schedule_topo_list") as schedule:
+            first = qh._log_first_page(self.c3, 2)
+            self.assertEqual([c[0] for c in first["commits"]], [self.c3, self.c2])
+            self.assertTrue(first["has_more"])
+            self.assertNotIn("total", first)
+            schedule.assert_called_once_with(self.c3)
+
+            exact = qh._log_first_page(self.c3, 3)
+            self.assertEqual(len(exact["commits"]), 3)
+            self.assertFalse(exact["has_more"])
+            self.assertEqual(exact["total"], 3)
+            schedule.assert_called_once_with(self.c3)
+
     def test_rev_all_is_every_commit_of_all_branches_and_tags(self):
         # 対象のコミットへ飛ぶログ: ブランチを選ばず、全ブランチ・タグの全コミットを並べる
         res = app.api_log({"rev": ["all"], "graph": ["1"]})

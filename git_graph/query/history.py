@@ -226,16 +226,17 @@ def _filter_range_parents(rev, commits, listed):
 
 
 def _log_first_page(rev, limit):
-    """先頭ページは全件 topo を待たず git log -n --topo-order で返す。続き用に裏で一覧を温める。
+    """先頭ページは全件 topo を待たず git log -n --topo-order で返す。続き用の一覧は応答後に温める。
 
     履歴が limit 未満なら total もここで確定する。超える場合は total を付けず、
     裏でできた topo キャッシュを 2 ページ目以降 / log-position が使う。
     """
-    _schedule_topo_list(rev)
-    args = ["log", "--parents", "--date=short", "-n", str(limit), "--topo-order",
+    args = ["log", "--parents", "--date=short", "-n", str(limit + 1), "--topo-order",
             "--format=%H%x1f%h%x1f%an%x1f%ad%x1f%P%x1f%s"]
     args += rev_args(rev) + ["--"]
     commits = _parse_log_lines(git(*args))
+    has_more = len(commits) > limit
+    commits = commits[:limit]
     if ".." in rev and commits:
         # キャッシュがあれば集合を再利用。なければ (並べ替えなしの) rev-list で範囲内ハッシュを取る
         key = _topo_key(rev)
@@ -246,10 +247,11 @@ def _log_first_page(rev, limit):
         else:
             listed = set(git("rev-list", *rev_args(rev), "--").split())
         _filter_range_parents(rev, commits, listed)
-    res = {"commits": commits, "has_more": len(commits) == limit}
-    if len(commits) < limit:
+    res = {"commits": commits, "has_more": has_more}
+    if not has_more:
         res["total"] = len(commits)
-        res["has_more"] = False
+    else:
+        _schedule_topo_list(rev)
     return res
 
 

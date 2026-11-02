@@ -310,7 +310,8 @@ function showLog(titleHtml, rev, topHtml, fromHistory, restoreScroll, src, targe
       }
       done = !r.has_more;
       if (r.total !== undefined) total = r.total;
-      count.textContent = total === null ? t("n_items", {n: skip})
+      count.textContent = total === null
+        ? (done ? t(search ? "search_hits" : "n_changes", {n: skip}) : t("n_loaded_unknown_total", {n: skip}))
         : (done ? t(search ? "search_hits" : "n_changes", {n: total}) : t("n_loaded", {skip: skip, total: total}));
       sentinel.textContent = done ? (skip === 0 ? t("none") : "") : t("loading");
     } catch (e) {
@@ -522,4 +523,3 @@ function showCompareLogs(a, b, fromHistory, restoreScroll) {
     (async () => { while (!(doneA && doneB) && my === token) await more(); })();
   }
 }
-

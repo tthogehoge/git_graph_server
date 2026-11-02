@@ -132,6 +132,7 @@
   "name": "名前",
   "none": "(なし)",
   "n_items": "{n} 件",
+  "n_loaded_unknown_total": "{n} 件以上",
   "n_changes": "{n} 件の変更",
   "wip_clean": "変更なし",
   "n_loaded": "{skip} / {total} 件を読み込み済み",

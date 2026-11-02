@@ -132,6 +132,7 @@
   "name": "Name",
   "none": "(none)",
   "n_items": "{n} items",
+  "n_loaded_unknown_total": "At least {n} items",
   "n_changes": "{n} changes",
   "wip_clean": "No changes",
   "n_loaded": "{skip} / {total} loaded",
