@@ -129,7 +129,9 @@ def render_diff_page(q):
     old = q.get("old", [""])[0]
     wip = q.get("wip", [""])[0]
     is_wip_compare = wip == "compare"
-    d = api_diff(q)
+    clean_wip_page = not path and wip == "unstaged"
+    d = ({"diff": "", "encoding": "UTF-8", "truncated": False}
+         if clean_wip_page else api_diff(q))
     wip_status = None
     patch = None   # (ダウンロード用のパラメータ, ファイル名, ツールチップの翻訳キー)。パッチ作成ボタン用
     view_hash = None  # ファイル表示で開くコミット (None なら出さない)
@@ -173,7 +175,7 @@ def render_diff_page(q):
         cmd = f"git show {ref} -- {path}"
         patch = ({"hash": c["hash"]}, f"{ref}.patch", "tip_patch_create_commit")
         view_hash = next((h for h in [c["hash"], *c["parents"][:1]] if file_exists_at(h, path)), None)  # 削除されたファイルは親で開く
-    name = f"{old} => {path}" if old else path
+    name = f"{old} => {path}" if old else path or tr("no_changes")
     edit_link = ""
     if wip and state.WRITABLE and state.HAS_WORKTREE and wip_file_exists(path):  # 作業ツリーにあるファイルは編集画面へ
         edit_url = "/files?" + urlencode({"hash": WIP_HASH, "path": dir_of(path), "file": path, "view": "edit"})
@@ -195,7 +197,7 @@ def render_diff_page(q):
         ext_diff = (f'<button class="ebtn" id="xdiff" title="{html.escape(tr("tip_open_diff_tool"), quote=True)}">'
                     f'{html.escape(tr("open_diff_tool"))}</button>')
 
-    can_commit = bool(wip_status is not None and state.WRITABLE and state.WIP_ENABLED)  # amend の差分ページには出さない
+    can_commit = bool(files and wip_status is not None and state.WRITABLE and state.WIP_ENABLED)  # amend の差分ページには出さない
     merging = bool(wip_status and wip_status.get("merging"))
     op_in_progress = bool(wip_status and any(
         wip_status.get(key) for key in ("merging", "rebasing", "cherry_picking", "reverting", "stash_conflict")
@@ -302,6 +304,7 @@ def render_diff_page(q):
 <div id="side">
   <div class="navbar">{NAV_TOP_LINK.format(label=html.escape(tr("back_top"), quote=True))}{NAV_BACK_BUTTON.format(label=html.escape(tr("back_prev"), quote=True))}{NAV_RELOAD_BUTTON.format(label=html.escape(tr("reload_page"), quote=True)) if wip else ""}</div>
   <div class="meta">{len(files)} {tr("files_changed")}</div>
+  {f'<div class="meta hint">{html.escape(tr("no_changes"))}</div>' if not files else ""}
   {commit_box}
   {"".join(side)}
 </div>

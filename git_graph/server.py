@@ -93,8 +93,8 @@ BODY_LIMITS = {
 DEFAULT_BODY_LIMIT = 100000
 
 def start_page_url():
-    """最初に開く WIP のファイル差分ページ (先頭のファイル)。変更がなければ None。
-    グラフの作成は時間がかかるので、すぐコミットできるようにする。一度きりで、2回目以降の / はグラフを出す。"""
+    """最初に開く WIP のファイル差分ページ。一度きりで、2回目以降の / はグラフを出す。
+    グラフの作成は時間がかかるので、変更がない場合も WIP の空の差分ページを先に出す。"""
     if not (state.START_WIP and state.WRITABLE and state.WIP_ENABLED):
         return None
     state.START_WIP = False
@@ -102,7 +102,7 @@ def start_page_url():
         files = wip_files()
     except (subprocess.CalledProcessError, UserError):
         return None
-    return diff_url({}, files[0]) if files else None
+    return diff_url({}, files[0]) if files else "/diff?wip=unstaged"
 
 
 class Handler(BaseHTTPRequestHandler):

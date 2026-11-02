@@ -1495,9 +1495,13 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         state.WRITABLE = False  # 書き込めないときは、コミットできないのでグラフから
         self.assertIsNone(server.start_page_url())
         state.WRITABLE = True
-        self.git("checkout", "--", "tracked.txt")  # 変更がなければグラフ
+        self.git("checkout", "--", "tracked.txt")
         state.START_WIP = True
-        self.assertIsNone(server.start_page_url())
+        self.assertEqual(server.start_page_url(), "/diff?wip=unstaged")
+        page = viewer.render_diff_page({"wip": ["unstaged"]})
+        self.assertIn(f"<h1>{tr('no_changes')}", page)
+        self.assertIn(f">{tr('no_diff')}<", page)
+        self.assertIn(f">{tr('no_changes')}<", page)
 
     def test_root_redirects_to_start_page_unless_a_query_is_given(self):
         from urllib.request import HTTPRedirectHandler, build_opener
