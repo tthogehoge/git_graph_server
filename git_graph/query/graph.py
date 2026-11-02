@@ -141,20 +141,27 @@ def build_model(opts):
     # 件名はグラフに出す少数のコミット分だけ後で取る (全コミットぶん整形・解析すると遅い)
     if not revs:
         pass
-    elif libgit.available() and (revs_by_stdin or all(libgit.is_plain_rev(x) for x in revs)):
-        # ユーザーが指定した rev は、解決できなければエラーにする。A..B などの rev-list 構文は下の CLI に任せる
-        for h, ps, ct in libgit.rev_list_topo_parents(revs, strict=not revs_by_stdin):
-            parents[h] = ps
-            dates[h] = ct
-            order.append(h)
-            for x in ps:
-                children[x].append(h)
     else:
         if revs_by_stdin:
             log = git("rev-list", "--stdin", "--topo-order", "--parents", "--timestamp",
                       input="\n".join(revs) + "\n")
         else:
-            log = git("rev-list", *revs, "--topo-order", "--parents", "--timestamp")
+            try:
+                log = git("rev-list", *revs, "--topo-order", "--parents", "--timestamp")
+            except subprocess.CalledProcessError:
+                if all(libgit.is_plain_rev(x) for x in revs):
+                    for rev in revs:
+                        if libgit.available():
+                            resolved = libgit.resolve_commit(rev)
+                        else:
+                            try:
+                                resolved = git("rev-parse", "--verify", "--quiet", rev + "^{commit}").strip()
+                            except subprocess.CalledProcessError:
+                                resolved = ""
+                        if not resolved:
+                            from ..i18n import UserError
+                            raise UserError("rev_not_found", rev=rev) from None
+                raise
         for line in log.splitlines():
             ct, h, *ps = line.split()
             parents[h] = ps

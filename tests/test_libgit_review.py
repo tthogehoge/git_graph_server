@@ -4,6 +4,7 @@ import subprocess
 import tempfile
 import types
 import unittest
+from unittest.mock import patch
 
 from git_graph import app_state as state
 from git_graph import libgit
@@ -105,6 +106,18 @@ class LibgitReviewTests(unittest.TestCase):
         opts.revs = ["typo"]
         with self.assertRaises(UserError):
             qgraph.build_model(opts)
+
+    def test_build_model_uses_git_rev_list_with_pygit2_available(self):
+        self.write("a.txt", "1\n")
+        run(self.repo, "add", "a.txt")
+        run(self.repo, "commit", "-qm", "c1")
+        opts = types.SimpleNamespace(revs=["HEAD"], no_remotes=False, no_tags=False, include_tips=False,
+                                     no_stash=True, no_count=False, show_merges=False)
+        with patch.object(libgit, "rev_list_topo_parents", side_effect=AssertionError("unexpected libgit walk")), \
+                patch.object(qgraph, "git", wraps=qgraph.git) as git:
+            model = qgraph.build_model(opts)
+        self.assertEqual(len(model["parents"]), 1)
+        self.assertTrue(any(call.args[:2] == ("rev-list", "HEAD") for call in git.call_args_list))
 
     def test_status_lists_matches_porcelain_for_a_mixed_working_tree(self):
         """engine は status を「いま変更ありと報告されているパス」の確認に使う。CLI 版 (parse_status) と同じ結果になること。"""
