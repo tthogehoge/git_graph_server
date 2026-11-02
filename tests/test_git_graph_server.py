@@ -77,6 +77,7 @@ class RouteRegistrationTests(unittest.TestCase):
     def test_api_routes_are_registered_with_method_and_path(self):
         self.assertIs(app.ROUTES[("GET", "/api/log")], app.api_log)
         self.assertIs(app.ROUTES[("GET", "/api/log-total")], app.api_log_total)
+        self.assertIs(app.ROUTES[("POST", "/api/commit-graph")], app.api_commit_graph)
         self.assertIs(app.ROUTES[("GET", "/api/graph")], app.graph_payload)
         self.assertIs(app.ROUTES[("POST", "/api/push")], app.api_push)
         self.assertIs(app.ROUTES[("POST", "/api/shutdown")], app.api_shutdown)
@@ -996,6 +997,13 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
             self.git("for-each-ref", "--format=%(contents:subject)", "refs/tags/release-1").strip(),
             "release one",
         )
+
+    def test_commit_graph_optimization_runs_both_git_commands(self):
+        result = app.api_commit_graph({})
+        graph_path = self.git("rev-parse", "--git-path", "objects/info/commit-graph").strip()
+        self.assertEqual(result["message"], tr("commit_graph_optimized"))
+        self.assertTrue(os.path.isfile(os.path.join(self.repo, graph_path)))
+        self.assertEqual(self.git("config", "--local", "fetch.writeCommitGraph").strip(), "true")
 
     def test_branch_rename_and_ref_deletion_update_refs(self):
         app.api_branch({"hash": self.head, "name": "old-name"})

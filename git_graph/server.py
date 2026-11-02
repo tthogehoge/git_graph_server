@@ -76,6 +76,15 @@ def api_restart(body):
     """再起動要求を返す。サーバーの停止と os.execv による再起動は HTTP 応答の送信後に行う。"""
     return {"ok": True}
 
+
+@route("/api/commit-graph", method="POST")
+def api_commit_graph(body):
+    """到達可能なコミットの graph を作成し、今後の fetch でも更新する設定を保存する。"""
+    git("commit-graph", "write", "--reachable")
+    git("config", "--local", "fetch.writeCommitGraph", "true")
+    return {"ok": True, "message": tr("commit_graph_optimized")}
+
+
 def cleanup_engine():
     """元に戻す用の履歴と退避 ref を消す (起動時・終了時・再起動時)。失敗しても起動や終了は妨げない。"""
     try:
@@ -341,4 +350,4 @@ def main():
 
 
 __all__ = ["DEFAULT_PORT", "Forbidden", "Handler", "POST_ROUTES", "QuietServer", "ROUTES",
-           "api_restart", "api_shutdown", "cleanup_engine", "exec_argv", "main", "route"]
+           "api_commit_graph", "api_restart", "api_shutdown", "cleanup_engine", "exec_argv", "main", "route"]

@@ -84,6 +84,7 @@ __FAVICON__
         <button class="abtn" id="stashListBtn" title="{{tip_stash_list}}">{{stash_list}}</button>
         <button class="abtn" id="reflogBtn" title="{{tip_reflog}}">{{reflog}}</button>
         <button class="abtn" id="opHistoryBtn" title="{{tip_op_history}}">{{op_history}}</button>
+        <button class="abtn" id="commitGraphBtn" title="{{tip_commit_graph}}">{{commit_graph_optimize}}</button>
         <button class="abtn" data-cact="remote-add" title="{{tip_remote_add}}">{{remote_add}}</button>
         <button class="abtn danger" data-cact="remote-remove" title="{{tip_remote_remove}}">{{remote_remove}}</button>
         <button class="abtn danger" id="quitBtn" title="{{tip_quit}}">{{quit}}</button>
@@ -139,7 +140,8 @@ __FAVICON__
 <div id="splitter" role="separator" aria-orientation="vertical" aria-label="{{resize_panel}}" tabindex="0"></div>
 <div id="panel">
   <div id="listView"><p class="hint">{{graph_help_1}}</p>
-    <p class="hint">{{graph_help_2}}</p></div>
+    <p class="hint">{{graph_help_2}}</p>
+    <p class="hint">{{graph_help_3}}</p></div>
   <div id="detailView"></div>
 </div>
 <script src="/static/app.js"></script>

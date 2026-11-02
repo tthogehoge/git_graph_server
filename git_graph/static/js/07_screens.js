@@ -221,6 +221,17 @@ document.getElementById("compareToolbar").addEventListener("click", ev => {  // 
   if (ev.target.closest("#stashDropBtn")) { doStash("drop"); return; }
   if (ev.target.closest("#reflogBtn")) { showReflog(""); return; }
   if (ev.target.closest("#opHistoryBtn")) { showOpHistory(); return; }
+  if (ev.target.closest("#commitGraphBtn")) {
+    if (!confirm(t("confirm_commit_graph_optimize"))) return;
+    const btn = ev.target.closest("#commitGraphBtn");
+    btn.disabled = true;
+    setGraphStatus(t("commit_graph_optimizing"), "progress");
+    post("/api/commit-graph", {})
+      .then(r => setGraphStatus(r.message, "success"))
+      .catch(e => setGraphStatus(t("commit_graph_optimize_failed", {error: e.message}), "error"))
+      .finally(() => { btn.disabled = false; });
+    return;
+  }
   if (ev.target.closest("#deleteBranchBtn")) { doDeleteBranch(ev.target.closest("#deleteBranchBtn")); return; }
   if (ev.target.closest("#deleteRemoteBranchBtn")) { doDeleteRemoteBranch(ev.target.closest("#deleteRemoteBranchBtn")); return; }
   if (ev.target.closest("#deleteTagBtn")) { doDeleteTag(ev.target.closest("#deleteTagBtn")); return; }

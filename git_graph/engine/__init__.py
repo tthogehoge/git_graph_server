@@ -41,7 +41,7 @@ UNTRACKED_NAMES_LIMIT = 5000          # 管理外ファイルの名前をこれ�
 WRITE_OPS = {
 }
 IGNORED = {
-    "/api/shutdown", "/api/restart",
+    "/api/shutdown", "/api/restart", "/api/commit-graph",
     "/api/open-editor", "/api/open-diff", "/api/file-copy",  # リポジトリを変更しない
     "/api/find-equivalent-parents", "/api/find-equivalent-branch",  # POST だが読み取りだけ
     "/api/undo", "/api/redo",
