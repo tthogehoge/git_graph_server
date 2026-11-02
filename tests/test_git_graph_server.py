@@ -3033,12 +3033,19 @@ class ExternalAppsTests(unittest.TestCase):
 
     def test_main_page_menubar_layout(self):
         index = (Path(viewer.__file__).parent / "static" / "index.html").read_text(encoding="utf-8")
-        self.assertLess(index.index('id="topBtn"'), index.index('id="backBtn"'))  # 左上は HEAD へ戻る top ボタン
+        row2 = index[index.index('id="menubarRow2"'):]  # 2行目: HEAD / WIP と、対象・A・B の表示
+        self.assertLess(index.index('id="backBtn"'), index.index('id="menubarRow2"'))
+        self.assertLess(row2.index('id="topBtn"'), row2.index('id="wipBtn"'))
+        self.assertLess(row2.index('id="wipBtn"'), row2.index('id="actionTarget"'))
+        self.assertLess(row2.index('id="actionTarget"'), row2.index('id="cmpA"'))
+        self.assertLess(row2.index('id="cmpA"'), row2.index('id="cmpB"'))
+        self.assertIn(">HEAD</button>", row2)
+        self.assertIn(">WIP</button>", row2)
         other = index[index.index('id="otherActions"'):]
         other = other[:other.index("</span>")]
         self.assertIn('id="showMerges"', other)  # マージ表示のチェックは「その他」メニューの中
         self.assertEqual(index.count('id="showMerges"'), 1)
-        self.assertLess(index.index('id="pushBtn"'), index.index('id="wipBtn"'))  # commit は push の隣
-        self.assertLess(index.index('id="wipBtn"'), index.index('data-cact="pull"'))
+        self.assertLess(index.index('id="pushBtn"'), index.index('data-cact="pull"'))
+        self.assertNotIn('id="wipBtn"', index[index.index('id="remoteActions"'):index.index('id="abActionsWrap"')])  # WIP は2行目へ移動
         reload_btn = index[index.index('id="reload"'):]
         self.assertTrue(reload_btn[:reload_btn.index("</button>")].count("<svg") == 1)  # 更新ボタンはアイコン

@@ -165,7 +165,6 @@
   "close_notification": "Close notification",
   "resize_panel": "Resize the right pane",
   "reload_title": "Refresh the graph to the latest state",
-  "scroll_head": "Go to HEAD",
   "tip_scroll_head": "Scroll the graph to the HEAD node",
   "tip_wip_open": "Show the working-tree changes (WIP) and commit them",
   "show_merges": "Show merges",

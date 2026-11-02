@@ -201,7 +201,7 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
   const both = !!compareAHash && !!compareBHash;
   document.getElementById("unsetABtn").hidden = !both || (!!abMenuHash && abMenuHash !== compareAHash);
   document.getElementById("unsetBBtn").hidden = !both || (!!abMenuHash && abMenuHash !== compareBHash);
-  document.querySelectorAll("#remoteActions button")
+  document.querySelectorAll("#remoteActions button, #wipBtn")
     .forEach(el => { el.disabled = !canWrite || (el.dataset.cact === "pull" && !DATA.merge); });
   document.querySelectorAll("#remoteConfigActions button").forEach(el => { el.disabled = !canWrite; });
   updatePushActions();

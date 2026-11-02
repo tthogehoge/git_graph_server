@@ -38,6 +38,8 @@ html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-s
   #cmpActionsWrap { order: 4; }
   #abActionsWrap { order: 5; }
   #otherActionsWrap { order: 6; }
+  /* 2行目: HEAD / WIP と、対象・A・B の表示。幅が足りなければ、さらに次の行へ折り返す */
+  .menubar-row2 { order: 8; flex: 1 0 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; }
   #compareToolbar > .cmp-hash { order: 7; }
   .abtn.mbtn { background: transparent; border-color: transparent; padding: 4px 10px; }
   .abtn.mbtn:hover { background: #dde6fa; border-color: #b8c7ee; }
