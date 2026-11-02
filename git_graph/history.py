@@ -18,6 +18,11 @@ def api_log_position(q):
     return qh.log_position(q.get("rev", [""])[0], q.get("hash", [""])[0])
 
 
+@route("/api/log-total")
+def api_log_total(q):
+    return qh.topo_total_status(q.get("rev", [""])[0])
+
+
 def search_params(q):
     """検索条件 (hash / grep / author / committer / since / until。scope=all なら全コミットが対象)。"""
     search = {k: q.get(k, [""])[0].strip() for k in ("hash", "grep", "author", "committer", "since", "until")}
@@ -126,6 +131,6 @@ def api_diff(q):
 
 __all__ = [
     "DIFF_LIMIT", "api_branches", "api_branches_containing", "api_commit", "api_compare",
-    "api_diff", "api_log", "api_log_position", "api_merge_base", "api_reflog", "api_stash_list", "api_tags", "paging",
+    "api_diff", "api_log", "api_log_position", "api_log_total", "api_merge_base", "api_reflog", "api_stash_list", "api_tags", "paging",
     "search_params",
 ]

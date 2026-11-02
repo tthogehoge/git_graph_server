@@ -76,6 +76,7 @@ class ParseStatusTests(unittest.TestCase):
 class RouteRegistrationTests(unittest.TestCase):
     def test_api_routes_are_registered_with_method_and_path(self):
         self.assertIs(app.ROUTES[("GET", "/api/log")], app.api_log)
+        self.assertIs(app.ROUTES[("GET", "/api/log-total")], app.api_log_total)
         self.assertIs(app.ROUTES[("GET", "/api/graph")], app.graph_payload)
         self.assertIs(app.ROUTES[("POST", "/api/push")], app.api_push)
         self.assertIs(app.ROUTES[("POST", "/api/shutdown")], app.api_shutdown)
@@ -604,11 +605,22 @@ class LogSearchTests(unittest.TestCase):
             res = app.api_log({"rev": [self.c3], "graph": ["1"], "skip": [str(skip)], "limit": ["1"]})
             got += [" ".join([c[0]] + c[5]) for c in res["commits"]]
             self.assertEqual(res["has_more"], skip < 2)
+            if "total" in res:
+                self.assertEqual(res["total"], 3)
         self.assertEqual(got, expected)
         self.assertIs(qh.topo_list(self.c3), qh.topo_list(self.c3))  # 同じ rev の一覧は使い回す
         ranged = app.api_log({"rev": [self.c1 + ".." + self.c3], "graph": ["1"]})
         self.assertEqual([c[0] for c in ranged["commits"]], [self.c3, self.c2])
         self.assertEqual([c[5] for c in ranged["commits"]], [[self.c2], []])  # 範囲外 (c1) の親へは線を伸ばさない
+
+    def test_graph_log_total_reports_pending_then_cached_total(self):
+        key = qh._topo_key(self.c3)
+        lock = threading.Lock()
+        with mock.patch.dict(qh._TOPO_CACHE, {}, clear=True), \
+                mock.patch.dict(qh._TOPO_INFLIGHT, {key: lock}, clear=True):
+            self.assertEqual(app.api_log_total({"rev": [self.c3]}), {"total": None, "pending": True})
+        with mock.patch.dict(qh._TOPO_CACHE, {key: qh._TopoList([self.c3, self.c2])}):
+            self.assertEqual(app.api_log_total({"rev": [self.c3]}), {"total": 2, "pending": False})
 
     def test_graph_first_page_avoids_total_walk_and_knows_exact_page_boundary(self):
         with mock.patch.object(qh, "_schedule_topo_list") as schedule:

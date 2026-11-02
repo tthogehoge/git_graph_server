@@ -37,7 +37,7 @@ from .files import (  # noqa: F401
     PATCH_BODY_LIMIT, SAVE_BODY_LIMIT, WIP_HASH,
 )
 from .history import (  # noqa: F401
-    api_branches, api_branches_containing, api_commit, api_compare, api_log, api_merge_base,
+    api_branches, api_branches_containing, api_commit, api_compare, api_log, api_log_total, api_merge_base,
     api_reflog, api_stash_list, api_tags,
 )
 from .external import DEFAULT_CONFIG_PATH, load_config

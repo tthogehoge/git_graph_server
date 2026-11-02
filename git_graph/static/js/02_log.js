@@ -289,6 +289,7 @@ function showLog(titleHtml, rev, topHtml, fromHistory, restoreScroll, src, targe
   const graphRow = ((!src || src.path === "/api/log") && !search) ? logGraph() : null;
   logGraphCur = graphRow;
   const searchP = searchParams(search);
+  let totalPollScheduled = false;
   if (search) {
     const box = listView.querySelector("#logSearch");
     if (box && !restoreScroll) box.querySelector("input").focus({preventScroll: true});
@@ -314,10 +315,30 @@ function showLog(titleHtml, rev, topHtml, fromHistory, restoreScroll, src, targe
         ? (done ? t(search ? "search_hits" : "n_changes", {n: skip}) : t("n_loaded_unknown_total", {n: skip}))
         : (done ? t(search ? "search_hits" : "n_changes", {n: total}) : t("n_loaded", {skip: skip, total: total}));
       sentinel.textContent = done ? (skip === 0 ? t("none") : "") : t("loading");
+      if (total === null && graphRow && !src && !search && !totalPollScheduled) {
+        totalPollScheduled = true;
+        pollTotal();
+      }
     } catch (e) {
       sentinel.textContent = t("error") + e.message; done = true;
     } finally {
       loading = false;
+    }
+  }
+
+  async function pollTotal() {
+    if (my !== token || total !== null) return;
+    try {
+      const result = await api("/api/log-total", {rev: rev});
+      if (my !== token) return;
+      if (result.total !== null) {
+        total = result.total;
+        count.textContent = done ? t("n_changes", {n: total}) : t("n_loaded", {skip: skip, total: total});
+      } else if (result.pending) {
+        setTimeout(pollTotal, 1000);
+      }
+    } catch (e) {
+      // The visible page remains usable if the optional total-count request fails.
     }
   }
 

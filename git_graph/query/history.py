@@ -168,14 +168,31 @@ def topo_list(rev):
         with _TOPO_CACHE_LOCK:
             hit = _TOPO_CACHE.get(key)
         if hit is None:
-            hit = _TopoList(git("rev-list", "--topo-order", *rev_args(rev), "--").split())
+            try:
+                hit = _TopoList(git("rev-list", "--topo-order", *rev_args(rev), "--").split())
+                with _TOPO_CACHE_LOCK:
+                    _TOPO_CACHE[key] = hit
+                    while len(_TOPO_CACHE) > TOPO_CACHE_MAX:
+                        _TOPO_CACHE.popitem(last=False)
+            finally:
+                with _TOPO_CACHE_LOCK:
+                    _TOPO_INFLIGHT.pop(key, None)
+        else:
             with _TOPO_CACHE_LOCK:
-                _TOPO_CACHE[key] = hit
-                while len(_TOPO_CACHE) > TOPO_CACHE_MAX:
-                    _TOPO_CACHE.popitem(last=False)
-        with _TOPO_CACHE_LOCK:
-            _TOPO_INFLIGHT.pop(key, None)
+                _TOPO_INFLIGHT.pop(key, None)
     return hit
+
+
+def topo_total_status(rev):
+    """バックグラウンドの topo 一覧が完成しているかと、完成済みならその件数を返す。"""
+    if not REV_RE.fullmatch(rev):
+        raise ValueError("bad rev")
+    key = _topo_key(rev)
+    with _TOPO_CACHE_LOCK:
+        hit = _TOPO_CACHE.get(key)
+        if hit is not None:
+            return {"total": len(hit.hashes), "pending": False}
+        return {"total": None, "pending": key in _TOPO_INFLIGHT}
 
 
 def _schedule_topo_list(rev):
@@ -184,6 +201,7 @@ def _schedule_topo_list(rev):
     with _TOPO_CACHE_LOCK:
         if key in _TOPO_CACHE or key in _TOPO_INFLIGHT:
             return
+        _TOPO_INFLIGHT[key] = threading.Lock()
 
     def run():
         try:
@@ -265,10 +283,11 @@ def _log_from_topo_list(rev, skip, limit):
                   "--format=%H%x1f%h%x1f%an%x1f%ad%x1f%P%x1f%s", input="\n".join(window) + "\n")
         commits = _parse_log_lines(out)
         _filter_range_parents(rev, commits, topo.hash_set())
-    res = {"commits": commits, "has_more": skip + len(window) < len(topo.hashes)}
-    if skip == 0:
-        res["total"] = len(topo.hashes)
-    return res
+    return {
+        "commits": commits,
+        "has_more": skip + len(window) < len(topo.hashes),
+        "total": len(topo.hashes),
+    }
 
 
 def log(rev, path="", skip=0, limit=500, graph=False, search=None):
@@ -605,5 +624,5 @@ def diff(path, old="", hash_="", from_hash="", to_hash="", wip=""):
 
 __all__ = [
     "DIFF_LIMIT", "REV_RE", "branches", "branches_containing", "commit", "compare", "diff",
-    "log", "log_position", "merge_base", "topo_list", "paging", "reflog", "rev_args", "search_plan", "stash_list", "tags",
+    "log", "log_position", "merge_base", "topo_list", "topo_total_status", "paging", "reflog", "rev_args", "search_plan", "stash_list", "tags",
 ]
