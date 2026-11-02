@@ -409,6 +409,11 @@ class GitApiIntegrationTests(unittest.TestCase):
         self.assertIn('diffUrl({hash: c.hash}, c.files[0])', app_js)
         self.assertIn('class="detail-files" href="\' + esc(diffUrl({hash: c.hash}, c.files[0]))', app_js)
 
+    def test_wip_pane_links_to_first_file_diff(self):
+        app_js = app.render_app_js()
+
+        self.assertIn('class="detail-files" href="\' + esc(diffUrl({}, files[0]))', app_js)
+
     @unittest.skipUnless(shutil.which("dot"), "Graphviz dot is not installed")
     def test_build_graph_keeps_refs_and_collapses_intermediate_commits(self):
         opts = SimpleNamespace(

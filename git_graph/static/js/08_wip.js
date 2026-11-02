@@ -267,7 +267,8 @@ function showWip(fromHistory, okMsg) {
         '<span class="hint">' + hint + '</span></div>' +
         '<div class="amsg" id="wipMsgOut"></div></div>' : "";
     detailView.innerHTML = btns + "<h2>" + t("wip_title") +
-      ' <a class="detail-files" href="/files?hash=WIP" title="' + esc(t("tip_wip_files")) + '">' + esc(t("files")) + "</a></h2>" + opBannerHtml(opCmd, canCommit) +
+      ' <a class="detail-files" href="/files?hash=WIP" title="' + esc(t("tip_wip_files")) + '">' + esc(t("files")) + "</a>" +
+      (files.length ? ' <a class="detail-files" href="' + esc(diffUrl({}, files[0])) + '">' + esc(t("file_diff")) + "</a>" : "") + "</h2>" + opBannerHtml(opCmd, canCommit) +
       '<div class="meta">HEAD: ' + (s.head ? chips(s.head) + esc(s.head.slice(0, 7)) : t("no_commits_yet")) + "</div>" +
       (wipAmendOn ? "" : wipPatchBarHtml(canCommit)) +
       (body || '<p class="hint">' + t("no_changes") + '</p>') + box +
