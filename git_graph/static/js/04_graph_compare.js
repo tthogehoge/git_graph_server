@@ -226,7 +226,7 @@ function syncCompareLocation(hash, kind) {
       revealTargets.set(kind, hash);
     }
   } else if (revealTargets.get(kind) !== hash) {
-    revealHash(hash, kind);
+    revealHash(hash, kind, false);  // A / B の位置表示だけ。スクロールすると、ログで選んだコミットへのスクロールが B に奪われる
   }
 }
 
@@ -240,7 +240,7 @@ function setGraphData(r) {
   locateCache.clear();
 }
 let clusterBusy = false;
-function expandCluster(ids) {  // 開いたものを新しい扱いにして描き直す。多くなったら、サーバーが古い方から閉じる
+function expandCluster(ids, scroll = true) {  // 開いたものを新しい扱いにして描き直す。多くなったら、サーバーが古い方から閉じる。scroll=false なら開いたクラスターへ動かさない
   const list = (Array.isArray(ids) ? ids : [ids]).filter(Boolean);
   if (!list.length || clusterBusy) return Promise.resolve();
   clusterBusy = true;
@@ -250,7 +250,7 @@ function expandCluster(ids) {  // 開いたものを新しい扱いにして描�
   openClusters = next;
   const lastId = list[list.length - 1];
   return refreshGraph()
-    .then(() => revealCluster(lastId))
+    .then(() => { if (scroll) revealCluster(lastId); })
     .catch(() => { openClusters = before; })
     .finally(() => { clusterBusy = false; });
 }
@@ -292,19 +292,20 @@ function graphElementFor(r) {  // 描いてあるものを、線 -> 両端のノ
   return null;
 }
 const revealTargets = new Map();
-function revealHash(h, kind = "actionTarget") {
+function revealHash(h, kind = "actionTarget", scroll = true) {
   // 選んだコミットをグラフの真ん中に表示する: ノードならそのノード、ノードでないコミットはそれが省略されている線
   // (描いていなければ両端のノード / 含むクラスター)。含むクラスターが閉じていたら先に開く
+  // scroll=false: 線の印だけ付けて、グラフはスクロールしない (A / B の位置表示用。ログで選んだコミットへのスクロールを、あとから届く B の結果で奪わせない)
   if (!h) return;
   clearLocate(kind);
   revealTargets.set(kind, h);
-  if (nodeEl[h]) { ensureGraphVisible(nodeEl[h], true); return; }
+  if (nodeEl[h]) { if (scroll) ensureGraphVisible(nodeEl[h], true); return; }
   locateCommit(h).then(r => {
     if (!r || revealTargets.get(kind) !== h) return;
     const show = () => {
       const el = graphElementFor(r);
       if (!el || revealTargets.get(kind) !== h) return;
-      ensureGraphVisible(el, true);
+      if (scroll) ensureGraphVisible(el, true);
       markLocated(el, h, kind);
     };
     if (DATA.clusters) {
@@ -317,7 +318,7 @@ function revealHash(h, kind = "actionTarget") {
       if (r.cluster && !want.includes(r.cluster)) want.push(r.cluster);
       const need = want.filter(c => !(DATA.open || []).includes(c));
       if (need.length) {
-        expandCluster(need).then(show);
+        expandCluster(need, scroll).then(show);
         return;
       }
     }
