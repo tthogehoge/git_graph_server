@@ -141,7 +141,8 @@ class _TopoList:
 
 # rev はコミットのハッシュ (A..B もハッシュ同士) なので、ログの中身はずっと変わらない。
 # 件数が多いと rev-list --topo-order だけで数秒かかり、--skip を付けた git log も毎回同じ歩きをやり直すので、
-# 最近使った数件の一覧を覚えておき、続きの読み込みや、対象のコミットへ飛ぶ位置の計算に使い回す
+# 最近使った数件の一覧を覚えておき、続きの読み込みや、対象のコミットへ飛ぶ位置の計算に使い回す。
+# 先頭ページ (skip=0) は全件一覧を待たず git log -n で先に返し、裏で一覧を温める。
 _TOPO_CACHE = OrderedDict()
 _TOPO_CACHE_LOCK = threading.Lock()
 TOPO_CACHE_MAX = 3  # 覚えておく一覧の数 (件数が多いとメモリを使うので少なめ)
@@ -150,9 +151,13 @@ TOPO_CACHE_MAX = 3  # 覚えておく一覧の数 (件数が多いとメモリ�
 _TOPO_INFLIGHT = {}  # 計算中の rev -> ロック (同じ一覧を同時に二重に計算しない)
 
 
-def topo_list(rev):
+def _topo_key(rev):
     # rev=all は、ブランチやタグが動くと中身が変わるので、先端の一覧を鍵に含める
-    key = (state.REPO, rev, _refs_fingerprint() if rev == "all" else "")
+    return (state.REPO, rev, _refs_fingerprint() if rev == "all" else "")
+
+
+def topo_list(rev):
+    key = _topo_key(rev)
     with _TOPO_CACHE_LOCK:
         hit = _TOPO_CACHE.get(key)
         if hit is not None:
@@ -173,6 +178,22 @@ def topo_list(rev):
     return hit
 
 
+def _schedule_topo_list(rev):
+    """続き読み・位置ジャンプ用に、裏で topo 一覧を温める。既にキャッシュ or 計算中なら何もしない。"""
+    key = _topo_key(rev)
+    with _TOPO_CACHE_LOCK:
+        if key in _TOPO_CACHE or key in _TOPO_INFLIGHT:
+            return
+
+    def run():
+        try:
+            topo_list(rev)
+        except Exception:
+            pass
+
+    threading.Thread(target=run, daemon=True).start()
+
+
 def log_position(rev, h):
     """ログ (graph=1 と同じ --topo-order の並び) の中で、コミット h が先頭から何番目か。無ければ index=-1。
     対象のコミットへ飛ぶとき、そこまでのログを読まずに、その付近から読み始めるために使う。"""
@@ -186,6 +207,52 @@ def log_position(rev, h):
     return {"index": index, "total": len(hashes)}
 
 
+def _parse_log_lines(out):
+    commits = []
+    for l in out.splitlines():
+        if not l:
+            continue
+        h, short, author, date, parents, subj = (l.split("\x1f", 5) + [""] * 6)[:6]
+        commits.append([h, short, author, date, subj, parents.split()])
+    return commits
+
+
+def _filter_range_parents(rev, commits, listed):
+    """範囲指定 (A..B) では範囲外の親へ線を伸ばさない (ログに現れず、線が最後まで残るため)。"""
+    if ".." not in rev or not commits:
+        return
+    for c in commits:
+        c[5] = [p for p in c[5] if p in listed]
+
+
+def _log_first_page(rev, limit):
+    """先頭ページは全件 topo を待たず git log -n --topo-order で返す。続き用に裏で一覧を温める。
+
+    履歴が limit 未満なら total もここで確定する。超える場合は total を付けず、
+    裏でできた topo キャッシュを 2 ページ目以降 / log-position が使う。
+    """
+    _schedule_topo_list(rev)
+    args = ["log", "--parents", "--date=short", "-n", str(limit), "--topo-order",
+            "--format=%H%x1f%h%x1f%an%x1f%ad%x1f%P%x1f%s"]
+    args += rev_args(rev) + ["--"]
+    commits = _parse_log_lines(git(*args))
+    if ".." in rev and commits:
+        # キャッシュがあれば集合を再利用。なければ (並べ替えなしの) rev-list で範囲内ハッシュを取る
+        key = _topo_key(rev)
+        with _TOPO_CACHE_LOCK:
+            hit = _TOPO_CACHE.get(key)
+        if hit is not None:
+            listed = hit.hash_set()
+        else:
+            listed = set(git("rev-list", *rev_args(rev), "--").split())
+        _filter_range_parents(rev, commits, listed)
+    res = {"commits": commits, "has_more": len(commits) == limit}
+    if len(commits) < limit:
+        res["total"] = len(commits)
+        res["has_more"] = False
+    return res
+
+
 def _log_from_topo_list(rev, skip, limit):
     """マージグラフ付きのログ (--topo-order)。並びは覚えておいた一覧から取り、該当の行だけを git log で引く。"""
     topo = topo_list(rev)
@@ -194,16 +261,8 @@ def _log_from_topo_list(rev, skip, limit):
     if window:
         out = git("log", "--no-walk=unsorted", "--stdin", "--parents", "--date=short",
                   "--format=%H%x1f%h%x1f%an%x1f%ad%x1f%P%x1f%s", input="\n".join(window) + "\n")
-        for l in out.splitlines():
-            if not l:
-                continue
-            h, short, author, date, parents, subj = (l.split("\x1f", 5) + [""] * 6)[:6]
-            commits.append([h, short, author, date, subj, parents.split()])
-        if ".." in rev:
-            # 範囲指定 (A..B) では範囲外の親へ線を伸ばさない (ログに現れず、線が最後まで残るため)
-            listed = topo.hash_set()
-            for c in commits:
-                c[5] = [p for p in c[5] if p in listed]
+        commits = _parse_log_lines(out)
+        _filter_range_parents(rev, commits, topo.hash_set())
     res = {"commits": commits, "has_more": skip + len(window) < len(topo.hashes)}
     if skip == 0:
         res["total"] = len(topo.hashes)
@@ -218,6 +277,13 @@ def log(rev, path="", skip=0, limit=500, graph=False, search=None):
     skip, limit = paging(skip, limit)
     plan = search_plan(rev, search)
     if graph and plan is None and not path:
+        # 先頭ページかつ未キャッシュなら全件 rev-list を待たない。キャッシュ済み / 続きは一覧経由。
+        if skip == 0:
+            key = _topo_key(rev)
+            with _TOPO_CACHE_LOCK:
+                cached = key in _TOPO_CACHE
+            if not cached:
+                return _log_first_page(rev, limit)
         return _log_from_topo_list(rev, skip, limit)
     if plan is not None:
         graph = False  # 検索結果は途中のコミットが抜けるので、マージグラフは付けない
@@ -243,10 +309,7 @@ def log(rev, path="", skip=0, limit=500, graph=False, search=None):
         h, short, author, date, parents, subj = (l.split("\x1f", 5) + [""] * 6)[:6]
         commits.append([h, short, author, date, subj, parents.split()])
     if graph and ".." in rev and commits:
-        # 範囲指定 (A..B) では範囲外の親へ線を伸ばさない (ログに現れず、線が最後まで残るため)
-        listed = set(git("rev-list", *rev_args(rev), "--").split())
-        for c in commits:
-            c[5] = [p for p in c[5] if p in listed]
+        _filter_range_parents(rev, commits, set(git("rev-list", *rev_args(rev), "--").split()))
     res = {"commits": commits, "has_more": len(commits) == limit}
     if skip == 0:
         count_args = ["rev-list", "--count", *walk, "--"]
