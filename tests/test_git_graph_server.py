@@ -1462,12 +1462,16 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
 
         self.assertIn(f'href="/files?hash={self.head}&amp;path=&amp;file=tracked.txt"', page)  # 削除したコミットには無いので親
 
-    def test_diff_page_wip_has_patch_button_but_amend_does_not(self):
+    def test_diff_page_wip_has_patch_button_in_side_pane_only_and_amend_has_none(self):
         self.write_file("tracked.txt", "changed\n")
         page = viewer.render_diff_page({"path": ["tracked.txt"], "wip": ["unstaged"]})
-        self.assertIn('id="pbtn"', page)
+        self.assertIn('id="sidePatchCreate"', page)
+        self.assertIn(html.escape(json.dumps({"hash": "WIP"}), quote=True), page)
+        self.assertNotIn('id="pbtn"', page)  # 見出し側には出さない (左ペインと重複するため)
         self.assertIn('href="/files?hash=WIP&amp;path=&amp;file=tracked.txt"', page)
-        self.assertNotIn('id="pbtn"', viewer.render_diff_page({"path": ["tracked.txt"], "wip": ["amend"]}))
+        amend = viewer.render_diff_page({"path": ["tracked.txt"], "wip": ["amend"]})
+        self.assertNotIn('id="pbtn"', amend)
+        self.assertNotIn('id="sidePatchCreate"', amend)
 
     def test_query_blob_helpers_for_file_copy(self):
         from git_graph.query import files as qf
@@ -1570,6 +1574,27 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertIn('"/api/stash-push"', page)
         self.assertNotIn('id="abtn"', page)
         self.assertNotIn('data-resolve="ours"', page)
+
+    def test_wip_diff_page_has_patch_create_apply_and_am_like_wip_pane(self):
+        self.write_file("tracked.txt", "working tree change\n")
+        previous_writable = state.WRITABLE
+        try:
+            state.WRITABLE = True
+            page = viewer.render_diff_page({"path": ["tracked.txt"], "wip": ["unstaged"]})
+            amend = viewer.render_diff_page({"path": ["tracked.txt"], "wip": ["amend"]})
+            state.WRITABLE = False
+            read_only = viewer.render_diff_page({"path": ["tracked.txt"], "wip": ["unstaged"]})
+        finally:
+            state.WRITABLE = previous_writable
+
+        for element in ('id="sidePatchCreate"', 'id="sidePatchApply"', 'id="sidePatchAm"', 'id="sidePatchFile"'):
+            self.assertIn(element, page)
+        self.assertIn('"/api/patch-apply"', page)
+        self.assertIn('"/api/patch-am"', page)
+        self.assertNotIn('id="sidePatch"', amend)  # 右ペインと同じく、amend の表示にはパッチのボタンを出さない
+        self.assertIn('id="sidePatchCreate"', read_only)  # 書き込めなくても作成はできる
+        self.assertNotIn('id="sidePatchApply"', read_only)
+        self.assertNotIn('id="sidePatchAm"', read_only)
 
     def test_wip_diff_page_shows_resolve_and_abort_while_merging(self):
         self.write_file("tracked.txt", "working tree change\n")

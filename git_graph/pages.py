@@ -198,6 +198,18 @@ def render_diff_page(q):
                     f'{html.escape(tr("open_diff_tool"))}</button>')
 
     can_commit = bool(files and wip_status is not None and state.WRITABLE and state.WIP_ENABLED)  # amend の差分ページには出さない
+    patch_bar = ""
+    if patch and wip and not is_wip_compare and wip != "amend":  # 右ペインの WIP と同じ: パッチ作成と、書き込めるときの適用 (git apply / git am)
+        attr_t = lambda key: html.escape(tr(key), quote=True)
+        apply_btns = (f'<button class="wbtn" id="sidePatchApply" title="{attr_t("tip_patch_apply")}">{html.escape(tr("patch_apply"))}</button>'
+                      f'<button class="wbtn" id="sidePatchAm" title="{attr_t("tip_patch_am")}">{html.escape(tr("patch_am"))}</button>'
+                      '<input type="file" id="sidePatchFile" hidden>') if state.WRITABLE else ""
+        patch_bar = (f'<div class="wippatch" id="sidePatch" data-wait="{attr_t("wip_execute")}" '
+                     f'data-confirm-apply="{attr_t("confirm_patch_apply")}" data-confirm-am="{attr_t("confirm_patch_am")}">'
+                     f'<button class="wbtn" id="sidePatchCreate" data-params="{html.escape(json.dumps(patch[0]), quote=True)}" '
+                     f'data-name="{html.escape(patch[1], quote=True)}" title="{attr_t(patch[2])}">{html.escape(tr("patch_create"))}</button>'
+                     f'{apply_btns}</div><div class="hint" id="spmsg"></div>')
+        patch_btn = ""  # 見出し側のパッチ作成は、左ペインのものと重複するので出さない
     merging = bool(wip_status and wip_status.get("merging"))
     op_in_progress = bool(wip_status and any(
         wip_status.get(key) for key in ("merging", "rebasing", "cherry_picking", "reverting", "stash_conflict")
@@ -304,6 +316,7 @@ def render_diff_page(q):
 <div id="side">
   <div class="navbar">{NAV_TOP_LINK.format(label=html.escape(tr("back_top"), quote=True))}{NAV_BACK_BUTTON.format(label=html.escape(tr("back_prev"), quote=True))}{NAV_RELOAD_BUTTON.format(label=html.escape(tr("reload_page"), quote=True)) if wip else ""}</div>
   <div class="meta">{len(files)} {tr("files_changed")}</div>
+  {patch_bar}
   {f'<div class="meta hint">{html.escape(tr("no_changes"))}</div>' if not files else ""}
   {commit_box}
   {"".join(side)}
@@ -322,7 +335,7 @@ def render_diff_page(q):
 <script>{fold_js}</script>
 <script>{commit_js}</script>
 <script>{EXT_DIFF_JS if ext_diff else ""}</script>
-<script>{DIFF_PATCH_JS if patch_btn else ""}</script>
+<script>{DIFF_PATCH_JS if patch_btn or patch_bar else ""}</script>
 <script>{DIFF_RELOAD_JS if wip else ""}</script>
 </body></html>
 """
