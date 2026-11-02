@@ -1,4 +1,5 @@
 # ログ・ブランチ・タグ・reflog・stash 一覧・コミット詳細・比較・差分の読み取り。
+import hashlib
 import re
 import subprocess
 import threading
@@ -13,7 +14,7 @@ from .status import status as worktree_status, wip_diff
 
 
 # コミット / A..B / A..B^@ (B の親たち。A..B から B 自身を除いた範囲 = グラフの線の間のコミット)
-REV_RE = re.compile(r"[0-9a-f]{40}(\.\.[0-9a-f]{40}(\^@)?)?")
+REV_RE = re.compile(r"[0-9a-f]{40}(\.\.[0-9a-f]{40}(\^@)?)?|all")  # all: 全ブランチ・タグ・(リモート追跡ブランチ)・HEAD の全コミット
 
 DIFF_LIMIT = 400000
 
@@ -25,11 +26,29 @@ HASH_CANDIDATES_MAX = 100  # ハッシュの前方一致で調べるコミット
 
 def rev_args(rev):
     """rev を git に渡す引数に直す。A..B^@ は「A から見えない B の親たち」(B 自身は含めない)。"""
+    if rev == "all":
+        return _all_refs_args()
     if not rev.endswith("^@"):
         return [rev]
     a, b = rev[:-2].split("..")
     parents = git("rev-list", "--parents", "-n", "1", b, "--").split()[1:]
     return [f"^{a}"] + parents
+
+
+def _all_refs_args():
+    """全コミット (stash は含めない)。"""
+    return ["--branches", "--tags"] + ([] if getattr(state.OPTS, "no_remotes", False) else ["--remotes"]) + ["HEAD"]
+
+
+def _refs_fingerprint():
+    """全ブランチ・タグの先端が変わったら変わる値 (rev=all の一覧を覚えておくときの鍵)。"""
+    refs = ["refs/heads", "refs/tags"] + ([] if getattr(state.OPTS, "no_remotes", False) else ["refs/remotes"])
+    out = git("for-each-ref", "--format=%(objectname) %(refname)", *refs)
+    try:
+        head = git("rev-parse", "--verify", "--quiet", "HEAD^{commit}").strip()
+    except subprocess.CalledProcessError:
+        head = ""
+    return hashlib.sha1((out + "\n" + head).encode("utf-8")).hexdigest()
 
 
 def paging(skip, limit):
@@ -95,7 +114,7 @@ def search_plan(rev, search):
             if not DATE_RE.fullmatch(terms[key]):
                 raise UserError("search_bad_date")
             opts.append(f"--{key}={terms[key]} {time}")
-    everywhere = bool(search.get("all"))
+    everywhere = bool(search.get("all")) or rev == "all"
     if terms["hash"]:
         prefix = terms["hash"].lower()
         if not HASH_PREFIX_RE.fullmatch(prefix):
@@ -132,7 +151,8 @@ _TOPO_INFLIGHT = {}  # 計算中の rev -> ロック (同じ一覧を同時に�
 
 
 def topo_list(rev):
-    key = (state.REPO, rev)
+    # rev=all は、ブランチやタグが動くと中身が変わるので、先端の一覧を鍵に含める
+    key = (state.REPO, rev, _refs_fingerprint() if rev == "all" else "")
     with _TOPO_CACHE_LOCK:
         hit = _TOPO_CACHE.get(key)
         if hit is not None:
@@ -151,14 +171,6 @@ def topo_list(rev):
         with _TOPO_CACHE_LOCK:
             _TOPO_INFLIGHT.pop(key, None)
     return hit
-
-
-def _warm_topo_list(rev):
-    """あとで使う一覧を、裏で先に計算しておく (失敗しても何もしない)。"""
-    try:
-        topo_list(rev)
-    except Exception:
-        pass
 
 
 def log_position(rev, h):
@@ -322,14 +334,6 @@ def branches_containing(hash_):
     refs = ["refs/heads"]
     if not state.OPTS.no_remotes:
         refs.append("refs/remotes")
-    # このあとログを開くとき、通常は現在のブランチ (HEAD) のログを使う。ブランチを調べている間に、その一覧を裏で先に作っておく
-    # (どちらも数秒かかることがあり、続けて行うと待ちが足し算になる)
-    try:
-        head = git("rev-parse", "--verify", "--quiet", "HEAD^{commit}").strip()
-    except subprocess.CalledProcessError:  # コミットがまだ無い
-        head = ""
-    if head:
-        threading.Thread(target=_warm_topo_list, args=(head,), daemon=True).start()
     out = git("for-each-ref", "--contains=" + h, "--format=%(refname)%1f%(objectname)", *refs)
     branches_out = []
     for line in out.splitlines():

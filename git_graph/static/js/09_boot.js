@@ -34,7 +34,7 @@ fetch(graphUrl())
       showFileLogInGraph(fileLogHash, fileLogPath, true);
     } else if (commitHash) {
       history.replaceState({screen: "home"}, "", "/");
-      showContainingBranchLog(commitHash, undefined, true);
+      showTargetLog(commitHash, true);
     } else if (screen.screen === "home") {
       scrollToHead();
     }

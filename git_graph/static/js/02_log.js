@@ -350,6 +350,7 @@ function showLog(titleHtml, rev, topHtml, fromHistory, restoreScroll, src, targe
 
   if (targetHash) {
     (async () => {
+      let missing = false;
       // 対象まで先頭から読むと、件数が多いときに時間がかかる。対象の位置を先に調べて、その少し前から読む
       try {
         const pos = await api("/api/log-position", {rev: rev, hash: targetHash});
@@ -357,14 +358,17 @@ function showLog(titleHtml, rev, topHtml, fromHistory, restoreScroll, src, targe
         if (pos.index >= 0) {
           skip = winStart = win && win.start !== undefined ? win.start : Math.max(0, pos.index - TARGET_BEFORE);
           total = pos.total;
+        } else {
+          missing = true;  // このログに無い: 探して全部読むことはせず、先頭だけを見せる
         }
       } catch (e) {
         if (my !== token) return;  // 位置が分からなければ、先頭から読む
       }
       showEarlier();
+      if (missing) { await more(); if (my === token && !done) watch(); return; }
       const find = h => h ? listView.querySelector('tr[data-h="' + h + '"]') : null;
       const goal = (win && win.focus) || targetHash;
-      while (!done && my === token) {
+      while (!done && !missing && my === token) {
         await more();
         if (my !== token) return;
         if (find(goal)) break;
@@ -380,38 +384,14 @@ function showLog(titleHtml, rev, topHtml, fromHistory, restoreScroll, src, targe
 
 }
 
-async function showContainingBranchLog(hash, selectedRef, replaceHistory = false) {
-  // 対象のブランチを調べる間 (大きいリポジトリでは時間がかかる) も、すぐに画面を切り替えて「読み込み中」を見せる。
-  // 何度もクリックされたら、最後のクリックだけを有効にする (token で古い読み込みを捨てる)
-  const my = ++token;
-  if (observer) { observer.disconnect(); observer = null; }
-  curRow = null;
-  logGraphCur = null;
-  document.body.classList.remove("compare-logs-mode");
-  listView.innerHTML = '<div class="meta" id="count">' + esc(t("loading")) + '</div>';
-  listView.dataset.src = "";
-  showView("list");
-  try {
-    const result = await api("/api/branches-containing", {hash: hash});
-    if (my !== token) return;
-    if (!result.branches.length) {
-      restoreScreen(history.state || {screen: "home"});  // 読み込み中の画面から、元の画面へ戻す
-      setGraphStatus(t("branches_containing_none", {hash: hash.slice(0, 7)}), "error");
-      return;
-    }
-    const branches = result.branches;
-    const preferred = "refs/heads/" + currentBranch;
-    const branch = branches.find(b => b.ref === selectedRef) ||
-      branches.find(b => b.ref === preferred) || branches[0];
-    const options = branches.map(b => '<option value="' + esc(b.ref) + '"' +
-      (b.ref === branch.ref ? " selected" : "") + ">" + esc(b.name) + "</option>").join("");
-    const top = '<button class="back-btn">' + t("back_history") + '</button><div class="meta"><label>' + esc(t("target_label")) +
-      ': <select id="containingBranchSelect" data-h="' + esc(hash) + '">' + options + "</select></label></div>";
-    showLog(esc(t("branch_log_title", {name: branch.name})), branch.tip, top, replaceHistory, 0, null, hash);
-  } catch (e) {
-    if (my === token) restoreScreen(history.state || {screen: "home"});
-    setGraphStatus(t("error") + e.message, "error");
-  }
+function showTargetLog(hash, replaceHistory = false) {
+  // 対象のコミットを、全ブランチ・タグを含む全コミットのログの中で見せる (ブランチを調べる必要が無いので、すぐ始められる)。
+  // 連打されたときに履歴を増やさないよう、すでに同じ対象のログを開いているなら履歴は足さない
+  const st = history.state;
+  const same = !!st && st.screen === "log" && st.rev === "all" && st.targetHash === hash;
+  const top = '<button class="back-btn">' + t("back_history") + '</button><div class="meta">' + esc(t("target_label")) +
+    ": " + esc(hash.slice(0, 7)) + "</div>";
+  showLog(esc(t("all_log_title")), "all", top, replaceHistory || same, 0, null, hash);
 }
 
 // table-layout: fixed は先頭行で列幅を決める。先頭が colspan=2 の空行 (log-gap) だと左右で列幅が食い違うので、<col> で固定する

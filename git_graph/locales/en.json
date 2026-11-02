@@ -51,8 +51,6 @@
   "current_branch": "Current branch",
   "reload_busy": "Reloading…",
   "target_label": "Target",
-  "branch_log_title": "Log for {name}",
-  "branches_containing_none": "No branch contains commit {hash}",
   "branch_log": "Show branch log",
   "commit_label": "Commit",
   "back_history": "← Back to history",
@@ -692,5 +690,6 @@
   "search_hits": "{n} hits",
   "search_bad_hash": "Enter at least 4 hexadecimal digits for the hash.",
   "search_bad_date": "Dates must be in YYYY-MM-DD format.",
-  "earlier_commits": "▲ Load earlier commits ({n} above)"
+  "earlier_commits": "▲ Load earlier commits ({n} above)",
+  "all_log_title": "All commits"
 }

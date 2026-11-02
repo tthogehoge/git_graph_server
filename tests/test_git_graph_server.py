@@ -370,8 +370,8 @@ class GitApiIntegrationTests(unittest.TestCase):
         self.assertIn('ev.target.closest("tr.file-log-row, .blame-line")', page)
         self.assertIn('ev.target.closest("a.commit-graph")', page)
         self.assertIn('type: "git-graph-commit"', page)
-        self.assertIn('showContainingBranchLog(ev.data.hash)', app.render_app_js())
-        self.assertIn("showContainingBranchLog(commitHash, undefined, true);", app.render_app_js())
+        self.assertIn('showTargetLog(ev.data.hash)', app.render_app_js())
+        self.assertIn("showTargetLog(commitHash, true);", app.render_app_js())
         self.assertIn('api("/api/blame"', page)
 
     def test_file_log_stays_in_file_view_and_can_open_graph(self):
@@ -390,7 +390,7 @@ class GitApiIntegrationTests(unittest.TestCase):
         self.assertNotIn("function logInTab()", page)
         app_js = app.render_app_js()
         self.assertIn("showFileLogInGraph(fileLogHash, fileLogPath, true);", app_js)
-        self.assertIn("showContainingBranchLog(commitHash, undefined, true);", app_js)
+        self.assertIn("showTargetLog(commitHash, true);", app_js)
         self.assertIn("replaceHistory, 0, {path: \"/api/log\"", app_js)
 
     def test_api_compare_returns_file_changes_between_commits(self):
@@ -604,6 +604,39 @@ class LogSearchTests(unittest.TestCase):
         ranged = app.api_log({"rev": [self.c1 + ".." + self.c3], "graph": ["1"]})
         self.assertEqual([c[0] for c in ranged["commits"]], [self.c3, self.c2])
         self.assertEqual([c[5] for c in ranged["commits"]], [[self.c2], []])  # 範囲外 (c1) の親へは線を伸ばさない
+
+    def test_rev_all_is_every_commit_of_all_branches_and_tags(self):
+        # 対象のコミットへ飛ぶログ: ブランチを選ばず、全ブランチ・タグの全コミットを並べる
+        res = app.api_log({"rev": ["all"], "graph": ["1"]})
+        expected = self.git("rev-list", "--topo-order", "--branches", "--tags", "HEAD").split()
+        self.assertEqual([c[0] for c in res["commits"]], expected)
+        self.assertEqual(res["total"], 4)
+        self.assertIn(self.o1, expected)  # main の履歴に無い other ブランチのコミットも入る
+        for i, h in enumerate(expected):
+            self.assertEqual(app.api_log_position({"rev": ["all"], "hash": [h]}), {"index": i, "total": 4})
+        # 検索 (ハッシュ前方一致・件名) も全コミットが対象
+        self.assertEqual(self.subjects(self.search(rev="all", grep="experimental")), ["Experimental login rewrite"])
+        self.assertEqual([c[0] for c in self.search(rev="all", hash=self.o1[:7])["commits"]], [self.o1])
+
+    def test_rev_all_list_follows_the_refs(self):
+        # 全コミットの一覧は覚えておくが、ブランチが増えたら作り直す
+        with tempfile.TemporaryDirectory() as tmp:
+            def git(*args):
+                return subprocess.check_output(["git", "-C", tmp, *args], text=True, encoding="utf-8",
+                                               env=dict(os.environ, GIT_AUTHOR_NAME="T", GIT_AUTHOR_EMAIL="t@example.com",
+                                                        GIT_COMMITTER_NAME="T", GIT_COMMITTER_EMAIL="t@example.com"))
+            git("init", "-q")
+            git("branch", "-M", "main")
+            git("commit", "-q", "--allow-empty", "-m", "one")
+            previous, state.REPO = state.REPO, tmp
+            try:
+                self.assertEqual(app.api_log({"rev": ["all"], "graph": ["1"]})["total"], 1)
+                git("checkout", "-q", "-b", "side")
+                git("commit", "-q", "--allow-empty", "-m", "two")
+                git("checkout", "-q", "main")  # HEAD (main) は動かず、side ブランチだけが増える
+                self.assertEqual(app.api_log({"rev": ["all"], "graph": ["1"]})["total"], 2)
+            finally:
+                state.REPO = previous
 
     def test_search_ui_is_part_of_the_app(self):
         js = app.render_app_js()

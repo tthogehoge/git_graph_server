@@ -40,7 +40,7 @@ function showFileLogInGraph(hash, path, replaceHistory = false) {
 window.addEventListener("message", ev => {
   if (ev.origin !== location.origin || !ev.data) return;
   if (ev.data.type === "git-graph-commit") {
-    if (typeof ev.data.hash === "string" && ev.data.hash) showContainingBranchLog(ev.data.hash);
+    if (typeof ev.data.hash === "string" && ev.data.hash) showTargetLog(ev.data.hash);
     return;
   }
   if (ev.data.type !== "git-graph-file-log") return;
@@ -165,15 +165,15 @@ document.getElementById("compareToolbar").addEventListener("click", ev => {  // 
     return;
   }
   if (ev.target.closest("#actionTarget") && actionHash) {
-    showContainingBranchLog(actionHash);
+    showTargetLog(actionHash);
     return;
   }
   if (ev.target.closest("#cmpA") && compareAHash) {
-    showContainingBranchLog(compareAHash);
+    showTargetLog(compareAHash);
     return;
   }
   if (ev.target.closest("#cmpB") && compareBHash) {
-    showContainingBranchLog(compareBHash);
+    showTargetLog(compareBHash);
     return;
   }
   if (ev.target.closest("#swapAbBtn")) {

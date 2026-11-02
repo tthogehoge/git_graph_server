@@ -137,8 +137,6 @@ function showReflog(branch) {  // branch が空なら HEAD の reflog
 listView.addEventListener("change", ev => {
   const sel = ev.target.closest(".reflog-ref");
   if (sel) showReflog(sel.value);
-  const branchSel = ev.target.closest("#containingBranchSelect");
-  if (branchSel) showContainingBranchLog(branchSel.dataset.h, branchSel.value);
 });
 function showDetail(h, fromHistory) {
   document.body.classList.remove("compare-logs-mode");
