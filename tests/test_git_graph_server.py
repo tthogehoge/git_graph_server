@@ -3039,6 +3039,7 @@ class ExternalAppsTests(unittest.TestCase):
         self.assertLess(row2.index('id="wipBtn"'), row2.index('id="actionTarget"'))
         self.assertLess(row2.index('id="actionTarget"'), row2.index('id="cmpA"'))
         self.assertLess(row2.index('id="cmpA"'), row2.index('id="cmpB"'))
+        self.assertLess(row2.index('id="cmpB"'), row2.index('id="swapAbBtn"'))  # A<->B 入れ替えも2行目
         self.assertIn(">HEAD</button>", row2)
         self.assertIn(">WIP</button>", row2)
         other = index[index.index('id="otherActions"'):]
