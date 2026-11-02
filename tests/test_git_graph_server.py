@@ -1455,6 +1455,68 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertIn("/api/patch-am", page)
         self.assertIn("/api/patch-apply", page)
 
+    def test_start_page_is_first_wip_file_diff_and_only_once(self):
+        from git_graph import server
+        previous = (state.START_WIP, state.WRITABLE)
+        self.addCleanup(lambda: (setattr(state, "START_WIP", previous[0]), setattr(state, "WRITABLE", previous[1])))
+        state.START_WIP = state.WRITABLE = True
+        self.write_file("tracked.txt", "changed\n")
+
+        self.assertEqual(server.start_page_url(), "/diff?path=tracked.txt&wip=unstaged")
+        self.assertIsNone(server.start_page_url())  # 一度だけ。2回目以降の / (topボタンなど) はグラフ
+
+        state.START_WIP = True
+        state.WRITABLE = False  # 書き込めないときは、コミットできないのでグラフから
+        self.assertIsNone(server.start_page_url())
+        state.WRITABLE = True
+        self.git("checkout", "--", "tracked.txt")  # 変更がなければグラフ
+        state.START_WIP = True
+        self.assertIsNone(server.start_page_url())
+
+    def test_root_redirects_to_start_page_unless_a_query_is_given(self):
+        from urllib.request import HTTPRedirectHandler, build_opener
+        previous = (state.START_WIP, state.WRITABLE, state.OPTS)
+        self.addCleanup(lambda: (setattr(state, "START_WIP", previous[0]), setattr(state, "WRITABLE", previous[1]),
+                                 setattr(state, "OPTS", previous[2])))
+        state.START_WIP = state.WRITABLE = True
+        state.OPTS = SimpleNamespace(host="127.0.0.1", revs=[], no_remotes=False, no_tags=False, rankdir="BT", no_count=False)
+        self.write_file("tracked.txt", "changed\n")
+        server = app.QuietServer(("127.0.0.1", 0), app.Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        base = f"http://127.0.0.1:{server.server_address[1]}"
+
+        class NoRedirect(HTTPRedirectHandler):
+            def redirect_request(self, *args, **kwargs):
+                return None
+        opener = build_opener(NoRedirect)
+        with opener.open(base + "/?commit_hash=" + self.head) as response:  # 指定付きは移さず、フラグも使わない
+            self.assertEqual(response.status, 200)
+        with self.assertRaises(HTTPError) as cm:
+            opener.open(base + "/")
+        self.assertEqual((cm.exception.code, cm.exception.headers["Location"]), (302, "/diff?path=tracked.txt&wip=unstaged"))
+        cm.exception.close()
+        with opener.open(base + "/") as response:  # 2回目はグラフの画面
+            self.assertEqual(response.status, 200)
+
+    def test_warm_graph_builds_in_background_one_at_a_time(self):
+        done, release = threading.Event(), threading.Event()
+        def slow(q):
+            done.set()
+            release.wait(5)
+        with mock.patch.object(graph_module, "graph_payload", side_effect=slow) as payload:
+            graph_module.warm_graph()
+            self.assertTrue(done.wait(5))
+            graph_module.warm_graph()  # 作っている最中は、もう 1 つは始めない
+            release.set()
+            for _ in range(200):
+                if not graph_module._warm_lock.locked():
+                    break
+                time.sleep(0.01)
+        self.assertEqual(payload.call_count, 1)
+        self.assertFalse(graph_module._warm_lock.locked())
+
     def test_wip_diff_page_has_same_actions_as_wip_pane(self):
         self.write_file("tracked.txt", "working tree change\n")
         previous_writable = state.WRITABLE

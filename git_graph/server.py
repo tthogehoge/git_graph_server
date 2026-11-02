@@ -14,7 +14,7 @@ from .gitrun import git, is_loopback, resolve_commit
 from .winproc import hide_console_windows
 # 次の import のうち、api_* などは名前を直接使わない。各モジュールの @route 登録を実行させるための import なので、
 # 未使用の警告 (F401) を抑止している。
-from .graph import CLUSTER_MIN_NODES, DEFAULT_MERGE_MAX_NODES, build_graph, dot_text_for_cli, graph_payload  # noqa: F401
+from .graph import CLUSTER_MIN_NODES, DEFAULT_MERGE_MAX_NODES, build_graph, dot_text_for_cli, graph_payload, warm_graph  # noqa: F401
 from .i18n import (
     APP_CSS, check_i18n, detect_language, FILES_PAGE, fill_template, HTML_TEMPLATE, render_app_js,
     render_main_page, tr, TRANSLATIONS, UserError,
@@ -42,7 +42,7 @@ from .history import (  # noqa: F401
 )
 from .external import DEFAULT_CONFIG_PATH, load_config
 from . import engine, tmpdir
-from .pages import render_diff_page, render_files_page
+from .pages import diff_url, render_diff_page, render_files_page, wip_files
 from .wip import api_status, api_wip_commit  # noqa: F401
 
 
@@ -92,6 +92,19 @@ BODY_LIMITS = {
 }
 DEFAULT_BODY_LIMIT = 100000
 
+def start_page_url():
+    """最初に開く WIP のファイル差分ページ (先頭のファイル)。変更がなければ None。
+    グラフの作成は時間がかかるので、すぐコミットできるようにする。一度きりで、2回目以降の / はグラフを出す。"""
+    if not (state.START_WIP and state.WRITABLE and state.WIP_ENABLED):
+        return None
+    state.START_WIP = False
+    try:
+        files = wip_files()
+    except (subprocess.CalledProcessError, UserError):
+        return None
+    return diff_url({}, files[0]) if files else None
+
+
 class Handler(BaseHTTPRequestHandler):
     def _send(self, code, ctype, body):
         data = body.encode("utf-8")
@@ -125,6 +138,14 @@ class Handler(BaseHTTPRequestHandler):
         q = parse_qs(u.query)
         try:
             if u.path == "/":
+                start = None if u.query else start_page_url()  # ?commit_hash=... などの指定があるときはそのまま
+                if start:
+                    self.send_response(302)
+                    self.send_header("Location", start)
+                    self.send_header("Cache-Control", "no-store")
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
                 self._send(200, "text/html", render_main_page())
             elif u.path == "/static/app.js":
                 self._send(200, "application/javascript", render_app_js())
@@ -189,6 +210,8 @@ class Handler(BaseHTTPRequestHandler):
             with _write_lock:
                 res = engine.run(path, handler, body)  # リポジトリを変更する操作は、状態の前後を記録するエンジン経由で実行する
             self._send(200, "application/json", json.dumps(res, ensure_ascii=False))
+            if path not in ("/api/shutdown", "/api/restart"):
+                warm_graph()  # 変更のあとのグラフを先に作っておく (コミット後にトップへ戻るときなど)
             if path in ("/api/shutdown", "/api/restart") and state.SERVER is not None:
                 if path == "/api/restart":
                     # os.execv はプロセスを丸ごと置き換えるので shutdown() 不要。
@@ -240,6 +263,7 @@ def main():
     ap.add_argument("--font", default="Helvetica", help=tr("cli_help_font"))
     ap.add_argument("--dot", action="store_true", help=tr("cli_help_dot"))
     ap.add_argument("--no-wip", action="store_true", help=tr("cli_help_no_wip"))
+    ap.add_argument("--start", choices=("wip", "graph"), default="wip", help=tr("cli_help_start"))
     ap.add_argument("--read-only", action="store_true", help=tr("cli_help_read_only"))
     ap.add_argument("--allow-write", action="store_true", help=tr("cli_help_allow_write"))
     ap.add_argument("--no-undo", action="store_true", help=tr("cli_help_no_undo"))
@@ -276,6 +300,7 @@ def main():
         state.REPO = r.stdout.strip()
     state.WIP_ENABLED = state.HAS_WORKTREE and not state.OPTS.no_wip
     state.PROJECT_NAME = os.path.basename(os.path.abspath(state.REPO)) or state.REPO
+    state.START_WIP = state.OPTS.start == "wip"
 
     if state.OPTS.dot:
         print(dot_text_for_cli(state.OPTS))
@@ -302,6 +327,7 @@ def main():
         print(tr("cli_listening", port=state.OPTS.port))
         if state.WRITABLE:
             print(tr("cli_lan_warning"))
+    warm_graph()  # 最初の画面 (WIP の差分) を見ている裏で、グラフを作っておく
     if state.OPTS.open:
         webbrowser.open(url)
     try:

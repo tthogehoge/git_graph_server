@@ -429,6 +429,23 @@ def graph_payload(q=None):
         return payload
 
 
+_warm_lock = threading.Lock()
+
+
+def warm_graph():
+    """グラフを裏で作ってキャッシュしておく (画面を開いたときにすぐ出すため)。すでに作っている最中なら何もしない。
+    graph_payload は _lock の中で作るので、先読みの途中でグラフを要求されても、同じものを二重には作らない。"""
+    def run():
+        try:
+            graph_payload({})
+        except Exception:  # 先読みの失敗は無視する (実際に開いたときに、画面側でエラーを出す)
+            pass
+        finally:
+            _warm_lock.release()
+    if _warm_lock.acquire(blocking=False):
+        threading.Thread(target=run, daemon=True).start()
+
+
 @route("/api/graph_focus")
 def graph_focus(q=None):
     """コミットがグラフのどこにあるかを返す。ログで選んだコミットまで、画面側でグラフをスクロールするために使う。

@@ -9,3 +9,4 @@ SERVER = None
 DESKTOP = False  # pywebview など、サーバーと同じ PC の画面から使っている (--desktop)
 CONFIG = {}
 CONFIG_PATH = ""
+START_WIP = False  # 最初の / へのアクセスを WIP のファイル差分ページへ移す (1 回だけ。--start wip)
