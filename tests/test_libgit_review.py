@@ -36,6 +36,19 @@ class LibgitReviewTests(unittest.TestCase):
         with open(os.path.join(self.repo, name), "w", encoding="utf-8", newline="") as f:
             f.write(text)
 
+    def test_list_ref_infos_prefixes_skip_other_refs(self):
+        self.write("f.txt", "x\n")
+        run(self.repo, "add", "f.txt")
+        run(self.repo, "commit", "-qm", "c1")
+        run(self.repo, "branch", "topic")
+        run(self.repo, "tag", "-a", "-m", "t", "v1")
+        names = lambda prefixes=None: sorted(r[0] for r in libgit.list_ref_infos(prefixes))
+        self.assertEqual(names(), ["refs/heads/main", "refs/heads/topic", "refs/tags/v1"])
+        self.assertEqual(names(("refs/heads/",)), ["refs/heads/main", "refs/heads/topic"])
+        self.assertEqual(names(("refs/tags/",)), ["refs/tags/v1"])
+        heads = {r[0]: r[3] for r in libgit.list_ref_infos(("refs/heads/",))}
+        self.assertTrue(heads["refs/heads/main"])  # is_head は絞り込んでも変わらない
+
     def test_blame_splits_lines_only_on_newline(self):
         self.write("f.txt", "a\fb\nsecond\n")  # \f は git では行区切りではない
         run(self.repo, "add", "f.txt")

@@ -297,7 +297,8 @@ def branches():
     if libgit.available():  # ブランチごとに rev-parse を起動しない
         from datetime import datetime, timezone, timedelta
         local, remote = [], []
-        for ref, target, peeled, is_head in libgit.list_ref_infos():
+        prefixes = ("refs/heads/",) if state.OPTS.no_remotes else ("refs/heads/", "refs/remotes/")
+        for ref, target, peeled, is_head in libgit.list_ref_infos(prefixes):  # タグなど他の ref は peel しない
             if ref.startswith("refs/heads/"):
                 bucket, name = local, ref[len("refs/heads/"):]
             elif ref.startswith("refs/remotes/") and not ref.endswith("/HEAD") and not state.OPTS.no_remotes:
@@ -314,16 +315,22 @@ def branches():
                                  date, (c.message or "").split("\n", 1)[0]]))
         commits = [row for _, row in sorted(local)] + [row for _, row in sorted(remote)]
         return {"commits": commits, "has_more": False, "total": len(commits)}
-    fmt = "%(refname)%1f%(objectname)%1f%(HEAD)%1f%(committerdate:short)%1f%(subject)"
+    fmt = "%(refname)%1f%(objectname)%1f%(HEAD)%1f%(committerdate:short)%1f%(subject)%1f%(objecttype)"
     commits = []
-    for ref, name_, head, date, subj in (r[:5] for r in _ref_list(["refs/heads"], fmt)):
-        h = git("rev-parse", ref + "^{commit}").strip()
+
+    def commit_of(ref, objectname, objecttype):  # ブランチは普通コミットを直接指すので、rev-parse (プロセス起動) は要らない
+        if objecttype == "commit":
+            return objectname
+        return git("rev-parse", ref + "^{commit}").strip()
+
+    for ref, objectname, head, date, subj, otype in _ref_list(["refs/heads"], fmt):
+        h = commit_of(ref, objectname, otype)
         commits.append([h, h[:7], ("★ " if head == "*" else "") + ref[len("refs/heads/"):], date, subj])
     if not state.OPTS.no_remotes:
-        for ref, name_, head, date, subj in (r[:5] for r in _ref_list(["refs/remotes"], fmt)):
+        for ref, objectname, head, date, subj, otype in _ref_list(["refs/remotes"], fmt):
             if ref.endswith("/HEAD"):
                 continue
-            h = git("rev-parse", ref + "^{commit}").strip()
+            h = commit_of(ref, objectname, otype)
             commits.append([h, h[:7], ref[len("refs/remotes/"):], date, subj])
     return {"commits": commits, "has_more": False, "total": len(commits)}
 
@@ -351,7 +358,7 @@ def tags():
     if libgit.available():
         from datetime import datetime, timezone, timedelta
         rows = []
-        for ref, target, peeled, is_head in libgit.list_ref_infos():
+        for ref, target, peeled, is_head in libgit.list_ref_infos(("refs/tags/",)):
             if not ref.startswith("refs/tags/"):
                 continue
             h = peeled or target

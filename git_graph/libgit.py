@@ -92,10 +92,13 @@ def head_commit_and_branch():
     return h, branch
 
 
-def list_ref_infos():
+def list_ref_infos(prefixes=None):
     """[(refname, target_commit_hex, peeled_or_same, is_head), ...]
-    is_head は現在 checkout 中の ref。タグは peel した commit。"""
+    is_head は現在 checkout 中の ref。タグは peel した commit。
+    prefixes (refname の前方一致のタプル) を渡すと、それ以外の ref は peel せずに飛ばす
+    (タグが何千もあるリポジトリで、ブランチだけ欲しいときに全 ref を読まないため)。"""
     r = repo()
+    prefixes = tuple(prefixes) if prefixes else None
     head_name = None
     try:
         if not r.head_is_unborn:
@@ -104,6 +107,8 @@ def list_ref_infos():
         head_name = None
     out = []
     for refname in r.listall_references():
+        if prefixes is not None and not refname.startswith(prefixes):
+            continue
         try:
             ref = r.references[refname]
         except KeyError:
