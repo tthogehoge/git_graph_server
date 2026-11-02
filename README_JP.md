@@ -123,7 +123,9 @@ reset、checkout、stash の破棄などはデータを失う可能性があり�
 
 ## スクリーンショット
 
-![グラフ](screenshot/Screenshot1.png)
-![コミット](screenshot/Screenshot2.png)
-![差分](screenshot/Screenshot3.png)
-![ABログ比較](screenshot/Screenshot4.png)
+![Graph](screenshot/Screenshot1.png)
+![Graph2](screenshot/Screenshot2.png)
+![AB log comparison](screenshot/Screenshot3.png)
+![Diff](screenshot/Screenshot4.png)
+![File](screenshot/Screenshot5.png)
+![Diff2](screenshot/Screenshot6.png)
