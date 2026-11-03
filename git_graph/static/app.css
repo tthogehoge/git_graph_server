@@ -136,6 +136,7 @@ html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-s
   .ri-main button { flex: none; padding: 0 6px; cursor: pointer; }
   .ri-row textarea { box-sizing: border-box; width: 100%; margin-top: 4px; font: inherit; padding: 4px 6px; }
   .ri-row textarea[hidden] { display: none; }
+  .ri-row.edit { background: #fffbe8; border-color: #e8d98a; }
   .ri-row.drop { background: #f6f6f6; } .ri-row.drop .ri-subj { text-decoration: line-through; color: #999; }
   .ri-row.squash, .ri-row.fixup { margin-left: 22px; background: #f3f8ff; }
   #actionError { margin-top: 8px; white-space: pre-wrap; } #actionError:empty { display: none; }

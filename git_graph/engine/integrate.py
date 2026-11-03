@@ -181,7 +181,8 @@ def abort_operation():
 def continue_operation():
     """途中で止まっているリベースを続行する (競合を解決してステージしたあと、元のコミットメッセージで次へ進む)。
     次のコミットで、また競合したときは、止まったまま {"done": False, "conflict": True} を返す。
-    戻り値: {"cmd": "rebase", "done" (リベースが終わった), "conflict" (次のコミットで競合した)}。"""
+    次の edit のコミットで止まったときも、止まったまま {"done": False, "conflict": False, "head": そのコミット} を返す。
+    戻り値: {"cmd": "rebase", "done" (リベースが終わった), "conflict" (次のコミットで競合した), "head" (止まっているときの HEAD)}。"""
     if not state.HAS_WORKTREE:
         raise UserError("no_worktree")
     if not is_rebasing():
@@ -192,12 +193,12 @@ def continue_operation():
     r = git_run(["rebase", "--continue"], True, env=env)
     if r.returncode != 0:
         if is_rebasing() and _unmerged_files():  # 次のコミットで競合した (エラーではなく、また解決する)
-            return {"cmd": "rebase", "done": False, "conflict": True}
+            return {"cmd": "rebase", "done": False, "conflict": True, "head": ""}
         raise ValueError((r.stderr or r.stdout).strip() or tr("git_command_failed"))
     done = not is_rebasing()
     if done:
         clear_rebase_msgs()  # 対話的リベースの reword 用メッセージファイル
-    return {"cmd": "rebase", "done": done, "conflict": False}
+    return {"cmd": "rebase", "done": done, "conflict": False, "head": "" if done else git("rev-parse", "--short", "HEAD").strip()}
 
 
 def _abort_stash_apply(stash):

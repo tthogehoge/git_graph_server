@@ -267,7 +267,7 @@ async function doRebaseI() {  // 対話的リベース (git rebase -i 相当)
     const rows = info.commits.map(c => {
       msgs[c.hash] = c.message;
       return '<div class="ri-row pick" data-h="' + c.hash + '"><div class="ri-main">' +
-        '<select name="act_' + c.hash + '">' + opt("pick", "pick") + opt("reword", "reword") + opt("squash", "squash") +
+        '<select name="act_' + c.hash + '">' + opt("pick", "pick") + opt("reword", "reword") + opt("edit", "edit") + opt("squash", "squash") +
         opt("fixup", "fixup") + opt("drop", "drop") + "</select>" +
         "<code>" + esc(c.short) + '</code><span class="ri-subj" title="' + esc(c.subject) + '">' + esc(c.subject) + "</span>" +
         '<span class="ri-author">' + esc(c.author) + " " + esc(c.date) + "</span>" +
@@ -308,7 +308,7 @@ async function doRebaseI() {  // 対話的リベース (git rebase -i 相当)
     const todo = Object.keys(values).filter(k => k.startsWith("act_"))
       .map(k => ({hash: k.slice(4), action: values[k], message: values["msg_" + k.slice(4)] || ""}));
     const n = a => todo.filter(t => t.action === a).length;
-    const note = [n("reword") && t("ri_part_reword", {n: n("reword")}), n("squash") && t("ri_part_squash", {n: n("squash")}),
+    const note = [n("reword") && t("ri_part_reword", {n: n("reword")}), n("edit") && t("ri_part_edit", {n: n("edit")}), n("squash") && t("ri_part_squash", {n: n("squash")}),
                   n("fixup") && t("ri_part_fixup", {n: n("fixup")}), n("drop") && t("ri_part_drop", {n: n("drop")})].filter(Boolean).join(" / ");
     if (!confirm(t("confirm_rebase_i", {branch: info.branch, count: todo.length, hash: h.slice(0, 7), note: note ? " (" + note + ")" : ""}))) return;
     setGraphStatus(t("rebasing"), "progress");
@@ -318,7 +318,7 @@ async function doRebaseI() {  // 対話的リベース (git rebase -i 相当)
     clearCmp();
     setGraphStatus(r.message, r.conflict ? "error" : "success");
     await refreshGraph().catch(() => {});
-    if (r.conflict) openWip();  // 競合で止まったら、WIP の競合解決画面を開く
+    if (r.conflict || r.stopped) openWip();  // 競合 / edit のコミットで止まったら、WIP の画面を開く (解決・修正して「続行」する)
   } catch (e) {
     setGraphStatus(t("rebase_i_error", {error: e.message}), "error");
   } finally {

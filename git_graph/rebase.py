@@ -176,7 +176,9 @@ def api_continue(body):
     r = integrate.continue_operation()
     if r["conflict"]:
         return {"ok": True, "message": tr("continued_conflict")}
-    return {"ok": True, "message": tr("continued_done" if r["done"] else "continued_more")}
+    if r["done"]:
+        return {"ok": True, "message": tr("continued_done")}
+    return {"ok": True, "message": tr("continued_edit", hash=r["head"])}  # 次の edit のコミットで止まった
 
 
 @route("/api/resolve", method="POST", engine=True)
@@ -202,10 +204,12 @@ def api_rebase_i(body):
         return r
     if r.get("conflict"):
         return {"ok": True, "conflict": True, "message": with_stash_note(r, tr("ri_conflict_stop", branch=r["branch"]))}
+    if r.get("stopped"):
+        return {"ok": True, "stopped": True, "message": with_stash_note(r, tr("ri_edit_stop", branch=r["branch"], hash=r["head"]))}
     if r["noop"]:
         return {"ok": True, "message": with_stash_note(r, tr("ri_noop", branch=r["branch"]))}
     n = r["counts"]
-    parts = [tr(key, n=n[k]) for k, key in (("reword", "ri_part_reword"), ("squash", "ri_part_squash"),
+    parts = [tr(key, n=n[k]) for k, key in (("reword", "ri_part_reword"), ("edit", "ri_part_edit"), ("squash", "ri_part_squash"),
                                            ("fixup", "ri_part_fixup"), ("drop", "ri_part_drop")) if n.get(k)]
     if parts:
         return {"ok": True, "message": with_stash_note(r, tr("ri_done_parts", branch=r["branch"], base=r["base"][:7], parts=" / ".join(parts)))}

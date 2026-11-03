@@ -481,7 +481,7 @@ def rebase_equivalent(a, b, *, on_conflict=None):
 
 # ---- 対話的リベース (git rebase -i 相当) ----
 REBASE_I_MAX = 200
-REBASE_I_ACTIONS = ("pick", "reword", "squash", "fixup", "drop")
+REBASE_I_ACTIONS = ("pick", "reword", "edit", "squash", "fixup", "drop")
 
 
 def rebase_todo_hashes(base):
@@ -531,10 +531,10 @@ def rebase_interactive(base, todo, *, on_conflict=None):
     """git rebase -i 相当。画面で編集した todo (順序と pick/reword/squash/fixup/drop) をそのまま実行する。
     エディタは起こさず、todo は GIT_SEQUENCE_EDITOR で差し替える。reword は、そのコミット (squash/fixup を
     まとめた後) に exec で commit --amend -F を挟んで新しいメッセージにする。
-    競合したときはリベース途中の状態で止める (WIP で解決して「続行」する)。reword 用のメッセージファイルは .git の中に残し、
+    競合したときと、edit のコミットで止まったときは、リベース途中の状態で止める (WIP で解決・修正して「続行」する)。reword 用のメッセージファイルは .git の中に残し、
     リベースが終わったとき / 中断したときに消す。競合以外のエラーで止まったときは、自動で rebase --abort して元に戻す。
-    todo は [{"action", "hash" (40桁), "message" (reword のとき必須)}] を実行する順に並べたもの。
-    戻り値: {"branch", "base", "noop", "counts" (操作ごとの数), "stashed"} / 競合 {"conflict": True, "branch", "base", "stashed"} / blocked。"""
+    todo は [{"action" (pick / reword / edit / squash / fixup / drop), "hash" (40桁), "message" (reword のとき必須)}] を実行する順に並べたもの。
+    戻り値: {"branch", "base", "noop", "counts" (操作ごとの数), "stashed"} / 競合 {"conflict": True, "branch", "base", "stashed"} / edit で停止 {"stopped": True, "branch", "base", "head", "stashed"} / blocked。"""
     _check_can_rebase()
     base = resolve_commit(base)
     branch = _current_branch()
@@ -570,11 +570,11 @@ def rebase_interactive(base, todo, *, on_conflict=None):
     try:
         lines, pending = [], None  # pending: 直前のグループの reword 用 exec 行
         for act, h, msg in items:
-            if act in ("pick", "reword"):
+            if act in ("pick", "reword", "edit"):
                 if pending:
                     lines.append(pending)
                     pending = None
-                lines.append(f"pick {h}")
+                lines.append(f"{'edit' if act == 'edit' else 'pick'} {h}")  # edit は、そのコミットを適用したところで止まる
                 if act == "reword":
                     mp = os.path.join(msgdir, f"msg{len(lines)}.txt")
                     with open(mp, "w", encoding="utf-8", newline="\n") as f:
@@ -606,6 +606,10 @@ def rebase_interactive(base, todo, *, on_conflict=None):
                 _abort_rebase()  # 競合以外で止まった (reword の exec の失敗など) ときは、元に戻す
                 raise UserError("ri_aborted", tail="\n".join(out.splitlines()[-6:]))
             raise ValueError(with_stash_note({"stashed": stashed}, out or tr("rebase_failed")))
+        if is_rebasing():  # 正常終了のまま途中 = edit のコミットで止まった (内容を直してコミットし、「続行」する)
+            keep_msgs = True
+            return {"stopped": True, "branch": branch, "base": base, "head": git("rev-parse", "--short", "HEAD").strip(),
+                    "stashed": stashed}
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
         if not keep_msgs:

@@ -353,7 +353,7 @@ class EngineTests(unittest.TestCase):
 
         result = integrate.continue_operation()
 
-        self.assertEqual(result, {"cmd": "rebase", "done": True, "conflict": False})
+        self.assertEqual(result, {"cmd": "rebase", "done": True, "conflict": False, "head": ""})
         self.assertFalse(os.path.isdir(os.path.join(self.repo, ".git", "rebase-merge")))
         self.assertEqual(self.git("log", "-1", "--format=%s").strip(), "topic change")  # 元のコミットメッセージのまま
         self.assertEqual(self.read("tracked.txt"), "hand merged\n")
@@ -374,11 +374,11 @@ class EngineTests(unittest.TestCase):
 
         first = integrate.continue_operation()
 
-        self.assertEqual(first, {"cmd": "rebase", "done": False, "conflict": True})  # 2つ目のコミットで、また競合した
+        self.assertEqual(first, {"cmd": "rebase", "done": False, "conflict": True, "head": ""})  # 2つ目のコミットで、また競合した
         self.assertTrue(os.path.isdir(os.path.join(self.repo, ".git", "rebase-merge")))
         self.write("other.txt", "resolved 2\n")
         integrate.resolve_conflicts("current", ["other.txt"])
-        self.assertEqual(integrate.continue_operation(), {"cmd": "rebase", "done": True, "conflict": False})
+        self.assertEqual(integrate.continue_operation(), {"cmd": "rebase", "done": True, "conflict": False, "head": ""})
 
     def test_continue_operation_requires_a_rebase_in_progress(self):
         from git_graph.engine import integrate
@@ -1137,16 +1137,56 @@ class EngineOperationTests(EngineTests):
         self.write("tracked.txt", "resolved b\n")
         integrate.resolve_conflicts("current", ["tracked.txt"])
         again = integrate.continue_operation()  # b のあとの reword (exec) を通って、a で、また競合する
-        self.assertEqual(again, {"cmd": "rebase", "done": False, "conflict": True})
+        self.assertEqual(again, {"cmd": "rebase", "done": False, "conflict": True, "head": ""})
         self.assertEqual(self.git("log", "-1", "--format=%s", "HEAD").strip(), "reworded edit 2")
 
         self.write("tracked.txt", "resolved a\n")
         integrate.resolve_conflicts("current", ["tracked.txt"])
         done = integrate.continue_operation()
 
-        self.assertEqual(done, {"cmd": "rebase", "done": True, "conflict": False})
+        self.assertEqual(done, {"cmd": "rebase", "done": True, "conflict": False, "head": ""})
         self.assertEqual(self.git("log", "--format=%s", "-2").split("\n")[:2], ["edit 1", "reworded edit 2"])
         self.assertFalse(os.path.isdir(self.msgs_dir()))  # 終わったら消す
+
+    def test_interactive_rebase_edit_stops_so_the_commit_can_be_amended_then_continued(self):
+        from git_graph.engine import commit, integrate, rebase
+        base, first, second, target = self.topic_on_old_base()
+
+        result = rebase.rebase_interactive(base, self.todo_for([first, second], ["edit", "pick"]))
+
+        self.assertEqual((result["stopped"], result["branch"]), (True, "topic"))  # 競合ではなく、edit のコミットで止まる
+        self.assertNotIn("conflict", result)
+        self.assertTrue(os.path.isdir(os.path.join(self.repo, ".git", "rebase-merge")))
+        self.assertEqual(self.git("diff", "--name-only", "--diff-filter=U").strip(), "")
+        self.assertEqual(self.git("log", "-1", "--format=%s").strip(), "topic one")  # HEAD は edit のコミット
+        self.write("t1.txt", "one, fixed\n")
+        commit.commit("topic one (fixed)", ["t1.txt"], amend=True)  # 止まっているコミットを amend できる
+
+        done = integrate.continue_operation()
+
+        self.assertEqual(done, {"cmd": "rebase", "done": True, "conflict": False, "head": ""})
+        self.assertFalse(os.path.isdir(os.path.join(self.repo, ".git", "rebase-merge")))
+        self.assertEqual(self.git("log", "--format=%s", "-2").split("\n")[:2], ["topic two", "topic one (fixed)"])
+        self.assertEqual(self.git("show", "HEAD~1:t1.txt"), "one, fixed\n")
+        self.assertEqual(self.read("t2.txt"), "two\n")
+
+    def test_continue_stops_again_at_the_next_edit_commit(self):
+        from git_graph.engine import integrate, rebase
+        base, first, second, target = self.topic_on_old_base()
+        self.assertTrue(rebase.rebase_interactive(base, self.todo_for([first, second], ["edit", "edit"]))["stopped"])
+
+        again = integrate.continue_operation()
+
+        self.assertEqual((again["done"], again["conflict"]), (False, False))
+        self.assertEqual(again["head"], self.git("rev-parse", "--short", "HEAD").strip())
+        self.assertEqual(self.git("log", "-1", "--format=%s").strip(), "topic two")
+        self.assertEqual(integrate.continue_operation()["done"], True)
+
+    def test_amend_is_still_refused_while_a_rebase_has_conflicts(self):
+        from git_graph.engine import commit
+        self.start_external_rebase_conflict()
+        with self.assertRaises(UserError):
+            commit.commit("x", [], amend=True)
 
     def conflicting_stash(self, with_new_file=False):
         """tracked.txt を変えた stash を作り、HEAD 側でも tracked.txt を変えて、stash の適用が競合する状態にする。"""

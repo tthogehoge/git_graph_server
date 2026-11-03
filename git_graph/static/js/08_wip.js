@@ -241,7 +241,7 @@ function showWip(fromHistory, okMsg) {
   showView("detail"); curDetailHash = null;
   api("/api/status", wipAmendOn ? {amend: 1} : {}).then(s => {
     wipMerging = !!(s.merging || s.cherry_picking || s.reverting); wipRebasing = !!s.rebasing; wipHeadMsg = s.head_message || "";
-    const canAmend = !!(s.head && !s.merging && !s.rebasing);
+    const canAmend = !!(s.head && !s.merging && !(s.rebasing && (s.conflicts || []).length));  // 競合していないリベース中 (edit で止まったとき) は、そのコミットを amend できる
     if (wipAmendOn && !s.amend_files) {  // マージ中になったなどで amend できなくなった: 通常のコミットに戻す
       wipMsg = wipMsgNormal; wipMsgNormal = ""; wipAmendOn = false;
     }

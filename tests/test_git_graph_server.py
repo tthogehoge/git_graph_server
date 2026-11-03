@@ -2357,6 +2357,36 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertEqual(self.git("rev-parse", "HEAD~2").strip(), self.head)
         self.assertEqual(self.git("status", "--porcelain"), "")
 
+    def test_interactive_rebase_edit_stops_and_offers_amend_then_continues(self):
+        self.write_file("first.txt", "first\n")
+        self.git("add", "first.txt")
+        self.git("commit", "-q", "-m", "first topic commit")
+        self.write_file("second.txt", "second\n")
+        self.git("add", "second.txt")
+        self.git("commit", "-q", "-m", "second topic commit")
+        todo = app.api_rebase_todo({"hash": [self.head]})
+        items = [{"hash": todo["commits"][0]["hash"], "action": "edit"},
+                 {"hash": todo["commits"][1]["hash"], "action": "pick"}]
+
+        result = app.api_rebase_i({"hash": self.head, "todo": items})
+
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["stopped"])  # edit のコミットで止まった (競合ではない)
+        self.assertNotIn("conflict", result)
+        status = app.api_status({"amend": ["1"]})
+        self.assertTrue(status["rebasing"])
+        self.assertEqual(status["conflicts"], [])
+        self.assertIn("amend_files", status)  # 競合していないリベース中は、amend できる
+        self.write_file("first.txt", "first, fixed\n")
+        app.api_wip_commit({"paths": ["first.txt"], "message": "first topic commit (fixed)", "amend": True})
+
+        done = app.api_continue({})
+
+        self.assertTrue(done["ok"])
+        self.assertFalse(app.is_rebasing())
+        self.assertEqual(self.git("log", "-2", "--format=%s"), "second topic commit\nfirst topic commit (fixed)\n")
+        self.assertEqual(self.git("show", "HEAD~1:first.txt"), "first, fixed\n")
+
     def test_interactive_rebase_does_not_run_sys_executable(self):
         # PyInstaller の exe では sys.executable がアプリ自身。todo の差し替えにそれを使うと動かない
         self.write_file("first.txt", "first\n")

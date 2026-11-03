@@ -9,7 +9,7 @@ from ..gitstate import (
 )
 from ..i18n import tr, UserError
 from . import operation
-from .dirty import checkout_resolving
+from .dirty import checkout_resolving, unmerged_files
 
 _STEP = 200  # コマンドラインが長くなりすぎないよう、ファイルはこの数ずつ git に渡す
 
@@ -48,7 +48,7 @@ def commit(message, paths, *, staged_paths=None, amend=False, branch=""):
     if amend:
         if not has_head():
             raise UserError("amend_no_commit")
-        if is_merging() or is_rebasing():
+        if is_merging() or (is_rebasing() and unmerged_files()):  # edit で止まったリベースは、そのコミットを amend できる
             raise UserError("amend_blocked")
     msg = str(message or "").strip()
     if not msg:

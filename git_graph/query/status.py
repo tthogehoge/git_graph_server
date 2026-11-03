@@ -77,7 +77,7 @@ def status(amend=False):
                 s["head_message"] = git("log", "-1", "--format=%B", s["head"]).strip()
             except subprocess.CalledProcessError:
                 s["head_message"] = commit_info(s["head"])["message"]
-        if amend and not s["merging"] and not s["rebasing"]:
+        if amend and not s["merging"] and not (s["rebasing"] and s.get("conflicts")):
             s["amend_files"] = amend_files(s)
     return s
 
