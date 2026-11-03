@@ -1,26 +1,43 @@
 
+let pageNavFetch = 0;  // 選択のたびに増やす。古い /api/commit の応答は無視する
+function pageNavIsStash(hash) {
+  return !!hash && (!!stashByHash[hash] || (typeof stashNameOf === "function" && !!stashNameOf(hash)));
+}
 function updatePageNav(hash, files) {
   // 左上のファイル / 差分アイコンを、選択中コミットに合わせて有効化する
   const filesBtn = document.getElementById("navFilesBtn");
   const diffBtn = document.getElementById("navDiffBtn");
   if (!filesBtn || !diffBtn) return;
-  if (hash) {
-    filesBtn.disabled = false;
-    filesBtn.onclick = () => { location.href = "/files?hash=" + encodeURIComponent(hash); };
-  } else {
+  if (!hash || pageNavIsStash(hash)) {
     filesBtn.disabled = true;
     filesBtn.onclick = null;
+    diffBtn.disabled = true;
+    diffBtn.onclick = null;
+    return;
   }
-  if (hash && files && files.length) {
+  filesBtn.disabled = false;
+  filesBtn.onclick = () => { location.href = "/files?hash=" + encodeURIComponent(hash); };
+  if (files && files.length) {
     diffBtn.disabled = false;
     const f = files[0];
     const p = {hash: hash, path: f.path};
     if (f.old_path) p.old = f.old_path;
+    if (f.wip) p.wip = f.wip;
     diffBtn.onclick = () => { location.href = "/diff?" + new URLSearchParams(p); };
   } else {
     diffBtn.disabled = true;
     diffBtn.onclick = null;
   }
+}
+function updatePageNavForSelection(hash) {
+  // 1回目のクリック (詳細を開く前) でもファイルを有効にし、差分は変更一覧を取ってから有効にする
+  updatePageNav(hash, null);
+  if (!hash || pageNavIsStash(hash)) return;
+  const seq = ++pageNavFetch;
+  api("/api/commit", {hash: hash}).then(c => {
+    if (seq !== pageNavFetch || actionHash !== hash) return;
+    updatePageNav(hash, c.files || []);
+  }).catch(() => {});
 }
 
 // 差分は別ページ (/diff) で開く。ctx は {hash} (1コミット) または {from, to} (2コミット間の比較)

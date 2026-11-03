@@ -462,6 +462,13 @@ async function doRemoteConfig(btn) {  // remote 追加 / 削除
 function clearCmp() {
   compareAHash = null; compareBHash = null; actionHash = null;
   updateCmpClasses();
+  updatePageNav(null, null);
   saveUiState();
 }
-function selectActionTarget(hash, reveal = true) { actionHash = hash; updateCmpClasses(); saveUiState(); if (reveal) revealHash(hash); else clearLocate("actionTarget"); }
+function selectActionTarget(hash, reveal = true) {
+  actionHash = hash;
+  updateCmpClasses();
+  updatePageNavForSelection(hash);
+  saveUiState();
+  if (reveal) revealHash(hash); else clearLocate("actionTarget");
+}
