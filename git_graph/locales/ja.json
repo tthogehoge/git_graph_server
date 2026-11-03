@@ -372,6 +372,7 @@
   "merge_uptodate": "{hash} は既にマージ済みです (変更なし)",
   "merge_done": "{hash} をマージしました",
   "rebase_no_worktree": "ワークツリーのないリポジトリではリベースできません",
+  "ri_conflict_stop": "対話的リベース ({branch}) が競合で止まりました。WIP の競合ファイルを解決して「続行」してください(WIP 画面で ours / theirs による解決や、リベースの中断もできます)",
   "rebase_conflict_stop": "{target} の上へのリベースで競合しました。WIP の競合ファイルを解決して「続行」してください(WIP 画面で ours / theirs による解決や、リベースの中断もできます)",
   "cherry_conflict_stop": "{hash} のチェリーピックで競合しました。WIP の競合ファイルを解決してコミットしてください(WIP 画面で ours / theirs による解決や、チェリーピックの中断もできます)",
   "revert_conflict_stop": "コミット {hash} のリバートで競合しました。WIP の競合ファイルを解決してコミットしてください(WIP 画面で ours / theirs による解決や、リバートの中断もできます)",

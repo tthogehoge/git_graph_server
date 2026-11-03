@@ -1098,8 +1098,11 @@ class EngineOperationTests(EngineTests):
         self.assertEqual(self.git("rev-parse", "HEAD").strip(), head)
         self.assertEqual(self.entries(), [])
 
-    def test_interactive_rebase_reports_noop_and_aborts_on_conflict(self):
-        from git_graph.engine import rebase
+    def msgs_dir(self):
+        return os.path.join(self.repo, ".git", "git_graph_rebase")
+
+    def test_interactive_rebase_reports_noop_and_stops_on_conflict(self):
+        from git_graph.engine import integrate, rebase
         base, first, second, target = self.topic_on_old_base()
         same = rebase.rebase_interactive(base, self.todo_for([first, second], ["pick", "pick"]))
         self.assertTrue(same["noop"])
@@ -1108,10 +1111,42 @@ class EngineOperationTests(EngineTests):
         a = self.commit_file("tracked.txt", "first edit\n", "edit 1")
         b = self.commit_file("tracked.txt", "second edit\n", "edit 2")
         before = self.git("rev-parse", "HEAD").strip()
-        with self.assertRaises(UserError):  # 順序を入れ替えると競合する → 中止して元に戻す
-            rebase.rebase_interactive(base, self.todo_for([b, a], ["pick", "pick"]))
+
+        result = rebase.rebase_interactive(base, self.todo_for([b, a], ["pick", "pick"]))  # 順序を入れ替えると競合する
+
+        self.assertEqual((result["conflict"], result["branch"]), (True, "clash"))  # 自動で中止せず、止める
+        self.assertTrue(os.path.isdir(os.path.join(self.repo, ".git", "rebase-merge")))
+        self.assertEqual(self.git("diff", "--name-only", "--diff-filter=U").strip(), "tracked.txt")
+        integrate.abort_operation()  # 中断すれば、元に戻る
         self.assertEqual(self.git("rev-parse", "HEAD").strip(), before)
         self.assertFalse(os.path.isdir(os.path.join(self.repo, ".git", "rebase-merge")))
+        self.assertFalse(os.path.isdir(self.msgs_dir()))
+
+    def test_interactive_rebase_reword_survives_a_conflict_and_continue(self):
+        from git_graph.engine import integrate, rebase
+        base, first, second, target = self.topic_on_old_base()
+        self.git("checkout", "-q", "-b", "clash", base)
+        a = self.commit_file("tracked.txt", "first edit\n", "edit 1")
+        b = self.commit_file("tracked.txt", "second edit\n", "edit 2")
+
+        result = rebase.rebase_interactive(
+            base, self.todo_for([b, a], ["reword", "pick"], {b: "reworded edit 2"}))
+        self.assertTrue(result["conflict"])
+        self.assertTrue(os.path.isdir(self.msgs_dir()))  # reword 用のメッセージファイルは、止めている間は残す
+
+        self.write("tracked.txt", "resolved b\n")
+        integrate.resolve_conflicts("current", ["tracked.txt"])
+        again = integrate.continue_operation()  # b のあとの reword (exec) を通って、a で、また競合する
+        self.assertEqual(again, {"cmd": "rebase", "done": False, "conflict": True})
+        self.assertEqual(self.git("log", "-1", "--format=%s", "HEAD").strip(), "reworded edit 2")
+
+        self.write("tracked.txt", "resolved a\n")
+        integrate.resolve_conflicts("current", ["tracked.txt"])
+        done = integrate.continue_operation()
+
+        self.assertEqual(done, {"cmd": "rebase", "done": True, "conflict": False})
+        self.assertEqual(self.git("log", "--format=%s", "-2").split("\n")[:2], ["edit 1", "reworded edit 2"])
+        self.assertFalse(os.path.isdir(self.msgs_dir()))  # 終わったら消す
 
     def conflicting_stash(self, with_new_file=False):
         """tracked.txt を変えた stash を作り、HEAD 側でも tracked.txt を変えて、stash の適用が競合する状態にする。"""

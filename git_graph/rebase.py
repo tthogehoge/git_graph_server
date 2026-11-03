@@ -200,6 +200,8 @@ def api_rebase_i(body):
     r = rebase.rebase_interactive(body.get("hash", ""), body.get("todo"), on_conflict=body.get("on_conflict"))
     if r.get("blocked"):
         return r
+    if r.get("conflict"):
+        return {"ok": True, "conflict": True, "message": with_stash_note(r, tr("ri_conflict_stop", branch=r["branch"]))}
     if r["noop"]:
         return {"ok": True, "message": with_stash_note(r, tr("ri_noop", branch=r["branch"]))}
     n = r["counts"]

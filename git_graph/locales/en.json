@@ -372,6 +372,7 @@
   "merge_uptodate": "{hash} is already merged (no change)",
   "merge_done": "Merged {hash}",
   "rebase_no_worktree": "Cannot rebase in a repository without a working tree",
+  "ri_conflict_stop": "The interactive rebase ({branch}) stopped on a conflict. Resolve the conflicted files in WIP and press Continue (In the WIP screen you can also resolve with ours / theirs, or abort the rebase)",
   "rebase_conflict_stop": "Rebasing onto {target} caused conflicts. Resolve the conflicted files in WIP and press Continue (In the WIP screen you can also resolve with ours / theirs, or abort the rebase)",
   "cherry_conflict_stop": "Cherry-picking {hash} caused conflicts. Resolve the conflicted files in WIP and commit (In the WIP screen you can also resolve with ours / theirs, or abort the cherry-pick)",
   "revert_conflict_stop": "Reverting {hash} caused conflicts. Resolve the conflicted files in WIP and commit (In the WIP screen you can also resolve with ours / theirs, or abort the revert)",

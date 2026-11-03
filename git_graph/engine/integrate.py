@@ -11,7 +11,7 @@ from ..gitstate import (
 )
 from ..i18n import tr, UserError
 from . import operation
-from .dirty import checkout_resolving, git_run, run_resolving, unmerged_files, with_stash_note
+from .dirty import checkout_resolving, clear_rebase_msgs, git_run, run_resolving, unmerged_files, with_stash_note
 from .worktree import clear_stash_marker
 from ._ab_helpers import pick_local_branch_at
 
@@ -167,6 +167,8 @@ def abort_operation():
                         ("cherry-pick", is_cherry_picking), ("revert", is_reverting)):
         if active():
             run_git_write(cmd, "--abort")
+            if cmd == "rebase":
+                clear_rebase_msgs()  # 対話的リベースの reword 用メッセージファイル
             return {"cmd": cmd}
     marker = stash_conflict_state()
     if marker:  # stash の apply / pop が競合したまま (git には中断の仕組みがない)
@@ -192,7 +194,10 @@ def continue_operation():
         if is_rebasing() and _unmerged_files():  # 次のコミットで競合した (エラーではなく、また解決する)
             return {"cmd": "rebase", "done": False, "conflict": True}
         raise ValueError((r.stderr or r.stdout).strip() or tr("git_command_failed"))
-    return {"cmd": "rebase", "done": not is_rebasing(), "conflict": False}
+    done = not is_rebasing()
+    if done:
+        clear_rebase_msgs()  # 対話的リベースの reword 用メッセージファイル
+    return {"cmd": "rebase", "done": done, "conflict": False}
 
 
 def _abort_stash_apply(stash):

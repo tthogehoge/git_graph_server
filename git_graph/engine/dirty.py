@@ -3,11 +3,12 @@
 # 呼び出し側 (route) は、止まった結果 (blocked) をそのまま画面に返し、ユーザーが選んだ方法 (mode) で再度呼ぶ。
 import os
 import re
+import shutil
 import subprocess
 import time
 from .. import app_state as state
 from ..gitrun import git, git_c_locale, is_http_auth_error, run_git_write
-from ..gitstate import is_cherry_picking, is_merging, is_rebasing, is_reverting
+from ..gitstate import git_path, is_cherry_picking, is_merging, is_rebasing, is_reverting
 from ..i18n import tr, UserError
 
 
@@ -218,6 +219,17 @@ def with_stash_note(res, msg):
     if res and res.get("stashed"):
         msg += tr("stash_note", stash=res["stashed"])
     return msg
+
+
+def rebase_msgs_dir():
+    """対話的リベースの reword 用メッセージファイルの置き場所 (.git の中)。競合で止めたリベースを、あとで続行するときにも要るので、
+    アプリの一時ディレクトリ (終了時に消える) には置かない。"""
+    return git_path("git_graph_rebase")
+
+
+def clear_rebase_msgs():
+    """reword 用のメッセージファイルを消す (リベースが終わった / 中断したとき)。"""
+    shutil.rmtree(rebase_msgs_dir(), ignore_errors=True)
 
 
 def unmerged_files():

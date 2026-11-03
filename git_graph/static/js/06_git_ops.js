@@ -316,8 +316,9 @@ async function doRebaseI() {  // 対話的リベース (git rebase -i 相当)
     r = await retryIfBlocked(r, "rebase", t("rebasing"), mode => post("/api/rebase-i", {hash: h, todo: todo, on_conflict: mode}));
     if (r === null) { setGraphStatus(""); return; }
     clearCmp();
-    setGraphStatus(r.message, "success");
+    setGraphStatus(r.message, r.conflict ? "error" : "success");
     await refreshGraph().catch(() => {});
+    if (r.conflict) openWip();  // 競合で止まったら、WIP の競合解決画面を開く
   } catch (e) {
     setGraphStatus(t("rebase_i_error", {error: e.message}), "error");
   } finally {
