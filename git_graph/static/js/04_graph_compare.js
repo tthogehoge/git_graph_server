@@ -160,9 +160,9 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
   if (!abActOpen) restoreMenuPosition(document.getElementById("abActions"));
   document.getElementById("compareBtn").hidden = !compareAHash || !compareBHash;
   document.getElementById("compareLogsBtn").hidden = !compareAHash || !compareBHash;
-  document.getElementById("rebaseRangeBtn").hidden = !compareAHash || !compareBHash;
-  document.getElementById("rebaseOntoBtn").hidden = !compareAHash || !compareBHash;
   document.getElementById("cherryOntoBtn").hidden = !compareAHash || !compareBHash;
+  document.getElementById("rebaseOntoBtn").hidden = !compareAHash || !compareBHash;
+  document.getElementById("rebaseRangeBtn").hidden = !compareAHash || !compareBHash;
   document.getElementById("rebaseDescendantsBtn").hidden = !compareAHash || !compareBHash;
   document.getElementById("rebaseEquivalentBtn").hidden = !compareAHash || !compareBHash;
   document.getElementById("findEquivalentParentsBtn").hidden = !compareAHash || !compareBHash;
@@ -180,9 +180,9 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
   document.getElementById("irebaseBtn").disabled = !canMerge;
   // AB操作は A と B だけで決まる。操作対象 (actionHash) が選ばれていなくても使える (ドラッグ&ドロップでセットしたときなど)
   const canMergeAB = !!DATA.writable && !!DATA.merge;
+  document.getElementById("cherryOntoBtn").disabled = !compareAHash || !compareBHash || !canMergeAB;
+  document.getElementById("rebaseOntoBtn").disabled = !compareAHash || !compareBHash || !canMergeAB;
   document.getElementById("rebaseRangeBtn").disabled = !compareAHash || !compareBHash || !canMergeAB;
-  document.getElementById("rebaseOntoBtn").disabled = !compareAHash || !compareBHash || !canWrite;
-  document.getElementById("cherryOntoBtn").disabled = !compareAHash || !compareBHash || !canWrite;
   document.getElementById("rebaseDescendantsBtn").disabled = !compareAHash || !compareBHash || !canMergeAB;
   document.getElementById("rebaseEquivalentBtn").disabled = !compareAHash || !compareBHash || !canMergeAB;
   document.getElementById("findEquivalentParentsBtn").disabled = !compareAHash || !compareBHash;
