@@ -3103,8 +3103,8 @@ class ExternalAppsTests(unittest.TestCase):
         self.assertLess(index.index('id="backBtn"'), index.index('id="menubarRow2"'))
         self.assertIn('id="graphZoomReset"', row2)  # ズーム表示は2行目
         self.assertNotIn('id="graphZoomReset"', index[:index.index('id="menubarRow2"')])
-        self.assertLess(row2.index('id="topBtn"'), row2.index('id="wipBtn"'))
-        self.assertLess(row2.index('id="wipBtn"'), row2.index('id="actionTarget"'))
+        self.assertLess(row2.index('id="wipBtn"'), row2.index('id="topBtn"'))
+        self.assertLess(row2.index('id="topBtn"'), row2.index('id="actionTarget"'))
         self.assertLess(row2.index('id="actionTarget"'), row2.index('id="cmpA"'))
         self.assertLess(row2.index('id="cmpA"'), row2.index('id="cmpB"'))
         self.assertLess(row2.index('id="cmpB"'), row2.index('id="swapAbBtn"'))  # A<->B 入れ替えも2行目
