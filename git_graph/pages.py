@@ -239,7 +239,9 @@ def render_diff_page(q):
                      f'data-name="{html.escape(patch[1], quote=True)}" title="{attr_t(patch[2])}">{html.escape(tr("patch_create"))}</button>'
                      f'{apply_btns}</div><div class="hint" id="spmsg"></div>')
         patch_btn = ""  # 見出し側のパッチ作成は、左ペインのものと重複するので出さない
-    merging = bool(wip_status and wip_status.get("merging"))
+    # マージ中と、チェリーピック / リバートの途中は、競合ファイルを含めて全部チェック済みが既定 (これで1つのコミットが終わる)
+    merging = bool(wip_status and (wip_status.get("merging") or wip_status.get("cherry_picking") or wip_status.get("reverting")))
+    rebasing = bool(wip_status and wip_status.get("rebasing"))
     op_in_progress = bool(wip_status and any(
         wip_status.get(key) for key in ("merging", "rebasing", "cherry_picking", "reverting", "stash_conflict")
     ))
@@ -270,7 +272,7 @@ def render_diff_page(q):
                 side.append(f'<div class="wipres"><button class="wbtn" data-resolve="ours">{html.escape(tr("resolve_ours"))}</button>'
                             f'<button class="wbtn" data-resolve="theirs">{html.escape(tr("resolve_theirs"))}</button>'
                             f'<button class="wbtn" data-resolve="current">{html.escape(tr("resolve_current"))}</button>'
-                            f'<span class="hint">{html.escape(tr("resolve_hint"))}</span></div>')
+                            f'<span class="hint">{html.escape(tr("resolve_hint"))}{(" " + html.escape(tr("rebase_side_hint"))) if rebasing else ""}</span></div>')
         fdir = dir_of(f["path"])
         key = (f.get("wip"), fdir)
         folded = bool(wip and not is_wip_compare) and dir_count[key] >= WIP_DIR_COLLAPSE
@@ -328,7 +330,9 @@ def render_diff_page(q):
         if op_cmd:  # マージなどの途中であることと、中断ボタン (右ペインと同じ)
             banner = tr("op_banner_stash") if op_cmd == "stash" else tr("op_banner", cmd=op_cmd)
             abort_text = tr("abort_button_stash") if op_cmd == "stash" else tr("abort_button", cmd=op_cmd)
-            commit_box = (f'<div class="wipop"><span>{html.escape(banner)}</span>'
+            cont = (f'<button class="wbtn" id="ctbtn">{html.escape(tr("continue_button"))}</button>'
+                    if op_cmd == "rebase" and state.WRITABLE else "")
+            commit_box = (f'<div class="wipop"><span>{html.escape(banner)}</span>{cont}'
                           f'<button class="wbtn danger" id="abtn" data-cmd="{html.escape(op_cmd, quote=True)}">'
                           f'{html.escape(abort_text)}</button></div>') + commit_box
         texts = {k: tr(k) for k in (

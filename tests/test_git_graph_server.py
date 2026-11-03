@@ -1653,6 +1653,40 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertIn("+main", out)
         self.assertNotIn("Unmerged path", out)
 
+    def render_conflict_page_with_status(self, **flags):
+        self.write_file("tracked.txt", "working tree change\n")
+        original = viewer.api_status
+
+        def op_status(q):
+            st = original(q)
+            st.update(flags)
+            st["conflicts"] = [{"path": "tracked.txt", "st": "U", "label": "label_conflict"}]
+            return st
+
+        previous_writable = state.WRITABLE
+        state.WRITABLE = True
+        viewer.api_status = op_status
+        try:
+            return viewer.render_diff_page({"path": ["tracked.txt"], "wip": ["conflict"]})
+        finally:
+            viewer.api_status = original
+            state.WRITABLE = previous_writable
+
+    def test_wip_diff_page_offers_continue_and_side_hint_while_rebasing(self):
+        page = self.render_conflict_page_with_status(rebasing=True)
+        self.assertIn('id="ctbtn"', page)  # 続行
+        self.assertIn('id="abtn"', page)
+        self.assertIn(html.escape(tr("rebase_side_hint")), page)
+        self.assertNotRegex(page, r'class="wck" data-kind="conflict"[^>]*data-path="tracked.txt" checked>')  # リベース中は、競合ファイルを既定でチェックしない
+        plain = self.render_conflict_page_with_status(merging=True)
+        self.assertNotIn('id="ctbtn"', plain)
+        self.assertNotIn(html.escape(tr("rebase_side_hint")), plain)
+
+    def test_wip_diff_page_checks_conflicts_while_cherry_picking_or_reverting(self):
+        for flag in ("cherry_picking", "reverting"):
+            page = self.render_conflict_page_with_status(**{flag: True})
+            self.assertRegex(page, r'class="wck" data-kind="conflict"[^>]*data-path="tracked.txt" checked>', flag)
+
     def test_wip_diff_page_does_not_check_untracked_while_merging(self):
         self.write_file("tracked.txt", "working tree change\n")
         self.write_file("new_untracked.txt", "untracked\n")

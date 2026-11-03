@@ -1,7 +1,7 @@
 // ---- 作業ツリーの変更 (WIP) ----
 // チェックしたファイルだけを add してコミットする (TortoiseGit のコミットダイアログと同じ考え方)。
 // 既定ではステージ済みのファイルがチェック済み。チェックを外したステージ済みファイルはステージから外れる。
-let wipSel = {}, wipMerging = false, wipMsg = "";  // wipSel: 「種類 + パス」→ ユーザーが付け外ししたチェック状態 (ステージ済みと未ステージは別々にチェックできる)
+let wipSel = {}, wipMerging = false, wipRebasing = false, wipMsg = "";  // wipSel: 「種類 + パス」→ ユーザーが付け外ししたチェック状態 (ステージ済みと未ステージは別々にチェックできる)
 // amend モード: チェック中は「直前のコミットの親」と作業ツリーの差分を出し、メッセージも直前のものを入れる
 let wipAmendOn = false, wipMsgNormal = "", wipHeadMsg = "";  // wipMsgNormal: amend にする前に書いていたメッセージ (解除で戻す)
 function wipKey(kind, path) { return kind + "\0" + path; }
@@ -133,12 +133,13 @@ function resolveBarHtml() {  // 競合ファイルを ours / theirs / 現在の�
   return '<div class="wipres"><button class="abtn" data-resolve="ours">' + esc(t("resolve_ours")) + '</button>' +
     '<button class="abtn" data-resolve="theirs">' + esc(t("resolve_theirs")) + '</button>' +
     '<button class="abtn" data-resolve="current">' + esc(t("resolve_current")) + '</button>' +
-    '<span class="hint">' + esc(t("resolve_hint")) + '</span></div>';
+    '<span class="hint">' + esc(t("resolve_hint")) + (wipRebasing ? " " + esc(t("rebase_side_hint")) : "") + '</span></div>';
 }
 function opBannerHtml(cmd, canWrite) {  // マージなどの途中であることと、中断ボタン
   if (!cmd) return "";
   const stash = cmd === "stash";  // stash の適用が競合したまま (git の操作の途中ではないので、文言が違う)
   return '<div class="wipop"><span>' + esc(stash ? t("op_banner_stash") : t("op_banner", {cmd: cmd})) + '</span>' +
+    (canWrite && cmd === "rebase" ? '<button class="abtn" id="wipContinue">' + esc(t("continue_button")) + '</button>' : "") +
     (canWrite ? '<button class="abtn danger" id="wipAbort" data-cmd="' + esc(cmd) + '">' + esc(stash ? t("abort_button_stash") : t("abort_button", {cmd: cmd})) + '</button>' : "") + '</div>';
 }
 function doWipResolve(side) {
@@ -213,6 +214,14 @@ detailView.addEventListener("click", ev => {
     refreshGraph().catch(() => {});
   });
 });
+function doWipContinue() {
+  const b = detailView.querySelector("#wipContinue");
+  if (!b) return;
+  b.disabled = true;
+  post("/api/continue", {})
+    .then(r => { wipSel = {}; wipKeepClear(); wipMsg = ""; wipMsgNormal = ""; wipAmendOn = false; showWip(true, r.message); return refreshGraph().catch(() => {}); })
+    .catch(e => { b.disabled = false; wipSay(e.message, false); });
+}
 function doWipAbort() {
   const b = detailView.querySelector("#wipAbort");
   if (!b) return;
@@ -231,7 +240,7 @@ function showWip(fromHistory, okMsg) {
   detailView.innerHTML = btns + '<p class="hint">' + t("wip_loading") + '</p>';
   showView("detail"); curDetailHash = null;
   api("/api/status", wipAmendOn ? {amend: 1} : {}).then(s => {
-    wipMerging = !!s.merging; wipHeadMsg = s.head_message || "";
+    wipMerging = !!(s.merging || s.cherry_picking || s.reverting); wipRebasing = !!s.rebasing; wipHeadMsg = s.head_message || "";
     const canAmend = !!(s.head && !s.merging && !s.rebasing);
     if (wipAmendOn && !s.amend_files) {  // マージ中になったなどで amend できなくなった: 通常のコミットに戻す
       wipMsg = wipMsgNormal; wipMsgNormal = ""; wipAmendOn = false;

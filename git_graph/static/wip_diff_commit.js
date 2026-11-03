@@ -177,6 +177,11 @@ document.querySelectorAll("[data-resolve]").forEach(b => b.addEventListener("cli
   say(T.wip_execute, true);
   postJson("/api/resolve", {paths: sel, side: side}).then(done).catch(e => say(e.message, false));
 }));
+const ctbtn = document.getElementById("ctbtn");
+if (ctbtn) ctbtn.addEventListener("click", () => {  // 止まっているリベースを続行する
+  ctbtn.disabled = true; say(T.wip_execute, true);
+  postJson("/api/continue", {}).then(done).catch(e => { ctbtn.disabled = false; say(e.message, false); });
+});
 const abtn = document.getElementById("abtn");
 if (abtn) abtn.addEventListener("click", () => {  // マージなどの途中を中断する
   if (!confirm(abtn.dataset.cmd === "stash" ? T.confirm_abort_stash : fmt(T.confirm_abort, {cmd: abtn.dataset.cmd}))) return;

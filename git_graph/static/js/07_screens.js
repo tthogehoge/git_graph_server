@@ -108,6 +108,7 @@ detailView.addEventListener("click", ev => {
   if (ev.target.closest("#wipDiscard")) { doWipDiscard(); return; }
   if (ev.target.closest("#wipRm")) { doWipRm(); return; }
   if (ev.target.closest("#wipAbort")) { doWipAbort(); return; }
+  if (ev.target.closest("#wipContinue")) { doWipContinue(); return; }
   const rb = ev.target.closest("[data-resolve]");
   if (rb) { doWipResolve(rb.dataset.resolve); return; }
   const ab = ev.target.closest(".abtn");

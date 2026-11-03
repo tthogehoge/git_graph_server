@@ -179,6 +179,26 @@ def abort_operation():
     raise UserError("nothing_to_abort")
 
 
+@operation("continue", touches_worktree=True)
+def continue_operation():
+    """途中で止まっているリベースを続行する (競合を解決してステージしたあと、元のコミットメッセージで次へ進む)。
+    次のコミットで、また競合したときは、止まったまま {"done": False, "conflict": True} を返す。
+    戻り値: {"cmd": "rebase", "done" (リベースが終わった), "conflict" (次のコミットで競合した)}。"""
+    if not state.HAS_WORKTREE:
+        raise UserError("no_worktree")
+    if not is_rebasing():
+        raise UserError("continue_not_rebasing")
+    if _unmerged_files():  # git に任せると、英語のエラーが出る。解決してから続行してもらう
+        raise UserError("continue_unresolved")
+    env = dict(os.environ, GIT_EDITOR="true")  # コミットメッセージの編集エディタを開かず、元のメッセージのまま進む
+    r = git_run(["rebase", "--continue"], True, env=env)
+    if r.returncode != 0:
+        if is_rebasing() and _unmerged_files():  # 次のコミットで競合した (エラーではなく、また解決する)
+            return {"cmd": "rebase", "done": False, "conflict": True}
+        raise ValueError((r.stderr or r.stdout).strip() or tr("git_command_failed"))
+    return {"cmd": "rebase", "done": not is_rebasing(), "conflict": False}
+
+
 def _abort_stash_apply(stash):
     """stash の適用で変わったファイルを、適用前の状態 (HEAD) に戻す。
     stash の適用は、変更先のファイルがきれいなとき (HEAD と同じとき) だけ始まる (編集中なら適用前に止まる) ので、

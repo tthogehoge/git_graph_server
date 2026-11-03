@@ -333,6 +333,58 @@ class EngineTests(unittest.TestCase):
         self.assertIn("extra.txt", self.git("ls-tree", "-r", "--name-only", "HEAD"))  # やり直しでは、またコミットに入る
         self.assertEqual(self.read("extra.txt"), "untracked\n")
 
+    def start_external_rebase_conflict(self):
+        """コマンドラインから始めたリベースが、競合で止まっている状態にする (このツール自身のリベースは競合で自動中止する)。"""
+        self.git("checkout", "-q", "-b", "topic")
+        self.commit_file("tracked.txt", "topic side\n", "topic change")
+        self.git("checkout", "-q", "main")
+        target = self.commit_file("tracked.txt", "main side\n", "main change")
+        self.git("checkout", "-q", "topic")
+        subprocess.run(["git", "-C", self.repo, "rebase", target], capture_output=True)
+        self.assertTrue(os.path.isdir(os.path.join(self.repo, ".git", "rebase-merge")))
+
+    def test_continue_operation_finishes_a_rebase_stopped_by_conflict(self):
+        from git_graph.engine import integrate
+        self.start_external_rebase_conflict()
+        with self.assertRaises(UserError):
+            integrate.continue_operation()  # 競合が残っている間は続行できない
+        self.write("tracked.txt", "hand merged\n")
+        integrate.resolve_conflicts("current", ["tracked.txt"])
+
+        result = integrate.continue_operation()
+
+        self.assertEqual(result, {"cmd": "rebase", "done": True, "conflict": False})
+        self.assertFalse(os.path.isdir(os.path.join(self.repo, ".git", "rebase-merge")))
+        self.assertEqual(self.git("log", "-1", "--format=%s").strip(), "topic change")  # 元のコミットメッセージのまま
+        self.assertEqual(self.read("tracked.txt"), "hand merged\n")
+
+    def test_continue_operation_reports_a_conflict_on_the_next_commit(self):
+        from git_graph.engine import integrate
+        self.commit_file("other.txt", "base\n", "add other")
+        self.git("checkout", "-q", "-b", "topic")
+        self.commit_file("tracked.txt", "topic 1\n", "topic 1")
+        self.commit_file("other.txt", "topic 2\n", "topic 2")
+        self.git("checkout", "-q", "main")
+        self.commit_file("tracked.txt", "main 1\n", "main 1")
+        target = self.commit_file("other.txt", "main 2\n", "main 2")
+        self.git("checkout", "-q", "topic")
+        subprocess.run(["git", "-C", self.repo, "rebase", target], capture_output=True)
+        self.write("tracked.txt", "resolved 1\n")
+        integrate.resolve_conflicts("current", ["tracked.txt"])
+
+        first = integrate.continue_operation()
+
+        self.assertEqual(first, {"cmd": "rebase", "done": False, "conflict": True})  # 2つ目のコミットで、また競合した
+        self.assertTrue(os.path.isdir(os.path.join(self.repo, ".git", "rebase-merge")))
+        self.write("other.txt", "resolved 2\n")
+        integrate.resolve_conflicts("current", ["other.txt"])
+        self.assertEqual(integrate.continue_operation(), {"cmd": "rebase", "done": True, "conflict": False})
+
+    def test_continue_operation_requires_a_rebase_in_progress(self):
+        from git_graph.engine import integrate
+        with self.assertRaises(UserError):
+            integrate.continue_operation()
+
     # ---- 安全装置
 
     def test_undo_refused_when_ref_moved_by_someone_else(self):

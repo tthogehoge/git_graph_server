@@ -160,6 +160,15 @@ def api_abort(body):
     return {"ok": True, "message": tr("aborted_stash") if r["cmd"] == "stash" else tr("aborted", cmd=r["cmd"])}
 
 
+@route("/api/continue", method="POST", engine=True)
+def api_continue(body):
+    """途中で止まっているリベースを続行する。"""
+    r = integrate.continue_operation()
+    if r["conflict"]:
+        return {"ok": True, "message": tr("continued_conflict")}
+    return {"ok": True, "message": tr("continued_done" if r["done"] else "continued_more")}
+
+
 @route("/api/resolve", method="POST", engine=True)
 def api_resolve(body):
     """競合しているファイルを、ours か theirs の内容で丸ごと置き換えて解決済みにする。"""
@@ -192,7 +201,7 @@ def api_rebase_i(body):
 
 
 __all__ = [
-    "REBASE_I_ACTIONS", "REBASE_I_MAX", "api_abort", "api_cherry_pick", "api_cherry_pick_onto",
+    "REBASE_I_ACTIONS", "REBASE_I_MAX", "api_abort", "api_continue", "api_cherry_pick", "api_cherry_pick_onto",
     "api_find_equivalent_branch", "api_find_equivalent_parents", "api_head", "api_merge",
     "api_rebase", "api_rebase_onto", "api_rebase_descendants", "api_rebase_equivalent", "api_rebase_i",
     "api_rebase_range", "api_rebase_todo", "api_resolve", "api_revert", "check_rebase_i_range",
