@@ -24,19 +24,42 @@ fetch(graphUrl())
     loadStashes();
     updateCurrentBranch().catch(e => setGraphStatus(t("current_branch_failed", {error: e.message}), "error"));
     const screen = history.state || {screen: "home"};
+    // ファイル表示 / 差分から <a href="/"> で戻ると history.state が空になるので、sessionStorage から選択を戻す
+    const persisted = loadPersistedUiSel();
+    if (persisted) {
+      if (!Object.prototype.hasOwnProperty.call(screen, "actionHash") && persisted.actionHash)
+        screen.actionHash = persisted.actionHash;
+      if (!Object.prototype.hasOwnProperty.call(screen, "compareA") && persisted.compareA)
+        screen.compareA = persisted.compareA;
+      if (!Object.prototype.hasOwnProperty.call(screen, "compareB") && persisted.compareB)
+        screen.compareB = persisted.compareB;
+    }
     restoreScreen(screen);
-    const fileLogHash = new URLSearchParams(location.search).get("file_log_hash");
-    const fileLogPath = new URLSearchParams(location.search).get("file_log_path");
-    const commitHash = new URLSearchParams(location.search).get("commit_hash");
+    if (actionHash && nodeEl[actionHash]) select(nodeEl[actionHash]);
+    if (typeof updatePageNavForSelection === "function") updatePageNavForSelection(actionHash);
+    const qs = new URLSearchParams(location.search);
+    const fileLogHash = qs.get("file_log_hash");
+    const fileLogPath = qs.get("file_log_path");
+    const commitHash = qs.get("commit_hash");
+    const selectHash = qs.get("select_hash");
     if (fileLogHash && fileLogPath) {
       // 一度だけ消費し、以後の履歴には一時的なクエリを残さない。
       history.replaceState({screen: "home"}, "", "/");
       showFileLogInGraph(fileLogHash, fileLogPath, true);
     } else if (commitHash) {
       history.replaceState({screen: "home"}, "", "/");
+      selectActionTarget(commitHash, true);
+      if (nodeEl[commitHash]) select(nodeEl[commitHash]);
       showTargetLog(commitHash, true);
-    } else if (screen.screen === "home") {
+    } else if (selectHash) {
+      // ファイル/差分の「グラフ」アイコンから戻る: ログは開かず選択だけ復元する
+      history.replaceState({screen: "home"}, "", "/");
+      selectActionTarget(selectHash, true);
+      if (nodeEl[selectHash]) select(nodeEl[selectHash]);
+    } else if (screen.screen === "home" && !actionHash) {
       scrollToHead();
+    } else if (actionHash) {
+      revealHash(actionHash);
     }
   })
   .catch(e => {

@@ -73,6 +73,25 @@ let curView = "list", selected = null, selectedKey = null, token = 0, observer =
 let curCtx = null, curFiles = [];
 let compareAHash = null, compareBHash = null;
 let actionHash = null;  // マージ / リベースなどの操作対象
+const UI_SEL_KEY = "git_graph_ui_sel";  // ファイル/差分ページから戻ったときに選択を復元する
+function persistUiSel() {
+  try {
+    sessionStorage.setItem(UI_SEL_KEY, JSON.stringify({
+      compareA: compareAHash || null,
+      compareB: compareBHash || null,
+      actionHash: actionHash || null,
+    }));
+  } catch (e) { /* sessionStorage が使えなくても動作には影響しない */ }
+}
+function loadPersistedUiSel() {
+  try {
+    const o = JSON.parse(sessionStorage.getItem(UI_SEL_KEY) || "null");
+    return o && typeof o === "object" ? o : null;
+  } catch (e) { return null; }
+}
+function clearPersistedUiSel() {
+  try { sessionStorage.removeItem(UI_SEL_KEY); } catch (e) {}
+}
 let currentBranch = null;
 let currentBranchLoaded = false;
 const nodeEl = {};  // ハッシュ -> グラフ上のノード要素
@@ -270,6 +289,7 @@ function saveUiState() {
   history.replaceState(Object.assign({}, history.state, {
     compareA: compareAHash, compareB: compareBHash, actionHash: actionHash, cmpActOpen: cmpActOpen
   }), "");
+  persistUiSel();  // 別ページ (/files /diff) から戻っても選択を復元できるようにする
 }
 function rowHtml(c, extraClass, graphTd) {  // c = [hash, short, author, date, subject, parents?]; graphTd = マージグラフの列
   return '<tr class="clickable' + (extraClass ? ' ' + extraClass : '') + '" data-h="' + c[0] + '">' + (graphTd || "") +

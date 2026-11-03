@@ -36,9 +36,10 @@ _ICON_FILES = _SVG.format(p='<path d="M4 2.5h5.5L12 5v8.5H4zM9.5 2.5V5H12" fill=
 _ICON_DIFF = _SVG.format(p='<path d="M2.5 3h4v10h-4zM9.5 3h4v10h-4zM7.2 5.5v5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>')
 
 
-def page_nav_html(current, files_href=None, diff_href=None):
+def page_nav_html(current, files_href=None, diff_href=None, graph_href="/"):
     """グラフ / ファイル / 差分の切り替え。current は 'graph'|'files'|'diff'。
-    href が無い項目は無効ボタン。今のページは .current で強調する。"""
+    href が無い項目は無効ボタン。今のページは .current で強調する。
+    graph_href に select_hash を付けると、グラフに戻ったときに選択を復元する。"""
     def item(kind, href, label_key, svg):
         label = html.escape(tr(label_key), quote=True)
         if kind == current:
@@ -49,7 +50,7 @@ def page_nav_html(current, files_href=None, diff_href=None):
                     f'{svg}</a>')
         return (f'<button type="button" class="iconbtn" disabled title="{label}" aria-label="{label}">'
                 f'{svg}</button>')
-    return (item("graph", "/", "nav_graph", _ICON_GRAPH)
+    return (item("graph", graph_href, "nav_graph", _ICON_GRAPH)
             + item("files", files_href, "nav_files", _ICON_FILES)
             + item("diff", diff_href, "nav_diff", _ICON_DIFF))
 
@@ -330,13 +331,24 @@ def render_diff_page(q):
             "confirm_resolve", "confirm_abort", "confirm_abort_stash",
         )}
         commit_js = "const T = " + json.dumps(texts, ensure_ascii=False).replace("</", "<\\/") + ";\n" + WIP_DIFF_COMMIT_JS
+    # グラフへ戻るとき、この差分のコミットを選択状態で復元する (作業ツリーだけの WIP は対象外)
+    graph_href = "/"
+    if wip == "compare":
+        sel = ctx.get("from")  # 比較元コミット
+    elif not wip:
+        sel = ctx.get("hash") or ctx.get("to") or ctx.get("from")
+    else:
+        sel = None
+    if sel:
+        graph_href = "/?" + urlencode({"select_hash": sel})
+
     return f"""<!DOCTYPE html>
 <html lang="{state.UI_LANG}"><head><meta charset="utf-8">
 <title>{html.escape(state.PROJECT_NAME)} - {html.escape(path)} @ {ref}</title>
 {FAVICON_LINK}
 <style>{DIFF_CSS}</style></head><body>
 <div id="side">
-  <div class="navbar">{page_nav_html("diff", files_href=files_view_url(view_hash, path) if view_hash and path else None)}{NAV_BACK_BUTTON.format(label=html.escape(tr("back_prev"), quote=True))}{NAV_RELOAD_BUTTON.format(label=html.escape(tr("reload_page"), quote=True)) if wip else ""}</div>
+  <div class="navbar">{page_nav_html("diff", files_href=files_view_url(view_hash, path) if view_hash and path else None, graph_href=graph_href)}{NAV_BACK_BUTTON.format(label=html.escape(tr("back_prev"), quote=True))}{NAV_RELOAD_BUTTON.format(label=html.escape(tr("reload_page"), quote=True)) if wip else ""}</div>
   <div class="meta">{len(files)} {tr("files_changed")}</div>
   {patch_bar}
   {f'<div class="meta hint">{html.escape(tr("no_changes"))}</div>' if not files else ""}
