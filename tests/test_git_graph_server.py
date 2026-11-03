@@ -3099,7 +3099,7 @@ class ExternalAppsTests(unittest.TestCase):
 
     def test_main_page_menubar_layout(self):
         index = (Path(viewer.__file__).parent / "static" / "index.html").read_text(encoding="utf-8")
-        row2 = index[index.index('id="menubarRow2"'):]  # 2行目: ズーム / HEAD / WIP と、対象・A・B の表示
+        row2 = index[index.index('id="menubarRow2"'):]  # 2行目: HEAD / WIP と対象・A・B、右端にズーム
         self.assertLess(index.index('id="backBtn"'), index.index('id="menubarRow2"'))
         self.assertIn('id="graphZoomReset"', row2)  # ズーム表示は2行目
         self.assertNotIn('id="graphZoomReset"', index[:index.index('id="menubarRow2"')])
