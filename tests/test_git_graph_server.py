@@ -1622,6 +1622,21 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertNotIn('id="sbtn"', page)  # stash / discard は途中では出さない
         self.assertNotIn('id="dbtn"', page)
 
+    def test_wip_diff_of_conflicted_file_shows_combined_diff_with_markers(self):
+        self.git("checkout", "-q", "-b", "side")
+        self.write_file("tracked.txt", "side\n")
+        self.git("commit", "-q", "-am", "side change")
+        self.git("checkout", "-q", "-")
+        self.write_file("tracked.txt", "main\n")
+        self.git("commit", "-q", "-am", "main change")
+        subprocess.run(["git", "-C", self.repo, "merge", "side"], capture_output=True)  # 競合して止まる
+        out = app.wip_diff("conflict", "tracked.txt", ["tracked.txt"]).decode()
+        self.assertIn("diff --cc tracked.txt", out)
+        self.assertIn("<<<<<<<", out)
+        self.assertNotIn("old mode 0", out)
+        html_text = app.diff_lines_html(out)
+        self.assertIn('class="dl ad"', html_text)  # 競合の差分も追加行を色分けする
+
     def test_wip_diff_page_does_not_check_untracked_while_merging(self):
         self.write_file("tracked.txt", "working tree change\n")
         self.write_file("new_untracked.txt", "untracked\n")

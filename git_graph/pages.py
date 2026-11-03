@@ -81,11 +81,11 @@ def diff_lines_html(text):
     lines = text.split("\n")
     if lines and lines[-1] == "":
         lines.pop()
-    in_hunk, out = False, []
+    in_hunk, combined, out = False, False, []  # combined: 競合の差分 (diff --cc)。行頭が親の数だけ並ぶ (" +" "+ " "++" など)
     for l in lines:
         cls = ""
         if l.startswith("diff "):
-            in_hunk, cls = False, "hd"
+            in_hunk, combined, cls = False, l.startswith("diff --cc") or l.startswith("diff --combined"), "hd"
         elif not in_hunk:
             if l.startswith("@@"):
                 in_hunk, cls = True, "hk"
@@ -93,6 +93,12 @@ def diff_lines_html(text):
                 cls = "hd"
         elif l.startswith("@@"):
             cls = "hk"
+        elif combined and "+" in l[:2]:
+            cls = "ad"
+        elif combined and "-" in l[:2]:
+            cls = "de"
+        elif combined:
+            cls = ""
         elif l.startswith("+"):
             cls = "ad"
         elif l.startswith("-"):

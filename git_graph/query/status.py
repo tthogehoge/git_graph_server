@@ -91,7 +91,11 @@ def wip_diff(kind, path, specs):
         if libgit.available():
             return libgit.unified_diff("HEAD", cached=True, paths=paths)
         return git_bytes("diff", "--cached", "--no-color", "-M", "--", *specs, literal=True)
-    if kind in ("unstaged", "conflict"):
+    if kind == "conflict":
+        # 競合中のファイルは index が未マージなので、libgit2 の diff だと「old mode 0 / new mode 100644」だけで内容が出ない。
+        # git の diff (combined diff = diff --cc) なら、競合マーカーを含む作業ツリーの内容がそのまま出る
+        return git_bytes("diff", "--no-color", "--", *specs, literal=True)
+    if kind == "unstaged":
         if libgit.available():
             return libgit.unified_diff(paths=paths)
         return git_bytes("diff", "--no-color", "--", path, literal=True)
