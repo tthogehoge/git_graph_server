@@ -129,9 +129,10 @@ detailView.addEventListener("input", ev => {
   wipKeepSave();
 });
 
-function resolveBarHtml() {  // 競合ファイルを ours / theirs で解決するボタン (チェックしたファイルが対象)
+function resolveBarHtml() {  // 競合ファイルを ours / theirs / 現在の状態 で解決するボタン (チェックしたファイルが対象)
   return '<div class="wipres"><button class="abtn" data-resolve="ours">' + esc(t("resolve_ours")) + '</button>' +
     '<button class="abtn" data-resolve="theirs">' + esc(t("resolve_theirs")) + '</button>' +
+    '<button class="abtn" data-resolve="current">' + esc(t("resolve_current")) + '</button>' +
     '<span class="hint">' + esc(t("resolve_hint")) + '</span></div>';
 }
 function opBannerHtml(cmd, canWrite) {  // マージなどの途中であることと、中断ボタン
@@ -143,7 +144,7 @@ function opBannerHtml(cmd, canWrite) {  // マージなどの途中であるこ�
 function doWipResolve(side) {
   const paths = wipCks("conflict").filter(x => x.checked).map(x => x.dataset.path);
   if (!paths.length) { wipSay(t("select_files"), false); return; }
-  if (!confirm(t("confirm_resolve", {n: paths.length, side: side}))) return;
+  if (!confirm(side === "current" ? t("confirm_resolve_current", {n: paths.length}) : t("confirm_resolve", {n: paths.length, side: side}))) return;
   wipSay(t("wip_execute"), true);
   post("/api/resolve", {paths: paths, side: side})
     .then(r => { wipSel = {}; wipKeepClear(); showWip(true, r.message); refreshGraph().catch(() => {}); })

@@ -1617,6 +1617,7 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
 
         self.assertIn('data-resolve="ours"', page)
         self.assertIn('data-resolve="theirs"', page)
+        self.assertIn('data-resolve="current"', page)  # 現在の状態で解決
         self.assertIn('id="abtn" data-cmd="merge"', page)
         self.assertIn('id="rbtn"', page)  # git rm は途中でも使える
         self.assertNotIn('id="sbtn"', page)  # stash / discard は途中では出さない

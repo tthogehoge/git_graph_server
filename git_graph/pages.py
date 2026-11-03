@@ -269,6 +269,7 @@ def render_diff_page(q):
             if last == "conflict" and can_commit:  # 競合ファイルを ours / theirs で解決する (右ペインと同じ)
                 side.append(f'<div class="wipres"><button class="wbtn" data-resolve="ours">{html.escape(tr("resolve_ours"))}</button>'
                             f'<button class="wbtn" data-resolve="theirs">{html.escape(tr("resolve_theirs"))}</button>'
+                            f'<button class="wbtn" data-resolve="current">{html.escape(tr("resolve_current"))}</button>'
                             f'<span class="hint">{html.escape(tr("resolve_hint"))}</span></div>')
         fdir = dir_of(f["path"])
         key = (f.get("wip"), fdir)
@@ -335,7 +336,7 @@ def render_diff_page(q):
             "wip_discard", "confirm_discard", "discard_conflict", "cancel",
             "wip_rm", "rm_dialog_note", "rm_cached_label", "rm_force_label", "rm_untracked",
             "wip_stash", "stash_message", "stash_scope", "stash_scope_all", "stash_scope_selected", "stash_include_untracked",
-            "confirm_resolve", "confirm_abort", "confirm_abort_stash",
+            "confirm_resolve", "confirm_resolve_current", "confirm_abort", "confirm_abort_stash",
         )}
         commit_js = "const T = " + json.dumps(texts, ensure_ascii=False).replace("</", "<\\/") + ";\n" + WIP_DIFF_COMMIT_JS
     # グラフへ戻るとき、この差分のコミットを選択状態で復元する (作業ツリーだけの WIP は対象外)

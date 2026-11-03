@@ -215,10 +215,11 @@ def unmerged_stages(path):
 @operation("resolve", touches_worktree="names")
 def resolve_conflicts(side, paths):
     """競合しているファイルを、ours か theirs の内容で丸ごと置き換えて解決済みにする (片側で削除されていたら削除する)。
+    side が "current" のときは、作業ツリーの現在の内容 (手で直したもの) をそのまま解決済みにする (作業ツリーに無ければ削除として扱う)。
     戻り値: {"count", "side"}。"""
     if not state.WIP_ENABLED:
         raise UserError("wip_disabled")
-    if side not in ("ours", "theirs"):
+    if side not in ("ours", "theirs", "current"):
         raise UserError("resolve_side_invalid")
     if not isinstance(paths, list) or not paths or not all(isinstance(p, str) for p in paths):
         raise UserError("select_files")
@@ -226,6 +227,14 @@ def resolve_conflicts(side, paths):
     bad = set(paths) - {f["path"] for f in s["conflicts"]}  # 任意のパスを触らせない。いま競合と報告されているものだけ
     if bad:
         raise UserError("resolve_not_conflict", files=", ".join(sorted(bad)[:3]))
+    if side == "current":  # 内容は触らず、index に入れて競合を解決済みにする。作業ツリーで消してあるファイルは git rm で削除として解決する
+        keep = [p for p in sorted(set(paths)) if os.path.lexists(os.path.join(state.REPO, p))]
+        remove = [p for p in sorted(set(paths)) if p not in set(keep)]
+        for i in range(0, len(keep), _STEP):
+            run_git_write("add", "--", *keep[i:i + _STEP], literal=True)
+        for i in range(0, len(remove), _STEP):
+            run_git_write("rm", "-q", "-f", "--", *remove[i:i + _STEP], literal=True)
+        return {"count": len(keep) + len(remove), "side": side}
     stage = "2" if side == "ours" else "3"
     keep, remove = [], []
     for p in sorted(set(paths)):

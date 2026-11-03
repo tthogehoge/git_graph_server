@@ -170,10 +170,10 @@ if (sbtn) sbtn.addEventListener("click", async () => {  // stash (退避): す�
   sbtn.disabled = true; say(T.wip_execute, true);
   postJson("/api/stash-push", body).then(done).catch(e => { say(e.message, false); sbtn.disabled = false; });
 });
-document.querySelectorAll("[data-resolve]").forEach(b => b.addEventListener("click", () => {  // 競合ファイルを ours / theirs で解決
+document.querySelectorAll("[data-resolve]").forEach(b => b.addEventListener("click", () => {  // 競合ファイルを ours / theirs / 現在の状態 で解決
   const side = b.dataset.resolve, sel = [...new Set(cks().filter(x => x.checked && x.dataset.kind === "conflict").map(x => x.dataset.path))];
   if (!sel.length) { say(T.select_files, false); return; }
-  if (!confirm(fmt(T.confirm_resolve, {n: sel.length, side: side}))) return;
+  if (!confirm(side === "current" ? fmt(T.confirm_resolve_current, {n: sel.length}) : fmt(T.confirm_resolve, {n: sel.length, side: side}))) return;
   say(T.wip_execute, true);
   postJson("/api/resolve", {paths: sel, side: side}).then(done).catch(e => say(e.message, false));
 }));

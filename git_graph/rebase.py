@@ -164,6 +164,8 @@ def api_abort(body):
 def api_resolve(body):
     """競合しているファイルを、ours か theirs の内容で丸ごと置き換えて解決済みにする。"""
     r = integrate.resolve_conflicts(body.get("side"), body.get("paths"))
+    if r["side"] == "current":
+        return {"ok": True, "message": tr("resolved_current", n=r["count"])}
     return {"ok": True, "message": tr("resolved", n=r["count"], side=r["side"])}
 
 

@@ -781,6 +781,34 @@ class EngineOperationTests(EngineTests):
         self.assertEqual(self.read("tracked.txt"), "their side\n")
         self.assertEqual(self.git("diff", "--name-only", "--diff-filter=U").strip(), "")
 
+    def test_resolve_conflicts_with_current_keeps_working_tree_content(self):
+        from git_graph.engine import integrate
+        side = self.diverged_branch("side", "their side\n")
+        self.commit_file("tracked.txt", "our side\n", "main change")
+        integrate.merge(side)
+        self.write("tracked.txt", "hand merged\n")  # 手で直した内容
+
+        result = integrate.resolve_conflicts("current", ["tracked.txt"])
+
+        self.assertEqual(result, {"count": 1, "side": "current"})
+        self.assertEqual(self.read("tracked.txt"), "hand merged\n")  # 内容は変えない
+        self.assertEqual(self.git("diff", "--name-only", "--diff-filter=U").strip(), "")
+        self.assertEqual(self.git("show", ":tracked.txt"), "hand merged\n")  # ステージされている
+
+    def test_resolve_conflicts_with_current_treats_deleted_file_as_removal(self):
+        from git_graph.engine import integrate
+        side = self.diverged_branch("side", "their side\n")
+        self.commit_file("tracked.txt", "our side\n", "main change")
+        integrate.merge(side)
+        os.remove(os.path.join(self.repo, "tracked.txt"))
+
+        result = integrate.resolve_conflicts("current", ["tracked.txt"])
+
+        self.assertEqual(result, {"count": 1, "side": "current"})
+        self.assertFalse(self.exists("tracked.txt"))
+        self.assertEqual(self.git("diff", "--name-only", "--diff-filter=U").strip(), "")
+        self.assertEqual(self.git("ls-files", "--", "tracked.txt").strip(), "")
+
     def test_cherry_pick_and_revert_report_what_happened(self):
         from git_graph.engine import integrate
         picked = self.diverged_branch("pick", "picked\n")
