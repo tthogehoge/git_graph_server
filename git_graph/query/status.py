@@ -94,7 +94,18 @@ def wip_diff(kind, path, specs):
     if kind == "conflict":
         # 競合中のファイルは index が未マージなので、libgit2 の diff だと「old mode 0 / new mode 100644」だけで内容が出ない。
         # git の diff (combined diff = diff --cc) なら、競合マーカーを含む作業ツリーの内容がそのまま出る
-        return git_bytes("diff", "--no-color", "--", *specs, literal=True)
+        out = git_bytes("diff", "--no-color", "--", *specs, literal=True)
+        if b"\n@@" in out:
+            return out
+        # 手で編集して ours / theirs のどちらかと同じ内容にすると、combined diff は「どの親とも違う行」だけを出すので空になる。
+        # そのときは、ours (HEAD 側) と theirs それぞれとの差分を並べて出す
+        parts = []
+        for side in ("ours", "theirs"):
+            one = git_bytes("diff", "--no-color", "--" + side, "--", *specs, literal=True)
+            one = b"".join(ln for ln in one.splitlines(True) if not ln.startswith(b"* Unmerged path"))
+            if one.strip():
+                parts.append(f"diff --{side} (git diff --{side})\n".encode() + one)
+        return b"".join(parts) or out
     if kind == "unstaged":
         if libgit.available():
             return libgit.unified_diff(paths=paths)
