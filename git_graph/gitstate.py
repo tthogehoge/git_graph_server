@@ -265,10 +265,10 @@ def diff_name_numstat(*rev_and_paths):
 
 
 def head_state():
-    """現在のブランチ名 (切り離されていれば None) と、マージ / リベースの途中かどうか。
+    """現在のブランチ名 (切り離されていれば None) と、マージ / リベース / チェリーピック / リバートの途中かどうか。
     ブランチ名は .git/HEAD を読むだけ (プロセス起動なし)。"""
     _, branch = read_head()
-    return {"branch": branch or None, "merging": (is_merging() or is_rebasing()) if state.HAS_WORKTREE else False}
+    return {"branch": branch or None, "merging": (is_merging() or is_rebasing() or is_cherry_picking() or is_reverting()) if state.HAS_WORKTREE else False}
 
 
 def amend_base():

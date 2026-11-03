@@ -1009,19 +1009,35 @@ class EngineOperationTests(EngineTests):
 
         self.assertEqual(blocked["untracked"], ["lib"])
 
-    def test_rebase_conflict_is_aborted_and_reported_as_an_error(self):
+    def test_rebase_conflict_stops_in_progress_instead_of_aborting(self):
         from git_graph.engine import rebase
         self.git("checkout", "-q", "-b", "topic")
         self.commit_file("tracked.txt", "topic side\n", "topic change")
         self.git("checkout", "-q", "main")
         target = self.commit_file("tracked.txt", "main side\n", "main change")
         self.git("checkout", "-q", "topic")
+
+        result = rebase.rebase(target)
+
+        self.assertEqual((result["conflict"], result["branch"]), (True, "topic"))
+        self.assertTrue(os.path.isdir(os.path.join(self.repo, ".git", "rebase-merge")))  # 途中で止まっている
+        self.assertEqual(self.git("diff", "--name-only", "--diff-filter=U").strip(), "tracked.txt")
+
+    def test_rebase_range_conflict_is_still_aborted_and_reported_as_an_error(self):
+        # タグの付け替えなど、リベースのあとの後処理が要る操作は、途中で止められないので、競合したら中止して元に戻す
+        from git_graph.engine import rebase
+        base = self.head
+        self.git("checkout", "-q", "-b", "topic")
+        self.commit_file("tracked.txt", "topic side\n", "topic change")
         before = self.git("rev-parse", "HEAD").strip()
+        self.git("checkout", "-q", "main")
+        target = self.commit_file("tracked.txt", "main side\n", "main change")
+        self.git("checkout", "-q", "topic")
 
         with self.assertRaises(UserError):
-            rebase.rebase(target)
+            rebase.rebase_range(base, target)
 
-        self.assertEqual(self.git("rev-parse", "HEAD").strip(), before)  # 元に戻っている
+        self.assertEqual(self.git("rev-parse", "HEAD").strip(), before)
         self.assertFalse(os.path.isdir(os.path.join(self.repo, ".git", "rebase-merge")))
 
     def test_rebase_descendants_and_equivalent_noop_results(self):

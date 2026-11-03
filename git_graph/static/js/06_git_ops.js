@@ -14,8 +14,8 @@ function doRebase() {
     .then(r => {
       if (r === null) { setGraphStatus(""); return; }
       clearCmp();
-      setGraphStatus(r.message, "success");
-      return refreshGraph().catch(() => {});
+      setGraphStatus(r.message, r.conflict ? "error" : "success");
+      return refreshGraph().catch(() => {}).then(() => { if (r.conflict) openWip(); });  // 競合で止まったら、WIP の競合解決画面を開く
     })
     .catch(e => { setGraphStatus(t("rebase_error", {error: e.message}), "error"); })
     .finally(() => { btn.disabled = false; });
@@ -58,8 +58,8 @@ function doRebaseOnto() {
     .then(r => {
       if (r === null) { setGraphStatus(""); return; }
       clearCmp();
-      setGraphStatus(r.message, "success");
-      return refreshGraph().catch(() => {});
+      setGraphStatus(r.message, r.conflict ? "error" : "success");
+      return refreshGraph().catch(() => {}).then(() => { if (r.conflict) openWip(); });  // 競合で止まったら、WIP の競合解決画面を開く
     })
     .catch(e => { setGraphStatus(t("rebase_error", {error: e.message}), "error"); })
     .finally(() => { btn.disabled = false; });
@@ -79,8 +79,8 @@ function doCherryOnto() {
     .then(r => {
       if (r === null) { setGraphStatus(""); return; }
       clearCmp();
-      setGraphStatus(r.message, "success");
-      return refreshGraph().catch(() => {});
+      setGraphStatus(r.message, r.conflict ? "error" : "success");
+      return refreshGraph().catch(() => {}).then(() => { if (r.conflict) openWip(); });  // 競合で止まったら、WIP の競合解決画面を開く
     })
     .catch(e => { setGraphStatus(t("cherry_pick_error", {error: e.message}), "error"); })
     .finally(() => { btn.disabled = false; });
@@ -178,8 +178,8 @@ function doCherryPick() {
     .then(r => {
       if (r === null) { setGraphStatus(""); return; }
       clearCmp();
-      setGraphStatus(r.message, "success");
-      return refreshGraph().catch(() => {});
+      setGraphStatus(r.message, r.conflict ? "error" : "success");
+      return refreshGraph().catch(() => {}).then(() => { if (r.conflict) openWip(); });  // 競合で止まったら、WIP の競合解決画面を開く
     })
     .catch(e => { setGraphStatus(t("cherry_pick_error", {error: e.message}), "error"); })
     .finally(() => { btn.disabled = false; });
@@ -199,8 +199,8 @@ function doRevert() {
     .then(r => {
       if (r === null) { setGraphStatus(""); return; }
       clearCmp();
-      setGraphStatus(r.message, "success");
-      return refreshGraph().catch(() => {});
+      setGraphStatus(r.message, r.conflict ? "error" : "success");
+      return refreshGraph().catch(() => {}).then(() => { if (r.conflict) openWip(); });  // 競合で止まったら、WIP の競合解決画面を開く
     })
     .catch(e => { setGraphStatus(t("revert_error", {error: e.message}), "error"); })
     .finally(() => { btn.disabled = false; });

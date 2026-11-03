@@ -1821,7 +1821,7 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertEqual(self.git("show", "HEAD:topic.txt"), "topic change\n")
         self.assertEqual(self.git("show", "HEAD:main.txt"), "main change\n")
 
-    def test_rebase_conflict_aborts_and_restores_original_tip(self):
+    def test_rebase_conflict_stops_in_progress_and_can_be_aborted(self):
         self.git("checkout", "-q", "-b", "topic")
         self.write_file("tracked.txt", "topic version\n")
         self.git("commit", "-a", "-q", "-m", "topic version")
@@ -1833,13 +1833,36 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         target = self.git("rev-parse", "HEAD").strip()
         self.git("checkout", "-q", "topic")
 
-        with self.assertRaises(app.UserError):
-            app.api_rebase({"hash": target})
+        result = app.api_rebase({"hash": target})
 
+        self.assertTrue(result["conflict"])  # 自動で中止せず、止める (WIP で解決する)
+        self.assertTrue(app.is_rebasing())
+        self.assertEqual([f["path"] for f in app.api_status({})["conflicts"]], ["tracked.txt"])
+        app.api_abort({})  # 中断すれば、元の状態に戻る
         self.assertEqual(self.git("rev-parse", "HEAD").strip(), topic)
         self.assertEqual(self.read_file("tracked.txt"), "topic version\n")
         self.assertFalse(app.is_rebasing())
         self.assertEqual(self.git("status", "--porcelain"), "")
+
+    def test_rebase_conflict_can_be_resolved_and_continued(self):
+        self.git("checkout", "-q", "-b", "topic")
+        self.write_file("tracked.txt", "topic version\n")
+        self.git("commit", "-a", "-q", "-m", "topic version")
+        self.git("checkout", "-q", "main")
+        self.write_file("tracked.txt", "main version\n")
+        self.git("commit", "-a", "-q", "-m", "main version")
+        target = self.git("rev-parse", "HEAD").strip()
+        self.git("checkout", "-q", "topic")
+
+        self.assertTrue(app.api_rebase({"hash": target})["conflict"])
+        app.api_resolve({"side": "theirs", "paths": ["tracked.txt"]})  # リベース中の theirs は、手元のコミット側
+        done = app.api_continue({})
+
+        self.assertTrue(done["ok"])
+        self.assertFalse(app.is_rebasing())
+        self.assertEqual(self.read_file("tracked.txt"), "topic version\n")
+        self.assertEqual(self.git("log", "-1", "--format=%s").strip(), "topic version")
+        self.assertEqual(self.git("rev-parse", "HEAD~1").strip(), target)
 
     def test_cherry_pick_applies_commit_to_current_branch(self):
         self.git("checkout", "-q", "-b", "source")
@@ -1856,7 +1879,7 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertEqual(self.git("show", "HEAD:picked.txt"), "picked content\n")
         self.assertEqual(self.git("rev-parse", "HEAD^").strip(), self.head)
 
-    def test_cherry_pick_conflict_aborts_without_changing_head_or_worktree(self):
+    def test_cherry_pick_conflict_stops_in_progress_and_can_be_resolved_by_commit(self):
         self.git("checkout", "-q", "-b", "source")
         self.write_file("tracked.txt", "source version\n")
         self.git("commit", "-a", "-q", "-m", "source version")
@@ -1867,8 +1890,29 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.git("commit", "-a", "-q", "-m", "main version")
         main_tip = self.git("rev-parse", "HEAD").strip()
 
-        with self.assertRaises(app.UserError):
-            app.api_cherry_pick({"hash": picked})
+        result = app.api_cherry_pick({"hash": picked})
+
+        self.assertTrue(result["conflict"])  # 自動で中止せず、止める (WIP で解決する)
+        self.assertTrue(app.is_cherry_picking())
+        self.assertEqual(self.git("rev-parse", "HEAD").strip(), main_tip)
+        self.assertEqual([f["path"] for f in app.api_status({})["conflicts"]], ["tracked.txt"])
+        app.api_resolve({"side": "theirs", "paths": ["tracked.txt"]})
+        app.api_wip_commit({"paths": ["tracked.txt"], "message": "picked"})  # コミットすると、チェリーピックが終わる
+        self.assertFalse(app.is_cherry_picking())
+        self.assertEqual(self.read_file("tracked.txt"), "source version\n")
+
+    def test_cherry_pick_conflict_can_be_aborted_back_to_the_original_state(self):
+        self.git("checkout", "-q", "-b", "source")
+        self.write_file("tracked.txt", "source version\n")
+        self.git("commit", "-a", "-q", "-m", "source version")
+        picked = self.git("rev-parse", "HEAD").strip()
+        self.git("checkout", "-q", "main")
+        self.write_file("tracked.txt", "main version\n")
+        self.git("commit", "-a", "-q", "-m", "main version")
+        main_tip = self.git("rev-parse", "HEAD").strip()
+
+        self.assertTrue(app.api_cherry_pick({"hash": picked})["conflict"])
+        app.api_abort({})
 
         self.assertEqual(self.git("rev-parse", "HEAD").strip(), main_tip)
         self.assertEqual(self.read_file("tracked.txt"), "main version\n")
@@ -2252,7 +2296,7 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertEqual(self.git("rev-parse", "HEAD^").strip(), changed)
         self.assertEqual(self.git("status", "--porcelain"), "")
 
-    def test_revert_conflict_aborts_and_preserves_original_tip(self):
+    def test_revert_conflict_stops_in_progress_and_can_be_aborted(self):
         self.git("checkout", "-q", "-b", "source")
         self.write_file("tracked.txt", "source version\n")
         self.git("commit", "-a", "-q", "-m", "source change")
@@ -2262,13 +2306,28 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.git("commit", "-a", "-q", "-m", "main change")
         main_tip = self.git("rev-parse", "HEAD").strip()
 
-        with self.assertRaises(app.UserError):
-            app.api_revert({"hash": changed})
+        result = app.api_revert({"hash": changed})
 
+        self.assertTrue(result["conflict"])  # 自動で中止せず、止める (WIP で解決する)
+        self.assertTrue(app.is_reverting())
+        self.assertEqual([f["path"] for f in app.api_status({})["conflicts"]], ["tracked.txt"])
+        app.api_abort({})
         self.assertEqual(self.git("rev-parse", "HEAD").strip(), main_tip)
         self.assertEqual(self.read_file("tracked.txt"), "main version\n")
         self.assertFalse(app.is_reverting())
         self.assertEqual(self.git("status", "--porcelain"), "")
+
+    def test_head_state_reports_every_operation_in_progress(self):
+        self.git("checkout", "-q", "-b", "source")
+        self.write_file("tracked.txt", "source version\n")
+        self.git("commit", "-a", "-q", "-m", "source version")
+        picked = self.git("rev-parse", "HEAD").strip()
+        self.git("checkout", "-q", "main")
+        self.write_file("tracked.txt", "main version\n")
+        self.git("commit", "-a", "-q", "-m", "main version")
+        self.assertFalse(app.api_head({})["merging"])
+        app.api_cherry_pick({"hash": picked})
+        self.assertTrue(app.api_head({})["merging"])  # チェリーピックの途中も、他の操作を始められない状態として返す
 
     def test_interactive_rebase_rewords_selected_commit(self):
         self.write_file("first.txt", "first\n")

@@ -11,16 +11,14 @@ from ..gitstate import (
 )
 from ..i18n import tr, UserError
 from . import operation
-from .dirty import checkout_resolving, git_run, run_resolving, with_stash_note
+from .dirty import checkout_resolving, git_run, run_resolving, unmerged_files, with_stash_note
 from .worktree import clear_stash_marker
 from ._ab_helpers import pick_local_branch_at
 
 _STEP = 200  # コマンドラインが長くなりすぎないよう、ファイルはこの数ずつ git に渡す
 
 
-def _unmerged_files():
-    return subprocess.run(["git", "-C", state.REPO, "-c", "core.quotepath=false", "diff", "--name-only", "--diff-filter=U"],
-                          capture_output=True, text=True, encoding="utf-8", errors="replace").stdout.strip()
+_unmerged_files = unmerged_files
 
 
 def _is_merge_commit(h):
@@ -57,9 +55,10 @@ def merge(commit, *, no_ff=False, on_conflict=None):
 @operation("cherry_pick", touches_worktree=True, detail=lambda commit, *_, **__: commit)
 def cherry_pick(commit, *, on_conflict=None):
     """選んだコミットを、いまチェックアウトしている HEAD にチェリーピックする。
-    競合したときと、変更が空になるとき (既に取り込み済み) は、中止して元に戻す。
+    競合したときはチェリーピック途中の状態で止める (WIP の一覧に競合ファイルが出るので、解決してコミットする)。
+    変更が空になるとき (既に取り込み済み) は、中止して元に戻す。
     編集中のファイルや同名の管理外ファイルに邪魔されたときは、止めているファイルを返す ({blocked, modified, untracked})。
-    戻り値: {"hash", "noop" (HEAD が動かなかった), "stashed"} / blocked。"""
+    戻り値: {"hash", "noop" (HEAD が動かなかった), "stashed"} / 競合 {"conflict": True, "hash", "stashed"} / blocked。"""
     if not state.HAS_WORKTREE:
         raise UserError("cherry_no_worktree")
     h = resolve_commit(commit)
@@ -75,11 +74,10 @@ def cherry_pick(commit, *, on_conflict=None):
         return blocked
     if r.returncode != 0:
         if is_cherry_picking():
-            unmerged = _unmerged_files()
+            if _unmerged_files():  # 競合 → 途中の状態で止める
+                return {"conflict": True, "hash": h, "stashed": stashed}
             subprocess.run(["git", "-C", state.REPO, "cherry-pick", "--abort"], capture_output=True)
-            if not unmerged:  # 競合ではなく、変更が空になった
-                raise UserError("cherry_empty", hash=h[:7])
-            raise UserError("cherry_conflict", hash=h[:7])
+            raise UserError("cherry_empty", hash=h[:7])  # 競合ではなく、変更が空になった
         raise ValueError(with_stash_note({"stashed": stashed}, (r.stdout + r.stderr).strip() or tr("cherry_failed")))
     return {"hash": h, "noop": git("rev-parse", "HEAD").strip() == before, "stashed": stashed}
 
@@ -121,13 +119,12 @@ def cherry_pick_onto(a, b, *, on_conflict=None):
         return blocked
     if r.returncode != 0:
         if is_cherry_picking():
-            unmerged = _unmerged_files()
+            if _unmerged_files():  # 競合 → 途中の状態で止める (B のブランチにいるまま、解決してコミットする)
+                return {"conflict": True, "hash": a, "branch": branch, "stashed": stashed}
             subprocess.run(["git", "-C", state.REPO, "cherry-pick", "--abort"], capture_output=True)
             if original and original != branch:
                 subprocess.run(["git", "-C", state.REPO, "checkout", original], capture_output=True)
-            if not unmerged:
-                raise UserError("cherry_empty", hash=a[:7])
-            raise UserError("cherry_conflict", hash=a[:7])
+            raise UserError("cherry_empty", hash=a[:7])
         if original and original != branch:
             subprocess.run(["git", "-C", state.REPO, "checkout", original], capture_output=True)
         raise ValueError(with_stash_note({"stashed": stashed}, (r.stdout + r.stderr).strip() or tr("cherry_failed")))
@@ -153,11 +150,10 @@ def revert(commit, *, on_conflict=None):
         return blocked
     if r.returncode != 0:
         if is_reverting():
-            unmerged = _unmerged_files()
+            if _unmerged_files():  # 競合 → 途中の状態で止める
+                return {"conflict": True, "hash": h, "merge": is_merge, "stashed": stashed}
             subprocess.run(["git", "-C", state.REPO, "revert", "--abort"], capture_output=True)
-            if not unmerged:  # 競合ではなく、変更が空になった
-                raise UserError("revert_empty", hash=h[:7])
-            raise UserError("revert_conflict", hash=h[:7])
+            raise UserError("revert_empty", hash=h[:7])  # 競合ではなく、変更が空になった
         raise ValueError(with_stash_note({"stashed": stashed}, (r.stdout + r.stderr).strip() or tr("revert_failed")))
     return {"hash": h, "merge": is_merge, "stashed": stashed}
 

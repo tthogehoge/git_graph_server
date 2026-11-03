@@ -15,7 +15,7 @@ from ..gitrun import git, resolve_commit, run_git_write
 from ..gitstate import has_head, head_state, is_merging, is_rebasing
 from ..i18n import tr, UserError
 from . import operation
-from .dirty import checkout_resolving, git_run, resolve_dirty_worktree, run_resolving, with_stash_note
+from .dirty import checkout_resolving, git_run, resolve_dirty_worktree, run_resolving, unmerged_files, with_stash_note
 from .tags import move_tags, snapshot_for_tags, tag_mapping, tag_targets
 from ._ab_helpers import pick_local_branch_at
 
@@ -128,10 +128,10 @@ def _replayed_revs(a):
 
 @operation("rebase", touches_worktree=True, detail=lambda commit, *_, **__: commit)
 def rebase(commit, *, on_conflict=None):
-    """現在のブランチを、選んだコミットの上にリベースする。競合したら自動で中止して元に戻す。
+    """現在のブランチを、選んだコミットの上にリベースする。競合したらリベース途中の状態で止める (WIP で解決して「続行」する)。
     編集中のファイルに邪魔されて実行できないときは、止めているファイルを返す ({blocked, modified, untracked})。
     on_conflict="stash" で再実行すると全変更を stash してから、"discard" で再実行すると止めているファイルだけ破棄してからリベースする。
-    戻り値: {"branch", "hash", "noop" (HEAD が動かなかった), "stashed"} / blocked。"""
+    戻り値: {"branch", "hash", "noop" (HEAD が動かなかった), "stashed"} / 競合 {"conflict": True, "branch", "hash", "stashed"} / blocked。"""
     _check_can_rebase()
     h = resolve_commit(commit)
     branch = _current_branch()
@@ -140,8 +140,10 @@ def rebase(commit, *, on_conflict=None):
     if blocked:
         return blocked
     if r.returncode != 0:
-        if is_rebasing():  # 競合 → 元に戻す
-            _abort_rebase()
+        if is_rebasing():
+            if unmerged_files():  # 競合 → 途中の状態で止める
+                return {"conflict": True, "branch": branch, "hash": h, "stashed": stashed}
+            _abort_rebase()  # 競合以外で止まった (空のコミットなど) ときは、元に戻す
             raise UserError("rebase_conflict", target=h[:7], cmd="git rebase")
         raise ValueError(with_stash_note({"stashed": stashed}, (r.stdout + r.stderr).strip() or tr("rebase_failed")))
     return {"branch": branch, "hash": h, "noop": git("rev-parse", "HEAD").strip() == before, "stashed": stashed}
@@ -152,8 +154,8 @@ def rebase(commit, *, on_conflict=None):
 @operation("rebase", touches_worktree=True, detail=lambda a, b, *_, **__: a)
 def rebase_onto(a, b, *, on_conflict=None):
     """A を先端に持つローカルブランチへ checkout し、B の上へリベースする。
-    競合したら自動で中止して元に戻す。A にローカルブランチが無いときはエラー。
-    戻り値: {"branch", "from", "to", "noop", "stashed"} / blocked。"""
+    競合したらリベース途中の状態で止める (A のブランチにいるまま、WIP で解決して「続行」する)。A にローカルブランチが無いときはエラー。
+    戻り値: {"branch", "from", "to", "noop", "stashed"} / 競合 {"conflict": True, "branch", "from", "to", "stashed"} / blocked。"""
     _check_can_rebase()
     a = resolve_commit(a)
     b = resolve_commit(b)
@@ -177,7 +179,9 @@ def rebase_onto(a, b, *, on_conflict=None):
         return blocked
     if r.returncode != 0:
         if is_rebasing():
-            _abort_rebase()
+            if unmerged_files():  # 競合 → 途中の状態で止める
+                return {"conflict": True, "branch": branch, "from": a, "to": b, "stashed": stashed}
+            _abort_rebase()  # 競合以外で止まった (空のコミットなど) ときは、元に戻す
             if original and original != branch:
                 subprocess.run(["git", "-C", state.REPO, "checkout", original], capture_output=True)
             raise UserError("rebase_conflict", target=b[:7], cmd="git rebase")

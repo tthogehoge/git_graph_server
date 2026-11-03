@@ -220,6 +220,12 @@ def with_stash_note(res, msg):
     return msg
 
 
+def unmerged_files():
+    """競合している (未マージの) ファイルの一覧 (改行区切り)。無ければ空文字。"""
+    return subprocess.run(["git", "-C", state.REPO, "-c", "core.quotepath=false", "diff", "--name-only", "--diff-filter=U"],
+                          capture_output=True, text=True, encoding="utf-8", errors="replace").stdout.strip()
+
+
 def git_run(args, c_locale=False, env=None):
     """git を実行して CompletedProcess を返す (失敗しても例外にしない)。c_locale=True なら、出力を解析できるよう C ロケールで実行する。"""
     env = dict(os.environ if env is None else env)

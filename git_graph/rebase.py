@@ -39,10 +39,12 @@ def api_merge(body):
 
 @route("/api/rebase", method="POST", engine=True)
 def api_rebase(body):
-    """現在のブランチを、選んだコミットの上にリベースする。競合したら自動で中止して元に戻す。"""
+    """現在のブランチを、選んだコミットの上にリベースする。競合したらリベース途中の状態で止める。"""
     r = rebase.rebase(body.get("hash", ""), on_conflict=body.get("on_conflict"))
     if r.get("blocked"):
         return r
+    if r.get("conflict"):
+        return {"ok": True, "conflict": True, "message": with_stash_note(r, tr("rebase_conflict_stop", target=r["hash"][:7]))}
     return {"ok": True, "message": with_stash_note(r, tr("rebase_noop" if r["noop"] else "rebase_done", branch=r["branch"], hash=r["hash"][:7]))}
 
 
@@ -52,6 +54,8 @@ def api_rebase_onto(body):
     r = rebase.rebase_onto(body.get("from", ""), body.get("to", ""), on_conflict=body.get("on_conflict"))
     if r.get("blocked"):
         return r
+    if r.get("conflict"):
+        return {"ok": True, "conflict": True, "message": with_stash_note(r, tr("rebase_conflict_stop", target=r["to"][:7]))}
     if r["noop"]:
         message = tr("rebase_noop", branch=r["branch"], hash=r["to"][:7])
     else:
@@ -130,6 +134,8 @@ def api_cherry_pick(body):
     r = integrate.cherry_pick(body.get("hash", ""), on_conflict=body.get("on_conflict"))
     if r.get("blocked"):
         return r
+    if r.get("conflict"):
+        return {"ok": True, "conflict": True, "message": with_stash_note(r, tr("cherry_conflict_stop", hash=r["hash"][:7]))}
     return {"ok": True, "message": with_stash_note(r, tr("cherry_noop" if r["noop"] else "cherry_done", hash=r["hash"][:7]))}
 
 
@@ -139,6 +145,8 @@ def api_cherry_pick_onto(body):
     r = integrate.cherry_pick_onto(body.get("from", ""), body.get("to", ""), on_conflict=body.get("on_conflict"))
     if r.get("blocked"):
         return r
+    if r.get("conflict"):
+        return {"ok": True, "conflict": True, "message": with_stash_note(r, tr("cherry_conflict_stop", hash=r["hash"][:7]))}
     return {"ok": True, "message": with_stash_note(r, tr("cherry_onto_noop" if r["noop"] else "cherry_onto_done", hash=r["hash"][:7], branch=r["branch"]))}
 
 
@@ -150,6 +158,8 @@ def api_revert(body):
     r = integrate.revert(body.get("hash", ""), on_conflict=body.get("on_conflict"))
     if r.get("blocked"):
         return r
+    if r.get("conflict"):
+        return {"ok": True, "conflict": True, "message": with_stash_note(r, tr("revert_conflict_stop", hash=r["hash"][:7]))}
     return {"ok": True, "message": with_stash_note(r, tr("revert_done_merge" if r["merge"] else "revert_done", hash=r["hash"][:7]))}
 
 
