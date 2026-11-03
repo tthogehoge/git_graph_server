@@ -43,13 +43,16 @@ function closeMenusOrClearSelection() {  // メニューが開いていたら、
 function clearGraphSelection() {  // グラフのノード / 線の選択 (赤) だけを解除する。ログ一覧で選び直したときに、グラフの赤が 2 か所にならないようにする
   if (selected) { selected.classList.remove("sel"); selected = null; selectedKey = null; }
 }
-function openWip() {  // WIP の変更一覧を開く。グラフでも WIP ノードだけを選択 (赤) にする (WIP ノードが無ければ、前に選んでいたノードの選択を解除する)
+function openWip() {  // WIP の変更一覧を開く。グラフでも WIP ノードだけを選択 (赤) にし、中央へスクロールする (WIP ノードが無ければ、前に選んでいたノードの選択を解除する)
   clearCmp();
   const g = [...document.querySelectorAll("#graph svg g.node")].find(x => {
     const t = x.querySelector("title"), n = t && DATA.nodes[t.textContent];
     return n && n.wip;
   });
-  if (g) select(g); else clearGraphSelection();
+  if (g) {
+    select(g);
+    ensureGraphVisible(g, true);
+  } else clearGraphSelection();
   showWip();
 }
 function syncGraphSelection(hash) {  // ログの行を選んだとき: グラフにそのコミットのノードがあればそれを選択状態に、無ければグラフの選択を解除する

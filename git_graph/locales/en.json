@@ -169,7 +169,7 @@
   "resize_panel": "Resize the right pane",
   "reload_title": "Refresh the graph to the latest state",
   "tip_scroll_head": "Select the HEAD commit, show its log, and scroll the graph to it",
-  "tip_wip_open": "Show the working-tree changes (WIP) and commit them",
+  "tip_wip_open": "Show the working-tree changes (WIP), select the WIP node, and scroll the graph to it",
   "show_merges": "Show merges",
   "cli_help_merge_max_nodes": "cap the total number of graph nodes when showing merges, newest merges first (0 = unlimited, default: 2200)",
   "cluster_nodes": "{n} nodes",
