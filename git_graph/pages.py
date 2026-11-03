@@ -297,7 +297,8 @@ def render_diff_page(q):
         if wip and not is_wip_compare:
             box = ""
             if can_commit:
-                on = " checked" if (merging or f.get("wip") == "staged") else ""  # ステージ済みと未ステージは別々にチェックする
+                # ステージ済みと未ステージは別々にチェックする。マージ中は、未追跡ファイル以外は全部チェック済みが既定
+                on = " checked" if ((merging and f.get("wip") != "untracked") or f.get("wip") == "staged") else ""
                 box = (f'<input type="checkbox" class="wck" data-kind="{attr(f["wip"])}" '
                        f'data-dir="{attr(fdir)}" data-path="{attr(f["path"])}"{on}>')
             hide = " dhide" if folded and not is_cur_dir else ""

@@ -1622,6 +1622,29 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertNotIn('id="sbtn"', page)  # stash / discard は途中では出さない
         self.assertNotIn('id="dbtn"', page)
 
+    def test_wip_diff_page_does_not_check_untracked_while_merging(self):
+        self.write_file("tracked.txt", "working tree change\n")
+        self.write_file("new_untracked.txt", "untracked\n")
+        original = viewer.api_status
+
+        def merging_status(q):
+            st = original(q)
+            st["merging"] = True
+            st["conflicts"] = [{"path": "tracked.txt", "st": "U", "label": "label_conflict"}]
+            return st
+
+        previous_writable = state.WRITABLE
+        state.WRITABLE = True
+        viewer.api_status = merging_status
+        try:
+            page = viewer.render_diff_page({"path": ["tracked.txt"], "wip": ["conflict"]})
+        finally:
+            viewer.api_status = original
+            state.WRITABLE = previous_writable
+
+        self.assertRegex(page, r'class="wck" data-kind="conflict"[^>]*data-path="tracked.txt" checked>')
+        self.assertRegex(page, r'class="wck" data-kind="untracked"[^>]*data-path="new_untracked.txt">')
+
     def test_wip_diff_page_checks_staged_entry_only_by_default(self):
         self.write_file("tracked.txt", "staged version\n")
         self.git("add", "tracked.txt")

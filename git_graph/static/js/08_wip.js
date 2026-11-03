@@ -27,9 +27,9 @@ function wipKeepPull() {  // 差分ページなどで付け外しした内容を
   if (typeof k.msg === "string") wipMsg = k.msg;
   if (typeof k.branch === "string") wipBranchVal = k.branch;
 }
-function wipIsChecked(f) {  // amend: 直前のコミットのファイルは、外さない限りコミットに残る (チェック済みが既定)
+function wipIsChecked(f) {  // amend: 直前のコミットのファイルは、外さない限りコミットに残る (チェック済みが既定)。マージ中も、未追跡ファイル以外は全部チェック済みが既定
   const k = wipKey(f.wip, f.path);
-  return k in wipSel ? wipSel[k] : (wipMerging || !!f.in_head || f.wip === "staged");
+  return k in wipSel ? wipSel[k] : ((wipMerging && f.wip !== "untracked") || !!f.in_head || f.wip === "staged");
 }
 function wipCheckCell(f) {
   return '<td class="fk"><input type="checkbox" class="wipck" data-kind="' + esc(f.wip) + '" data-dir="' + esc(dirOf(f.path)) + '" data-path="' + esc(f.path) + '"' +
