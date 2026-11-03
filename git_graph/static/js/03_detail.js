@@ -1,3 +1,28 @@
+
+function updatePageNav(hash, files) {
+  // 左上のファイル / 差分アイコンを、選択中コミットに合わせて有効化する
+  const filesBtn = document.getElementById("navFilesBtn");
+  const diffBtn = document.getElementById("navDiffBtn");
+  if (!filesBtn || !diffBtn) return;
+  if (hash) {
+    filesBtn.disabled = false;
+    filesBtn.onclick = () => { location.href = "/files?hash=" + encodeURIComponent(hash); };
+  } else {
+    filesBtn.disabled = true;
+    filesBtn.onclick = null;
+  }
+  if (hash && files && files.length) {
+    diffBtn.disabled = false;
+    const f = files[0];
+    const p = {hash: hash, path: f.path};
+    if (f.old_path) p.old = f.old_path;
+    diffBtn.onclick = () => { location.href = "/diff?" + new URLSearchParams(p); };
+  } else {
+    diffBtn.disabled = true;
+    diffBtn.onclick = null;
+  }
+}
+
 // 差分は別ページ (/diff) で開く。ctx は {hash} (1コミット) または {from, to} (2コミット間の比較)
 function diffUrl(ctx, f) {
   const p = Object.assign({}, ctx, {path: f.path});
@@ -147,6 +172,7 @@ function showDetail(h, fromHistory) {
   showView("detail");
   api("/api/commit", {hash: h}).then(c => {
     curCtx = {hash: c.hash}; curFiles = c.files; curDetailHash = c.hash;
+    updatePageNav(c.hash, c.files);
     const parents = c.parents.map(p => esc(p.slice(0, 7))).join(", ") || t("none");
     detailView.innerHTML = back + "<h2>" + t("commit_label") + " " + esc(c.hash.slice(0, 7)) +
       ' <a class="detail-files" href="/files?hash=' + encodeURIComponent(c.hash) + '" title="' + esc(t("tip_files")) + '">' + esc(t("files")) + "</a>" +

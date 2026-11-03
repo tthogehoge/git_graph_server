@@ -29,9 +29,31 @@ DIFF_FOLD_JS = read_asset("diff_fold.js")
 DIFF_RELOAD_JS = read_asset("diff_reload.js")
 WIP_DIFF_COMMIT_JS = read_asset("wip_diff_commit.js")
 FILES_CSS = read_asset("files.css")
-# ヘッダーのアイコンボタン (トップへ戻る / 戻る)。files.html と index.html にも同じ絵を直接書いてある
-NAV_TOP_LINK = ('<a class="iconbtn" href="/" title="{label}" aria-label="{label}">'
-                '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M2 8 8 2.5 14 8M3.8 7v6.5h3V10h2.4v3.5h3V7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></a>')
+# ヘッダーのアイコンボタン。files.html / index.html にも同じ絵を直接書いてある
+_SVG = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">{p}</svg>'
+_ICON_GRAPH = _SVG.format(p='<path d="M2 8 8 2.5 14 8M3.8 7v6.5h3V10h2.4v3.5h3V7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>')
+_ICON_FILES = _SVG.format(p='<path d="M4 2.5h5.5L12 5v8.5H4zM9.5 2.5V5H12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>')
+_ICON_DIFF = _SVG.format(p='<path d="M2.5 3h4v10h-4zM9.5 3h4v10h-4zM7.2 5.5v5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>')
+
+
+def page_nav_html(current, files_href=None, diff_href=None):
+    """グラフ / ファイル / 差分の切り替え。current は 'graph'|'files'|'diff'。
+    href が無い項目は無効ボタン。今のページは .current で強調する。"""
+    def item(kind, href, label_key, svg):
+        label = html.escape(tr(label_key), quote=True)
+        if kind == current:
+            return (f'<span class="iconbtn current" title="{label}" aria-label="{label}" aria-current="page">'
+                    f'{svg}</span>')
+        if href:
+            return (f'<a class="iconbtn" href="{html.escape(href, quote=True)}" title="{label}" aria-label="{label}">'
+                    f'{svg}</a>')
+        return (f'<button type="button" class="iconbtn" disabled title="{label}" aria-label="{label}">'
+                f'{svg}</button>')
+    return (item("graph", "/", "nav_graph", _ICON_GRAPH)
+            + item("files", files_href, "nav_files", _ICON_FILES)
+            + item("diff", diff_href, "nav_diff", _ICON_DIFF))
+
+
 NAV_RELOAD_BUTTON = ('<button type="button" class="iconbtn" id="rld" title="{label}" aria-label="{label}">'
                      '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M13.5 8a5.5 5.5 0 1 1-1.7-4M13 2.5v3.2h-3.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>')
 NAV_BACK_BUTTON = ('<button type="button" class="iconbtn" onclick="history.back()" title="{label}" aria-label="{label}">'
@@ -314,7 +336,7 @@ def render_diff_page(q):
 {FAVICON_LINK}
 <style>{DIFF_CSS}</style></head><body>
 <div id="side">
-  <div class="navbar">{NAV_TOP_LINK.format(label=html.escape(tr("back_top"), quote=True))}{NAV_BACK_BUTTON.format(label=html.escape(tr("back_prev"), quote=True))}{NAV_RELOAD_BUTTON.format(label=html.escape(tr("reload_page"), quote=True)) if wip else ""}</div>
+  <div class="navbar">{page_nav_html("diff", files_href=files_view_url(view_hash, path) if view_hash and path else None)}{NAV_BACK_BUTTON.format(label=html.escape(tr("back_prev"), quote=True))}{NAV_RELOAD_BUTTON.format(label=html.escape(tr("reload_page"), quote=True)) if wip else ""}</div>
   <div class="meta">{len(files)} {tr("files_changed")}</div>
   {patch_bar}
   {f'<div class="meta hint">{html.escape(tr("no_changes"))}</div>' if not files else ""}

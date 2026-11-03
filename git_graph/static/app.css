@@ -31,6 +31,14 @@ html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-s
   #dragTip { position: fixed; z-index: 1000; pointer-events: none; background: #333; color: #fff; font: 12px monospace; padding: 2px 6px; border-radius: 3px; white-space: pre; }
   .sbtn.danger { background: #fde8e8; } .sbtn.danger:hover { background: #fbd3d3; }
   .sbtn.iconbtn { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 26px; padding: 0; margin: 0; box-sizing: border-box; }
+  .sbtn.iconbtn.current, span.iconbtn.current.page-nav {
+    background: #c5d4f7; border: 1px solid #7a96d8; color: #034; cursor: default;
+  }
+  span.iconbtn.page-nav {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 30px; height: 26px; padding: 0; margin: 0; box-sizing: border-box;
+    background: #e8eefc; border: 1px solid #b8c7ee; border-radius: 3px; color: #06c;
+  }
   .menubar-left { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; order: 0; min-width: 0; }  /* 幅が狭いときは折り返して、右ペインにはみ出さない */
   .menubar-group { display: flex; align-items: center; gap: 2px; }
   .menubar-spacer { flex: 1 1 auto; order: 1; }

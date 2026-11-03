@@ -251,6 +251,7 @@ function showWip(fromHistory, okMsg) {
       files = files.concat(list);
     });
     curCtx = {}; curFiles = files;
+    updatePageNav("WIP", files);
     const hint = wipAmendOn
       ? t("amend_hint")
       : t("wip_hint");
