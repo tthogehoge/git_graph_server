@@ -3090,15 +3090,19 @@ class ExternalAppsTests(unittest.TestCase):
         other = other[:other.index("</span>")]
         self.assertIn('id="quitBtn"', other)  # 終了ボタンは「その他」メニューの中
         self.assertLess(index.index('id="navGraphBtn"'), index.index('id="backBtn"'))  # ページ切替が戻るより左
-        self.assertLess(index.index('id="backBtn"'), index.index('id="reload"'))
+        self.assertLess(index.index('id="backBtn"'), index.index('id="reload"'))  # 戻る → 更新
+        self.assertLess(index.index('id="reload"'), index.index('id="undoBtn"'))  # 更新 → undo
+        self.assertLess(index.index('id="undoBtn"'), index.index('id="redoBtn"'))  # undo → redo
         self.assertIn('id="navFilesBtn"', index)
         self.assertIn('id="navDiffBtn"', index)
         self.assertEqual(index.count('id="quitBtn"'), 1)
 
     def test_main_page_menubar_layout(self):
         index = (Path(viewer.__file__).parent / "static" / "index.html").read_text(encoding="utf-8")
-        row2 = index[index.index('id="menubarRow2"'):]  # 2行目: HEAD / WIP と、対象・A・B の表示
+        row2 = index[index.index('id="menubarRow2"'):]  # 2行目: ズーム / HEAD / WIP と、対象・A・B の表示
         self.assertLess(index.index('id="backBtn"'), index.index('id="menubarRow2"'))
+        self.assertIn('id="graphZoomReset"', row2)  # ズーム表示は2行目
+        self.assertNotIn('id="graphZoomReset"', index[:index.index('id="menubarRow2"')])
         self.assertLess(row2.index('id="topBtn"'), row2.index('id="wipBtn"'))
         self.assertLess(row2.index('id="wipBtn"'), row2.index('id="actionTarget"'))
         self.assertLess(row2.index('id="actionTarget"'), row2.index('id="cmpA"'))
