@@ -209,10 +209,14 @@ def _on_loaded(win):
 def find_icon():
     """アイコンファイルを探す。このスクリプトと同じ場所の git_graph.ico (Windows) / git_graph.png (Linux)。無ければ None。"""
     names = {"Windows": ["git_graph.ico"], "Linux": ["git_graph.png", "git_graph.ico"]}.get(platform.system(), [])
-    for name in names:
-        path = ICON_DIR / name
-        if path.is_file():
-            return str(path)
+    bases = [Path(sys.executable).resolve().parent] if FROZEN else [Path(__file__).resolve().parent]
+    if getattr(sys, "_MEIPASS", None):
+        bases.append(Path(sys._MEIPASS))
+    for base in bases:
+        for name in names:
+            path = base / name
+            if path.is_file():
+                return str(path)
     return None
 
 

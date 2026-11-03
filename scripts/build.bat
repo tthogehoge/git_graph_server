@@ -5,6 +5,8 @@ pyinstaller --noconsole --onefile --name git_graph_webview ^
   --clean^
   --add-data "git_graph\locales;git_graph\locales" ^
   --add-data "git_graph\static;git_graph\static" ^
+  --add-data "git_graph.ico;." ^
+  --icon git_graph.ico . ^
   --collect-all pygit2 ^
   git_graph_webview.py
 copy /Y git_graph_server.json.sample dist\git_graph_server.json
