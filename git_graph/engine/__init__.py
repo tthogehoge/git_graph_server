@@ -319,6 +319,11 @@ def _recorded(op, touches_wt, detail, call, replay=None):
         hist = _load()
         busy_before = in_progress()
         before = take(False if busy_before else touches_wt)  # 途中状態では index が競合を含むので、作業ツリーは退避しない
+        if busy_before and state.HAS_WORKTREE:  # 途中の続き (競合解決のコミットなど) で追跡対象になる管理外ファイルを、元に戻すときに消さないための記録
+            try:
+                before["untracked_names"] = _untracked_names()
+            except Exception:
+                before["untracked_names"] = None  # 取れなかったときは、何も消さない側に倒す
     except Exception:
         return call()
     error = None
@@ -388,12 +393,24 @@ def operation(name, *, touches_worktree, detail=None, replay=False):
     return register
 
 
+def _add_untracked_names(base, step_before):
+    """途中で止まっていた操作の続きの前に見えていた管理外ファイルの名前を、最初の操作の前の状態 (base) の記録に足す。
+    操作の途中で作ったファイルをマージコミットなどに入れると追跡対象になるが、最初の記録には名前が無いため、
+    元に戻すときに「操作で作られたファイル」とみなされて消されてしまう。足しておけば管理外のまま残る。"""
+    wt = base.get("wt")
+    if not wt or wt.get("untracked") is None:
+        return  # 作業ツリーを記録していない / 名前が多すぎて記録していない (元に戻すときに何も消さない)
+    names = step_before.get("untracked_names")
+    wt["untracked"] = None if names is None else sorted(set(wt["untracked"]) | set(names))
+
+
 def _finish(hist, meta, busy_before, before):
     pending = hist["pending"]
     if busy_before:  # 競合解決などの続き: 最初の操作の前の状態を基準にする
         if pending is None:
             return  # このエンジンを通さずに始まった操作
         base, meta = pending["before"], pending["meta"]
+        _add_untracked_names(base, before)
     else:
         base = before
     if in_progress():  # まだ途中 (競合で停止中): 完了か中断までは履歴に積まない

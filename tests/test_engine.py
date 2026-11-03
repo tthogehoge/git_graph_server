@@ -314,6 +314,25 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(self.git("rev-parse", "HEAD").strip(), main)
         self.assertEqual(self.read("tracked.txt"), "main\n")
 
+    def test_undo_keeps_untracked_file_added_by_merge_commit(self):
+        side = self.make_conflict()
+        main = self.git("rev-parse", "HEAD").strip()
+        try:
+            self.do("/api/merge", {"hash": side})
+        except ValueError:
+            pass
+        self.write("tracked.txt", "resolved\n")
+        self.write("extra.txt", "untracked\n")  # マージの途中で作った管理外ファイルを、マージコミットに入れる
+        self.do("/api/wip-commit", {"paths": ["tracked.txt", "extra.txt"], "message": "merge side"})
+        self.assertIn("extra.txt", self.git("ls-tree", "-r", "--name-only", "HEAD"))
+        self.undo()
+        self.assertEqual(self.git("rev-parse", "HEAD").strip(), main)
+        self.assertEqual(self.read("tracked.txt"), "main\n")
+        self.assertEqual(self.read("extra.txt"), "untracked\n")  # 管理外に戻るだけで、消さない
+        self.redo()
+        self.assertIn("extra.txt", self.git("ls-tree", "-r", "--name-only", "HEAD"))  # やり直しでは、またコミットに入る
+        self.assertEqual(self.read("extra.txt"), "untracked\n")
+
     # ---- 安全装置
 
     def test_undo_refused_when_ref_moved_by_someone_else(self):
