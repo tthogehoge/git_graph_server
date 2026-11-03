@@ -1,7 +1,12 @@
 // ---- グラフの読み込み (サーバー側の作成に時間がかかるので、読み込み中画面を出す) ----
-function scrollToHead() {  // HEAD のノードをグラフの真ん中に出す
+function scrollToHead() {  // HEAD ノードをクリックしたのと同じ: 選択・中央表示・右ペインにログ
   const head = Object.values(DATA.nodes).find(n => n.refs.some(ref => ref.kind === "head"));
-  if (head) revealHash(head.hash);
+  if (!head) return;
+  cmpActOpen = false; abActOpen = false; setOtherMenu(false);
+  selectActionTarget(head.hash, true);
+  if (nodeEl[head.hash]) select(nodeEl[head.hash]);
+  showLog("git log --oneline " + esc(head.hash.slice(0, 7)), head.hash,
+          chips(head.hash) + '<div class="meta">' + t("all_log_to_root") + '</div>');
 }
 const t0 = Date.now();
 const timer = setInterval(() => {
