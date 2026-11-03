@@ -699,5 +699,16 @@
   "search_bad_hash": "ハッシュは16進数で4桁以上入力してください。",
   "search_bad_date": "日付は YYYY-MM-DD の形式で指定してください。",
   "earlier_commits": "▲ これより前のコミットを読み込む (上にあと {n} 件)",
-  "all_log_title": "全コミットのログ"
+  "all_log_title": "全コミットのログ",
+  "rebase_onto": "AをBへリベース",
+  "cherry_onto": "AをBへチェリーピック",
+  "tip_rebase_onto": "Aを先端に持つローカルブランチをcheckoutし、Bの上へリベース",
+  "tip_cherry_onto": "Bを先端に持つローカルブランチをcheckoutし、Aをチェリーピック",
+  "confirm_rebase_onto": "A ({from}) を先端に持つローカルブランチをcheckoutし、B ({to}) の上へリベースします。履歴が書き換わります (競合したときは自動で元に戻します)。よろしいですか？",
+  "confirm_cherry_onto": "B ({to}) を先端に持つローカルブランチをcheckoutし、A ({from}) をチェリーピックします。新しいコミットが作られます (競合したときは自動で元に戻します)。よろしいですか？",
+  "rebase_onto_done": "ブランチ {branch} (A {from}) を B ({to}) の上にリベースしました",
+  "cherry_onto_done": "{hash} をブランチ {branch} にチェリーピックしました",
+  "cherry_onto_noop": "{hash} はブランチ {branch} で変更なしでした",
+  "rebase_onto_no_branch": "A ({hash}) を先端に持つローカルブランチがありません",
+  "cherry_onto_no_branch": "B ({hash}) を先端に持つローカルブランチがありません"
 }

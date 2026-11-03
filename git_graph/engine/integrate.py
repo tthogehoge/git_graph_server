@@ -6,13 +6,14 @@ import subprocess
 from .. import app_state as state
 from ..gitrun import git, resolve_commit, run_git_write
 from ..gitstate import (
-    has_head, is_cherry_picking, is_merging, is_rebasing, is_reverting, paths_in_head, stash_conflict_state,
+    has_head, head_state, is_cherry_picking, is_merging, is_rebasing, is_reverting, paths_in_head, stash_conflict_state,
     status_lists,
 )
 from ..i18n import tr, UserError
 from . import operation
-from .dirty import git_run, run_resolving, with_stash_note
+from .dirty import checkout_resolving, git_run, run_resolving, with_stash_note
 from .worktree import clear_stash_marker
+from ._ab_helpers import pick_local_branch_at
 
 _STEP = 200  # コマンドラインが長くなりすぎないよう、ファイルはこの数ずつ git に渡す
 
@@ -82,6 +83,55 @@ def cherry_pick(commit, *, on_conflict=None):
         raise ValueError(with_stash_note({"stashed": stashed}, (r.stdout + r.stderr).strip() or tr("cherry_failed")))
     return {"hash": h, "noop": git("rev-parse", "HEAD").strip() == before, "stashed": stashed}
 
+
+
+
+@operation("cherry_pick", touches_worktree=True, detail=lambda a, b, *_, **__: a)
+def cherry_pick_onto(a, b, *, on_conflict=None):
+    """B を先端に持つローカルブランチへ checkout し、A をチェリーピックする。
+    競合や空変更のときは中止して元に戻す。B にローカルブランチが無いときはエラー。
+    戻り値: {"hash", "branch", "noop", "stashed"} / blocked。"""
+    if not state.HAS_WORKTREE:
+        raise UserError("cherry_no_worktree")
+    a = resolve_commit(a)
+    b = resolve_commit(b)
+    if is_merging() or is_rebasing() or is_cherry_picking() or is_reverting():
+        raise UserError("op_in_progress")
+    if not has_head():
+        raise UserError("cherry_no_commits")
+    if _is_merge_commit(a):
+        raise UserError("cherry_merge_commit")
+    branch = pick_local_branch_at(b, error_key="cherry_onto_no_branch")
+    original = head_state().get("branch") or ""
+    # B のブランチへ切り替え (既にそこにいれば noop に近い)
+    if original != branch:
+        res = checkout_resolving([branch, "--"], on_conflict)
+        if res and res.get("blocked"):
+            return res
+        stashed_co = (res or {}).get("stashed")
+    else:
+        stashed_co = None
+    before = git("rev-parse", "HEAD").strip()
+    r, blocked, stashed = run_resolving(lambda c: git_run(["cherry-pick", a], c), on_conflict)
+    stashed = stashed or stashed_co
+    if blocked:
+        # checkout 済みなら元ブランチへ戻せるときだけ戻す
+        if original and original != branch:
+            subprocess.run(["git", "-C", state.REPO, "checkout", original], capture_output=True)
+        return blocked
+    if r.returncode != 0:
+        if is_cherry_picking():
+            unmerged = _unmerged_files()
+            subprocess.run(["git", "-C", state.REPO, "cherry-pick", "--abort"], capture_output=True)
+            if original and original != branch:
+                subprocess.run(["git", "-C", state.REPO, "checkout", original], capture_output=True)
+            if not unmerged:
+                raise UserError("cherry_empty", hash=a[:7])
+            raise UserError("cherry_conflict", hash=a[:7])
+        if original and original != branch:
+            subprocess.run(["git", "-C", state.REPO, "checkout", original], capture_output=True)
+        raise ValueError(with_stash_note({"stashed": stashed}, (r.stdout + r.stderr).strip() or tr("cherry_failed")))
+    return {"hash": a, "branch": branch, "noop": git("rev-parse", "HEAD").strip() == before, "stashed": stashed}
 
 @operation("revert", touches_worktree=True, detail=lambda commit, *_, **__: commit)
 def revert(commit, *, on_conflict=None):

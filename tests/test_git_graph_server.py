@@ -1787,6 +1787,65 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertFalse(app.is_cherry_picking())
         self.assertEqual(self.git("status", "--porcelain"), "")
 
+    def test_cherry_pick_onto_checks_out_b_branch_and_applies_a(self):
+        self.git("checkout", "-q", "-b", "source")
+        self.write_file("picked.txt", "picked content\n")
+        self.git("add", "picked.txt")
+        self.git("commit", "-q", "-m", "picked change")
+        picked = self.git("rev-parse", "HEAD").strip()
+        self.git("checkout", "-q", "main")
+        self.git("checkout", "-q", "-b", "target")
+        self.write_file("target-only.txt", "on target\n")
+        self.git("add", "target-only.txt")
+        self.git("commit", "-q", "-m", "target only")
+        target = self.git("rev-parse", "HEAD").strip()
+        self.git("checkout", "-q", "main")
+
+        result = app.api_cherry_pick_onto({"from": picked, "to": target})
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(app.api_head()["branch"], "target")
+        self.assertEqual(self.git("log", "-1", "--format=%s").strip(), "picked change")
+        self.assertEqual(self.git("show", "HEAD:picked.txt"), "picked content\n")
+        self.assertEqual(self.git("rev-parse", "HEAD^").strip(), target)
+
+    def test_cherry_pick_onto_requires_local_branch_at_b(self):
+        self.git("checkout", "-q", "-b", "source")
+        self.write_file("picked.txt", "picked content\n")
+        self.git("add", "picked.txt")
+        self.git("commit", "-q", "-m", "picked change")
+        picked = self.git("rev-parse", "HEAD").strip()
+        self.git("checkout", "-q", "main")
+        orphan = self.git("commit-tree", "HEAD^{tree}", "-m", "orphan").strip()
+
+        with self.assertRaises(app.UserError) as cm:
+            app.api_cherry_pick_onto({"from": picked, "to": orphan})
+        self.assertEqual(cm.exception.key, "cherry_onto_no_branch")
+
+    def test_rebase_onto_checks_out_a_branch_and_rebases_onto_b(self):
+        base = self.head
+        self.git("checkout", "-q", "-b", "topic")
+        self.write_file("topic.txt", "topic change\n")
+        self.git("add", "topic.txt")
+        self.git("commit", "-q", "-m", "topic change")
+        topic_tip = self.git("rev-parse", "HEAD").strip()
+        self.git("checkout", "-q", "main")
+        self.write_file("target.txt", "target change\n")
+        self.git("add", "target.txt")
+        self.git("commit", "-q", "-m", "target change")
+        target = self.git("rev-parse", "HEAD").strip()
+        self.git("checkout", "-q", "main")
+
+        result = app.api_rebase_onto({"from": topic_tip, "to": target})
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(app.api_head()["branch"], "topic")
+        self.assertNotEqual(self.git("rev-parse", "HEAD").strip(), topic_tip)
+        self.assertEqual(self.git("rev-parse", "HEAD^").strip(), target)
+        self.assertEqual(self.git("show", "HEAD:topic.txt"), "topic change\n")
+        self.assertEqual(self.git("show", "HEAD:target.txt"), "target change\n")
+
+
     def test_merge_no_ff_creates_two_parent_commit(self):
         self.git("checkout", "-q", "-b", "feature")
         self.write_file("feature.txt", "feature change\n")

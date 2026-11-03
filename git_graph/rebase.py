@@ -46,6 +46,21 @@ def api_rebase(body):
     return {"ok": True, "message": with_stash_note(r, tr("rebase_noop" if r["noop"] else "rebase_done", branch=r["branch"], hash=r["hash"][:7]))}
 
 
+@route("/api/rebase-onto", method="POST", engine=True)
+def api_rebase_onto(body):
+    """A を先端に持つローカルブランチへ checkout し、B の上へリベースする。"""
+    r = rebase.rebase_onto(body.get("from", ""), body.get("to", ""), on_conflict=body.get("on_conflict"))
+    if r.get("blocked"):
+        return r
+    if r["noop"]:
+        message = tr("rebase_noop", branch=r["branch"], hash=r["to"][:7])
+    else:
+        message = tr("rebase_onto_done", branch=r["branch"], **{"from": r["from"][:7], "to": r["to"][:7]})
+    return {"ok": True, "message": with_stash_note(r, message)}
+
+
+
+
 @route("/api/rebase-range", method="POST", engine=True)
 def api_rebase_range(body):
     """A より後の現在のブランチのコミットを B の上にリベースする。競合したら自動で中止して元に戻す。"""
@@ -118,6 +133,17 @@ def api_cherry_pick(body):
     return {"ok": True, "message": with_stash_note(r, tr("cherry_noop" if r["noop"] else "cherry_done", hash=r["hash"][:7]))}
 
 
+@route("/api/cherry-pick-onto", method="POST", engine=True)
+def api_cherry_pick_onto(body):
+    """B を先端に持つローカルブランチへ checkout し、A をチェリーピックする。"""
+    r = integrate.cherry_pick_onto(body.get("from", ""), body.get("to", ""), on_conflict=body.get("on_conflict"))
+    if r.get("blocked"):
+        return r
+    return {"ok": True, "message": with_stash_note(r, tr("cherry_onto_noop" if r["noop"] else "cherry_onto_done", hash=r["hash"][:7], branch=r["branch"]))}
+
+
+
+
 @route("/api/revert", method="POST", engine=True)
 def api_revert(body):
     """選んだコミットの変更を打ち消すコミットを、いまの HEAD の上に作る (git revert)。"""
@@ -164,9 +190,9 @@ def api_rebase_i(body):
 
 
 __all__ = [
-    "REBASE_I_ACTIONS", "REBASE_I_MAX", "api_abort", "api_cherry_pick",
+    "REBASE_I_ACTIONS", "REBASE_I_MAX", "api_abort", "api_cherry_pick", "api_cherry_pick_onto",
     "api_find_equivalent_branch", "api_find_equivalent_parents", "api_head", "api_merge",
-    "api_rebase", "api_rebase_descendants", "api_rebase_equivalent", "api_rebase_i",
+    "api_rebase", "api_rebase_onto", "api_rebase_descendants", "api_rebase_equivalent", "api_rebase_i",
     "api_rebase_range", "api_rebase_todo", "api_resolve", "api_revert", "check_rebase_i_range",
     "equivalent_commit_prefix", "first_parent_commits", "nearest_equivalent_parent",
     "rebase_todo_hashes", "unmerged_stages",

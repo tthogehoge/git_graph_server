@@ -42,6 +42,49 @@ function doRebaseRange() {
     .catch(e => { setGraphStatus(t("rebase_error", {error: e.message}), "error"); })
     .finally(() => { btn.disabled = false; });
 }
+
+function doRebaseOnto() {
+  if (!compareAHash || !compareBHash) return;
+  const from = compareAHash, to = compareBHash, btn = document.getElementById("rebaseOntoBtn");
+  btn.disabled = true;
+  fetch("/api/head").then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); }))
+    .then(hd => {
+      if (hd.merging) throw new Error(t("op_in_progress_finish"));
+      if (!confirm(t("confirm_rebase_onto", {from: from.slice(0, 7), to: to.slice(0, 7)}))) return null;
+      setGraphStatus(t("rebasing"), "progress");
+      return post("/api/rebase-onto", {from: from, to: to});
+    })
+    .then(r => retryIfBlocked(r, "rebase", t("rebasing"), mode => post("/api/rebase-onto", {from: from, to: to, on_conflict: mode})))
+    .then(r => {
+      if (r === null) { setGraphStatus(""); return; }
+      clearCmp();
+      setGraphStatus(r.message, "success");
+      return refreshGraph().catch(() => {});
+    })
+    .catch(e => { setGraphStatus(t("rebase_error", {error: e.message}), "error"); })
+    .finally(() => { btn.disabled = false; });
+}
+function doCherryOnto() {
+  if (!compareAHash || !compareBHash) return;
+  const from = compareAHash, to = compareBHash, btn = document.getElementById("cherryOntoBtn");
+  btn.disabled = true;
+  fetch("/api/head").then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); }))
+    .then(hd => {
+      if (hd.merging) throw new Error(t("op_in_progress_finish"));
+      if (!confirm(t("confirm_cherry_onto", {from: from.slice(0, 7), to: to.slice(0, 7)}))) return null;
+      setGraphStatus(t("cherry_picking"), "progress");
+      return post("/api/cherry-pick-onto", {from: from, to: to});
+    })
+    .then(r => retryIfBlocked(r, "cherry", t("cherry_picking"), mode => post("/api/cherry-pick-onto", {from: from, to: to, on_conflict: mode})))
+    .then(r => {
+      if (r === null) { setGraphStatus(""); return; }
+      clearCmp();
+      setGraphStatus(r.message, "success");
+      return refreshGraph().catch(() => {});
+    })
+    .catch(e => { setGraphStatus(t("cherry_pick_error", {error: e.message}), "error"); })
+    .finally(() => { btn.disabled = false; });
+}
 function doRebaseDescendants() {
   if (!compareAHash || !compareBHash) return;
   const from = compareAHash, to = compareBHash, btn = document.getElementById("rebaseDescendantsBtn");

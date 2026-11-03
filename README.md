@@ -66,6 +66,8 @@ Select both A and B to show these actions:
 - **Compare A/B**: Show the file diff between A and B.
 - **Compare AB logs**: Show the two commit histories side by side.
 - **Rebase A..HEAD onto B**: Move commits after A on the current branch onto B.
+- **Rebase A onto B**: Check out the local branch at A and rebase it onto B.
+- **Cherry-pick A onto B**: Check out the local branch at B and cherry-pick A onto it.
 - **Rebase A..tips onto B**: Move local branches descended from A onto B while preserving their branch structure.
 - **Align A with B**: Find equivalent commits in the two histories and move A's later commits onto B's history.
 - **Find matching parent in A and B**: Find matching commit trees in both histories and move A/B to them. This does not rewrite history.

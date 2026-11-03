@@ -699,5 +699,16 @@
   "search_bad_hash": "Enter at least 4 hexadecimal digits for the hash.",
   "search_bad_date": "Dates must be in YYYY-MM-DD format.",
   "earlier_commits": "▲ Load earlier commits ({n} above)",
-  "all_log_title": "All commits"
+  "all_log_title": "All commits",
+  "rebase_onto": "Rebase A onto B",
+  "cherry_onto": "Cherry-pick A onto B",
+  "tip_rebase_onto": "Check out the local branch at A and rebase it onto B",
+  "tip_cherry_onto": "Check out the local branch at B and cherry-pick A onto it",
+  "confirm_rebase_onto": "Check out the local branch at A ({from}) and rebase it onto B ({to}). History will be rewritten (it is rolled back automatically on conflicts). Continue?",
+  "confirm_cherry_onto": "Check out the local branch at B ({to}) and cherry-pick A ({from}) onto it. A new commit will be created (it is rolled back automatically on conflicts). Continue?",
+  "rebase_onto_done": "Rebased branch {branch} (was at A {from}) onto B ({to})",
+  "cherry_onto_done": "Cherry-picked {hash} onto branch {branch}",
+  "cherry_onto_noop": "{hash} made no changes on branch {branch}",
+  "rebase_onto_no_branch": "No local branch points at A ({hash})",
+  "cherry_onto_no_branch": "No local branch points at B ({hash})"
 }

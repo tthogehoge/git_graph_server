@@ -15,8 +15,9 @@ from ..gitrun import git, resolve_commit, run_git_write
 from ..gitstate import has_head, head_state, is_merging, is_rebasing
 from ..i18n import tr, UserError
 from . import operation
-from .dirty import git_run, resolve_dirty_worktree, run_resolving, with_stash_note
+from .dirty import checkout_resolving, git_run, resolve_dirty_worktree, run_resolving, with_stash_note
 from .tags import move_tags, snapshot_for_tags, tag_mapping, tag_targets
+from ._ab_helpers import pick_local_branch_at
 
 
 def _check_can_rebase():
@@ -145,6 +146,45 @@ def rebase(commit, *, on_conflict=None):
         raise ValueError(with_stash_note({"stashed": stashed}, (r.stdout + r.stderr).strip() or tr("rebase_failed")))
     return {"branch": branch, "hash": h, "noop": git("rev-parse", "HEAD").strip() == before, "stashed": stashed}
 
+
+
+
+@operation("rebase", touches_worktree=True, detail=lambda a, b, *_, **__: a)
+def rebase_onto(a, b, *, on_conflict=None):
+    """A を先端に持つローカルブランチへ checkout し、B の上へリベースする。
+    競合したら自動で中止して元に戻す。A にローカルブランチが無いときはエラー。
+    戻り値: {"branch", "from", "to", "noop", "stashed"} / blocked。"""
+    _check_can_rebase()
+    a = resolve_commit(a)
+    b = resolve_commit(b)
+    if is_merging() or is_rebasing():
+        raise UserError("merge_or_rebase_in_progress")
+    branch = pick_local_branch_at(a, error_key="rebase_onto_no_branch")
+    original = head_state().get("branch") or ""
+    if original != branch:
+        res = checkout_resolving([branch, "--"], on_conflict)
+        if res and res.get("blocked"):
+            return res
+        stashed_co = (res or {}).get("stashed")
+    else:
+        stashed_co = None
+    before = git("rev-parse", "HEAD").strip()
+    r, blocked, stashed = run_resolving(lambda c: git_run(["rebase", b], c), on_conflict, rebase_dirty=True)
+    stashed = stashed or stashed_co
+    if blocked:
+        if original and original != branch:
+            subprocess.run(["git", "-C", state.REPO, "checkout", original], capture_output=True)
+        return blocked
+    if r.returncode != 0:
+        if is_rebasing():
+            _abort_rebase()
+            if original and original != branch:
+                subprocess.run(["git", "-C", state.REPO, "checkout", original], capture_output=True)
+            raise UserError("rebase_conflict", target=b[:7], cmd="git rebase")
+        if original and original != branch:
+            subprocess.run(["git", "-C", state.REPO, "checkout", original], capture_output=True)
+        raise ValueError(with_stash_note({"stashed": stashed}, (r.stdout + r.stderr).strip() or tr("rebase_failed")))
+    return {"branch": branch, "from": a, "to": b, "noop": git("rev-parse", "HEAD").strip() == before, "stashed": stashed}
 
 @operation("rebase", touches_worktree=True)
 def rebase_range(a, b, *, on_conflict=None):
