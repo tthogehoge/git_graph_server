@@ -210,11 +210,13 @@ function detailNavHashes(h, parents) {
   return { newer: newer, older: older };
 }
 
-let detailNavCursor = null;  // 表示より先に進むナビ位置 (連続キー用)
+let detailNavCursor = null;  // ナビゲーション位置
 let detailFetchSeq = 0;
+let detailNavBusy = false;
 const DETAIL_LOADING_DELAY_MS = 150;  // これより速く返れば「読み込み中」を出さない
 
 function stepDetailNav(dir) {
+  if (detailNavBusy || curView !== "detail") return;
   // dir: "newer" | "older"。DOM の data-hash ではなく論理カーソルから次を決める
   const from = detailNavCursor || curDetailHash;
   if (!from) return;
@@ -227,8 +229,6 @@ function stepDetailNav(dir) {
   if (history.state && history.state.screen === "detail") {
     history.replaceState({screen: "detail", hash: h}, "");
   }
-  // デバウンスしない: 押しっぱなし中にタイマーが延び続けると詳細だけ更新されない
-  // 古い /api/commit 応答は detailFetchSeq で捨てる
   showDetail(h, true);
 }
 
@@ -278,6 +278,7 @@ function showDetail(h, fromHistory) {
   document.body.classList.remove("compare-logs-mode");
   if (!fromHistory) { pushScreen({screen: "detail", hash: h}); revealHash(h); }
   detailNavCursor = h;
+  detailNavBusy = true;
   setDocumentTitle(t("commit_label") + " " + h.slice(0, 7));
   const seq = ++detailFetchSeq;
   const stay = curView === "detail";  // すでに詳細表示中 (上下キー・prev/next)
@@ -315,11 +316,13 @@ function showDetail(h, fromHistory) {
       "<pre>" + esc(c.message) + "</pre>" + filesHtml(curCtx, c.files) +
       '<div class="meta"><code>git show ' + esc(c.hash.slice(0, 7)) + "</code></div>";
     bindDetailNavButtons();
+    detailNavBusy = false;
   }).catch(e => {
     if (seq !== detailFetchSeq) return;
     if (loadingTimer) clearTimeout(loadingTimer);
     detailView.innerHTML = nav + '<p class="hint">' + esc(t("error")) + esc(e.message) + "</p>";
     bindDetailNavButtons();
+    detailNavBusy = false;
   });
 }
 
