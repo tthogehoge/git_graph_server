@@ -167,6 +167,7 @@
   "notifications": "Notifications",
   "close_notification": "Close notification",
   "resize_panel": "Resize the right pane",
+  "resize_side": "Resize the left pane",
   "reload_title": "Refresh the graph to the latest state",
   "tip_scroll_head": "Select the HEAD commit, show its log, and scroll the graph to it",
   "tip_wip_open": "Show the working-tree changes (WIP), select the WIP node, and scroll the graph to it",

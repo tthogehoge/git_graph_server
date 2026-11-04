@@ -19,6 +19,9 @@
   .wbtn { background: #1a7f37; color: #fff; border: 1px solid #176b30; padding: 3px 10px; border-radius: 3px; cursor: pointer; }
   .wbtn:hover { background: #176b30; } .wbtn:disabled { opacity: .5; cursor: default; }
   .wbtn.danger { background: #b42318; border-color: #912018; } .wbtn.danger:hover { background: #912018; }
+  #sideSplitter { flex: 0 0 5px; cursor: col-resize; background: #eee; border-right: 1px solid #ccc; box-sizing: border-box; touch-action: none; }
+  #sideSplitter:hover, #sideSplitter:focus-visible, body.resizing #sideSplitter { background: #c8d8f0; outline: none; }
+  body.resizing { cursor: col-resize; user-select: none; }
   #main { flex: 1; min-width: 0; overflow: auto; padding: 14px 18px; }
   h1 { font-size: 15px; margin: 0 0 6px; word-break: break-all; }
   .meta { color: #555; margin: 2px 0; }

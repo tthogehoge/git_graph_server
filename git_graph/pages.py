@@ -27,6 +27,7 @@ COPY_JS = read_asset("copy.js")
 DIFF_CSS = read_asset("diff.css")
 DIFF_FOLD_JS = read_asset("diff_fold.js")
 DIFF_RELOAD_JS = read_asset("diff_reload.js")
+PANE_RESIZE_JS = read_asset("pane_resize.js")
 WIP_DIFF_COMMIT_JS = read_asset("wip_diff_commit.js")
 FILES_CSS = read_asset("files.css")
 # ヘッダーのアイコンボタン。files.html / index.html にも同じ絵を直接書いてある
@@ -367,6 +368,7 @@ def render_diff_page(q):
   {commit_box}
   {"".join(side)}
 </div>
+<div id="sideSplitter" role="separator" aria-orientation="vertical" aria-label="{html.escape(tr("resize_side"), quote=True)}" tabindex="0"></div>
 <div id="main">
   <h1>{html.escape(name)}{edit_link}{files_link}{patch_btn}{ext_diff}</h1>
   {'<div class="meta hint" id="pmsg"></div>' if patch_btn else ""}
@@ -378,6 +380,7 @@ def render_diff_page(q):
   <div class="diff">{diff_lines_html(d["diff"]) or '<p class="hint">' + tr("no_diff") + '</p>'}</div>
 </div>
 <script>{COPY_JS}</script>
+<script>{PANE_RESIZE_JS}</script>
 <script>{fold_js}</script>
 <script>{commit_js}</script>
 <script>{EXT_DIFF_JS if ext_diff else ""}</script>
@@ -390,6 +393,7 @@ def render_diff_page(q):
 def render_files_page():
     return with_project(fill_template(FILES_PAGE)
             .replace('<html lang="ja">', f'<html lang="{state.UI_LANG}">')
+            .replace("/*__PANE_RESIZE__*/", PANE_RESIZE_JS)
             .replace("/*__FILE_I18N__*/", "const I18N = " + client_translations() + ";\n"
                      + "const CAN_COPY = " + ("true" if state.WRITABLE and state.HAS_WORKTREE else "false") + ";\n"
                      + "const DESKTOP = " + ("true" if state.DESKTOP and state.WRITABLE and state.HAS_WORKTREE else "false") + ";"))

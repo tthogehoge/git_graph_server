@@ -167,6 +167,7 @@
   "notifications": "通知",
   "close_notification": "通知を閉じる",
   "resize_panel": "右ペインの幅を調整",
+  "resize_side": "左ペインの幅を調整",
   "reload_title": "グラフを最新の状態に更新",
   "tip_scroll_head": "HEAD のコミットを選択してログを表示し、グラフをそのノードまでスクロールします",
   "tip_wip_open": "作業ツリーの変更 (WIP) を表示し、WIP ノードを選択してグラフをその位置までスクロールします",
