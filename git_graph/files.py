@@ -39,6 +39,12 @@ def api_tree(q):
     return qf.tree(q.get("hash", [""])[0], q.get("path", [""])[0])
 
 
+@route("/api/tree-log")
+def api_tree_log(q):
+    """ディレクトリの各項目を最後に変更したコミット (ファイル表示でディレクトリを選んだとき)。"""
+    return qf.tree_log(q.get("hash", [""])[0], q.get("path", [""])[0])
+
+
 @route("/api/file")
 def api_file(q):
     return qf.file_content(q.get("hash", [""])[0], q.get("path", [""])[0])
@@ -132,7 +138,7 @@ def api_blame(q):
 
 
 __all__ = [
-    "FILE_CONTENT_LIMIT", "api_file", "api_file_copy", "api_tree", "decode_text", "api_blame",
+    "FILE_CONTENT_LIMIT", "api_file", "api_file_copy", "api_tree", "api_tree_log", "decode_text", "api_blame",
     "validate_file_path", "WIP_HASH", "api_file_save", "SAVE_BODY_LIMIT", "file_download", "patch_download",
     "api_patch_apply", "api_patch_am", "PATCH_BODY_LIMIT", "wip_patch", "worktree_target", "status_mark",
 ]

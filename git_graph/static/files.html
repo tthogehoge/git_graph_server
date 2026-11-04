@@ -51,6 +51,10 @@ __FAVICON__
   table.file-log a { color: inherit; text-decoration: none; }
   table.file-log a.commit-graph:hover { text-decoration: underline; }
   table.file-log tr:hover td { background: #eef; }
+  table.dir-log th { text-align: left; font-weight: normal; color: #666; padding: 4px 6px; border-bottom: 1px solid #ccc; white-space: nowrap; }
+  table.dir-log tr.dir-log-row { cursor: pointer; }
+  table.dir-log td.dir-name { font-family: monospace; word-break: break-all; }
+  table.dir-log tr.dir-log-row:hover td.dir-name { color: #06c; }
   table.file-log tr { cursor: pointer; }
   .blame-line { display: flex; font: 12px monospace; white-space: pre-wrap; }
   .blame-line { cursor: pointer; }
@@ -116,6 +120,7 @@ const isWip = hash === "WIP";  // 作業ツリーのファイルを表示する
 })();
 fileCopyBtn.hidden = !CAN_COPY || isWip;
 let current = "", currentFile = "", wipHead = null;
+let dirEntries = null, dirLogSeq = 0;  // dirEntries: 表示中のディレクトリの項目 (読み込み前は null), dirLogSeq: 古い応答を捨てるための通し番号
 let entryInfo = {}, commitChanges = null;  // entryInfo: パス → 一覧の項目 (WIP の変更の種類 xy), commitChanges: パス → コミットでの変更
 function diffParams(path) {  // このファイルの差分ページの引数。変更がなければ null
   if (isWip) {
@@ -180,8 +185,10 @@ function statusBadge(e) {  // 作業ツリー表示での変更の印 (ディレ
 }
 function loadTree(path, push) {
   current = path;
+  dirEntries = null;
   if (push) history.pushState({path: path, file: currentFile, view: currentView}, "", pageUrl(path, currentFile, currentView));
   return api("/api/tree", {hash: hash, path: path}).then(r => {
+    dirEntries = r.entries;
     if (isWip) wipHead = r.head || null;
     document.getElementById("commit").textContent = isWip
       ? t("working_tree_files") + (r.head ? " (HEAD " + r.head.slice(0, 7) + ")" : "") : r.hash.slice(0, 7);
@@ -196,8 +203,8 @@ function loadTree(path, push) {
       const size = e.size === null ? "" : e.size.toLocaleString() + " B";
       return '<div class="entry" data-type="' + e.type + '" data-path="' + esc(p) + '"><span>' + icon + ' ' + statusBadge(e) + esc(e.name) + '</span><span class="size">' + size + '</span></div>';
     }).join("") : '<p class="hint">' + t("empty_directory") + '</p>');
-    list.querySelectorAll("[data-dir]").forEach(a => a.onclick = () => loadTree(a.dataset.dir, true));
-    list.querySelectorAll(".entry").forEach(a => a.onclick = () => a.dataset.type === "tree" ? loadTree(a.dataset.path, true) : loadFile(a.dataset.path, true));
+    list.querySelectorAll("[data-dir]").forEach(a => a.onclick = () => openDir(a.dataset.dir));
+    list.querySelectorAll(".entry").forEach(a => a.onclick = () => a.dataset.type === "tree" ? openDir(a.dataset.path) : loadFile(a.dataset.path, true));
   }).catch(showError);
 }
 fileDownloadBtn.onclick = () => {  // Content-Disposition: attachment なので、画面は移動せず保存される
@@ -225,7 +232,7 @@ function doRm(cached) {  // git rm / git rm --cached。変更のあるファイ�
       entryInfo = {};  // 一覧を読み直す (ステージされた削除や、未追跡になったことを反映する)
       return loadTree(current, false).then(() => {
         if (cached) { updateDiffBtn(); setFileMsg(r.message, true); }
-        else { clearFile(); setFileMsg(r.message, true); }
+        else { clearFile(); showDir(); setFileMsg(r.message, true); }
       });
     })
     .catch(e => setFileMsg(e.message, false))
@@ -276,7 +283,7 @@ patchFile.onchange = () => {
     .then(r => {
       setPatchMsg(r.message, true);
       entryInfo = {};  // 変更の印と、開いているファイルの内容を読み直す
-      return loadTree(current, false).then(() => { if (currentFile) return loadFile(currentFile, false); });
+      return loadTree(current, false).then(() => { if (currentFile) return loadFile(currentFile, false); showDir(); });
     })
     .catch(e => setPatchMsg(e.message, false))
     .finally(() => { patchApplyBtn.disabled = patchAmBtn.disabled = false; });
@@ -303,6 +310,41 @@ function clearFile() {  // ファイルを選ぶ前の表示に戻す
   title.textContent = t("select_file");
   content.className = "hint";
   content.textContent = t("select_file_hint");
+}
+function dirLogCells(c) {  // 最終コミットのセル (ハッシュ・件名・日付)。c が無ければ空 (まだ読み込み中 / 履歴に見つからない)
+  if (!c) return '<td class="hash"></td><td></td><td class="date"></td>';
+  return '<td class="hash"><a class="commit-graph" href="/?commit_hash=' + encodeURIComponent(c[0]) + '">' + esc(c[1]) + '</a></td><td>' +
+    esc(c[4]) + '</td><td class="date">' + esc(c[3]) + '</td>';
+}
+function dirNameCell(e) {
+  return '<td class="dir-name">' + (e.type === "tree" ? "📁" : "📄") + ' ' + statusBadge(e) + esc(e.name) + '</td>';
+}
+function showDir() {  // ファイルを開いていないとき、ディレクトリ内の一覧を各項目の最終コミットつきで本文に出す
+  if (dirEntries === null || currentFile) return;
+  const seq = ++dirLogSeq, path = current, entries = dirEntries;
+  setDocumentTitle(path || t("root"));
+  title.textContent = "📁 " + (path || t("root"));
+  if (!entries.length) { content.className = "hint"; content.textContent = t("empty_directory"); return; }
+  content.className = "";
+  content.innerHTML = '<table class="file-log dir-log"><thead><tr><th>' + esc(t("dir_log_name")) + '</th><th>' + esc(t("dir_log_commit")) +
+    '</th><th>' + esc(t("dir_log_message")) + '</th><th>' + esc(t("dir_log_date")) + '</th></tr></thead><tbody>' +
+    entries.map(e => '<tr class="dir-log-row" data-type="' + e.type + '" data-name="' + esc(e.name) + '" data-path="' +
+      esc(path ? path + "/" + e.name : e.name) + '">' + dirNameCell(e) + dirLogCells(null) + '</tr>').join("") + '</tbody></table><div id="dirLogNote"></div>';
+  api("/api/tree-log", {hash: hash, path: path}).then(r => {
+    if (seq !== dirLogSeq || currentFile) return;  // 別のディレクトリ / ファイルに移った
+    const byName = {};
+    entries.forEach(e => { byName[e.name] = e; });
+    content.querySelectorAll("tr.dir-log-row").forEach(row => {
+      const e = byName[row.dataset.name];
+      row.innerHTML = dirNameCell(e) + dirLogCells(r.commits[e.name]);
+    });
+    if (!r.complete) document.getElementById("dirLogNote").innerHTML = '<p class="hint">' + esc(t("dir_log_incomplete")) + '</p>';
+  }).catch(e => { if (seq === dirLogSeq && !currentFile) { content.className = "hint"; content.textContent = t("error") + e.message; } });
+}
+function openDir(path) {  // ディレクトリを選ぶ: 開いているファイルは閉じて、ディレクトリの一覧を本文に出す
+  if (!leaveEdit()) return;
+  if (currentFile) clearFile();
+  loadTree(path, true).then(showDir);
 }
 function loadFile(path, push) {
   if (!leaveEdit()) return;
@@ -437,6 +479,11 @@ content.addEventListener("click", ev => {
     }
     return;
   }
+  const dirRow = ev.target.closest("tr.dir-log-row");
+  if (dirRow && !currentFile) {  // ディレクトリの一覧の項目: ディレクトリなら開き、ファイルなら表示する
+    if (dirRow.dataset.type === "tree") openDir(dirRow.dataset.path); else loadFile(dirRow.dataset.path, true);
+    return;
+  }
   const row = ev.target.closest("tr.file-log-row, .blame-line");
   if (!row || !row.dataset.hash || !currentFile) return;
   const params = new URLSearchParams({hash: row.dataset.hash, file: currentFile});
@@ -567,7 +614,7 @@ function restoreFromUrl(first) {  // URL の path / file / view の状態を画�
   const tree = first || dir !== current ? loadTree(dir, false) : Promise.resolve();
   // WIP ではツリーの読み込みで HEAD が分かってから開く (ログ / blame ボタンの表示に使う)
   return tree.then(() => {
-    if (!file) { if (currentFile) clearFile(); return; }
+    if (!file) { if (currentFile) clearFile(); showDir(); return; }
     const reload = first || file !== currentFile || !view || currentView === "edit" || !fileData;
     return (reload ? loadFile(file, false) : Promise.resolve()).then(() => { if (view) renderView(view); });
   }).then(() => { const f = afterRestore; afterRestore = null; if (f) f(); });

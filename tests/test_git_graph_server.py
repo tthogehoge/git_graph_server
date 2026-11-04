@@ -335,6 +335,24 @@ class GitApiIntegrationTests(unittest.TestCase):
 
         self.assertIn("<link rel=\"icon\"", page)
 
+    def test_api_tree_log_returns_last_commit_of_each_entry(self):
+        def last(res):
+            return {name: c[0] for name, c in res["commits"].items()}
+        root = app.api_tree_log({"hash": [self.third_commit]})
+        self.assertTrue(root["complete"])
+        self.assertEqual(last(root), {"src": self.third_commit, "README.md": self.second_commit,
+                                      "new.txt": self.second_commit})
+        self.assertEqual(root["commits"]["src"][1:], [self.third_commit[:7], "Test User",
+                                                      root["commits"]["src"][3], "update application"])
+        # そのコミットの時点で見る (まだ後のコミットが無い)
+        self.assertEqual(last(app.api_tree_log({"hash": [self.second_commit]}))["src"], self.first_commit)
+        sub = app.api_tree_log({"hash": [self.third_commit], "path": ["src"]})
+        self.assertEqual(last(sub), {"app.py": self.third_commit})
+        for name, c in root["commits"].items():  # git log -1 と同じ答えになる
+            self.assertEqual(c[0], self.git("log", "-1", "--format=%H", self.third_commit, "--", name).strip())
+        with self.assertRaises(ValueError):
+            app.api_tree_log({"hash": [self.third_commit], "path": ["../x"]})
+
     def test_api_tree_and_file_read_from_commit(self):
         tree = app.api_tree({"hash": [self.second_commit]})
         self.assertEqual([entry["name"] for entry in tree["entries"]], [
@@ -735,6 +753,27 @@ class WorkingTreeFilesTests(unittest.TestCase):
         self.assertNotIn("st", tree[".gitignore"])
         sub = app.api_tree({"hash": ["WIP"], "path": ["src"]})["entries"]
         self.assertEqual((sub[0]["st"], sub[0]["xy"]), ("M", "M "))
+
+    def test_tree_log_for_working_tree_skips_uncommitted_entries(self):
+        res = app.api_tree_log({"hash": ["WIP"]})
+        self.assertTrue(res["complete"])
+        self.assertEqual({n: c[0] for n, c in res["commits"].items()},
+                         {"src": self.head, ".gitignore": self.head, "README.md": self.head})  # new.txt は未追跡
+        self.assertEqual({n: c[0] for n, c in app.api_tree_log({"hash": ["WIP"], "path": ["src"]})["commits"].items()},
+                         {"app.py": self.head})
+
+    def test_tree_log_limit_marks_result_incomplete(self):
+        from git_graph.query import files as qf
+        self.write("README.md", "first\nthird\n")
+        self.git("commit", "-q", "-m", "touch readme", "README.md")  # src は最初のコミットのまま
+        old = qf.TREE_LOG_MAX_COMMITS
+        qf.TREE_LOG_MAX_COMMITS = 1
+        try:
+            res = app.api_tree_log({"hash": ["WIP"]})
+        finally:
+            qf.TREE_LOG_MAX_COMMITS = old
+        self.assertFalse(res["complete"])
+        self.assertEqual(sorted(res["commits"]), ["README.md"])
 
     def test_status_mark(self):
         from git_graph.files import status_mark

@@ -4,6 +4,7 @@ import hashlib
 import os
 import shutil
 import subprocess
+import time
 from datetime import datetime, timedelta, timezone
 from .. import app_state as state
 from .. import tmpdir
@@ -168,6 +169,78 @@ def tree(hash_, path=""):
         entries.append({"name": name, "type": kind, "size": None if size == "-" else int(size), "mode": mode})
     return {"hash": h, "path": path, "entries": sorted(entries, key=lambda x: (x["type"] != "tree", x["name"]))}
 
+
+
+TREE_LOG_MAX_COMMITS = 20000  # 各項目の最終コミットを探すために、新しい方から調べるコミット数の上限
+TREE_LOG_MAX_SECONDS = 10     # 同、かかる時間の上限 (大きなリポジトリで、変更のない古い項目があっても画面を待たせすぎない)
+
+
+def _tree_log_untracked(entry):
+    """作業ツリー表示で、まだコミットに入っていない項目 (最終コミットを探しても見つからない)。"""
+    return entry.get("st") == "?" or entry.get("xy", "")[:1] in ("?", "A")
+
+
+def tree_log(hash_, path=""):
+    """ディレクトリの各項目 (ファイル / サブディレクトリ) を最後に変更したコミットを返す。
+    {"commits": {項目名: [ハッシュ, 短縮ハッシュ, 作者, 日付, 件名]}, "complete": 上限に達せず調べ終えたか}。
+    項目ごとに git log を起動せず、git log --name-only を 1 回だけ新しい方から読み、全項目が見つかった時点で止める。
+    WIP (作業ツリー) は HEAD までの履歴で調べる。"""
+    path = validate_file_path(path)
+    listing = tree(hash_, path)
+    rev = wip_head() if listing["hash"] == WIP_HASH else listing["hash"]
+    wanted = {e["name"] for e in listing["entries"] if not _tree_log_untracked(e)}
+    res = {"hash": listing["hash"], "path": path, "commits": {}, "complete": True}
+    if not rev or not wanted:
+        return res
+    prefix = path + "/" if path else ""
+    args = ["git", "-C", state.REPO, "log", "-z", "--cc", "--no-renames", "--name-only", "--date=short",
+            "--format=%x01%H%x1f%h%x1f%an%x1f%ad%x1f%s", rev, "--"]
+    if path:
+        args.append(path)
+    found, cur, scanned, started = {}, None, 0, time.monotonic()
+    proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                            env=dict(os.environ, GIT_LITERAL_PATHSPECS="1"))
+    stopped = limited = False  # stopped: 読むのをやめた / limited: 全項目が見つからないまま上限でやめた
+    try:
+        buf, first_name = b"", False
+        while not stopped:
+            chunk = proc.stdout.read(65536)
+            buf += chunk
+            tokens = buf.split(b"\0")
+            buf = b"" if not chunk else tokens.pop()  # 最後は途中で切れているかもしれない (終端ならすべて処理する)
+            for tok in tokens:
+                if tok.startswith(b"\x01"):  # コミットの見出し
+                    scanned += 1
+                    if scanned > TREE_LOG_MAX_COMMITS or time.monotonic() - started > TREE_LOG_MAX_SECONDS:
+                        stopped = limited = True
+                        break
+                    parts = tok[1:].decode("utf-8", errors="replace").split("\x1f", 4)
+                    cur = parts if len(parts) == 5 else None
+                    first_name = True
+                    continue
+                if first_name and tok.startswith(b"\n"):  # 見出しと最初のファイル名の間の改行
+                    tok = tok[1:]
+                first_name = False
+                if not tok or cur is None:
+                    continue
+                name = tok.decode("utf-8", errors="replace")
+                if not name.startswith(prefix):
+                    continue
+                entry = name[len(prefix):].split("/", 1)[0]
+                if entry in wanted and entry not in found:
+                    found[entry] = cur
+                    if len(found) == len(wanted):
+                        stopped = True
+                        break
+            if not chunk:
+                break
+    finally:
+        proc.kill()
+        proc.stdout.close()
+        proc.wait()
+    res["commits"] = found
+    res["complete"] = not limited
+    return res
 
 
 def file_content(hash_, path):
