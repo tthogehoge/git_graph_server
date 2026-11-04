@@ -4,8 +4,8 @@ import subprocess
 from .. import app_state as state
 from ..gitrun import check_ref_name, git, run_git_write
 from ..gitstate import (
-    addable_paths, amend_base, amend_head_changes, has_head, has_parent, head_state, is_merging, is_rebasing,
-    status_lists,
+    addable_paths, amend_base, amend_head_changes, has_head, has_parent, head_state, is_applying,
+    is_merging, is_rebasing, status_lists,
 )
 from ..i18n import tr, UserError
 from . import operation
@@ -40,6 +40,8 @@ def commit(message, paths, *, staged_paths=None, amend=False, branch=""):
     戻り値: {"hash", "amend", "count" (コミットに入れたファイル数), "dropped" (amend でコミットから外したファイル数)}。"""
     if not state.WIP_ENABLED:
         raise UserError("wip_disabled")
+    if is_applying():
+        raise UserError("op_in_progress")
     branch = str(branch or "").strip()
     if branch and amend:
         raise UserError("amend_blocked")

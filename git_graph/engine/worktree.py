@@ -4,8 +4,7 @@ import subprocess
 from .. import app_state as state
 from ..gitrun import git, git_c_locale, resolve_commit, run_git_write
 from ..gitstate import (
-    has_head, is_cherry_picking, is_merging, is_rebasing, is_reverting, paths_in_head, set_stash_marker, clear_stash_marker,
-    status_lists,
+    has_head, is_operation_in_progress, paths_in_head, set_stash_marker, clear_stash_marker, status_lists,
 )
 from ..i18n import tr, UserError
 from . import operation
@@ -20,7 +19,7 @@ def write_stash_marker(commit, action):
 
 
 def _operation_in_progress():
-    return is_merging() or is_rebasing() or is_cherry_picking() or is_reverting()
+    return is_operation_in_progress()
 
 
 @operation("stash", touches_worktree=True, detail=lambda commit, *_, **__: commit, replay=True)

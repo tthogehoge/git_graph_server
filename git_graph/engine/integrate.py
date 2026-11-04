@@ -6,8 +6,8 @@ import subprocess
 from .. import app_state as state
 from ..gitrun import git, resolve_commit, run_git_write
 from ..gitstate import (
-    has_head, head_state, is_cherry_picking, is_merging, is_rebasing, is_reverting, paths_in_head, stash_conflict_state,
-    status_lists,
+    has_head, head_state, is_applying, is_cherry_picking, is_merging, is_operation_in_progress,
+    is_rebasing, is_reverting, paths_in_head, stash_conflict_state, status_lists,
 )
 from ..i18n import tr, UserError
 from . import operation
@@ -37,6 +37,8 @@ def merge(commit, *, no_ff=False, on_conflict=None):
     h = resolve_commit(commit)
     if is_merging():
         raise UserError("merge_in_progress")
+    if is_operation_in_progress():
+        raise UserError("op_in_progress")
     if not has_head():
         raise UserError("merge_no_commits")
     before = git("rev-parse", "HEAD").strip()
@@ -62,7 +64,7 @@ def cherry_pick(commit, *, on_conflict=None):
     if not state.HAS_WORKTREE:
         raise UserError("cherry_no_worktree")
     h = resolve_commit(commit)
-    if is_merging() or is_rebasing() or is_cherry_picking() or is_reverting():
+    if is_operation_in_progress():
         raise UserError("op_in_progress")
     if not has_head():
         raise UserError("cherry_no_commits")
@@ -93,7 +95,7 @@ def cherry_pick_onto(a, b, *, on_conflict=None):
         raise UserError("cherry_no_worktree")
     a = resolve_commit(a)
     b = resolve_commit(b)
-    if is_merging() or is_rebasing() or is_cherry_picking() or is_reverting():
+    if is_operation_in_progress():
         raise UserError("op_in_progress")
     if not has_head():
         raise UserError("cherry_no_commits")
@@ -139,7 +141,7 @@ def revert(commit, *, on_conflict=None):
     if not state.HAS_WORKTREE:
         raise UserError("revert_no_worktree")
     h = resolve_commit(commit)
-    if is_merging() or is_rebasing() or is_cherry_picking() or is_reverting():
+    if is_operation_in_progress():
         raise UserError("op_in_progress")
     if not has_head():
         raise UserError("revert_no_commits")
@@ -160,10 +162,10 @@ def revert(commit, *, on_conflict=None):
 
 @operation("abort", touches_worktree=True)
 def abort_operation():
-    """進行中のマージ / リベース / チェリーピック / リバートを中断して、開始前の状態に戻す。戻り値: {"cmd": 中断した操作}。"""
+    """進行中のマージ / リベース / git am / チェリーピック / リバートを中断して、開始前の状態に戻す。戻り値: {"cmd": 中断した操作}。"""
     if not state.HAS_WORKTREE:
         raise UserError("abort_no_worktree")
-    for cmd, active in (("merge", is_merging), ("rebase", is_rebasing),
+    for cmd, active in (("merge", is_merging), ("rebase", is_rebasing), ("am", is_applying),
                         ("cherry-pick", is_cherry_picking), ("revert", is_reverting)):
         if active():
             run_git_write(cmd, "--abort")

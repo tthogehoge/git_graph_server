@@ -5,7 +5,7 @@
 # を記録し、その差分を履歴に積む。元に戻す (undo) はこの差分を逆向きに適用するだけなので、
 # 操作ごとに逆操作を書く必要がない。やり直し (redo) は同じ差分を順方向に適用する。
 #
-# - 競合などで途中停止した merge / rebase / cherry-pick / revert は、完了または中断されるまでを1つの操作として扱う。
+# - 競合などで途中停止した merge / rebase / am / cherry-pick / revert は、完了または中断されるまでを1つの操作として扱う。
 # - push / push-tag / リモートブランチ削除などリモート側を変える操作は履歴に積まない (戻せないため)。
 # - 履歴はメモリ上だけに持つ (サーバーを再起動すると消える)。
 # - 作業ツリーは「追跡ファイルの内容」だけを退避する (変更のあるファイルの blob と小さなコミット1つ。サイズは変更量に比例)。
@@ -26,7 +26,7 @@ import time
 from .. import app_state as state
 from .. import tmpdir
 from ..gitrun import HASH_RE
-from ..gitstate import is_cherry_picking, is_merging, is_rebasing, is_reverting
+from ..gitstate import is_operation_in_progress
 from ..i18n import tr, UserError
 from ..routing import ENGINE_ROUTES, route
 
@@ -119,7 +119,7 @@ def _git_path(name):
 
 
 def in_progress():
-    return is_merging() or is_rebasing() or is_cherry_picking() or is_reverting()
+    return is_operation_in_progress()
 
 
 # ---------------------------------------------------------------- 状態の記録

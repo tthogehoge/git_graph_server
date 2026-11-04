@@ -817,6 +817,48 @@ class EngineOperationTests(EngineTests):
         with self.assertRaises(UserError):
             integrate.abort_operation()
 
+    def test_abort_operation_detects_and_aborts_git_am_not_rebase(self):
+        from git_graph.gitstate import is_applying, is_rebasing
+
+        patch_commit = self.commit_file("tracked.txt", "patch side\n", "patch commit")
+        patch = subprocess.check_output(
+            ["git", "-C", self.repo, "format-patch", "--stdout", "-1", patch_commit]
+        )
+        self.git("reset", "--hard", self.head)
+        current_commit = self.commit_file("tracked.txt", "current side\n", "current commit")
+        failed = subprocess.run(
+            ["git", "-C", self.repo, "am", "--3way"],
+            input=patch, capture_output=True,
+        )
+
+        self.assertNotEqual(failed.returncode, 0)
+        self.assertTrue(is_applying())
+        self.assertFalse(is_rebasing())
+        status = app.api_status({})
+        self.assertTrue(status["applying"])
+        self.assertFalse(status["rebasing"])
+        self.assertTrue(app.api_head({})["merging"])
+        from git_graph.pages import render_diff_page
+        page = render_diff_page({"path": ["tracked.txt"], "wip": ["conflict"]})
+        self.assertIn('data-cmd="am"', page)
+        self.assertIn("git am --abort", page)
+        self.assertNotIn('id="cbtn"', page)
+        from git_graph.engine.patch import am_patch
+        with self.assertRaises(UserError):
+            am_patch(patch)
+        with self.assertRaises(UserError):
+            self.do("/api/wip-commit", {"paths": ["tracked.txt"], "message": "unexpected"})
+        self.assertTrue(is_applying())
+
+        result = self.do("/api/abort", {})
+
+        self.assertTrue(result["ok"])
+        self.assertIn("git am --abort", result["message"])
+        self.assertFalse(is_applying())
+        self.assertFalse(is_rebasing())
+        self.assertEqual(self.git("rev-parse", "HEAD").strip(), current_commit)
+        self.assertEqual(self.read("tracked.txt"), "current side\n")
+
     def test_resolve_conflicts_takes_one_side_and_rejects_non_conflicts(self):
         from git_graph.engine import integrate
         side = self.diverged_branch("side", "their side\n")

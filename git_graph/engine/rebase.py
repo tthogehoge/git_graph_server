@@ -12,7 +12,7 @@ from .. import app_state as state
 from .. import tmpdir
 from ..query.equivalent import nearest_equivalent_parent
 from ..gitrun import git, resolve_commit, run_git_write
-from ..gitstate import has_head, head_state, is_merging, is_rebasing
+from ..gitstate import has_head, head_state, is_operation_in_progress, is_rebasing
 from ..i18n import tr, UserError
 from . import operation
 from .dirty import (checkout_resolving, clear_rebase_msgs, git_run, rebase_msgs_dir, resolve_dirty_worktree, run_resolving,
@@ -28,7 +28,7 @@ def _check_can_rebase():
 
 
 def _current_branch():
-    if is_merging() or is_rebasing():
+    if is_operation_in_progress():
         raise UserError("merge_or_rebase_in_progress")
     branch = head_state()["branch"]
     if not branch:
@@ -160,7 +160,7 @@ def rebase_onto(a, b, *, on_conflict=None):
     _check_can_rebase()
     a = resolve_commit(a)
     b = resolve_commit(b)
-    if is_merging() or is_rebasing():
+    if is_operation_in_progress():
         raise UserError("merge_or_rebase_in_progress")
     branch = pick_local_branch_at(a, error_key="rebase_onto_no_branch")
     original = head_state().get("branch") or ""

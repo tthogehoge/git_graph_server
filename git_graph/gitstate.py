@@ -39,7 +39,15 @@ def is_merging():
 
 
 def is_rebasing():
-    return os.path.isdir(git_path("rebase-merge")) or os.path.isdir(git_path("rebase-apply"))
+    """Detect rebase state; rebase-apply/applying belongs to git am instead."""
+    if os.path.isdir(git_path("rebase-merge")):
+        return True
+    return (os.path.isdir(git_path("rebase-apply"))
+            and not is_applying())
+
+
+def is_applying():
+    return os.path.isfile(git_path("rebase-apply", "applying"))
 
 
 def is_cherry_picking():
@@ -48,6 +56,11 @@ def is_cherry_picking():
 
 def is_reverting():
     return os.path.isfile(git_path("REVERT_HEAD"))
+
+
+def is_operation_in_progress():
+    return (is_merging() or is_rebasing() or is_applying()
+            or is_cherry_picking() or is_reverting())
 
 
 def read_ref(ref):
@@ -265,10 +278,10 @@ def diff_name_numstat(*rev_and_paths):
 
 
 def head_state():
-    """現在のブランチ名 (切り離されていれば None) と、マージ / リベース / チェリーピック / リバートの途中かどうか。
+    """現在のブランチ名 (切り離されていれば None) と、git 操作の途中かどうか。
     ブランチ名は .git/HEAD を読むだけ (プロセス起動なし)。"""
     _, branch = read_head()
-    return {"branch": branch or None, "merging": (is_merging() or is_rebasing() or is_cherry_picking() or is_reverting()) if state.HAS_WORKTREE else False}
+    return {"branch": branch or None, "merging": is_operation_in_progress() if state.HAS_WORKTREE else False}
 
 
 def amend_base():
@@ -437,6 +450,8 @@ __all__ = [
     "has_parent",
     "is_cherry_picking",
     "is_merging",
+    "is_applying",
+    "is_operation_in_progress",
     "is_rebasing",
     "is_reverting",
     "parse_numstat",

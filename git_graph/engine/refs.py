@@ -7,7 +7,7 @@ from ..gitrun import (
     check_ref_name, git, HTTP_AUTH_CACHE, is_http_auth_error, net_error, remember_auth, resolve_commit, run_git_net,
     run_git_write,
 )
-from ..gitstate import branch_config, has_head, is_cherry_picking, is_merging, is_rebasing, is_reverting
+from ..gitstate import branch_config, has_head, is_operation_in_progress
 from ..i18n import tr, UserError
 from . import operation
 from .dirty import checkout_resolving
@@ -128,7 +128,7 @@ def reset(commit, mode="mixed"):
     """現在の HEAD を commit へ移動する (git reset --soft / --mixed / --hard)。戻り値: {"hash", "mode", "moved"}。"""
     if mode not in ("soft", "mixed", "hard"):
         raise UserError("reset_mode_invalid")
-    if is_merging() or is_rebasing() or is_cherry_picking() or is_reverting():
+    if is_operation_in_progress():
         raise UserError("reset_blocked")
     h = resolve_commit(commit)
     before = git("rev-parse", "HEAD").strip() if has_head() else None

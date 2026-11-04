@@ -4,8 +4,9 @@ import subprocess
 from .. import app_state as state
 from ..gitrun import git, git_bytes
 from ..gitstate import (
-    amend_base, amend_head_changes, commit_info, diff_name_numstat, is_cherry_picking, is_merging,
-    is_rebasing, is_reverting, parse_numstat, parse_status, read_head, read_status_raw, status_lists,
+    amend_base, amend_head_changes, commit_info, diff_name_numstat, is_applying, is_cherry_picking,
+    is_merging, is_rebasing, is_reverting, parse_numstat, parse_status, read_head, read_status_raw,
+    status_lists,
     stash_conflict_state,
 )
 from ..i18n import tr, UserError
@@ -65,6 +66,7 @@ def status(amend=False):
     s["head"], _ = read_head()
     s["merging"] = is_merging()
     s["rebasing"] = is_rebasing()
+    s["applying"] = is_applying()
     s["cherry_picking"] = is_cherry_picking()
     s["reverting"] = is_reverting()
     s["stash_conflict"] = stash_conflict_state() is not None  # stash の apply / pop が競合したまま (中断できる)
@@ -77,7 +79,7 @@ def status(amend=False):
                 s["head_message"] = git("log", "-1", "--format=%B", s["head"]).strip()
             except subprocess.CalledProcessError:
                 s["head_message"] = commit_info(s["head"])["message"]
-        if amend and not s["merging"] and not (s["rebasing"] and s.get("conflicts")):
+        if amend and not s["merging"] and not s["applying"] and not (s["rebasing"] and s.get("conflicts")):
             s["amend_files"] = amend_files(s)
     return s
 

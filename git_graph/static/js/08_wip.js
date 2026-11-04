@@ -250,14 +250,14 @@ function showWip(fromHistory, okMsg) {
   detailView.innerHTML = btns + '<p class="hint">' + t("wip_loading") + '</p>';
   showView("detail"); curDetailHash = null;
   api("/api/status", wipAmendOn ? {amend: 1} : {}).then(s => {
-    wipMerging = !!(s.merging || s.cherry_picking || s.reverting); wipRebasing = !!s.rebasing; wipHeadMsg = s.head_message || "";
-    const canAmend = !!(s.head && !s.merging && !(s.rebasing && (s.conflicts || []).length));  // 競合していないリベース中 (edit で止まったとき) は、そのコミットを amend できる
+    wipMerging = !!(s.merging || s.applying || s.cherry_picking || s.reverting); wipRebasing = !!s.rebasing; wipHeadMsg = s.head_message || "";
+    const canAmend = !!(s.head && !s.merging && !s.applying && !(s.rebasing && (s.conflicts || []).length));  // 競合していないリベース中 (edit で止まったとき) は、そのコミットを amend できる
     if (wipAmendOn && !s.amend_files) {  // マージ中になったなどで amend できなくなった: 通常のコミットに戻す
       wipMsg = wipMsgNormal; wipMsgNormal = ""; wipAmendOn = false;
     }
     if (!wipAmendOn) wipKeepPull();
     const canCommit = !!DATA.writable;  // 書き込みが無効 (--read-only など) のときはチェック欄を出さない
-    const opCmd = s.merging ? "merge" : s.rebasing ? "rebase" : s.cherry_picking ? "cherry-pick" : s.reverting ? "revert" : s.stash_conflict ? "stash" : null;
+    const opCmd = s.merging ? "merge" : s.rebasing ? "rebase" : s.applying ? "am" : s.cherry_picking ? "cherry-pick" : s.reverting ? "revert" : s.stash_conflict ? "stash" : null;
     const sections = wipAmendOn
       ? [["amend", t("amend_content"), s.amend_files]]
       : [["conflict", t("conflict"), s.conflicts], ["staged", t("staged"), s.staged],
@@ -275,7 +275,7 @@ function showWip(fromHistory, okMsg) {
     const hint = wipAmendOn
       ? t("amend_hint")
       : t("wip_hint");
-    const box = canCommit && (files.length || wipAmendOn)
+    const box = canCommit && !s.applying && (files.length || wipAmendOn)
       ? '<div class="wipbox">' +
         '<textarea id="wipMsg" placeholder="' + t("wip_commit_message") + '"></textarea>' +
         (!wipAmendOn ? '<input type="text" id="wipBranch" placeholder="' + esc(t("wip_commit_branch_placeholder")) + '" aria-label="' + esc(t("wip_commit_branch")) + '">' : "") +

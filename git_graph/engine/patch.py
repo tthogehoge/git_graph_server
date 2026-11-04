@@ -3,7 +3,7 @@
 import subprocess
 from .. import app_state as state
 from ..gitrun import git
-from ..gitstate import has_head, is_cherry_picking, is_merging, is_rebasing, is_reverting
+from ..gitstate import has_head, is_operation_in_progress
 from ..i18n import tr, UserError
 from . import operation
 
@@ -40,7 +40,7 @@ def am_patch(data):
         raise UserError("wip_disabled")
     if not data.strip():
         raise UserError("patch_empty")
-    if is_merging() or is_rebasing() or is_cherry_picking() or is_reverting():
+    if is_operation_in_progress():
         raise UserError("patch_am_busy")  # rebase-apply が残っていると、am --abort が別の操作を中断してしまう
     old = git("rev-parse", "HEAD").strip() if has_head() else ""
     r = subprocess.run(["git", "-C", state.REPO, "am", "--quiet", "--whitespace=nowarn"], input=data, capture_output=True)

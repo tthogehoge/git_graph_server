@@ -227,7 +227,8 @@ def render_diff_page(q):
         ext_diff = (f'<button class="ebtn" id="xdiff" title="{html.escape(tr("tip_open_diff_tool"), quote=True)}">'
                     f'{html.escape(tr("open_diff_tool"))}</button>')
 
-    can_commit = bool(files and wip_status is not None and state.WRITABLE and state.WIP_ENABLED)  # amend の差分ページには出さない
+    can_write = bool(files and wip_status is not None and state.WRITABLE and state.WIP_ENABLED)
+    can_commit = can_write and not wip_status.get("applying")  # git am の競合は am --continue で確定する
     patch_bar = ""
     if patch and wip and not is_wip_compare and wip != "amend":  # 右ペインの WIP と同じ: パッチ作成と、書き込めるときの適用 (git apply / git am)
         attr_t = lambda key: html.escape(tr(key), quote=True)
@@ -241,13 +242,15 @@ def render_diff_page(q):
                      f'{apply_btns}</div><div class="hint" id="spmsg"></div>')
         patch_btn = ""  # 見出し側のパッチ作成は、左ペインのものと重複するので出さない
     # マージ中と、チェリーピック / リバートの途中は、競合ファイルを含めて全部チェック済みが既定 (これで1つのコミットが終わる)
-    merging = bool(wip_status and (wip_status.get("merging") or wip_status.get("cherry_picking") or wip_status.get("reverting")))
+    merging = bool(wip_status and (wip_status.get("merging") or wip_status.get("applying")
+                                   or wip_status.get("cherry_picking") or wip_status.get("reverting")))
     rebasing = bool(wip_status and wip_status.get("rebasing"))
     op_in_progress = bool(wip_status and any(
-        wip_status.get(key) for key in ("merging", "rebasing", "cherry_picking", "reverting", "stash_conflict")
+        wip_status.get(key) for key in ("merging", "rebasing", "applying", "cherry_picking", "reverting", "stash_conflict")
     ))
-    op_cmd = next((cmd for key, cmd in (("merging", "merge"), ("rebasing", "rebase"), ("cherry_picking", "cherry-pick"),
-                                        ("reverting", "revert"), ("stash_conflict", "stash")) if wip_status and wip_status.get(key)), None)
+    op_cmd = next((cmd for key, cmd in (("merging", "merge"), ("rebasing", "rebase"), ("applying", "am"),
+                                        ("cherry_picking", "cherry-pick"), ("reverting", "revert"),
+                                        ("stash_conflict", "stash")) if wip_status and wip_status.get(key)), None)
 
     # WIP: ディレクトリごとの件数・行数 (右ペインの filesHtml と同じ集計)
     dir_count, dir_stat = Counter(), {}
@@ -267,9 +270,9 @@ def render_diff_page(q):
         if wip and not is_wip_compare and f.get("wip") != last:
             last = f.get("wip")
             gall = (f'<input type="checkbox" class="gall" data-kind="{html.escape(last)}" '
-                    f'title="{html.escape(tr("select_all"))}"> ') if can_commit else ""
+                    f'title="{html.escape(tr("select_all"))}"> ') if can_write else ""
             side.append(f'<div class="grp">{gall}{html.escape(localized_wip_title(last))}</div>')
-            if last == "conflict" and can_commit:  # 競合ファイルを ours / theirs で解決する (右ペインと同じ)
+            if last == "conflict" and can_write:  # 競合ファイルを ours / theirs で解決する (右ペインと同じ)
                 side.append(f'<div class="wipres"><button class="wbtn" data-resolve="ours">{html.escape(tr("resolve_ours"))}</button>'
                             f'<button class="wbtn" data-resolve="theirs">{html.escape(tr("resolve_theirs"))}</button>'
                             f'<button class="wbtn" data-resolve="current">{html.escape(tr("resolve_current"))}</button>'
@@ -281,7 +284,7 @@ def render_diff_page(q):
         if folded and key not in seen_dirs:
             seen_dirs.add(key)
             dck = (f'<input type="checkbox" class="dck" data-kind="{attr(f["wip"])}" data-dir="{attr(fdir)}"> '
-                   if can_commit else "")
+                   if can_write else "")
             data_cur = ' data-cur="1"' if is_cur_dir else ""
             label = fdir + "/" if fdir else tr("dir_root")
             plus, minus = dir_stat[key]
@@ -306,7 +309,7 @@ def render_diff_page(q):
                 f'<span>{html.escape(fname)}</span><span class="n">{counts}</span></a>')
         if wip and not is_wip_compare:
             box = ""
-            if can_commit:
+            if can_write:
                 # ステージ済みと未ステージは別々にチェックする。マージ中は、未追跡ファイル以外は全部チェック済みが既定
                 on = " checked" if ((merging and f.get("wip") != "untracked") or f.get("wip") == "staged") else ""
                 box = (f'<input type="checkbox" class="wck" data-kind="{attr(f["wip"])}" '
@@ -328,14 +331,15 @@ def render_diff_page(q):
                       + '<button id="rbtn" class="wbtn danger" title="' + html.escape(tr("tip_wip_rm"), quote=True) + '">' + html.escape(tr("wip_rm")) + '</button>'
                       + '<span class="hint">' + html.escape(tr("wip_hint")) + '</span></div>'
                       '<div id="cout" class="hint"></div></div>')
-        if op_cmd:  # マージなどの途中であることと、中断ボタン (右ペインと同じ)
-            banner = tr("op_banner_stash") if op_cmd == "stash" else tr("op_banner", cmd=op_cmd)
-            abort_text = tr("abort_button_stash") if op_cmd == "stash" else tr("abort_button", cmd=op_cmd)
-            cont = (f'<button class="wbtn" id="ctbtn">{html.escape(tr("continue_button"))}</button>'
-                    if op_cmd == "rebase" and state.WRITABLE else "")
-            commit_box = (f'<div class="wipop"><span>{html.escape(banner)}</span>{cont}'
-                          f'<button class="wbtn danger" id="abtn" data-cmd="{html.escape(op_cmd, quote=True)}">'
-                          f'{html.escape(abort_text)}</button></div>') + commit_box
+    if can_write and op_cmd:
+        banner = tr("op_banner_stash") if op_cmd == "stash" else tr("op_banner", cmd=op_cmd)
+        abort_text = tr("abort_button_stash") if op_cmd == "stash" else tr("abort_button", cmd=op_cmd)
+        cont = (f'<button class="wbtn" id="ctbtn">{html.escape(tr("continue_button"))}</button>'
+                if op_cmd == "rebase" and state.WRITABLE else "")
+        commit_box = (f'<div class="wipop"><span>{html.escape(banner)}</span>{cont}'
+                      f'<button class="wbtn danger" id="abtn" data-cmd="{html.escape(op_cmd, quote=True)}">'
+                      f'{html.escape(abort_text)}</button><div id="cout" class="hint"></div></div>') + commit_box
+    if can_write:
         texts = {k: tr(k) for k in (
             "wip_commit", "message_required", "select_files", "wip_execute",
             "wip_discard", "confirm_discard", "discard_conflict", "cancel",

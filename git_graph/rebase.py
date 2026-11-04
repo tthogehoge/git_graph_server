@@ -165,7 +165,7 @@ def api_revert(body):
 
 @route("/api/abort", method="POST", engine=True)
 def api_abort(body):
-    """進行中のマージ / リベース / チェリーピック / リバートを中断して、開始前の状態に戻す。"""
+    """進行中のマージ / リベース / git am / チェリーピック / リバートを中断して、開始前の状態に戻す。"""
     r = integrate.abort_operation()
     return {"ok": True, "message": tr("aborted_stash") if r["cmd"] == "stash" else tr("aborted", cmd=r["cmd"])}
 

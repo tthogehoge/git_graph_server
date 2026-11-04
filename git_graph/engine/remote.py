@@ -9,8 +9,8 @@ from ..gitrun import (
     run_git_write,
 )
 from ..gitstate import (
-    branch_config, count_changed_refs, git_config, has_head, head_state, is_merging, is_rebasing, list_remotes,
-    refs_snapshot, upstream_of_head,
+    branch_config, count_changed_refs, git_config, has_head, head_state, is_merging,
+    is_operation_in_progress, is_rebasing, list_remotes, refs_snapshot, upstream_of_head,
 )
 from ..i18n import tr, UserError
 from . import operation
@@ -110,7 +110,7 @@ def pull(*, mode="ff-only", on_conflict=None, auth=None):
     flags = {"ff-only": ["--ff-only"], "merge": ["--no-rebase", "--no-edit"], "rebase": ["--rebase"]}.get(str(mode))
     if flags is None:
         raise UserError("pull_mode_invalid")
-    if is_merging() or is_rebasing():
+    if is_operation_in_progress():
         raise UserError("merge_or_rebase_in_progress")
     if not has_head():
         raise UserError("pull_no_commits")

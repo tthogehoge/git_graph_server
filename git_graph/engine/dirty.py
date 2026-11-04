@@ -8,7 +8,7 @@ import subprocess
 import time
 from .. import app_state as state
 from ..gitrun import git, git_c_locale, is_http_auth_error, run_git_write
-from ..gitstate import git_path, is_cherry_picking, is_merging, is_rebasing, is_reverting
+from ..gitstate import git_path, is_operation_in_progress
 from ..i18n import tr, UserError
 
 
@@ -193,7 +193,7 @@ def run_resolving(run, mode, rebase_dirty=False):
     stashed = stash_all_changes() if mode == "stash" else None
     r = run(False)
     for _ in range(3):
-        if r.returncode == 0 or is_merging() or is_rebasing() or is_cherry_picking() or is_reverting():
+        if r.returncode == 0 or is_operation_in_progress():
             return r, None, stashed
         text = (r.stderr + r.stdout)
         if is_http_auth_error(r) or not (rebase_dirty or any(l.startswith("\t") for l in text.splitlines())):
