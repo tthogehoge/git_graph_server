@@ -1188,6 +1188,71 @@ class EngineOperationTests(EngineTests):
         with self.assertRaises(UserError):
             commit.commit("x", [], amend=True)
 
+    def cli_git(self, *args):
+        """アプリの外 (コマンドライン) で git を実行する。エディタは開かない。"""
+        env = dict(os.environ, GIT_EDITOR="true")
+        r = subprocess.run(["git", "-C", self.repo, *args], capture_output=True, text=True, env=env)
+        return r.stdout + r.stderr
+
+    def stopped_reword_rebase(self):
+        """アプリで始めた対話的リベース (reword 付き) を、競合で止めた状態にする。戻り値: 始める前の HEAD。"""
+        base, first, second, target = self.topic_on_old_base()
+        self.git("checkout", "-q", "-b", "clash", base)
+        a = self.commit_file("tracked.txt", "first edit\n", "edit 1")
+        b = self.commit_file("tracked.txt", "second edit\n", "edit 2")
+        orig = self.git("rev-parse", "HEAD").strip()
+        r = self.do("/api/rebase-i", {"hash": base, "todo": self.todo_for([b, a], ["reword", "pick"], {b: "reworded edit 2"})})
+        self.assertTrue(r["conflict"])
+        return orig
+
+    def test_rebase_finished_on_the_command_line_becomes_one_undoable_entry(self):
+        from git_graph.engine import api_undo_history
+        orig = self.stopped_reword_rebase()
+        for i in range(2):  # コマンドラインで、解決して続行する (reword は、アプリが置いたメッセージファイルで効く)
+            self.write("tracked.txt", f"cli resolved {i}\n")
+            self.cli_git("add", "tracked.txt")
+            self.cli_git("rebase", "--continue")
+        self.assertFalse(os.path.isdir(os.path.join(self.repo, ".git", "rebase-merge")))
+        self.assertEqual(self.git("log", "--format=%s", "-2").split("\n")[:2], ["edit 1", "reworded edit 2"])
+
+        history = api_undo_history({})
+
+        self.assertFalse(history["pending"])  # 「途中」のまま止まらない
+        self.assertTrue(history["can_undo"])
+        self.assertEqual(len(history["entries"]), 1)
+        self.assertFalse(os.path.isdir(self.msgs_dir()))  # reword 用のメッセージファイルも消える
+        self.undo()
+        self.assertEqual(self.git("rev-parse", "HEAD").strip(), orig)
+        self.assertEqual(self.git("status", "--porcelain"), "")
+
+    def test_rebase_aborted_on_the_command_line_just_clears_the_pending_record(self):
+        from git_graph.engine import api_undo_history
+        orig = self.stopped_reword_rebase()
+        self.cli_git("rebase", "--abort")
+
+        history = api_undo_history({})
+
+        self.assertEqual((history["pending"], history["can_undo"], len(history["entries"])), (False, False, 0))
+        self.assertEqual(self.git("rev-parse", "HEAD").strip(), orig)
+        self.assertFalse(os.path.isdir(self.msgs_dir()))
+
+    def test_merge_committed_on_the_command_line_can_be_undone(self):
+        side = self.make_conflict()
+        main = self.git("rev-parse", "HEAD").strip()
+        self.assertTrue(self.do("/api/merge", {"hash": side})["conflict"])
+        self.write("tracked.txt", "resolved on cli\n")
+        self.cli_git("add", "tracked.txt")
+        self.cli_git("commit", "-q", "-m", "merge on cli")
+
+        self.do("/api/branch", {"hash": self.head, "name": "after-cli"})  # 次の操作の前に、片付けられる
+
+        from git_graph.engine import api_undo_history
+        entries = api_undo_history({})["entries"]
+        self.assertEqual(len(entries), 2)  # マージ + ブランチ作成
+        self.undo()  # ブランチ作成
+        self.undo()  # マージ
+        self.assertEqual(self.git("rev-parse", "HEAD").strip(), main)
+
     def conflicting_stash(self, with_new_file=False):
         """tracked.txt を変えた stash を作り、HEAD 側でも tracked.txt を変えて、stash の適用が競合する状態にする。"""
         self.write("tracked.txt", "stashed edit\n")

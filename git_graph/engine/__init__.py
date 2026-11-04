@@ -317,6 +317,7 @@ def _recorded(op, touches_wt, detail, call, replay=None):
         return call()
     try:
         hist = _load()
+        _settle_pending(hist)  # 前の操作がアプリの外で完了 / 中断されていたら、先に片付ける
         busy_before = in_progress()
         before = take(False if busy_before else touches_wt)  # 途中状態では index が競合を含むので、作業ツリーは退避しない
         if busy_before and state.HAS_WORKTREE:  # 途中の続き (競合解決のコミットなど) で追跡対象になる管理外ファイルを、元に戻すときに消さないための記録
@@ -422,6 +423,29 @@ def _finish(hist, meta, busy_before, before):
     entry = _make_entry(base, after, meta)
     if entry:
         _push(hist, entry)
+
+
+def _settle_pending(hist):
+    """アプリで始めて途中で止まった操作が、アプリの外 (コマンドラインなど) で完了 / 中断されていたら、履歴の「途中」の記録を片付ける。
+    片付けないと、実際には何も途中でないのに、undo / redo がずっと「途中は元に戻せません」で止まってしまう。
+    完了していれば、最初の操作の前からいままでを履歴1件として積む (undo できる)。中断などで何も変わっていなければ、記録を解除するだけ。
+    対話的リベースの reword 用メッセージファイルも、リベースが終わっているので消す。"""
+    pending = hist["pending"]
+    if not pending or in_progress():
+        return
+    hist["pending"] = None
+    try:
+        after = take(pending["meta"]["touches_wt"])
+        entry = _make_entry(pending["before"], after, pending["meta"])
+        if entry:
+            _push(hist, entry)
+    except Exception:
+        pass
+    try:
+        from .dirty import clear_rebase_msgs
+        clear_rebase_msgs()
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------- undo / redo
@@ -618,6 +642,7 @@ def _replay(entry):
 
 def _move(direction, force):
     h = _load()
+    _settle_pending(h)
     if h["pending"]:
         raise UserError("undo_in_progress")
     if direction < 0:
@@ -658,6 +683,7 @@ def api_undo_history(query):
     if getattr(state.OPTS, "no_undo", False):  # 記録していないので、履歴も元に戻す先も無い
         return {"entries": [], "can_undo": False, "can_redo": False, "next_undo": "", "next_redo": "", "pending": False}
     h = _load()
+    _settle_pending(h)
     writable = bool(getattr(state, "WRITABLE", True))  # 読み取り専用のときは実行できない
     items = []
     for i, e in enumerate(h["entries"]):
