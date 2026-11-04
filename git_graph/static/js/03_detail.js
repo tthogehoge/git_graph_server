@@ -185,18 +185,82 @@ listView.addEventListener("change", ev => {
   const sel = ev.target.closest(".reflog-ref");
   if (sel) showReflog(sel.value);
 });
+
+// 詳細ペインの prev/next: まず表示中ログの行順、無ければ親/子
+function detailNavHashes(h, parents) {
+  const hashes = [];
+  listView.querySelectorAll("tr.clickable[data-h]").forEach(tr => {
+    if (tr.dataset.h) hashes.push(tr.dataset.h);
+  });
+  const i = hashes.indexOf(h);
+  if (i >= 0) {
+    return {
+      newer: i > 0 ? hashes[i - 1] : null,
+      older: i + 1 < hashes.length ? hashes[i + 1] : null,
+    };
+  }
+  let older = (parents && parents[0]) || null;
+  let newer = null;
+  for (const e of Object.values(DATA.edges || {})) {
+    if (e.to === h && e.from && DATA.nodes[e.from] && !DATA.nodes[e.from].wip) {
+      newer = e.from;
+      break;
+    }
+  }
+  return { newer: newer, older: older };
+}
+
+function goDetailNeighbor(h) {
+  if (!h) return;
+  selectActionTarget(h, true);
+  if (nodeEl[h]) select(nodeEl[h]);
+  if (history.state && history.state.screen === "detail") {
+    history.replaceState({screen: "detail", hash: h}, "");
+    showDetail(h, true);
+  } else {
+    showDetail(h);
+  }
+}
+
+function detailNavButtonsHtml(h, parents) {
+  const n = detailNavHashes(h, parents);
+  const newerTitle = esc(t("tip_commit_newer"));
+  const olderTitle = esc(t("tip_commit_older"));
+  const newerDis = n.newer ? "" : " disabled";
+  const olderDis = n.older ? "" : " disabled";
+  return '<span class="detail-nav-bar">' +
+    '<button type="button" class="sbtn iconbtn" id="detailNewerBtn" title="' + newerTitle +
+    '" aria-label="' + esc(t("commit_newer")) + '"' + newerDis +
+    ' data-hash="' + (n.newer ? esc(n.newer) : "") + '">▲</button>' +
+    '<button type="button" class="sbtn iconbtn" id="detailOlderBtn" title="' + olderTitle +
+    '" aria-label="' + esc(t("commit_older")) + '"' + olderDis +
+    ' data-hash="' + (n.older ? esc(n.older) : "") + '">▼</button>' +
+    "</span>";
+}
+
+function bindDetailNavButtons() {
+  const newer = document.getElementById("detailNewerBtn");
+  const older = document.getElementById("detailOlderBtn");
+  if (newer) newer.onclick = () => { if (newer.dataset.hash) goDetailNeighbor(newer.dataset.hash); };
+  if (older) older.onclick = () => { if (older.dataset.hash) goDetailNeighbor(older.dataset.hash); };
+}
+
 function showDetail(h, fromHistory) {
   document.body.classList.remove("compare-logs-mode");
   if (!fromHistory) { pushScreen({screen: "detail", hash: h}); revealHash(h); }
   setDocumentTitle(t("commit_label") + " " + h.slice(0, 7));
-  const back = '<button class="back-btn">' + t("back_history") + '</button>';
+  const back = '<button class="back-btn">' + t("back_history") + '</button>' +
+    detailNavButtonsHtml(h, null);
   detailView.innerHTML = back + '<p class="hint">' + esc(t("loading")) + '</p>';
+  bindDetailNavButtons();
   showView("detail");
   api("/api/commit", {hash: h}).then(c => {
     curCtx = {hash: c.hash}; curFiles = c.files; curDetailHash = c.hash;
     updatePageNav(c.hash, c.files);
     const parents = c.parents.map(p => esc(p.slice(0, 7))).join(", ") || t("none");
-    detailView.innerHTML = back + "<h2>" + t("commit_label") + " " + esc(c.hash.slice(0, 7)) +
+    const nav = detailNavButtonsHtml(c.hash, c.parents);
+    detailView.innerHTML = '<button class="back-btn">' + t("back_history") + '</button>' + nav +
+      "<h2>" + t("commit_label") + " " + esc(c.hash.slice(0, 7)) +
       ' <a class="detail-files" href="/files?hash=' + encodeURIComponent(c.hash) + '" title="' + esc(t("tip_files")) + '">' + esc(t("files")) + "</a>" +
       (c.files.length ? ' <a class="detail-files" href="' + esc(diffUrl({hash: c.hash}, c.files[0])) + '">' + esc(t("file_diff")) + "</a>" : "") +
       ' <a class="detail-patch" href="#" data-hash="' + esc(c.hash) + '" data-name="' + esc(c.hash.slice(0, 7)) + '.patch" title="' + esc(t("tip_patch_create_commit")) + '">' + esc(t("patch_create")) + "</a></h2>" +
@@ -207,10 +271,25 @@ function showDetail(h, fromHistory) {
       '<div class="meta">Parent: ' + parents + "</div>" +
       "<pre>" + esc(c.message) + "</pre>" + filesHtml(curCtx, c.files) +
       '<div class="meta"><code>git show ' + esc(c.hash.slice(0, 7)) + "</code></div>";
+    bindDetailNavButtons();
   }).catch(e => {
     detailView.innerHTML = back + '<p class="hint">' + esc(t("error")) + esc(e.message) + "</p>";
+    bindDetailNavButtons();
   });
 }
+
+// 詳細表示中は ↑/↓ で同じ移動
+document.addEventListener("keydown", ev => {
+  if (curView !== "detail" || !curDetailHash) return;
+  const tag = ev.target && ev.target.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+  if (document.querySelector('[id$="Modal"]:not([hidden])')) return;
+  if (ev.key !== "ArrowUp" && ev.key !== "ArrowDown") return;
+  const btn = document.getElementById(ev.key === "ArrowUp" ? "detailNewerBtn" : "detailOlderBtn");
+  if (!btn || btn.disabled || !btn.dataset.hash) return;
+  ev.preventDefault();
+  goDetailNeighbor(btn.dataset.hash);
+});
 
 function post(path, body) {
   return fetch(path, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)})
