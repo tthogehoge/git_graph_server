@@ -29,6 +29,19 @@ DIFF_FOLD_JS = read_asset("diff_fold.js")
 DIFF_RELOAD_JS = read_asset("diff_reload.js")
 PANE_RESIZE_JS = read_asset("pane_resize.js")
 WIP_DIFF_COMMIT_JS = read_asset("wip_diff_commit.js")
+WIP_DIFF_REMOTE_JS = read_asset("wip_diff_remote.js")
+DIFF_DIALOG_JS = read_asset("diff_dialog.js")
+# WIP の差分ページの push / pull / fetch ダイアログが使う文言
+REMOTE_TEXT_KEYS = (
+    "cancel", "ok", "prune_label", "pull_mode", "pull_opt_ff", "pull_opt_merge", "pull_opt_rebase",
+    "pull_mode_ff", "pull_mode_merge", "pull_mode_rebase", "confirm_pull",
+    "push_branch_select", "push_remote_select", "push_remote_branch", "push_tags_label", "force_label",
+    "what_branch", "confirm_push", "confirm_push_force", "push_cancelled", "operation_cancelled",
+    "no_remotes", "push_no_commits", "running_remote", "http_auth", "auth_username", "auth_password",
+    "authenticate", "prompt_push_remote", "confirm_set_upstream", "remote_unregistered",
+    "co_blocked_op", "co_blocked_hint_op", "co_modified", "co_untracked_op", "co_hint_stash", "co_hint_discard",
+    "co_stash_retry", "co_discard_retry",
+)
 FILES_CSS = read_asset("files.css")
 # ヘッダーのアイコンボタン。files.html / index.html にも同じ絵を直接書いてある
 _SVG = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">{p}</svg>'
@@ -241,6 +254,14 @@ def render_diff_page(q):
                      f'data-name="{html.escape(patch[1], quote=True)}" title="{attr_t(patch[2])}">{html.escape(tr("patch_create"))}</button>'
                      f'{apply_btns}</div><div class="hint" id="spmsg"></div>')
         patch_btn = ""  # 見出し側のパッチ作成は、左ペインのものと重複するので出さない
+    remote_bar = ""
+    can_remote = bool(wip and not is_wip_compare and wip != "amend" and state.WRITABLE and state.WIP_ENABLED)
+    if can_remote:  # グラフ画面のメニューバーと同じ push / pull / fetch (変更がなくても出す)
+        remote_bar = ('<div class="wipremote" id="sideRemote">'
+                      f'<button class="wbtn" data-remote="push" title="{html.escape(tr("tip_push_head"), quote=True)}">{html.escape(tr("push"))}</button>'
+                      '<button class="wbtn" data-remote="pull">pull</button>'
+                      '<button class="wbtn" data-remote="fetch">fetch</button></div>'
+                      '<div class="hint" id="rmsg"></div>')
     # マージ中と、チェリーピック / リバートの途中は、競合ファイルを含めて全部チェック済みが既定 (これで1つのコミットが終わる)
     merging = bool(wip_status and (wip_status.get("merging") or wip_status.get("applying")
                                    or wip_status.get("cherry_picking") or wip_status.get("reverting")))
@@ -339,15 +360,23 @@ def render_diff_page(q):
         commit_box = (f'<div class="wipop"><span>{html.escape(banner)}</span>{cont}'
                       f'<button class="wbtn danger" id="abtn" data-cmd="{html.escape(op_cmd, quote=True)}">'
                       f'{html.escape(abort_text)}</button><div id="cout" class="hint"></div></div>') + commit_box
+    commit_keys = ()
     if can_write:
-        texts = {k: tr(k) for k in (
+        commit_keys = (
             "wip_commit", "message_required", "select_files", "wip_execute",
             "wip_discard", "confirm_discard", "discard_conflict", "cancel",
             "wip_rm", "rm_dialog_note", "rm_cached_label", "rm_force_label", "rm_untracked",
             "wip_stash", "stash_message", "stash_scope", "stash_scope_all", "stash_scope_selected", "stash_include_untracked",
             "confirm_resolve", "confirm_resolve_current", "confirm_abort", "confirm_abort_stash",
-        )}
-        commit_js = "const T = " + json.dumps(texts, ensure_ascii=False).replace("</", "<\\/") + ";\n" + WIP_DIFF_COMMIT_JS
+        )
+        commit_js = WIP_DIFF_COMMIT_JS
+    # 文言 T と共通のダイアログ部品は、コミット欄と push / pull 欄のどちらかがあるときに1度だけ入れる
+    text_keys = [*commit_keys, *(REMOTE_TEXT_KEYS if remote_bar else ())]
+    dialog_js = ""
+    if text_keys:
+        texts = {k: tr(k) for k in dict.fromkeys(text_keys)}
+        dialog_js = "const T = " + json.dumps(texts, ensure_ascii=False).replace("</", "<\\/") + ";\n" + DIFF_DIALOG_JS
+    remote_js = WIP_DIFF_REMOTE_JS if remote_bar else ""
     # グラフへ戻るとき、この差分のコミットを選択状態で復元する (作業ツリーだけの WIP は対象外)
     graph_href = "/"
     if wip == "compare":
@@ -368,6 +397,7 @@ def render_diff_page(q):
   <div class="navbar">{page_nav_html("diff", files_href=files_view_url(view_hash, path) if view_hash and path else None, graph_href=graph_href)}{NAV_BACK_BUTTON.format(label=html.escape(tr("back_prev"), quote=True))}{NAV_RELOAD_BUTTON.format(label=html.escape(tr("reload_page"), quote=True)) if wip else ""}</div>
   <div class="meta">{len(files)} {tr("files_changed")}</div>
   {patch_bar}
+  {remote_bar}
   {f'<div class="meta hint">{html.escape(tr("no_changes"))}</div>' if not files else ""}
   {commit_box}
   {"".join(side)}
@@ -386,7 +416,9 @@ def render_diff_page(q):
 <script>{COPY_JS}</script>
 <script>{PANE_RESIZE_JS}</script>
 <script>{fold_js}</script>
+<script>{dialog_js}</script>
 <script>{commit_js}</script>
+<script>{remote_js}</script>
 <script>{EXT_DIFF_JS if ext_diff else ""}</script>
 <script>{DIFF_PATCH_JS if patch_btn or patch_bar else ""}</script>
 <script>{DIFF_RELOAD_JS if wip else ""}</script>

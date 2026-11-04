@@ -1615,6 +1615,32 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertNotIn('id="abtn"', page)
         self.assertNotIn('data-resolve="ours"', page)
 
+    def test_wip_diff_page_has_push_pull_fetch_buttons_even_without_changes(self):
+        previous = (state.WRITABLE, state.WIP_ENABLED)
+        self.addCleanup(setattr, state, "WRITABLE", previous[0])
+        self.addCleanup(setattr, state, "WIP_ENABLED", previous[1])
+        state.WRITABLE = state.WIP_ENABLED = True
+        for query in ({"wip": ["unstaged"]}, {"path": ["tracked.txt"], "wip": ["unstaged"]}):
+            page = viewer.render_diff_page(query)
+            for act in ("push", "pull", "fetch"):
+                self.assertIn(f'data-remote="{act}"', page)
+            self.assertIn('"/api/push-targets"', page)
+            self.assertLess(page.index("const T = "), page.index("function openDialog"))
+            self.assertEqual(page.count("const T = "), 1)
+        state.WRITABLE = False  # 読み取り専用では出さない
+        page = viewer.render_diff_page({"wip": ["unstaged"]})
+        self.assertNotIn('data-remote="push"', page)
+        self.assertNotIn("/api/push-targets", page)
+
+    def test_push_targets_lists_remotes_local_branches_and_current_branch(self):
+        self.git("branch", "feature/x")
+        self.git("remote", "add", "origin", "https://example.invalid/r.git")
+        from git_graph import remote as remote_routes
+        info = remote_routes.api_push_targets({})
+        self.assertEqual([r["name"] for r in info["remotes"]], ["origin"])
+        self.assertIn("feature/x", info["branches"])
+        self.assertIn(info["current"], info["branches"])
+
     def test_wip_diff_page_has_patch_create_apply_and_am_like_wip_pane(self):
         self.write_file("tracked.txt", "working tree change\n")
         previous_writable = state.WRITABLE

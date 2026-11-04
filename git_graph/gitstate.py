@@ -381,6 +381,11 @@ def list_remotes():
         out.setdefault(name, "")
     return [{"name": n, "url": u} for n, u in out.items()]
 
+def list_local_branches():
+    """ローカルブランチ名 (大文字小文字を無視した名前順)。"""
+    refs = git("for-each-ref", "--format=%(refname)", "refs/heads").splitlines()
+    return sorted((r.removeprefix("refs/heads/") for r in refs if r.startswith("refs/heads/")), key=lambda b: (b.casefold(), b))
+
 def git_config(key):
     from . import libgit
     if libgit.available():
@@ -431,6 +436,7 @@ __all__ = [
     "git_config",
     "git_dir",
     "git_path",
+    "list_local_branches",
     "list_remotes",
     "refs_snapshot",
     "STASH_MARKER",

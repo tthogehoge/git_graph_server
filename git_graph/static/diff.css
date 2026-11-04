@@ -45,6 +45,9 @@
   .ebtn { margin-left: 10px; font-size: 12px; font-weight: normal; background: #e8eefc; border: 1px solid #b8c7ee; color: #06c; padding: 2px 8px; border-radius: 3px; text-decoration: none; white-space: nowrap; }
   .ebtn:hover { background: #d6e2fb; }
 
+  .wipremote { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+  #rmsg { white-space: pre-wrap; }
+  #dlg h3 { margin: 8px 0 2px; font-size: 13px; } #dlg ul { margin: 0 0 4px; padding-left: 20px; }
   .wippatch { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
   .wipres { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0 6px; }
   .wipop { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 6px 0; padding: 6px 8px; background: #fff8c5; border: 1px solid #d4a72c; border-radius: 3px; }

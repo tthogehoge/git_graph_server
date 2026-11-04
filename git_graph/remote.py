@@ -5,7 +5,7 @@ from .engine import remote
 from .engine.dirty import with_stash_note
 from .engine.remote import check_remote_name  # noqa: F401  (互換のため再公開)
 from .gitstate import (  # noqa: F401  (読み取りだけのヘルパーは gitstate に移した。互換のため再公開する)
-    count_changed_refs, git_config, list_remotes, refs_snapshot, upstream_of_head,
+    count_changed_refs, git_config, head_state, list_local_branches, list_remotes, refs_snapshot, upstream_of_head,
 )
 from .i18n import tr
 from .routing import route
@@ -31,6 +31,12 @@ def api_fetch(body):
 @route("/api/remotes")
 def api_remotes(q):
     return {"remotes": list_remotes()}
+
+
+@route("/api/push-targets")
+def api_push_targets(q):
+    """push のダイアログ用に、登録済みのリモートとローカルブランチ (名前順)、現在のブランチ (切り離しなら None) を返す。"""
+    return {"remotes": list_remotes(), "branches": list_local_branches(), "current": head_state()["branch"]}
 
 
 @route("/api/remote-add", method="POST", engine=True)
@@ -88,7 +94,7 @@ def api_push_tag(body):
 
 
 __all__ = [
-    "api_fetch", "api_pull", "api_push", "api_push_tag", "api_remote_add", "api_remote_remove",
+    "api_fetch", "api_pull", "api_push", "api_push_tag", "api_push_targets", "api_remote_add", "api_remote_remove",
     "api_remotes", "check_remote_name", "count_changed_refs", "git_config", "list_remotes",
     "refs_snapshot", "upstream_of_head",
 ]
