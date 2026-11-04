@@ -219,6 +219,7 @@ document.getElementById("compareToolbar").addEventListener("click", ev => {  // 
   if (ev.target.closest("#branchListBtn")) { showRefList("branches"); return; }
   if (ev.target.closest("#tagListBtn")) { showRefList("tags"); return; }
   if (ev.target.closest("#stashListBtn")) { showStashList(); return; }
+  if (ev.target.closest("#submoduleListBtn")) { showSubmoduleList(); return; }
   if (ev.target.closest("#stashApplyBtn")) { doStash("apply"); return; }
   if (ev.target.closest("#stashPopBtn")) { doStash("pop"); return; }
   if (ev.target.closest("#stashDropBtn")) { doStash("drop"); return; }

@@ -129,6 +129,11 @@ function showStashList(fromHistory) {
   showLog(t("stash_list_title"), "", '<div class="meta">' + esc(t("stash_list_help")) + '</div>',
           !!fromHistory, 0, {path: "/api/stash-list", params: {}});
 }
+function showSubmoduleList() {
+  showLog(t("submodule_list_title"), "",
+          '<div class="meta">' + esc(t("submodule_list_help")) + '</div>',
+          false, 0, {path: "/api/submodules", params: {}});
+}
 function doStash(op) {
   if (!actionHash) return;
   const h = actionHash, sel = stashByHash[h] || stashNameOf(h);

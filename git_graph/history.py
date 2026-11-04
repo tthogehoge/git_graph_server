@@ -62,6 +62,12 @@ def api_branches_containing(q):
     return qh.branches_containing(q.get("hash", [""])[0])
 
 
+@route("/api/submodules")
+def api_submodules(q):
+    """登録されている submodule の一覧。"""
+    return qh.submodules()
+
+
 @route("/api/tags")
 def api_tags(q):
     """タグの一覧 (新しい順)。注釈付きタグは指しているコミットを使う。"""
