@@ -1,7 +1,7 @@
 # 作業ツリー (WIP) の API。
 # 読み取り (status / 差分) は git_graph.query.status に、コミットは engine.commit に任せ、
 # ここは薄い route と互換の再公開だけを置く。
-from .engine import commit
+from .engine import commit, settle_pending
 from .gitstate import (  # noqa: F401  (読み取りだけのヘルパーは gitstate に移した。互換のため再公開する)
     addable_paths, amend_base, amend_head_changes, commit_info, is_cherry_picking, is_merging, is_rebasing,
     is_reverting, parse_name_status, parse_numstat, parse_status, read_status_raw, stash_conflict_state,
@@ -13,7 +13,9 @@ from .routing import route
 
 @route("/api/status")
 def api_status(q):
-    """作業ツリーの変更 (WIP)。ステージ済み/未ステージには追加・削除行数も付ける。"""
+    """作業ツリーの変更 (WIP)。ステージ済み/未ステージには追加・削除行数も付ける。
+    アプリの外で完了 / 中断された操作の、undo 履歴の「途中」の記録は、ここ (WIP の更新) でも片付ける。"""
+    settle_pending()
     return query_status(amend=q.get("amend", [""])[0] == "1")
 
 

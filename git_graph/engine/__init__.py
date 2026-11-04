@@ -448,6 +448,17 @@ def _settle_pending(hist):
         pass
 
 
+def settle_pending():
+    """WIP の更新などから呼ぶ。アプリの外で完了 / 中断された操作の「途中」の記録を、できるだけ早く片付ける (片付ける時点が
+    遅いと、その間の作業ツリーの変更も、操作の結果として履歴に入ってしまう)。失敗しても、呼び出し元の処理は妨げない。"""
+    if getattr(state.OPTS, "no_undo", False):
+        return
+    try:
+        _settle_pending(_load())
+    except Exception:
+        pass
+
+
 # ---------------------------------------------------------------- undo / redo
 
 def _expect(entry, cur, e, force):
@@ -684,6 +695,7 @@ def api_undo_history(query):
         return {"entries": [], "can_undo": False, "can_redo": False, "next_undo": "", "next_redo": "", "pending": False}
     h = _load()
     _settle_pending(h)
+    busy = bool(h["pending"]) or in_progress()  # アプリで始めた途中の操作と、コマンドラインで始めた途中の操作のどちらも、元に戻せない
     writable = bool(getattr(state, "WRITABLE", True))  # 読み取り専用のときは実行できない
     items = []
     for i, e in enumerate(h["entries"]):
@@ -692,11 +704,11 @@ def api_undo_history(query):
     cur = h["cursor"]
     return {
         "entries": list(reversed(items)),
-        "can_undo": writable and cur > 0 and h["entries"][cur - 1]["undoable"] and not h["pending"],
-        "can_redo": writable and cur < len(h["entries"]) and not h["pending"],
+        "can_undo": writable and cur > 0 and h["entries"][cur - 1]["undoable"] and not busy,
+        "can_redo": writable and cur < len(h["entries"]) and not busy,
         "next_undo": _label(h["entries"][cur - 1]) if cur > 0 else "",
         "next_redo": _label(h["entries"][cur]) if cur < len(h["entries"]) else "",
-        "pending": bool(h["pending"]),
+        "pending": busy,
     }
 
 
@@ -725,4 +737,4 @@ def api_redo(body):
     return _move_api(1, body, "redo_done", "redo_rescued")
 
 
-__all__ = ["cleanup", "IGNORED", "WRITE_OPS", "api_redo", "api_undo", "api_undo_history", "in_progress", "run", "take", "write_op_for"]
+__all__ = ["cleanup", "IGNORED", "WRITE_OPS", "api_redo", "api_undo", "api_undo_history", "in_progress", "run", "settle_pending", "take", "write_op_for"]

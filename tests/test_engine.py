@@ -1253,6 +1253,37 @@ class EngineOperationTests(EngineTests):
         self.undo()  # マージ
         self.assertEqual(self.git("rev-parse", "HEAD").strip(), main)
 
+    def test_status_refresh_settles_an_operation_finished_on_the_command_line(self):
+        orig = self.stopped_reword_rebase()
+        for i in range(2):
+            self.write("tracked.txt", f"cli resolved {i}\n")
+            self.cli_git("add", "tracked.txt")
+            self.cli_git("rebase", "--continue")
+        self.assertTrue(engine._load()["pending"])  # アプリはまだ「途中」のつもり
+
+        ROUTES[("GET", "/api/status")]({})  # WIP を更新しただけで、片付く
+
+        hist = engine._load()
+        self.assertIsNone(hist["pending"])
+        self.assertEqual(len(hist["entries"]), 1)
+        self.assertFalse(os.path.isdir(self.msgs_dir()))
+        self.undo()
+        self.assertEqual(self.git("rev-parse", "HEAD").strip(), orig)
+
+    def test_undo_is_disabled_while_an_operation_started_on_the_command_line_is_in_progress(self):
+        from git_graph.engine import api_undo_history
+        self.do("/api/branch", {"hash": self.head, "name": "earlier"})  # 履歴を1件作っておく
+        side = self.make_conflict()
+        self.assertTrue(api_undo_history({})["can_undo"])
+        subprocess.run(["git", "-C", self.repo, "merge", side], capture_output=True)  # コマンドラインで始めて、競合で止まる
+
+        history = api_undo_history({})
+
+        self.assertTrue(history["pending"])  # アプリが記録していない途中の操作でも、元に戻せない
+        self.assertEqual((history["can_undo"], history["can_redo"]), (False, False))
+        self.cli_git("merge", "--abort")
+        self.assertTrue(api_undo_history({})["can_undo"])
+
     def conflicting_stash(self, with_new_file=False):
         """tracked.txt を変えた stash を作り、HEAD 側でも tracked.txt を変えて、stash の適用が競合する状態にする。"""
         self.write("tracked.txt", "stashed edit\n")
