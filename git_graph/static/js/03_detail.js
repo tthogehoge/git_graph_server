@@ -210,16 +210,28 @@ function detailNavHashes(h, parents) {
   return { newer: newer, older: older };
 }
 
-function goDetailNeighbor(h) {
+let detailNavCursor = null;  // 表示より先に進むナビ位置 (連続キー用)
+let detailFetchSeq = 0;
+let detailFetchTimer = null;
+const DETAIL_FETCH_DEBOUNCE_MS = 50;  // 連続移動中は最後のコミットだけ取得する
+const DETAIL_LOADING_DELAY_MS = 150;  // これより速く返れば「読み込み中」を出さない
+
+function stepDetailNav(dir) {
+  // dir: "newer" | "older"。DOM の data-hash ではなく論理カーソルから次を決める
+  const from = detailNavCursor || curDetailHash;
+  if (!from) return;
+  const n = detailNavHashes(from, null);
+  const h = dir === "newer" ? n.newer : n.older;
   if (!h) return;
+  detailNavCursor = h;
   selectActionTarget(h, true);
   if (nodeEl[h]) select(nodeEl[h]);
+  setDocumentTitle(t("commit_label") + " " + h.slice(0, 7));
   if (history.state && history.state.screen === "detail") {
     history.replaceState({screen: "detail", hash: h}, "");
-    showDetail(h, true);
-  } else {
-    showDetail(h);
   }
+  clearTimeout(detailFetchTimer);
+  detailFetchTimer = setTimeout(() => showDetail(h, true), DETAIL_FETCH_DEBOUNCE_MS);
 }
 
 function detailNavButtonsHtml(h, parents) {
@@ -237,19 +249,17 @@ function detailNavButtonsHtml(h, parents) {
     '<button type="button" class="sbtn iconbtn back-btn" title="' + backTitle +
     '" aria-label="' + backTitle + '">' + backIcon + '</button>' +
     '<button type="button" class="sbtn iconbtn" id="detailNewerBtn" title="' + newerTitle +
-    '" aria-label="' + esc(t("commit_newer")) + '"' + newerDis +
-    ' data-hash="' + (n.newer ? esc(n.newer) : "") + '">▲</button>' +
+    '" aria-label="' + esc(t("commit_newer")) + '"' + newerDis + ">▲</button>" +
     '<button type="button" class="sbtn iconbtn" id="detailOlderBtn" title="' + olderTitle +
-    '" aria-label="' + esc(t("commit_older")) + '"' + olderDis +
-    ' data-hash="' + (n.older ? esc(n.older) : "") + '">▼</button>' +
+    '" aria-label="' + esc(t("commit_older")) + '"' + olderDis + ">▼</button>" +
     "</span>";
 }
 
 function bindDetailNavButtons() {
   const newer = document.getElementById("detailNewerBtn");
   const older = document.getElementById("detailOlderBtn");
-  if (newer) newer.onclick = () => { if (newer.dataset.hash) goDetailNeighbor(newer.dataset.hash); };
-  if (older) older.onclick = () => { if (older.dataset.hash) goDetailNeighbor(older.dataset.hash); };
+  if (newer) newer.onclick = () => stepDetailNav("newer");
+  if (older) older.onclick = () => stepDetailNav("older");
 }
 
 function detailActionLinksHtml(c) {
@@ -269,13 +279,31 @@ function detailActionLinksHtml(c) {
 function showDetail(h, fromHistory) {
   document.body.classList.remove("compare-logs-mode");
   if (!fromHistory) { pushScreen({screen: "detail", hash: h}); revealHash(h); }
+  detailNavCursor = h;
   setDocumentTitle(t("commit_label") + " " + h.slice(0, 7));
+  const seq = ++detailFetchSeq;
+  const stay = curView === "detail";  // すでに詳細表示中 (上下キー・prev/next)
   const nav = detailNavButtonsHtml(h, null);
-  detailView.innerHTML = nav + '<p class="hint">' + esc(t("loading")) + '</p>';
-  bindDetailNavButtons();
-  showView("detail");
+  let loadingTimer = null;
+  const showLoading = () => {
+    detailView.innerHTML = nav + '<p class="hint">' + esc(t("loading")) + '</p>';
+    bindDetailNavButtons();
+  };
+  if (!stay) {
+    showLoading();
+    showView("detail");
+  } else {
+    // すぐ返るときは今の内容のまま。遅いときだけ読み込み中に切り替える
+    loadingTimer = setTimeout(() => {
+      if (seq !== detailFetchSeq) return;
+      showLoading();
+    }, DETAIL_LOADING_DELAY_MS);
+  }
   api("/api/commit", {hash: h}).then(c => {
+    if (seq !== detailFetchSeq) return;
+    if (loadingTimer) clearTimeout(loadingTimer);
     curCtx = {hash: c.hash}; curFiles = c.files; curDetailHash = c.hash;
+    if (!detailNavCursor) detailNavCursor = c.hash;
     updatePageNav(c.hash, c.files);
     const parents = c.parents.map(p => esc(p.slice(0, 7))).join(", ") || t("none");
     detailView.innerHTML = detailNavButtonsHtml(c.hash, c.parents) +
@@ -290,22 +318,22 @@ function showDetail(h, fromHistory) {
       '<div class="meta"><code>git show ' + esc(c.hash.slice(0, 7)) + "</code></div>";
     bindDetailNavButtons();
   }).catch(e => {
+    if (seq !== detailFetchSeq) return;
+    if (loadingTimer) clearTimeout(loadingTimer);
     detailView.innerHTML = nav + '<p class="hint">' + esc(t("error")) + esc(e.message) + "</p>";
     bindDetailNavButtons();
   });
 }
 
-// 詳細表示中は ↑/↓ で同じ移動
+// 詳細表示中は ↑/↓ で同じ移動 (論理カーソルを先に進める)
 document.addEventListener("keydown", ev => {
-  if (curView !== "detail" || !curDetailHash) return;
+  if (curView !== "detail" || !(detailNavCursor || curDetailHash)) return;
   const tag = ev.target && ev.target.tagName;
   if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
   if (document.querySelector('[id$="Modal"]:not([hidden])')) return;
   if (ev.key !== "ArrowUp" && ev.key !== "ArrowDown") return;
-  const btn = document.getElementById(ev.key === "ArrowUp" ? "detailNewerBtn" : "detailOlderBtn");
-  if (!btn || btn.disabled || !btn.dataset.hash) return;
   ev.preventDefault();
-  goDetailNeighbor(btn.dataset.hash);
+  stepDetailNav(ev.key === "ArrowUp" ? "newer" : "older");
 });
 
 function post(path, body) {
