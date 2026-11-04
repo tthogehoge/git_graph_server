@@ -212,8 +212,6 @@ function detailNavHashes(h, parents) {
 
 let detailNavCursor = null;  // 表示より先に進むナビ位置 (連続キー用)
 let detailFetchSeq = 0;
-let detailFetchTimer = null;
-const DETAIL_FETCH_DEBOUNCE_MS = 50;  // 連続移動中は最後のコミットだけ取得する
 const DETAIL_LOADING_DELAY_MS = 150;  // これより速く返れば「読み込み中」を出さない
 
 function stepDetailNav(dir) {
@@ -226,12 +224,12 @@ function stepDetailNav(dir) {
   detailNavCursor = h;
   selectActionTarget(h, true);
   if (nodeEl[h]) select(nodeEl[h]);
-  setDocumentTitle(t("commit_label") + " " + h.slice(0, 7));
   if (history.state && history.state.screen === "detail") {
     history.replaceState({screen: "detail", hash: h}, "");
   }
-  clearTimeout(detailFetchTimer);
-  detailFetchTimer = setTimeout(() => showDetail(h, true), DETAIL_FETCH_DEBOUNCE_MS);
+  // デバウンスしない: 押しっぱなし中にタイマーが延び続けると詳細だけ更新されない
+  // 古い /api/commit 応答は detailFetchSeq で捨てる
+  showDetail(h, true);
 }
 
 function detailNavButtonsHtml(h, parents) {
