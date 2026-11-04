@@ -39,10 +39,14 @@
   table.file-log td.date { width: 1%; color: #777; white-space: nowrap; }
   table.file-log a { color: inherit; text-decoration: none; }
   table.file-log tr:hover td { background: #eef; }
-  .blame-line { display: flex; font: 12px monospace; white-space: pre-wrap; }
-  .blame-line:hover { background: #f6f8fa; }
-  .blame-no { flex: none; width: 8ch; box-sizing: border-box; padding-right: 1ch; text-align: right; color: #8c959f; }
-  .blame-meta { flex: none; width: 24em; overflow: hidden; text-overflow: ellipsis; color: #666; }
-  .blame-meta a { color: inherit; text-decoration: none; }
-  .blame-meta a:hover { text-decoration: underline; }
-  .blame-code { min-width: 0; }
+  .blame { display: table; width: 100%; table-layout: auto; border-collapse: collapse; font: 12px monospace; }
+  .blame-line { display: table-row; }
+  .blame-line:hover > * { background: #f6f8fa; }
+  .blame-line > * { display: table-cell; vertical-align: top; padding-right: 1ch; white-space: nowrap; }
+  .blame-no { width: 1%; text-align: right; color: #8c959f; padding-right: 1ch; }
+  .blame-hash { width: 1%; color: #666; }
+  .blame-hash a, a.blame-hash { color: inherit; text-decoration: none; }
+  .blame-hash a:hover, a.blame-hash:hover { text-decoration: underline; }
+  .blame-author { width: 1%; color: #666; max-width: 20em; overflow: hidden; text-overflow: ellipsis; }
+  .blame-date { width: 1%; color: #666; }
+  .blame-code { width: 99%; white-space: pre-wrap; min-width: 0; }

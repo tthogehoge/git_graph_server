@@ -56,14 +56,17 @@ __FAVICON__
   table.dir-log td.dir-name { font-family: monospace; word-break: break-all; }
   table.dir-log tr.dir-log-row:hover td.dir-name { color: #06c; }
   table.file-log tr { cursor: pointer; }
-  .blame-line { display: flex; font: 12px monospace; white-space: pre-wrap; }
-  .blame-line { cursor: pointer; }
-  .blame-line:hover { background: #f6f8fa; }
-  .blame-no { flex: none; width: 8ch; box-sizing: border-box; padding-right: 1ch; text-align: right; color: #8c959f; }
-  .blame-meta { flex: none; width: 24em; overflow: hidden; text-overflow: ellipsis; color: #666; }
-  .blame-meta a { color: inherit; text-decoration: none; }
-  .blame-meta a:hover { text-decoration: underline; }
-  .blame-code { min-width: 0; }
+  .blame { display: table; width: 100%; table-layout: auto; border-collapse: collapse; font: 12px monospace; }
+  .blame-line { display: table-row; cursor: pointer; }
+  .blame-line:hover > * { background: #f6f8fa; }
+  .blame-line > * { display: table-cell; vertical-align: top; padding-right: 1ch; white-space: nowrap; }
+  .blame-no { width: 1%; text-align: right; color: #8c959f; padding-right: 1ch; }
+  .blame-hash { width: 1%; color: #666; }
+  .blame-hash a, a.blame-hash { color: inherit; text-decoration: none; }
+  .blame-hash a:hover, a.blame-hash:hover { text-decoration: underline; }
+  .blame-author { width: 1%; color: #666; max-width: 20em; overflow: hidden; text-overflow: ellipsis; }
+  .blame-date { width: 1%; color: #666; }
+  .blame-code { width: 99%; white-space: pre-wrap; min-width: 0; }
   .edit-info { color: #666; margin: 4px 0; }
   .edit-info.warn { color: #b35900; }
   textarea.editor { width: 100%; height: calc(100vh - 190px); min-height: 200px; box-sizing: border-box; font: 12px monospace; tab-size: 4; padding: 8px; border: 1px solid #bbb; resize: vertical; white-space: pre; overflow-wrap: normal; }
@@ -464,10 +467,16 @@ function loadFileBlame(path) {
   content.textContent = t("loading");
   api("/api/blame", {hash: hash, path: path}).then(r => {
     content.innerHTML = '<div class="meta">' + esc(t("n_lines", {n: r.lines.length})) + '</div><div class="blame">' +
-      r.lines.map(line => '<div class="blame-line" data-hash="' + (/^0+$/.test(line.hash) ? "" : esc(line.hash)) + '"><span class="blame-no">' + line.line + '</span><span class="blame-meta">' +
-        (/^0+$/.test(line.hash) ? esc(t("not_committed_yet")) : '<a class="blame-commit commit-graph" href="/?commit_hash=' +  // 未コミットの行
-        encodeURIComponent(line.hash) + '">' + esc(line.hash.slice(0, 7)) + '</a> ' + esc(line.author + " " + line.date)) +
-        '</span><span class="blame-code">' + esc(line.content) + '</span></div>').join("") + '</div>';
+      r.lines.map(line => {
+        const nc = /^0+$/.test(line.hash);
+        const meta = nc
+          ? '<span class="blame-hash"></span><span class="blame-author">' + esc(t("not_committed_yet")) + '</span><span class="blame-date"></span>'
+          : '<span class="blame-hash"><a class="blame-commit commit-graph" href="/?commit_hash=' + encodeURIComponent(line.hash) + '">' +
+            esc(line.hash.slice(0, 7)) + '</a></span><span class="blame-author">' + esc(line.author) +
+            '</span><span class="blame-date">' + esc(line.date) + '</span>';
+        return '<div class="blame-line" data-hash="' + (nc ? "" : esc(line.hash)) + '"><span class="blame-no">' + line.line +
+          '</span>' + meta + '<span class="blame-code">' + esc(line.content) + '</span></div>';
+      }).join("") + '</div>';
   }).catch(e => { content.className = "hint"; content.textContent = t("error") + e.message; });
 }
 content.addEventListener("click", ev => {

@@ -384,7 +384,8 @@ class GitApiIntegrationTests(unittest.TestCase):
         page = viewer.render_files_page()
 
         self.assertIn('id="fileBlameBtn"', page)
-        self.assertIn(".blame-no { flex: none; width: 8ch", page)
+        self.assertIn(".blame { display: table;", page)
+        self.assertIn(".blame-author", page)
         self.assertIn('class="blame-commit commit-graph"', page)
         self.assertIn('class="blame-line" data-hash="', page)
         self.assertIn('ev.target.closest("tr.file-log-row, .blame-line")', page)
