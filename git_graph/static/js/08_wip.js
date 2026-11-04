@@ -236,7 +236,17 @@ function showWip(fromHistory, okMsg) {
   document.body.classList.remove("compare-logs-mode");
   if (!fromHistory) pushScreen({screen: "wip"});
   setDocumentTitle(t("wip_title"));
-  const btns = '<button class="back-btn">' + t("back_history") + '</button><button class="sbtn" id="wipReload">' + t("reload") + '</button>';
+  const backIcon = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">' +
+    '<path d="M13 8H3M7.5 3.5 3 8l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" ' +
+    'stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  const reloadIcon = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">' +
+    '<path d="M13.5 8a5.5 5.5 0 1 1-1.7-4M13 2.5v3.2h-3.2" fill="none" stroke="currentColor" stroke-width="1.8" ' +
+    'stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  const btns = '<span class="detail-nav-bar">' +
+    '<button type="button" class="sbtn iconbtn back-btn" title="' + esc(t("back_history")) +
+    '" aria-label="' + esc(t("back_history")) + '">' + backIcon + '</button>' +
+    '<button type="button" class="sbtn iconbtn" id="wipReload" title="' + esc(t("reload_page")) +
+    '" aria-label="' + esc(t("reload_page")) + '">' + reloadIcon + '</button></span>';
   detailView.innerHTML = btns + '<p class="hint">' + t("wip_loading") + '</p>';
   showView("detail"); curDetailHash = null;
   api("/api/status", wipAmendOn ? {amend: 1} : {}).then(s => {
