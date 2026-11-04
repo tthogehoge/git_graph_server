@@ -3257,9 +3257,9 @@ class ExternalAppsTests(unittest.TestCase):
         diff = viewer.render_diff_page({"hash": [self.second], "path": ["a.txt"]})
         self.assertIn('class="iconbtn current"', diff)  # 差分ページは差分アイコンを強調
         self.assertIn('onclick="history.back()"', diff)
-        self.assertIn('href="/"', diff)  # グラフへ
+        self.assertIn(f'href="/?select_hash={self.second}"', diff)  # グラフへ (戻ったとき選択コミットを復元する)
         files = viewer.render_files_page()
-        self.assertIn('class="iconbtn" href="/"', files)
+        self.assertIn('class="iconbtn" id="navGraphBtn" href="/"', files)  # グラフへ (選択コミットの復元は JS が href を書き換える)
         self.assertIn('id="navDiffBtn"', files)
         self.assertIn('onclick="history.back()"', files)
         index = (Path(viewer.__file__).parent / "static" / "index.html").read_text(encoding="utf-8")
