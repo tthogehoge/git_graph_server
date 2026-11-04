@@ -223,12 +223,19 @@ function goDetailNeighbor(h) {
 }
 
 function detailNavButtonsHtml(h, parents) {
+  // 戻る / 新しい / 古い を同じ iconbtn 仕様で並べる
   const n = detailNavHashes(h, parents);
+  const backTitle = esc(t("back_history"));
   const newerTitle = esc(t("tip_commit_newer"));
   const olderTitle = esc(t("tip_commit_older"));
   const newerDis = n.newer ? "" : " disabled";
   const olderDis = n.older ? "" : " disabled";
+  const backIcon = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">' +
+    '<path d="M13 8H3M7.5 3.5 3 8l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" ' +
+    'stroke-linecap="round" stroke-linejoin="round"/></svg>';
   return '<span class="detail-nav-bar">' +
+    '<button type="button" class="sbtn iconbtn back-btn" title="' + backTitle +
+    '" aria-label="' + backTitle + '">' + backIcon + '</button>' +
     '<button type="button" class="sbtn iconbtn" id="detailNewerBtn" title="' + newerTitle +
     '" aria-label="' + esc(t("commit_newer")) + '"' + newerDis +
     ' data-hash="' + (n.newer ? esc(n.newer) : "") + '">▲</button>' +
@@ -245,25 +252,35 @@ function bindDetailNavButtons() {
   if (older) older.onclick = () => { if (older.dataset.hash) goDetailNeighbor(older.dataset.hash); };
 }
 
+function detailActionLinksHtml(c) {
+  // ファイル表示 / 差分 / パッチ作成はタイトルの次の行
+  let links = '<a class="detail-files" href="/files?hash=' + encodeURIComponent(c.hash) +
+    '" title="' + esc(t("tip_files")) + '">' + esc(t("files")) + "</a>";
+  if (c.files && c.files.length) {
+    links += '<a class="detail-files" href="' + esc(diffUrl({hash: c.hash}, c.files[0])) + '">' +
+      esc(t("file_diff")) + "</a>";
+  }
+  links += '<a class="detail-patch" href="#" data-hash="' + esc(c.hash) +
+    '" data-name="' + esc(c.hash.slice(0, 7)) + '.patch" title="' +
+    esc(t("tip_patch_create_commit")) + '">' + esc(t("patch_create")) + "</a>";
+  return '<div class="detail-actions">' + links + "</div>";
+}
+
 function showDetail(h, fromHistory) {
   document.body.classList.remove("compare-logs-mode");
   if (!fromHistory) { pushScreen({screen: "detail", hash: h}); revealHash(h); }
   setDocumentTitle(t("commit_label") + " " + h.slice(0, 7));
-  const back = '<button class="back-btn">' + t("back_history") + '</button>' +
-    detailNavButtonsHtml(h, null);
-  detailView.innerHTML = back + '<p class="hint">' + esc(t("loading")) + '</p>';
+  const nav = detailNavButtonsHtml(h, null);
+  detailView.innerHTML = nav + '<p class="hint">' + esc(t("loading")) + '</p>';
   bindDetailNavButtons();
   showView("detail");
   api("/api/commit", {hash: h}).then(c => {
     curCtx = {hash: c.hash}; curFiles = c.files; curDetailHash = c.hash;
     updatePageNav(c.hash, c.files);
     const parents = c.parents.map(p => esc(p.slice(0, 7))).join(", ") || t("none");
-    const nav = detailNavButtonsHtml(c.hash, c.parents);
-    detailView.innerHTML = '<button class="back-btn">' + t("back_history") + '</button>' + nav +
-      "<h2>" + t("commit_label") + " " + esc(c.hash.slice(0, 7)) +
-      ' <a class="detail-files" href="/files?hash=' + encodeURIComponent(c.hash) + '" title="' + esc(t("tip_files")) + '">' + esc(t("files")) + "</a>" +
-      (c.files.length ? ' <a class="detail-files" href="' + esc(diffUrl({hash: c.hash}, c.files[0])) + '">' + esc(t("file_diff")) + "</a>" : "") +
-      ' <a class="detail-patch" href="#" data-hash="' + esc(c.hash) + '" data-name="' + esc(c.hash.slice(0, 7)) + '.patch" title="' + esc(t("tip_patch_create_commit")) + '">' + esc(t("patch_create")) + "</a></h2>" +
+    detailView.innerHTML = detailNavButtonsHtml(c.hash, c.parents) +
+      "<h2>" + t("commit_label") + " " + esc(c.hash.slice(0, 7)) + "</h2>" +
+      detailActionLinksHtml(c) +
       '<span id="dChips">' + detailChips(c.hash) + "</span>" +
       '<div class="meta">' + esc(c.hash) + copyLink(c.hash) + "</div>" +
       '<div class="meta">Author: ' + esc(c.author) + "</div>" +
@@ -273,7 +290,7 @@ function showDetail(h, fromHistory) {
       '<div class="meta"><code>git show ' + esc(c.hash.slice(0, 7)) + "</code></div>";
     bindDetailNavButtons();
   }).catch(e => {
-    detailView.innerHTML = back + '<p class="hint">' + esc(t("error")) + esc(e.message) + "</p>";
+    detailView.innerHTML = nav + '<p class="hint">' + esc(t("error")) + esc(e.message) + "</p>";
     bindDetailNavButtons();
   });
 }

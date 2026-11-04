@@ -101,10 +101,9 @@ html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-s
   .abtn { display: inline-block; background: #e8eefc; border: 1px solid #b8c7ee; padding: 3px 8px; border-radius: 3px; cursor: pointer; text-decoration: none; color: inherit; }
   .abtn[aria-disabled="true"] { opacity: .5; cursor: default; pointer-events: none; }
   .abtn:hover { background: #d6e2fb; } .abtn:disabled { opacity: .5; cursor: default; }
-  .detail-files { margin-left: 8px; color: #06c; font-size: 13px; font-weight: normal; text-decoration: none; }
-  .detail-files:hover { text-decoration: underline; }
-  .detail-patch { margin-left: 8px; color: #06c; font-size: 13px; font-weight: normal; text-decoration: none; }
-  .detail-patch:hover { text-decoration: underline; }
+  .detail-actions { display: flex; flex-wrap: wrap; gap: 2px 12px; margin: 0 0 8px; }
+  .detail-files, .detail-patch { color: #06c; font-size: 13px; font-weight: normal; text-decoration: none; }
+  .detail-files:hover, .detail-patch:hover { text-decoration: underline; }
   .wippatch { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
   #coModal, #actionModal, #quitModal, #confirmModal { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: flex; align-items: center; justify-content: center; z-index: 1000; }
   #coModal[hidden] { display: none; }
@@ -251,11 +250,10 @@ html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-s
   g.edge path.hit { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke; }
   .back-btn, .sbtn { background: #ddd; border: none; padding: 4px 8px; border-radius: 3px; cursor: pointer; margin: 0 6px 8px 0; }
   .back-btn:hover, .sbtn:hover { background: #ccc; }
-  .detail-nav-bar { display: inline-flex; align-items: center; gap: 2px; margin: 0 8px 8px 0; vertical-align: middle; }
+  .detail-nav-bar { display: inline-flex; align-items: center; gap: 2px; margin: 0 0 8px; }
   .detail-nav-bar .sbtn.iconbtn { margin: 0; }
   .detail-nav-bar .sbtn.iconbtn:disabled { opacity: .4; cursor: default; }
   .detail-nav-bar .sbtn.iconbtn:not(:disabled):hover { background: #c8d4f0; }
-  #detailView h2 { display: inline; }
   .log-search-btn { vertical-align: middle; margin-left: 6px !important; font-size: 13px; }
   .log-search-btn.on { background: #b9d3f0; }
   .log-search { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 6px 10px; margin: 0 0 8px; padding: 6px 8px; background: #f6f6f6; border: 1px solid #ddd; border-radius: 4px; }
