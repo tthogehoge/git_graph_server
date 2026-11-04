@@ -96,6 +96,14 @@ class _StdoutTee(io.TextIOBase):
                 pass
 
 
+def child_command(path):
+    """submodule を別のウィンドウ (別プロセス) で開くコマンド。子はこのアプリをもう一つ起動する (リポジトリは submodule のパス)。
+    ポートは渡さない: 子は既定のポートを試し、使用中なら空いているポートを自分で選ぶ (同じポートは使えない)。"""
+    from git_graph.launcher import forwarded_args
+    base = [sys.executable] if FROZEN else [sys.executable, str(Path(__file__).resolve())]
+    return base + [path] + forwarded_args()
+
+
 class ServerThread(threading.Thread):
     """git_graph サーバを同じプロセスのスレッドで動かす。/api/restart されたときは同じポートで起動し直す。"""
 
@@ -122,6 +130,7 @@ class ServerThread(threading.Thread):
                 from git_graph import app_state
                 from git_graph.server import main as server_main
                 app_state.RESTART_HOOK = self._request_restart
+                app_state.CHILD_CMD = child_command
                 self.restart = False
                 sys.argv = list(self.argv)
                 try:

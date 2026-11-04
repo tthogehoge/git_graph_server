@@ -625,22 +625,22 @@ def diff(path, old="", hash_="", from_hash="", to_hash="", wip=""):
 
 def submodules():
     """登録されている submodule の一覧。
-    log / branches と同じ [hash, short, status, describe, path_and_url] の形で返す。
+    commits は log / branches と同じ [hash, short, status, describe, path_and_url] の形。
     status は表示用ラベル (ok / 変更あり / 未初期化 / 競合)。
+    submodules は commits と同じ順の [{path, url, initialized}] (画面が、別プロセスで開く対象を決めるのに使う)。
     """
     # .gitmodules から path -> url / branch を拾う
     meta = {}  # path -> {"url", "branch", "name"}
     try:
-        cfg = git("config", "-f", ".gitmodules", "--get-regexp", r"^submodule\..*\.(path|url|branch)$")
+        cfg = git("config", "-z", "-f", ".gitmodules", "--get-regexp", r"^submodule\..*\.(path|url|branch)$")
     except subprocess.CalledProcessError:
         cfg = ""
     by_name = {}
-    for line in cfg.splitlines():
-        key, _, val = line.partition(" ")
-        parts = key.split(".")
-        if len(parts) < 3:
+    for record in cfg.split("\0"):  # -z: "キー\n値" を NUL で区切る (名前や値に空白・ドットがあってもよい)
+        key, _, val = record.partition("\n")
+        if not key.startswith("submodule.") or key.count(".") < 2:
             continue
-        name, field = parts[1], parts[-1]
+        name, field = key[len("submodule."):].rsplit(".", 1)
         rec = by_name.setdefault(name, {"name": name})
         rec[field] = val
     for info in by_name.values():
@@ -660,8 +660,8 @@ def submodules():
         "-": "submodule_status_uninitialized",
         "U": "submodule_status_conflict",
     }
-    line_re = re.compile(r"^([ +\-U])([0-9a-f]{40})\s+(\S+)(?:\s+\((.*)\))?$")
-    commits = []
+    line_re = re.compile(r"^([ +\-U])([0-9a-f]{40})\s+(.+?)(?:\s+\((.*)\))?$")  # パスに空白があってもよい
+    entries = []  # (commit の行, 情報)
     seen = set()
     for line in out.splitlines():
         m = line_re.match(line)
@@ -673,7 +673,7 @@ def submodules():
         label = tr(status_key.get(st, "submodule_status_ok"))
         short = h[:7]
         subject = path if not url else f"{path}  ({url})"
-        commits.append([h, short, label, describe, subject])
+        entries.append(([h, short, label, describe, subject], {"path": path, "url": url, "initialized": st != "-"}))
         seen.add(path)
 
     # status に出ないが .gitmodules にだけあるものも載せる
@@ -682,10 +682,10 @@ def submodules():
             continue
         url = info.get("url", "")
         subject = path if not url else f"{path}  ({url})"
-        commits.append(["", "-", tr("submodule_status_uninitialized"), "", subject])
+        entries.append((["", "-", tr("submodule_status_uninitialized"), "", subject], {"path": path, "url": url, "initialized": False}))
 
-    commits.sort(key=lambda c: c[4].split("  (")[0].casefold())
-    return {"commits": commits, "has_more": False, "total": len(commits)}
+    entries.sort(key=lambda e: e[1]["path"].casefold())
+    return {"commits": [e[0] for e in entries], "submodules": [e[1] for e in entries], "has_more": False, "total": len(entries)}
 
 
 __all__ = [

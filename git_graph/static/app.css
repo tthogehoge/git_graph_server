@@ -148,6 +148,9 @@ html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-s
   table.log td { border-bottom: 1px solid #e3e3e3; padding: 4px; vertical-align: top; }
   table.log tr.clickable { cursor: pointer; }
   table.log tr.clickable:hover td { background: #eef; }
+  table.log tr.submodule-row { cursor: pointer; }
+  table.log tr.submodule-row:hover td { background: #eef; }
+  table.log tr.submodule-row.uninit { color: #888; }
   table.log tr.cur td,
   table.log tr.actionTarget td { background: #ffe4e1; }
   table.log tr.oph-undone td { opacity: .5; }

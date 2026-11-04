@@ -10,3 +10,4 @@ DESKTOP = False  # pywebview など、サーバーと同じ PC の画面から�
 CONFIG = {}
 CONFIG_PATH = ""
 START_WIP = False  # 最初の / へのアクセスを WIP のファイル差分ページへ移す (1 回だけ。--start wip)
+CHILD_CMD = None  # submodule を別プロセスで開くときの起動コマンドを返す関数 (path -> argv)。pywebview のように、子が自分のウィンドウを開く方式のときに設定する

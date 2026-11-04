@@ -303,7 +303,8 @@ function showLog(titleHtml, rev, topHtml, fromHistory, restoreScroll, src, targe
       const r = src ? await api(src.path, Object.assign({}, src.params, graphParam, searchP, {skip: skip, limit: CHUNK}))
                     : await api("/api/log", Object.assign({rev: rev, skip: skip, limit: CHUNK}, graphParam, searchP));
       if (my !== token) return;
-      rows.insertAdjacentHTML("beforeend", r.commits.map(c => rowHtml(c, "", graphRow ? graphRow(c) : "")).join(""));
+      rows.insertAdjacentHTML("beforeend", r.commits.map((c, i) => (src && src.path === "/api/submodules")
+        ? submoduleRowHtml(c, r.submodules[i]) : rowHtml(c, "", graphRow ? graphRow(c) : "")).join(""));
       updateCmpClasses();
       skip += r.commits.length;
       if (fromHistory && restoreScroll) {

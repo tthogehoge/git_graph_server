@@ -131,9 +131,45 @@ function showStashList(fromHistory) {
 }
 function showSubmoduleList() {
   showLog(t("submodule_list_title"), "",
-          '<div class="meta">' + esc(t("submodule_list_help")) + '</div>',
+          '<div class="meta">' + esc(t("submodule_list_help")) + '</div><div class="meta" id="submoduleMsg"></div>',
           false, 0, {path: "/api/submodules", params: {}});
 }
+// submodule は、この画面で選択 (コミットとして) するのではなく、別のプロセス (別のサーバー) で開く。
+// submodule のコミットは、このリポジトリのグラフには無いので、行はコミットの行 (tr.clickable) にしない
+function submoduleRowHtml(c, sm) {  // c = [hash, short, status, describe, subject]; sm = {path, url, initialized}
+  return '<tr class="submodule-row' + (sm.initialized ? "" : " uninit") + '" data-path="' + esc(sm.path) + '" data-init="' + (sm.initialized ? "1" : "") +
+    '" title="' + esc(t(sm.initialized ? "submodule_open_tip" : "submodule_uninit_tip")) + '"><td class="h">' + esc(c[1]) +
+    '</td><td class="log-cell"><div class="log-main"><div class="log-subj">' + esc(c[4]) +
+    '</div><div class="meta">' + esc(c[2]) + (c[3] ? " / " + esc(c[3]) : "") + "</div></div></td></tr>";
+}
+function submoduleMessage(html) {
+  const el = document.getElementById("submoduleMsg");
+  if (el) el.innerHTML = html;
+}
+let submoduleOpening = false;
+function openSubmodule(path) {
+  if (submoduleOpening) return;
+  submoduleOpening = true;
+  submoduleMessage(esc(t("submodule_opening", {path: path})));
+  post("/api/submodule-open", {path: path}).then(r => {
+    // ブラウザーでは、子のサーバーが待ち受けているポートを新しいタブで開く (pywebview では子が自分のウィンドウを開く)。
+    // ポップアップとしてブロックされることがあるので、リンクも残す
+    let link = "";
+    if (r.port) {
+      const url = location.protocol + "//" + location.hostname + ":" + r.port + "/";
+      window.open(url, "_blank");
+      link = ' <a href="' + esc(url) + '" target="_blank" rel="noopener">' + esc(url) + "</a>";
+    }
+    submoduleMessage(esc(r.message) + link);
+  }).catch(e => submoduleMessage('<span style="color:#b00">' + esc(t("error") + e.message) + "</span>"))
+    .finally(() => { submoduleOpening = false; });
+}
+listView.addEventListener("click", ev => {
+  const tr = ev.target.closest("tr.submodule-row");
+  if (!tr || ev.detail > 1) return;
+  if (!tr.dataset.init) { submoduleMessage(esc(t("submodule_uninit_tip"))); return; }
+  openSubmodule(tr.dataset.path);
+});
 function doStash(op) {
   if (!actionHash) return;
   const h = actionHash, sel = stashByHash[h] || stashNameOf(h);

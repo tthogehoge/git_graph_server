@@ -42,7 +42,7 @@ WRITE_OPS = {
 }
 IGNORED = {
     "/api/shutdown", "/api/restart", "/api/commit-graph",
-    "/api/open-editor", "/api/open-diff", "/api/file-copy",  # リポジトリを変更しない
+    "/api/open-editor", "/api/open-diff", "/api/file-copy", "/api/submodule-open",  # リポジトリを変更しない
     "/api/find-equivalent-parents", "/api/find-equivalent-branch",  # POST だが読み取りだけ
     "/api/undo", "/api/redo",
 }

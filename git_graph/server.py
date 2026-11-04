@@ -41,6 +41,7 @@ from .history import (  # noqa: F401
     api_reflog, api_stash_list, api_submodules, api_tags,
 )
 from .external import DEFAULT_CONFIG_PATH, load_config
+from .launcher import api_submodule_open  # noqa: F401
 from . import engine, tmpdir
 from .pages import diff_url, render_diff_page, render_files_page, wip_files
 from .wip import api_status, api_wip_commit  # noqa: F401
@@ -52,6 +53,8 @@ class Forbidden(Exception):
 _write_lock = threading.Lock()
 
 DEFAULT_PORT = 8000
+STOP_PATHS = ("/api/shutdown", "/api/restart")  # サーバー自身を止める API (応答を返してから止める。--read-only でもローカルからは使える)
+LOCAL_PATHS = ("/api/submodule-open",)  # ローカルで別プロセスを起動するだけの API (リポジトリは変更しない。--read-only でもローカルからは使える)
 
 class QuietServer(ThreadingHTTPServer):
     # Windows では SO_REUSEADDR が「使用中のポートへの二重 bind」を許してしまうため、無効にする
@@ -183,11 +186,14 @@ class Handler(BaseHTTPRequestHandler):
         except subprocess.CalledProcessError as e:
             self._send_command_error(e)
 
-    def _check_post(self, shutdown=False):
+    def _check_post(self, shutdown=False, local=False):
         """他サイトのページからの書き込みを防ぐ (CSRF / DNS rebinding 対策)。"""
         if shutdown:  # 終了は --read-only でもできる。ただし他の端末から止められないよう、ローカルで待ち受けているときだけ
             if not (state.WRITABLE or is_loopback(state.OPTS.host)):
                 raise Forbidden(tr("shutdown_forbidden"))
+        elif local:  # 別プロセスを起動するだけで、リポジトリは変えない。ただし他の端末からは使わせない
+            if not (state.WRITABLE or is_loopback(state.OPTS.host)):
+                raise Forbidden(tr("write_disabled"))
         elif not state.WRITABLE:
             raise Forbidden(tr("write_disabled"))
         ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip()
@@ -209,7 +215,7 @@ class Handler(BaseHTTPRequestHandler):
             if handler is None:
                 self._send(404, "text/plain", "not found")
                 return
-            self._check_post(shutdown=path in ("/api/shutdown", "/api/restart"))
+            self._check_post(shutdown=path in STOP_PATHS, local=path in LOCAL_PATHS)
             n = int(self.headers.get("Content-Length") or 0)
             if n > BODY_LIMITS.get(path, DEFAULT_BODY_LIMIT):
                 raise ValueError("body too large")
@@ -219,7 +225,7 @@ class Handler(BaseHTTPRequestHandler):
             with _write_lock:
                 res = engine.run(path, handler, body)  # リポジトリを変更する操作は、状態の前後を記録するエンジン経由で実行する
             self._send(200, "application/json", json.dumps(res, ensure_ascii=False))
-            if path not in ("/api/shutdown", "/api/restart"):
+            if path not in STOP_PATHS and path not in LOCAL_PATHS:
                 warm_graph()  # 変更のあとのグラフを先に作っておく (コミット後にトップへ戻るときなど)
             if path in ("/api/shutdown", "/api/restart") and state.SERVER is not None:
                 if path == "/api/restart":
