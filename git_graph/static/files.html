@@ -54,10 +54,11 @@ __FAVICON__
   table.dir-log { table-layout: fixed; width: 100%; }
   table.dir-log th { text-align: left; font-weight: normal; color: #666; padding: 4px 6px; border-bottom: 1px solid #ccc; white-space: nowrap; }
   table.dir-log tr.dir-log-row { cursor: pointer; }
-  table.dir-log td.dir-name { width: 28%; min-width: 8em; font-family: monospace; word-break: break-all; }
-  table.dir-log td.hash { width: 1%; white-space: nowrap; }
-  table.dir-log td.dir-msg { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  table.dir-log td.date { width: 1%; white-space: nowrap; }
+  table.dir-log .dir-name { width: 28%; min-width: 8em; }
+  table.dir-log td.dir-name { font-family: monospace; word-break: break-all; }
+  table.dir-log .hash { width: 7.5em; white-space: nowrap; }
+  table.dir-log .dir-msg { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  table.dir-log .date { width: 8.5em; white-space: nowrap; }
   table.dir-log tr.dir-log-row:hover td.dir-name { color: #06c; }
   table.file-log tr { cursor: pointer; }
   .blame { display: table; width: 100%; table-layout: auto; border-collapse: collapse; font: 12px monospace; }
@@ -333,8 +334,8 @@ function showDir() {  // ファイルを開いていないとき、ディレク�
   title.textContent = "📁 " + (path || t("root"));
   if (!entries.length) { content.className = "hint"; content.textContent = t("empty_directory"); return; }
   content.className = "";
-  content.innerHTML = '<table class="file-log dir-log"><thead><tr><th>' + esc(t("dir_log_name")) + '</th><th>' + esc(t("dir_log_commit")) +
-    '</th><th>' + esc(t("dir_log_message")) + '</th><th>' + esc(t("dir_log_date")) + '</th></tr></thead><tbody>' +
+  content.innerHTML = '<table class="file-log dir-log"><thead><tr><th class="dir-name">' + esc(t("dir_log_name")) + '</th><th class="hash">' + esc(t("dir_log_commit")) +
+    '</th><th class="dir-msg">' + esc(t("dir_log_message")) + '</th><th class="date">' + esc(t("dir_log_date")) + '</th></tr></thead><tbody>' +
     entries.map(e => '<tr class="dir-log-row" data-type="' + e.type + '" data-name="' + esc(e.name) + '" data-path="' +
       esc(path ? path + "/" + e.name : e.name) + '">' + dirNameCell(e) + dirLogCells(null) + '</tr>').join("") + '</tbody></table><div id="dirLogNote"></div>';
   api("/api/tree-log", {hash: hash, path: path}).then(r => {
