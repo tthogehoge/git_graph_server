@@ -3404,3 +3404,24 @@ class EmptyRepoTests(unittest.TestCase):
                 state.REPO, state.WIP_ENABLED, state.OPTS, state.WRITABLE, state.HAS_WORKTREE = (
                     old_repo, old_wip, old_opts, old_writable, old_worktree
                 )
+
+    def test_start_wip_on_empty_repo_goes_to_graph(self):
+        """コミットが無いとき --start wip でも空の差分ページではなくグラフ (WIP) を出す。"""
+        from git_graph import server
+        with tempfile.TemporaryDirectory() as tmpdir:
+            subprocess.run(["git", "init", "-q", tmpdir], check=True)
+            old = (state.REPO, state.WIP_ENABLED, state.WRITABLE, state.HAS_WORKTREE, state.START_WIP)
+            try:
+                state.REPO = tmpdir
+                state.WIP_ENABLED = True
+                state.WRITABLE = True
+                state.HAS_WORKTREE = True
+                state.START_WIP = True
+                self.assertIsNone(server.start_page_url())  # グラフへ (差分ページだと操作しづらい)
+                state.START_WIP = True
+                with open(os.path.join(tmpdir, "f.txt"), "w") as f:
+                    f.write("x\n")
+                url = server.start_page_url()
+                self.assertTrue(url and url.startswith("/diff?"), url)
+            finally:
+                state.REPO, state.WIP_ENABLED, state.WRITABLE, state.HAS_WORKTREE, state.START_WIP = old
