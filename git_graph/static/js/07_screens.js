@@ -82,6 +82,19 @@ listView.addEventListener("click", ev => {
   updateCmpClasses();
   if (already) showDetail(tr.dataset.h);
 });
+// ダブルクリックでもコミット詳細を開く (2回目クリックと同じ)
+listView.addEventListener("dblclick", ev => {
+  if (ev.target.closest(".back-btn") || ev.target.closest(".copy")) return;
+  const tr = ev.target.closest("tr.clickable");
+  if (!tr || !tr.dataset.h) return;
+  if (ev.ctrlKey || ev.metaKey) return;
+  syncGraphSelection(tr.dataset.h);
+  selectActionTarget(tr.dataset.h);
+  if (curRow) curRow.classList.remove("cur");
+  curRow = tr; tr.classList.add("cur");
+  updateCmpClasses();
+  showDetail(tr.dataset.h);
+});
 listView.addEventListener("contextmenu", ev => {  // ログ一覧の右クリック (比較ログの行も対象): 右ペインは動かさず、その行を操作対象にしてメニューを開く
   const tr = ev.target.closest("tr.clickable");
   if (!tr || ev.target.closest("a, input, select, textarea")) return;
@@ -422,6 +435,8 @@ function init() {
       g.insertBefore(hit, g.children[1] || null);
       g.addEventListener("pointerdown", ev => { if (!n.wip) startNodeDrag(g, n.hash, ev); });  // WIP ノードは比較に使えない
       g.addEventListener("click", ev => { if (ev.detail <= 1) onNodeClick(g, n, ev); });
+      // ダブルクリックでコミット詳細を開く (通常クリックはログ表示のまま)
+      g.addEventListener("dblclick", ev => { if (!n.wip) { selectActionTarget(n.hash, false); select(g); showDetail(n.hash); } });
       g.addEventListener("contextmenu", ev => { ev.preventDefault(); onNodeClick(g, n, ev); });
     }
   });
