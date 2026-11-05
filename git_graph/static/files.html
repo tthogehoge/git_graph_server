@@ -51,9 +51,13 @@ __FAVICON__
   table.file-log a { color: inherit; text-decoration: none; }
   table.file-log a.commit-graph:hover { text-decoration: underline; }
   table.file-log tr:hover td { background: #eef; }
+  table.dir-log { table-layout: fixed; width: 100%; }
   table.dir-log th { text-align: left; font-weight: normal; color: #666; padding: 4px 6px; border-bottom: 1px solid #ccc; white-space: nowrap; }
   table.dir-log tr.dir-log-row { cursor: pointer; }
-  table.dir-log td.dir-name { font-family: monospace; word-break: break-all; }
+  table.dir-log td.dir-name { width: 26%; min-width: 8em; font-family: monospace; word-break: break-all; }
+  table.dir-log td.hash { width: 6.5em; }
+  table.dir-log td.dir-msg { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  table.dir-log td.date { width: 6.5em; }
   table.dir-log tr.dir-log-row:hover td.dir-name { color: #06c; }
   table.file-log tr { cursor: pointer; }
   .blame { display: table; width: 100%; table-layout: auto; border-collapse: collapse; font: 12px monospace; }
@@ -315,8 +319,8 @@ function clearFile() {  // ファイルを選ぶ前の表示に戻す
   content.textContent = t("select_file_hint");
 }
 function dirLogCells(c) {  // 最終コミットのセル (ハッシュ・件名・日付)。c が無ければ空 (まだ読み込み中 / 履歴に見つからない)
-  if (!c) return '<td class="hash"></td><td></td><td class="date"></td>';
-  return '<td class="hash"><a class="commit-graph" href="/?commit_hash=' + encodeURIComponent(c[0]) + '">' + esc(c[1]) + '</a></td><td>' +
+  if (!c) return '<td class="hash"></td><td class="dir-msg"></td><td class="date"></td>';
+  return '<td class="hash"><a class="commit-graph" href="/?commit_hash=' + encodeURIComponent(c[0]) + '">' + esc(c[1]) + '</a></td><td class="dir-msg" title="' + esc(c[4]) + '">' +
     esc(c[4]) + '</td><td class="date">' + esc(c[3]) + '</td>';
 }
 function dirNameCell(e) {
