@@ -195,6 +195,212 @@ _GESTURE_NAV_JS = """
 })();
 """
 
+_FIND_BAR_JS = """
+(function () {
+    if (window._findBarInstalled) return;
+    window._findBarInstalled = true;
+
+    let bar = null, input = null, status = null;
+    let matches = [];
+    let idx = -1;
+    let styleEl = null;
+
+    function ensureStyle() {
+        if (styleEl) return;
+        styleEl = document.createElement("style");
+        styleEl.textContent =
+            "mark.gg-find { background: #ffe566; color: inherit; padding: 0; border-radius: 1px; }" +
+            "mark.gg-find.gg-find-cur { background: #ff9632; outline: 1px solid #c60; }";
+        document.head.appendChild(styleEl);
+    }
+
+    function ensureBar() {
+        if (bar) return;
+        ensureStyle();
+        bar = document.createElement("div");
+        bar.id = "ggFindBar";
+        bar.style.cssText =
+            "position:fixed;top:8px;right:8px;z-index:10000;display:none;align-items:center;gap:4px;" +
+            "padding:4px 8px;background:#f6f6f6;border:1px solid #bbb;border-radius:4px;" +
+            "box-shadow:0 2px 8px #0003;font:13px system-ui,sans-serif";
+        input = document.createElement("input");
+        input.type = "search";
+        input.placeholder = "Find in page";
+        input.autocomplete = "off";
+        input.spellcheck = false;
+        input.style.cssText = "width:180px;padding:3px 6px;border:1px solid #bbb;border-radius:3px;font:inherit";
+        status = document.createElement("span");
+        status.style.cssText = "min-width:4.5em;text-align:center;color:#555;font-size:12px";
+        const prev = document.createElement("button");
+        prev.type = "button"; prev.textContent = "\u2191"; prev.title = "Previous";
+        const next = document.createElement("button");
+        next.type = "button"; next.textContent = "\u2193"; next.title = "Next";
+        const close = document.createElement("button");
+        close.type = "button"; close.textContent = "\u00d7"; close.title = "Close";
+        [prev, next, close].forEach(function (b) {
+            b.style.cssText = "padding:2px 8px;border:1px solid #bbb;border-radius:3px;background:#fff;cursor:pointer;font:inherit";
+        });
+        bar.appendChild(input);
+        bar.appendChild(status);
+        bar.appendChild(prev);
+        bar.appendChild(next);
+        bar.appendChild(close);
+        document.body.appendChild(bar);
+
+        var timer = null;
+        input.addEventListener("input", function () {
+            clearTimeout(timer);
+            timer = setTimeout(function () { search(input.value); }, 120);
+        });
+        input.addEventListener("keydown", function (e) {
+            if (e.key === "Enter") { e.preventDefault(); go(e.shiftKey ? -1 : 1); }
+            else if (e.key === "Escape") { e.preventDefault(); hide(); }
+        });
+        prev.addEventListener("click", function () { go(-1); });
+        next.addEventListener("click", function () { go(1); });
+        close.addEventListener("click", hide);
+    }
+
+    function clearMarks() {
+        document.querySelectorAll("mark.gg-find").forEach(function (m) {
+            var p = m.parentNode;
+            if (!p) return;
+            while (m.firstChild) p.insertBefore(m.firstChild, m);
+            p.removeChild(m);
+            p.normalize();
+        });
+        matches = [];
+        idx = -1;
+    }
+
+    function collectTextNodes(root) {
+        var out = [];
+        var skip = { SCRIPT:1, STYLE:1, NOSCRIPT:1, TEXTAREA:1, INPUT:1, SELECT:1 };
+        var tw = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+            acceptNode: function (n) {
+                if (!n.nodeValue || !n.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
+                var p = n.parentElement;
+                while (p) {
+                    if (skip[p.tagName] || p.id === "ggFindBar") return NodeFilter.FILTER_REJECT;
+                    if (p.hasAttribute && p.hasAttribute("hidden")) return NodeFilter.FILTER_REJECT;
+                    p = p.parentElement;
+                }
+                return NodeFilter.FILTER_ACCEPT;
+            }
+        });
+        var n;
+        while ((n = tw.nextNode())) out.push(n);
+        return out;
+    }
+
+    function search(q) {
+        clearMarks();
+        q = (q || "").trim();
+        if (!q) {
+            status.textContent = "";
+            input.style.outline = "";
+            return;
+        }
+        var qLower = q.toLowerCase();
+        var nodes = collectTextNodes(document.body);
+        var byNode = [];
+        nodes.forEach(function (node) {
+            var t = node.nodeValue;
+            var lower = t.toLowerCase();
+            var from = 0;
+            var list = [];
+            while (true) {
+                var i = lower.indexOf(qLower, from);
+                if (i < 0) break;
+                list.push({ start: i, end: i + q.length });
+                from = i + Math.max(1, q.length);
+            }
+            if (list.length) byNode.push({ node: node, list: list, text: t });
+        });
+        var marks = [];
+        byNode.forEach(function (item) {
+            var list = item.list;
+            var text = item.text;
+            var frag = document.createDocumentFragment();
+            var last = 0;
+            list.forEach(function (p) {
+                if (p.start > last) frag.appendChild(document.createTextNode(text.slice(last, p.start)));
+                var mark = document.createElement("mark");
+                mark.className = "gg-find";
+                mark.textContent = text.slice(p.start, p.end);
+                frag.appendChild(mark);
+                marks.push(mark);
+                last = p.end;
+            });
+            if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+            item.node.parentNode.replaceChild(frag, item.node);
+        });
+        matches = marks;
+        if (matches.length) {
+            setCurrent(0);
+            input.style.outline = "";
+        } else {
+            status.textContent = "0/0";
+            input.style.outline = "1px solid #c00";
+        }
+    }
+
+    function setCurrent(i) {
+        matches.forEach(function (m, k) {
+            if (k === i) m.classList.add("gg-find-cur");
+            else m.classList.remove("gg-find-cur");
+        });
+        var m = matches[i];
+        if (m && m.scrollIntoView) {
+            try { m.scrollIntoView({ block: "center", inline: "nearest" }); }
+            catch (e) { m.scrollIntoView(true); }
+        }
+        idx = i;
+        status.textContent = (i + 1) + "/" + matches.length;
+    }
+
+    function go(delta) {
+        if (!matches.length) {
+            search(input.value);
+            return;
+        }
+        var n = idx + delta;
+        if (n < 0) n = matches.length - 1;
+        if (n >= matches.length) n = 0;
+        setCurrent(n);
+    }
+
+    function show() {
+        ensureBar();
+        bar.style.display = "flex";
+        input.focus();
+        input.select();
+        if (input.value) search(input.value);
+    }
+
+    function hide() {
+        if (!bar) return;
+        bar.style.display = "none";
+        clearMarks();
+        status.textContent = "";
+        input.style.outline = "";
+    }
+
+    document.addEventListener("keydown", function (e) {
+        if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === "f" || e.key === "F")) {
+            e.preventDefault();
+            e.stopPropagation();
+            show();
+        } else if (e.key === "F3" && bar && bar.style.display !== "none") {
+            e.preventDefault();
+            go(e.shiftKey ? -1 : 1);
+        }
+    }, true);
+})();
+"""
+
+
+
 
 def _inject_gesture_nav(win):
     win.evaluate_js(_GESTURE_NAV_JS)
@@ -212,6 +418,10 @@ def _sync_title(win):
 
 def _on_loaded(win):
     _inject_gesture_nav(win)
+    try:
+        win.evaluate_js(_FIND_BAR_JS)
+    except Exception:
+        pass
     _sync_title(win)
 
 
