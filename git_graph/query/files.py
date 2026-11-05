@@ -265,7 +265,11 @@ def file_content(hash_, path):
 
 
 def blame(hash_, path):
-    """コミットまたは WIP の blame。"""
+    """コミットまたは WIP の blame。
+    行の内容はファイル表示と同じ textcodec.decode_text でデコードする
+    (git blame の出力を UTF-8 前提で読むと Shift_JIS などが文字化けするため)。
+    libgit 経路は libgit.blame_lines 側で同様に処理済み。
+    """
     path = validate_file_path(path, allow_empty=False)
     if hash_ == WIP_HASH:  # 作業ツリーの内容を blame する。未コミットの行はハッシュが 0000000 になる
         worktree_target(path)
@@ -283,6 +287,31 @@ def blame(hash_, path):
             if lines is not None:
                 return {"hash": h, "path": path, "lines": lines}
         out = git("blame", "--line-porcelain", h, "--", path, literal=True)
+    # ファイル表示と同じデコードで内容を得る (blame の porcelain 本文は使わない)
+    if hash_ == WIP_HASH:
+        target = worktree_target(path)
+        if os.path.islink(target):
+            raw = os.fsencode(os.readlink(target))
+        elif os.path.isfile(target):
+            with open(target, "rb") as f:
+                raw = f.read(FILE_CONTENT_LIMIT + 1)
+        else:
+            raw = b""
+    else:
+        try:
+            raw = git_bytes("cat-file", "blob", h + ":" + path, literal=True)
+        except subprocess.CalledProcessError:
+            raw = b""
+    truncated = len(raw) > FILE_CONTENT_LIMIT
+    text, _encoding = decode_text(raw[:FILE_CONTENT_LIMIT], truncated)
+    if text is None:
+        content_lines = []
+    else:
+        # git は \n だけを行区切りにする (libgit.blame_lines と同じ)
+        content_lines = text.split("\n")
+        if content_lines and content_lines[-1] == "":
+            content_lines.pop()
+        content_lines = [ln[:-1] if ln.endswith("\r") else ln for ln in content_lines]
     raw_lines = out.splitlines()
     lines, i = [], 0
     while i < len(raw_lines):
@@ -309,8 +338,10 @@ def blame(hash_, path):
         date = datetime.fromtimestamp(
             int(author_time), timezone(timedelta(minutes=offset))
         ).date().isoformat()
+        idx = len(lines)
+        content = content_lines[idx] if idx < len(content_lines) else ""
         lines.append({"hash": commit, "line": line_no, "author": author,
-                      "date": date, "content": raw_lines[i][1:]})
+                      "date": date, "content": content})
         i += 1
     return {"hash": h, "path": path, "lines": lines}
 
