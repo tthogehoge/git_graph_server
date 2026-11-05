@@ -90,8 +90,10 @@ def wip_diff(kind, path, specs):
     from .. import libgit
     paths = [path] if path else list(specs)
     if kind == "staged":
-        if libgit.available():
+        if libgit.available() and read_head()[0]:
             return libgit.unified_diff("HEAD", cached=True, paths=paths)
+        # HEAD がまだない場合、libgit2 の "HEAD" 解決は失敗する。Git CLI は unborn HEAD を
+        # 空ツリーとして扱うため、初回コミット前の staged diff も通常どおり取得できる。
         return git_bytes("diff", "--cached", "--no-color", "-M", "--", *specs, literal=True)
     if kind == "conflict":
         # 競合中のファイルは index が未マージなので、libgit2 の diff だと「old mode 0 / new mode 100644」だけで内容が出ない。

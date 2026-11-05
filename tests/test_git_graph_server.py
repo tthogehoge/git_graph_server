@@ -3405,8 +3405,8 @@ class EmptyRepoTests(unittest.TestCase):
                     old_repo, old_wip, old_opts, old_writable, old_worktree
                 )
 
-    def test_start_wip_on_empty_repo_goes_to_graph(self):
-        """コミットが無いとき --start wip でも空の差分ページではなくグラフ (WIP) を出す。"""
+    def test_start_wip_without_head_opens_wip_diff_page(self):
+        """コミットが無くても --start wip はファイル差分ページを開き、初回コミットできる。"""
         from git_graph import server
         with tempfile.TemporaryDirectory() as tmpdir:
             subprocess.run(["git", "init", "-q", tmpdir], check=True)
@@ -3417,11 +3417,22 @@ class EmptyRepoTests(unittest.TestCase):
                 state.WRITABLE = True
                 state.HAS_WORKTREE = True
                 state.START_WIP = True
-                self.assertIsNone(server.start_page_url())  # グラフへ (差分ページだと操作しづらい)
+                self.assertEqual(server.start_page_url(), "/diff?wip=unstaged")
+                empty_page = viewer.render_diff_page({"wip": ["unstaged"]})
+                self.assertIn(tr("no_changes"), empty_page)
                 state.START_WIP = True
                 with open(os.path.join(tmpdir, "f.txt"), "w") as f:
                     f.write("x\n")
-                url = server.start_page_url()
-                self.assertTrue(url and url.startswith("/diff?"), url)
+                self.assertEqual(server.start_page_url(), "/diff?path=f.txt&wip=untracked")
+                diff = app.api_diff({"path": ["f.txt"], "wip": ["untracked"]})
+                self.assertIn("+x\n", diff["diff"])
+                page = viewer.render_diff_page({"path": ["f.txt"], "wip": ["untracked"]})
+                self.assertIn('id="cbtn"', page)
+
+                subprocess.run(["git", "-C", tmpdir, "add", "f.txt"], check=True)
+                state.START_WIP = True
+                self.assertEqual(server.start_page_url(), "/diff?path=f.txt&wip=staged")
+                staged_diff = app.api_diff({"path": ["f.txt"], "wip": ["staged"]})
+                self.assertIn("+x\n", staged_diff["diff"])
             finally:
                 state.REPO, state.WIP_ENABLED, state.WRITABLE, state.HAS_WORKTREE, state.START_WIP = old

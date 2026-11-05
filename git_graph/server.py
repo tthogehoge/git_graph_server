@@ -106,9 +106,9 @@ BODY_LIMITS = {
 DEFAULT_BODY_LIMIT = 100000
 
 def start_page_url():
-    """最初に開く WIP のファイル差分ページ。一度きりで、2回目以降の / はグラフを出す。
-    グラフの作成は時間がかかるので、変更がない場合も WIP の空の差分ページを先に出す。
-    ただしコミットが無い空リポジトリではグラフ (WIP ノード) を出して操作できるようにする。"""
+    """最初に開く WIP 画面。一度きりで、2回目以降の / はグラフを出す。
+    グラフの作成は時間がかかるので、変更がある場合は WIP のファイル差分ページを先に出す。
+    コミットが無いリポジトリでも、WIP のファイル差分ページを開く。"""
     if not (state.START_WIP and state.WRITABLE and state.WIP_ENABLED):
         return None
     state.START_WIP = False
@@ -118,10 +118,7 @@ def start_page_url():
         return None
     if files:
         return diff_url({}, files[0])
-    from .gitstate import has_head
-    if not has_head():
-        return None  # コミット無し: グラフの WIP ノードから操作する
-    return "/diff?wip=unstaged"
+    return "/diff?wip=unstaged"  # 変更がなくてもグラフではなく WIP 画面を開く
 
 
 class Handler(BaseHTTPRequestHandler):

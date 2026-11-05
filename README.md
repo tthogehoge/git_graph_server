@@ -116,7 +116,7 @@ These buttons work only with `--desktop` on a loopback address with writing enab
 | `--no-remotes` / `--no-tags` | Hide remotes / tags |
 | `--include-tips` | Include terminal commits without a branch or tag |
 | `--no-wip` | Hide the WIP node for uncommitted changes |
-| `--start {wip,graph}` | First page: `wip` (default) opens the file diff of the uncommitted changes while the graph is built in the background; `graph` opens the graph |
+| `--start {wip,graph}` | First page: `wip` (default) opens the file diff of uncommitted changes while the graph is built in the background; without any commits, it still opens the WIP file-diff page. `graph` opens the graph |
 | `--no-count` | Do not check for collapsed commits (dashed/solid lines) |
 | `--cluster-min-nodes N` | Group nodes into year/month/day clusters (click to expand) when there are more than N (0 = never, default 1000) |
 | `--merge-max-nodes N` | Cap the total graph nodes when showing merges, newest merges first (0 = unlimited, default 2200) |
