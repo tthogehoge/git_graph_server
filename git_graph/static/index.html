@@ -75,7 +75,7 @@ __FAVICON__
     <span class="menu-wrap" id="otherActionsWrap">
       <button class="abtn mbtn" id="otherMenuBtn" aria-haspopup="true" aria-expanded="false" aria-controls="otherActions">{{other}}</button>
       <div class="dropdown" id="otherActions" hidden>
-        <label class="abtn menu-check" title="{{tip_show_merges}}"><input type="checkbox" id="showMerges" disabled>{{show_merges}}</label>
+        <button type="button" class="abtn menu-check" id="showMergesBtn" title="{{tip_show_merges}}" disabled><span>{{show_merges}}</span><input type="checkbox" id="showMerges" tabindex="-1"></button>
         <button class="abtn" id="branchListBtn" title="{{tip_branch_list}}">{{branch_list}}</button>
         <button class="abtn" id="tagListBtn" title="{{tip_tag_list}}">{{tag_list}}</button>
         <button class="abtn" id="stashListBtn" title="{{tip_stash_list}}">{{stash_list}}</button>

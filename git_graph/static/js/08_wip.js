@@ -305,12 +305,14 @@ function showWip(fromHistory, okMsg) {
   });
 }
 
-document.getElementById("showMerges").addEventListener("change", ev => {  // マージ表示の on / off
-  const cb = ev.currentTarget;
+document.getElementById("showMergesBtn").addEventListener("click", () => {  // マージ表示の on / off (他のメニュー項目と同じ button)
+  const btn = document.getElementById("showMergesBtn"), cb = document.getElementById("showMerges");
+  if (btn.disabled) return;
+  cb.checked = !cb.checked;
   setShowMerges(cb.checked);
   openClusters = [];  // マージ表示で残すノードが変わるので、開くクラスターは HEAD の分から始め直す
-  cb.disabled = true;
+  btn.disabled = true;
   refreshGraph()
     .catch(() => { cb.checked = !cb.checked; setShowMerges(cb.checked); })  // 作り直せなかったら、表示中のグラフに合わせて戻す
-    .finally(() => { cb.disabled = false; });
+    .finally(() => { btn.disabled = false; });
 });

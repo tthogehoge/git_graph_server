@@ -16,7 +16,7 @@ const timer = setInterval(() => {
   const el = document.getElementById("lsub");
   if (el) el.textContent = t("elapsed_hint", {sec: Math.round((Date.now() - t0) / 1000)});
 }, 1000);
-document.getElementById("showMerges").checked = showMergesOn();
+document.getElementById("showMerges").checked = showMergesOn();  // 右端のチェック表示
 fetch(graphUrl())
   .then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); }))
   .then(r => {
@@ -28,7 +28,7 @@ fetch(graphUrl())
     init();
     updateCmpClasses();
     document.getElementById("reload").disabled = false;
-    document.getElementById("showMerges").disabled = false;
+    document.getElementById("showMergesBtn").disabled = false;
     loadStashes();
     updateCurrentBranch().catch(e => setGraphStatus(t("current_branch_failed", {error: e.message}), "error"));
     const screen = history.state || {screen: "home"};
