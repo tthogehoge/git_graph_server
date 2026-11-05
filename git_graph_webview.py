@@ -21,6 +21,7 @@ FROZEN = getattr(sys, "frozen", False)  # PyInstaller で exe 化されている
 APP_ID = "git_graph.webview"
 ICON_DIR = Path(__file__).resolve().parent
 url_queue = queue.Queue()
+_DEBUG = False  # --debug で pywebview の開発者ツールを有効にする
 
 
 def build_command():
@@ -101,7 +102,10 @@ def child_command(path):
     ポートは渡さない: 子は既定のポートを試し、使用中なら空いているポートを自分で選ぶ (同じポートは使えない)。"""
     from git_graph.launcher import forwarded_args
     base = [sys.executable] if FROZEN else [sys.executable, str(Path(__file__).resolve())]
-    return base + [path] + forwarded_args()
+    args = base + [path] + forwarded_args()
+    if _DEBUG:
+        args.append("--debug")
+    return args
 
 
 class ServerThread(threading.Thread):
@@ -471,6 +475,12 @@ def _close_window_when_server_stops(th, win, window_closed):
 
 
 def main():
+    global _DEBUG
+    # サーバは --debug を知らないので、ここで取り除いてから渡す
+    _DEBUG = "--debug" in sys.argv
+    if _DEBUG:
+        sys.argv = [a for a in sys.argv if a != "--debug"]
+
     _add_bundled_graphviz_to_path()
     sys.stdout = _StdoutTee(sys.stdout)
     if sys.stderr is None:  # --noconsole の exe では None
@@ -505,6 +515,8 @@ def main():
     ).start()
 
     start_args = {}
+    if _DEBUG:
+        start_args["debug"] = True
     icon = find_icon()
     if icon and "icon" in inspect.signature(webview.start).parameters:  # icon 引数は新しい pywebview のみ
         start_args["icon"] = icon
