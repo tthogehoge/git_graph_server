@@ -129,16 +129,23 @@ function showStashList(fromHistory) {
   showLog(t("stash_list_title"), "", '<div class="meta">' + esc(t("stash_list_help")) + '</div>',
           !!fromHistory, 0, {path: "/api/stash-list", params: {}});
 }
+function submoduleWritable() { return !!(typeof DATA !== "undefined" && DATA && DATA.writable); }
 function showSubmoduleList() {
+  const bar = submoduleWritable()
+    ? '<div class="submodule-bar"><label><input type="checkbox" id="submoduleAll"> ' + esc(t("submodule_select_all")) + "</label> " +
+      '<button class="sbtn" id="submoduleUpdateBtn" disabled title="' + esc(t("submodule_update_tip")) + '">' + esc(t("submodule_update")) + "</button> " +
+      '<button class="sbtn" id="submoduleUpdateRemoteBtn" disabled title="' + esc(t("submodule_update_remote_tip")) + '">' + esc(t("submodule_update_remote")) + "</button></div>"
+    : "";
   showLog(t("submodule_list_title"), "",
-          '<div class="meta">' + esc(t("submodule_list_help")) + '</div><div class="meta" id="submoduleMsg"></div>',
+          '<div class="meta">' + esc(t("submodule_list_help")) + "</div>" + bar + '<div class="meta" id="submoduleMsg"></div>',
           false, 0, {path: "/api/submodules", params: {}});
 }
 // submodule は、この画面で選択 (コミットとして) するのではなく、別のプロセス (別のサーバー) で開く。
 // submodule のコミットは、このリポジトリのグラフには無いので、行はコミットの行 (tr.clickable) にしない
 function submoduleRowHtml(c, sm) {  // c = [hash, short, status, describe, subject]; sm = {path, url, initialized}
+  const sel = submoduleWritable() ? '<td class="sel"><input type="checkbox" class="submodule-sel" data-path="' + esc(sm.path) + '"></td>' : "";
   return '<tr class="submodule-row' + (sm.initialized ? "" : " uninit") + '" data-path="' + esc(sm.path) + '" data-init="' + (sm.initialized ? "1" : "") +
-    '" title="' + esc(t(sm.initialized ? "submodule_open_tip" : "submodule_uninit_tip")) + '"><td class="h">' + esc(c[1]) +
+    '" title="' + esc(t(sm.initialized ? "submodule_open_tip" : "submodule_uninit_tip")) + '">' + sel + '<td class="h">' + esc(c[1]) +
     '</td><td class="log-cell"><div class="log-main"><div class="log-subj">' + esc(c[4]) +
     '</div><div class="meta">' + esc(c[2]) + (c[3] ? " / " + esc(c[3]) : "") + "</div></div></td></tr>";
 }
@@ -164,9 +171,55 @@ function openSubmodule(path) {
   }).catch(e => submoduleMessage('<span style="color:#b00">' + esc(t("error") + e.message) + "</span>"))
     .finally(() => { submoduleOpening = false; });
 }
+function selectedSubmodules() {
+  return Array.from(listView.querySelectorAll("input.submodule-sel:checked")).map(el => el.dataset.path);
+}
+function syncSubmoduleSel() {  // 選択数に合わせて、更新ボタンと全選択の状態を更新する
+  const all = Array.from(listView.querySelectorAll("input.submodule-sel")), n = all.filter(el => el.checked).length;
+  for (const id of ["submoduleUpdateBtn", "submoduleUpdateRemoteBtn"]) {
+    const b = document.getElementById(id);
+    if (b) b.disabled = n === 0 || submoduleBusy;
+  }
+  const top = document.getElementById("submoduleAll");
+  if (top) { top.checked = all.length > 0 && n === all.length; top.indeterminate = n > 0 && n < all.length; }
+}
+async function reloadSubmoduleRows() {  // 履歴を増やさずに、一覧の行だけ読み直す
+  const rows = listView.querySelector("#rows");
+  if (!rows || listView.dataset.src !== "/api/submodules") return;
+  const r = await api("/api/submodules", {});
+  rows.innerHTML = r.commits.map((c, i) => submoduleRowHtml(c, r.submodules[i])).join("");
+  const count = listView.querySelector("#count");
+  if (count) count.textContent = t("n_changes", {n: r.total});
+  syncSubmoduleSel();
+}
+let submoduleBusy = false;
+function updateSubmodules(remote) {
+  const paths = selectedSubmodules();
+  if (!paths.length || submoduleBusy) return;
+  if (!confirm(t(remote ? "submodule_confirm_update_remote" : "submodule_confirm_update", {n: paths.length}))) return;
+  submoduleBusy = true; syncSubmoduleSel();
+  submoduleMessage(esc(t("submodule_updating", {n: paths.length})));
+  post("/api/submodule-update", {paths: paths, remote: remote}).then(async r => {
+    const failed = r.results.filter(x => !x.ok).map(x => "<div>" + esc(x.path) + ": " + esc(x.error) + "</div>").join("");
+    submoduleBusy = false;
+    await reloadSubmoduleRows().catch(() => {});
+    submoduleMessage('<span style="color:' + (r.ok ? "#080" : "#b00") + '">' + esc(r.message) + "</span>" + failed);
+  }).catch(e => submoduleMessage('<span style="color:#b00">' + esc(t("error") + e.message) + "</span>"))
+    .finally(() => { submoduleBusy = false; syncSubmoduleSel(); });
+}
+listView.addEventListener("change", ev => {
+  if (ev.target.id === "submoduleAll") {
+    for (const el of listView.querySelectorAll("input.submodule-sel")) el.checked = ev.target.checked;
+    syncSubmoduleSel();
+  } else if (ev.target.classList && ev.target.classList.contains("submodule-sel")) {
+    syncSubmoduleSel();
+  }
+});
 listView.addEventListener("click", ev => {
+  if (ev.target.closest("#submoduleUpdateBtn")) { updateSubmodules(false); return; }
+  if (ev.target.closest("#submoduleUpdateRemoteBtn")) { updateSubmodules(true); return; }
   const tr = ev.target.closest("tr.submodule-row");
-  if (!tr || ev.detail > 1) return;
+  if (!tr || ev.detail > 1 || ev.target.closest("td.sel")) return;  // チェック欄のクリックでは開かない
   if (!tr.dataset.init) { submoduleMessage(esc(t("submodule_uninit_tip"))); return; }
   openSubmodule(tr.dataset.path);
 });

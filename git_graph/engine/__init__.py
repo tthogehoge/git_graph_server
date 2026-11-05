@@ -43,6 +43,7 @@ WRITE_OPS = {
 IGNORED = {
     "/api/shutdown", "/api/restart", "/api/commit-graph",
     "/api/open-editor", "/api/open-diff", "/api/file-copy", "/api/submodule-open",  # リポジトリを変更しない
+    "/api/submodule-update",  # submodule の中身は別のリポジトリなので、元に戻す対象外
     "/api/find-equivalent-parents", "/api/find-equivalent-branch",  # POST だが読み取りだけ
     "/api/undo", "/api/redo",
 }

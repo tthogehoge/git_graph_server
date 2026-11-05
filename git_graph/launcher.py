@@ -42,12 +42,18 @@ def forwarded_args():
     return args
 
 
-def submodule_dir(path):
-    """登録された submodule (インデックス上の gitlink) の作業ツリーのディレクトリ。初期化されていなければ UserError。"""
+def check_submodule(path):
+    """登録された submodule (インデックス上の gitlink) のパスとして安全な形にする。登録されていなければ UserError。"""
     path = validate_file_path(path, allow_empty=False)
     entries = [e for e in git("ls-files", "-s", "-z", "--", path, literal=True).split("\0") if e]
     if len(entries) != 1 or not entries[0].startswith("160000 "):
         raise UserError("submodule_not_found", path=path)
+    return path
+
+
+def submodule_dir(path):
+    """登録された submodule の作業ツリーのディレクトリ。初期化されていなければ UserError。"""
+    path = check_submodule(path)
     target = os.path.join(state.REPO, *path.split("/"))
     if os.path.islink(target) or not os.path.exists(os.path.join(target, ".git")):
         raise UserError("submodule_not_initialized", path=path)
@@ -129,4 +135,4 @@ def api_submodule_open(body):
     return {"ok": True, "port": port, "message": tr("submodule_opened_window" if window else "submodule_opened", path=path)}
 
 
-__all__ = ["FLAG_OPTIONS", "api_submodule_open", "forwarded_args", "free_port", "submodule_dir"]
+__all__ = ["FLAG_OPTIONS", "api_submodule_open", "check_submodule", "forwarded_args", "free_port", "submodule_dir"]

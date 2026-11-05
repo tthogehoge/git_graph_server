@@ -71,6 +71,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.test_git_graph_server.InputV
 | `git_graph/history.py` | ログ・ブランチ・タグ・reflog・stash 一覧・コミット詳細・比較・差分の route。git からの読み取りは `query/history.py` に任せ、ここは query 文字列を読んで JSON を返す薄い層。 |
 | `git_graph/external.py` | 外部エディタ / 外部差分ツールの起動 (`/api/open-editor`、`/api/open-diff`)。`--desktop` かつ書き込み有効かつループバックのときだけ動き、設定ファイル (`git_graph_server.json`) のコマンド配列を、シェルを通さずに実行します。コミットやインデックスの内容は読み取り専用の一時ファイルにして渡し、作業ツリーのファイルはそのまま渡します。 |
 | `git_graph/launcher.py` | submodule を別プロセスで開く (`/api/submodule-open`)。サーバーの状態 (`app_state`) はプロセスに1つなので、submodule は同じプロセスで切り替えず、子のサーバーを起動する。ポートは共有できないので、空いているポートを選んで `--port` で渡し、待ち受けを確認してからポートを画面へ返す (画面が新しいタブで開く)。pywebview のように子が自分のウィンドウを開く方式は、`app_state.CHILD_CMD` に起動コマンドを返す関数を設定する (ポートは渡さない)。子へはオプションを引き継ぐが (`forwarded_args`)、リポジトリ・リビジョン・`--port` は引き継がない。同じ submodule の子が生きていれば使い回す。リポジトリを変更しないので `engine.IGNORED` に入れてあり、`--read-only` でもローカルからは使える (`server.py` の `LOCAL_PATHS`)。 |
+| `git_graph/submodules.py` | 選んだ submodule の更新 (`/api/submodule-update`。`git submodule update --init [--remote]`)。1 つずつ実行して結果を返し、実行の前にすべてのパスが登録済み (gitlink) か確認する。submodule の中身は別のリポジトリで、engine の元に戻す記録では戻せないので `engine.IGNORED` に入れてある (`--force` は使わず、編集中のファイルは上書きしない)。 |
 | `git_graph/textcodec.py` | バイト列の文字コード判別と保存時エンコード。git / HTTP に依存しない。 |
 | `git_graph/files.py` | ファイルの route (tree/file/blame は `query/files.py`)、作業ツリーへの保存・コピー、パッチの作成と適用。文字コードは `textcodec.py`。 |
 | `git_graph/pages.py` | `/diff`(差分ページ)と `/files`(ファイル表示ページ)の HTML を組み立てます。 |
