@@ -205,14 +205,42 @@ function submoduleRecursive() {
   const el = document.getElementById("submoduleRecursive");
   return !!(el && el.checked);
 }
+// HTTP 認証が必要だと返されたら、origin (接続先) ごとに認証情報を尋ね、そのパスだけをやり直す。
+// 入力した認証情報は、サーバーが、その origin の質問にだけ使う。更新・fetch は結果を、パスごとに最後のものへ入れ替えて返す。
+async function postSubmoduleWithAuth(url, body, doneKey) {
+  let r = await post(url, body);
+  if (!r.auth_required) return r;
+  const merged = new Map((r.results || []).map(x => [x.path, x]));
+  const asked = new Set(), pending = (r.auth_requests || []).slice();
+  while (pending.length) {
+    const req = pending.shift();
+    if (asked.has(req.origin)) continue;  // 同じ接続先を 2 度は尋ねない (認証に失敗した結果は、そのまま失敗として出す)
+    asked.add(req.origin);
+    const auth = await openActionDialog(t("http_auth") + " — " + req.origin,
+      '<label>' + esc(t("auth_username")) + '<input name="username" autocomplete="username" autofocus></label>' +
+      '<label>' + esc(t("auth_password")) + '<input type="password" name="password" autocomplete="current-password"></label>',
+      t("authenticate"));
+    if (!auth) {
+      for (const p of (req.paths || [])) merged.set(p, {path: p, ok: false, error: t("submodule_auth_cancelled")});
+      if (!req.paths) throw new Error(t("submodule_auth_cancelled"));  // 追加: そのまま取りやめる
+      continue;
+    }
+    r = await post(url, Object.assign({}, body, req.paths ? {paths: req.paths} : {}, {auth: auth, auth_origin: req.origin}));
+    for (const x of (r.results || [])) merged.set(x.path, x);
+    for (const q of (r.auth_requests || [])) pending.push(q);  // 入れ子の submodule が別のホストを求めた
+    if (!r.results) return r;  // 追加: 結果はそのまま
+  }
+  const results = Array.from(merged.values()), done = results.filter(x => x.ok).length;
+  return {ok: done === results.length, results: results, message: t(doneKey, {done: done, total: results.length})};
+}
 // 選んだ submodule に対して、url の API を 1 回呼ぶ (更新・fetch)。結果は一覧の上に出し、一覧の行は読み直す
-function runSubmoduleBatch(url, extra, confirmKey, workingKey) {
+function runSubmoduleBatch(url, extra, confirmKey, workingKey, doneKey) {
   const paths = selectedSubmodules();
   if (!paths.length || submoduleBusy) return;
   if (confirmKey && !confirm(t(confirmKey, {n: paths.length}))) return;
   submoduleBusy = true; syncSubmoduleSel();
   submoduleMessage(esc(t(workingKey, {n: paths.length})));
-  post(url, Object.assign({paths: paths, recursive: submoduleRecursive()}, extra)).then(async r => {
+  postSubmoduleWithAuth(url, Object.assign({paths: paths, recursive: submoduleRecursive()}, extra), doneKey).then(async r => {
     const failed = r.results.filter(x => !x.ok).map(x => "<div>" + esc(x.path) + ": " + esc(x.error) + "</div>").join("");
     submoduleBusy = false;
     await reloadSubmoduleRows().catch(() => {});
@@ -222,10 +250,10 @@ function runSubmoduleBatch(url, extra, confirmKey, workingKey) {
 }
 function updateSubmodules(remote) {
   runSubmoduleBatch("/api/submodule-update", {remote: remote},
-                    remote ? "submodule_confirm_update_remote" : "submodule_confirm_update", "submodule_updating");
+                    remote ? "submodule_confirm_update_remote" : "submodule_confirm_update", "submodule_updating", "submodule_update_done");
 }
 function fetchSubmodules() {
-  runSubmoduleBatch("/api/submodule-fetch", {}, "", "submodule_fetching");
+  runSubmoduleBatch("/api/submodule-fetch", {}, "", "submodule_fetching", "submodule_fetch_done");
 }
 function addSubmodule() {
   const val = id => (document.getElementById(id) || {}).value || "";
@@ -236,7 +264,7 @@ function addSubmodule() {
   const go = document.getElementById("submoduleAddGo");
   if (go) go.disabled = true;
   submoduleMessage(esc(t("submodule_adding", {path: path})));
-  post("/api/submodule-add", {url: url, path: path, branch: branch, recursive: submoduleRecursive()}).then(async r => {
+  postSubmoduleWithAuth("/api/submodule-add", {url: url, path: path, branch: branch, recursive: submoduleRecursive()}, "").then(async r => {
     for (const id of ["smAddUrl", "smAddPath", "smAddBranch"]) { const el = document.getElementById(id); if (el) { el.value = ""; delete el.dataset.touched; } }
     await reloadSubmoduleRows().catch(() => {});
     refreshGraph().catch(() => {});  // WIP の変更 (.gitmodules など) を反映する

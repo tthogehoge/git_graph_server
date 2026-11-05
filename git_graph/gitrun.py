@@ -2,6 +2,7 @@ import os
 import re
 import shutil
 import subprocess
+from urllib.parse import urlsplit
 from . import app_state as state
 from . import tmpdir
 from .i18n import tr, UserError
@@ -65,11 +66,32 @@ NET_TIMEOUT = 300
 
 HTTP_AUTH_CACHE = {}
 
-def run_git_net(*args, timeout=None, auth=None, c_locale=False):
+# GIT_ASKPASS に使う小さなスクリプト。質問 ("Username for 'https://host': " / "Password for 'https://user@host': ") の先頭で、
+# ユーザー名かパスワードかを決める (URL の中のユーザー名に "user" が含まれていても取り違えない)。
+# GIT_GRAPH_HTTP_HOST があるときは、質問の URL のホストがそれと一致するときだけ答える (一致しなければ空を返して認証を失敗させる)。
+ASKPASS_SCRIPT = """#!/usr/bin/env python3
+import os, re, sys
+from urllib.parse import urlsplit
+prompt = sys.argv[1] if len(sys.argv) > 1 else ''
+want = os.environ.get('GIT_GRAPH_HTTP_HOST', '').lower()
+if want:
+    m = re.search(r"'([^']*)'", prompt)
+    try:
+        host = (urlsplit(m.group(1)).hostname or '').lower() if m else ''
+    except ValueError:
+        host = ''
+    if host != want:
+        print('')
+        sys.exit(0)
+print(os.environ.get('GIT_GRAPH_HTTP_USERNAME' if prompt.lower().startswith('username') else 'GIT_GRAPH_HTTP_PASSWORD', ''))
+"""
+
+def run_git_net(*args, timeout=None, auth=None, auth_host=None, c_locale=False):
     """リモートと通信する git を実行する。
     SSH の未知ホストは初回だけ known_hosts に登録し、登録済みホストの
     鍵が変わった場合は SSH に拒否させる。必要なら一時的な HTTP 認証用
     askpass を使う。c_locale=True なら、メッセージを解析できるよう C ロケールで実行する。
+    auth_host を指定すると、askpass はそのホストの質問にだけ答える (入れ子の submodule など、別のホストへ認証情報を渡さないため)。
     """
     env = dict(os.environ, GIT_TERMINAL_PROMPT="0")
     if c_locale:  # 失敗時のメッセージを解析するための再実行用
@@ -86,11 +108,11 @@ def run_git_net(*args, timeout=None, auth=None, c_locale=False):
         askpass_dir = tmpdir.make_temp_dir("askpass")
         askpass = os.path.join(askpass_dir, "askpass.py")
         with open(askpass, "w", encoding="utf-8") as f:
-            f.write("#!/usr/bin/env python3\nimport os, sys\np = (sys.argv[1] if len(sys.argv) > 1 else '').lower()\nprint(os.environ.get('GIT_GRAPH_HTTP_USERNAME' if 'username' in p or 'user' in p else 'GIT_GRAPH_HTTP_PASSWORD', ''))\n")
+            f.write(ASKPASS_SCRIPT)
         os.chmod(askpass, 0o700)
         env.update(GIT_ASKPASS=askpass,
                    GIT_GRAPH_HTTP_USERNAME=auth.get("username", ""),
-                   GIT_GRAPH_HTTP_PASSWORD=auth.get("password", ""))
+                   GIT_GRAPH_HTTP_PASSWORD=auth.get("password", ""), GIT_GRAPH_HTTP_HOST=auth_host or "")
     try:
         return subprocess.run(["git", "-C", state.REPO, *args], capture_output=True, text=True,
                               encoding="utf-8", errors="replace", env=env, timeout=timeout,
@@ -113,6 +135,58 @@ def is_http_auth_error(r):
         "terminal prompts disabled", "http 401", "http 403",
     ))
 
+def http_origin(text):
+    """text の中で最初に現れる http(s) の URL の、scheme://host[:port] (小文字・認証情報なし)。なければ None。"""
+    m = re.search(r"https?://[^\s'\"<>]+", text or "")
+    if not m:
+        return None
+    try:
+        u = urlsplit(m.group(0))
+        port = u.port
+    except ValueError:
+        return None
+    if not u.hostname:
+        return None
+    host = u.hostname.lower()
+    if ":" in host:
+        host = "[" + host + "]"
+    return u.scheme.lower() + "://" + host + (":%d" % port if port else "")
+
+
+def auth_origin_from_error(r):
+    """認証に失敗したときの git のメッセージから、認証が必要だった origin を取り出す。"""
+    return http_origin((r.stderr or "") + "\n" + (r.stdout or ""))
+
+
+def run_git_net_origin(*args, auth=None, origin=None, timeout=None):
+    """HTTP 認証が必要かもしれない git を、origin (scheme://host[:port]) 単位に認証情報を使い分けて実行する。
+    auth / origin: 明示された認証情報と、その認証情報を使う origin。ほかの origin には渡さない。
+    認証が必要になったら、覚えている認証情報 (HTTP_AUTH_CACHE。キーは origin) で 1 回だけ再実行する。
+    戻り値: (結果, need)。need は、認証が必要なのに使える認証情報が無かった origin (そうでなければ None)。
+    明示された認証情報で失敗したときは、need は None のまま失敗として返し、覚えていた認証情報も捨てる。"""
+    explicit = auth if (auth and origin) else None
+    r = run_git_net(*args, auth=explicit, auth_host=urlsplit(origin).hostname if explicit else None, timeout=timeout)
+    if r.returncode == 0:
+        if explicit:
+            HTTP_AUTH_CACHE[origin] = {"username": explicit.get("username", ""), "password": explicit.get("password", "")}
+        return r, None
+    if not is_http_auth_error(r):
+        return r, None
+    need = auth_origin_from_error(r)
+    if not need:
+        return r, None
+    if explicit and need == origin:
+        HTTP_AUTH_CACHE.pop(origin, None)
+        return r, None
+    cached = HTTP_AUTH_CACHE.get(need)
+    if cached:
+        r2 = run_git_net(*args, auth=cached, auth_host=urlsplit(need).hostname, timeout=timeout)
+        if r2.returncode == 0 or not is_http_auth_error(r2):
+            return r2, None
+        HTTP_AUTH_CACHE.pop(need, None)
+    return r, need
+
+
 def auth_for_remote(remote, body):
     """明示された認証情報を優先し、なければアプリ実行中のキャッシュを使う。"""
     if body.get("auth") and (body.get("auth_remote") is None or body.get("auth_remote") == remote):
@@ -126,7 +200,7 @@ def remember_auth(remote, auth):
 
 __all__ = [
     "HASH_RE", "HTTP_AUTH_CACHE", "NET_TIMEOUT", "auth_for_remote",
-    "check_ref_name", "git", "git_bytes", "git_c_locale", "is_http_auth_error",
-    "is_loopback", "net_error", "remember_auth", "resolve_commit", "run_git_net",
+    "ASKPASS_SCRIPT", "auth_origin_from_error", "check_ref_name", "git", "git_bytes", "git_c_locale", "http_origin", "is_http_auth_error",
+    "is_loopback", "net_error", "remember_auth", "resolve_commit", "run_git_net", "run_git_net_origin",
     "run_git_write",
 ]

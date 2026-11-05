@@ -610,6 +610,8 @@
   "submodule_add_failed": "submodule を追加できませんでした: {error}",
   "submodule_add_recursive_failed": "入れ子の submodule の取得に失敗しました: {error}",
   "submodule_url_and_path_required": "URL とパスを入力してください",
+  "submodule_auth_needed": "{origin} の HTTP 認証が必要です",
+  "submodule_auth_cancelled": "認証をキャンセルしました",
   "submodule_status_ok": "OK",
   "submodule_status_modified": "変更あり",
   "submodule_status_uninitialized": "未初期化",

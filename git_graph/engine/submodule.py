@@ -1,8 +1,9 @@
 # submodule の追加 (git submodule add)。インデックスと .gitmodules を変えるので、engine の操作として履歴に積む。
 # 元に戻すと、インデックスと .gitmodules は戻る。取得したディレクトリは (中身を勝手に消さないため) 残り、同じ場所へ追加し直せる。
 # 引数を受け取って git を実行し、結果を dict で返す。HTTP の body も、画面に出す文言の組み立ても route 側の仕事。
+# HTTP 認証が必要なときは {"auth_required": True, "auth_origin": scheme://host[:port]} を返す (何も変わっていない。画面が認証情報を尋ねて、やり直す)。
 import re
-from ..gitrun import check_ref_name, net_error, run_git_net
+from ..gitrun import check_ref_name, http_origin, net_error, run_git_net_origin
 from ..i18n import tr, UserError
 from ..query.files import validate_file_path
 from . import operation
@@ -23,9 +24,10 @@ def check_submodule_url(url):
 
 
 @operation("submodule_add", touches_worktree="names", detail=lambda url, path, *_, **__: path if isinstance(path, str) else "")
-def add_submodule(url, path, *, branch="", recursive=False):
+def add_submodule(url, path, *, branch="", recursive=False, auth=None, auth_origin=None):
     """submodule を追加する (git submodule add [-b branch] -- url path)。recursive なら、続けて入れ子の submodule も取得する
-    (取得に失敗しても、追加は済んでいる)。戻り値: {"path", "nested_error": 入れ子の取得の失敗の内容 (なければ空)}。"""
+    (取得に失敗しても、追加は済んでいる)。auth / auth_origin は、HTTP 認証の情報とその origin (ほかの origin には渡さない)。
+    戻り値: {"path", "nested_error": 入れ子の取得の失敗の内容 (なければ空)} / 認証が必要なとき {"auth_required": True, "auth_origin"}。"""
     url = check_submodule_url(url)
     if not isinstance(path, str) or not isinstance(branch, str):
         raise ValueError("bad request")
@@ -34,12 +36,17 @@ def add_submodule(url, path, *, branch="", recursive=False):
     if branch:
         check_ref_name("branch", branch)
     args = ["-c", "protocol.ext.allow=never", "submodule", "add"] + (["-b", branch] if branch else []) + ["--", url, path]
-    r = run_git_net(*args)
+    r, need = run_git_net_origin(*args, auth=auth, origin=auth_origin or http_origin(url))
+    if need:
+        return {"auth_required": True, "auth_origin": need}
     if r.returncode != 0:
         raise UserError("submodule_add_failed", error=net_error(r, tr("git_command_failed")))
     nested_error = ""
     if recursive:
-        r = run_git_net("submodule", "update", "--init", "--recursive", "--", ":(literal)" + path)
-        if r.returncode != 0:
+        r, need = run_git_net_origin("submodule", "update", "--init", "--recursive", "--", ":(literal)" + path,
+                                     auth=auth, origin=auth_origin or http_origin(url))
+        if need:  # 入れ子が別のホストで認証を求めた。追加は済んでいるので、あとで「更新」から取得してもらう
+            nested_error = tr("submodule_auth_needed", origin=need)
+        elif r.returncode != 0:
             nested_error = net_error(r, tr("git_command_failed"))
     return {"path": path, "nested_error": nested_error}

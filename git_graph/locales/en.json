@@ -610,6 +610,8 @@
   "submodule_add_failed": "Could not add the submodule: {error}",
   "submodule_add_recursive_failed": "Could not fetch the nested submodules: {error}",
   "submodule_url_and_path_required": "Enter a URL and a path",
+  "submodule_auth_needed": "HTTP authentication is required for {origin}",
+  "submodule_auth_cancelled": "Authentication was cancelled",
   "submodule_status_ok": "OK",
   "submodule_status_modified": "modified",
   "submodule_status_uninitialized": "uninitialized",
