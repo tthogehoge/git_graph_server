@@ -22,7 +22,8 @@ html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-s
   #compareToolbar button.cmp-hash-btn:hover { text-decoration: underline; }
   .menu-check { display: inline-flex; align-items: center; gap: 4px; user-select: none; }
   .menu-check input { margin: 0; cursor: pointer; }
-  .dropdown .menu-check { cursor: pointer; }
+  .dropdown .menu-check { cursor: pointer; align-self: stretch; }
+  .dropdown label.abtn { text-align: left; }
   #reload.busy svg { animation: spin 1s linear infinite; }
   body.node-dragging, body.node-dragging svg g.node { cursor: grabbing; user-select: none; -webkit-user-select: none; }
   g.node.drag-src, tr.drag-src { opacity: .55; }
@@ -98,7 +99,7 @@ html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-s
   .actions { border: 1px solid #ddd; background: #fafafa; border-radius: 4px; padding: 8px; margin: 8px 0; }
   .actions .arow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0; }
   .actions input[type=text] { padding: 3px 6px; border: 1px solid #bbb; border-radius: 3px; min-width: 0; flex: 1; }
-  .abtn { display: inline-block; background: #e8eefc; border: 1px solid #b8c7ee; padding: 3px 8px; border-radius: 3px; cursor: pointer; text-decoration: none; color: inherit; }
+  .abtn { display: inline-block; background: #e8eefc; border: 1px solid #b8c7ee; padding: 3px 8px; border-radius: 3px; cursor: pointer; text-decoration: none; color: inherit; font: inherit; box-sizing: border-box; }
   .abtn[aria-disabled="true"] { opacity: .5; cursor: default; pointer-events: none; }
   .abtn:hover { background: #d6e2fb; } .abtn:disabled { opacity: .5; cursor: default; }
   .detail-actions { display: flex; flex-wrap: wrap; gap: 2px 12px; margin: 0 0 8px; }
