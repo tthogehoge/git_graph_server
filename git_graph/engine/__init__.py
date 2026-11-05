@@ -43,7 +43,7 @@ WRITE_OPS = {
 IGNORED = {
     "/api/shutdown", "/api/restart", "/api/commit-graph",
     "/api/open-editor", "/api/open-diff", "/api/file-copy", "/api/submodule-open",  # リポジトリを変更しない
-    "/api/submodule-update",  # submodule の中身は別のリポジトリなので、元に戻す対象外
+    "/api/submodule-update", "/api/submodule-fetch",  # submodule の中身は別のリポジトリなので、元に戻す対象外
     "/api/find-equivalent-parents", "/api/find-equivalent-branch",  # POST だが読み取りだけ
     "/api/undo", "/api/redo",
 }
@@ -57,6 +57,7 @@ LABEL_KEYS = {
     "discard": "op_label_discard", "rm": "op_label_rm", "commit": "op_label_commit", "fetch": "op_label_fetch",
     "pull": "op_label_pull", "remote_add": "op_label_remote_add", "remote_remove": "op_label_remote_remove",
     "patch_apply": "op_label_patch_apply", "patch_am": "op_label_patch_am", "file_save": "op_label_file_save",
+    "submodule_add": "op_label_submodule_add",
 }
 
 

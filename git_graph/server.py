@@ -42,7 +42,7 @@ from .history import (  # noqa: F401
 )
 from .external import DEFAULT_CONFIG_PATH, load_config
 from .launcher import api_submodule_open  # noqa: F401
-from .submodules import api_submodule_update  # noqa: F401
+from .submodules import api_submodule_add, api_submodule_fetch, api_submodule_update  # noqa: F401
 from . import engine, tmpdir
 from .pages import diff_url, render_diff_page, render_files_page, wip_files
 from .wip import api_status, api_wip_commit  # noqa: F401

@@ -134,7 +134,15 @@ function showSubmoduleList() {
   const bar = submoduleWritable()
     ? '<div class="submodule-bar"><label><input type="checkbox" id="submoduleAll"> ' + esc(t("submodule_select_all")) + "</label> " +
       '<button class="sbtn" id="submoduleUpdateBtn" disabled title="' + esc(t("submodule_update_tip")) + '">' + esc(t("submodule_update")) + "</button> " +
-      '<button class="sbtn" id="submoduleUpdateRemoteBtn" disabled title="' + esc(t("submodule_update_remote_tip")) + '">' + esc(t("submodule_update_remote")) + "</button></div>"
+      '<button class="sbtn" id="submoduleUpdateRemoteBtn" disabled title="' + esc(t("submodule_update_remote_tip")) + '">' + esc(t("submodule_update_remote")) + "</button> " +
+      '<button class="sbtn" id="submoduleFetchBtn" disabled title="' + esc(t("submodule_fetch_tip")) + '">' + esc(t("submodule_fetch")) + "</button> " +
+      '<label title="' + esc(t("submodule_recursive_tip")) + '"><input type="checkbox" id="submoduleRecursive"> ' + esc(t("submodule_recursive")) + "</label> " +
+      '<button class="sbtn" id="submoduleAddToggle" title="' + esc(t("submodule_add_tip")) + '">' + esc(t("submodule_add_toggle")) + "</button></div>" +
+      '<div class="submodule-bar" id="submoduleAddForm" hidden>' +
+      '<input id="smAddUrl" size="42" placeholder="' + esc(t("submodule_add_url")) + '"> ' +
+      '<input id="smAddPath" size="22" placeholder="' + esc(t("submodule_add_path")) + '"> ' +
+      '<input id="smAddBranch" size="16" placeholder="' + esc(t("submodule_add_branch")) + '"> ' +
+      '<button class="sbtn" id="submoduleAddGo">' + esc(t("submodule_add_go")) + "</button></div>"
     : "";
   showLog(t("submodule_list_title"), "",
           '<div class="meta">' + esc(t("submodule_list_help")) + "</div>" + bar + '<div class="meta" id="submoduleMsg"></div>',
@@ -176,7 +184,7 @@ function selectedSubmodules() {
 }
 function syncSubmoduleSel() {  // 選択数に合わせて、更新ボタンと全選択の状態を更新する
   const all = Array.from(listView.querySelectorAll("input.submodule-sel")), n = all.filter(el => el.checked).length;
-  for (const id of ["submoduleUpdateBtn", "submoduleUpdateRemoteBtn"]) {
+  for (const id of ["submoduleUpdateBtn", "submoduleUpdateRemoteBtn", "submoduleFetchBtn"]) {
     const b = document.getElementById(id);
     if (b) b.disabled = n === 0 || submoduleBusy;
   }
@@ -193,13 +201,18 @@ async function reloadSubmoduleRows() {  // 履歴を増やさずに、一覧の�
   syncSubmoduleSel();
 }
 let submoduleBusy = false;
-function updateSubmodules(remote) {
+function submoduleRecursive() {
+  const el = document.getElementById("submoduleRecursive");
+  return !!(el && el.checked);
+}
+// 選んだ submodule に対して、url の API を 1 回呼ぶ (更新・fetch)。結果は一覧の上に出し、一覧の行は読み直す
+function runSubmoduleBatch(url, extra, confirmKey, workingKey) {
   const paths = selectedSubmodules();
   if (!paths.length || submoduleBusy) return;
-  if (!confirm(t(remote ? "submodule_confirm_update_remote" : "submodule_confirm_update", {n: paths.length}))) return;
+  if (confirmKey && !confirm(t(confirmKey, {n: paths.length}))) return;
   submoduleBusy = true; syncSubmoduleSel();
-  submoduleMessage(esc(t("submodule_updating", {n: paths.length})));
-  post("/api/submodule-update", {paths: paths, remote: remote}).then(async r => {
+  submoduleMessage(esc(t(workingKey, {n: paths.length})));
+  post(url, Object.assign({paths: paths, recursive: submoduleRecursive()}, extra)).then(async r => {
     const failed = r.results.filter(x => !x.ok).map(x => "<div>" + esc(x.path) + ": " + esc(x.error) + "</div>").join("");
     submoduleBusy = false;
     await reloadSubmoduleRows().catch(() => {});
@@ -207,6 +220,40 @@ function updateSubmodules(remote) {
   }).catch(e => submoduleMessage('<span style="color:#b00">' + esc(t("error") + e.message) + "</span>"))
     .finally(() => { submoduleBusy = false; syncSubmoduleSel(); });
 }
+function updateSubmodules(remote) {
+  runSubmoduleBatch("/api/submodule-update", {remote: remote},
+                    remote ? "submodule_confirm_update_remote" : "submodule_confirm_update", "submodule_updating");
+}
+function fetchSubmodules() {
+  runSubmoduleBatch("/api/submodule-fetch", {}, "", "submodule_fetching");
+}
+function addSubmodule() {
+  const val = id => (document.getElementById(id) || {}).value || "";
+  const url = val("smAddUrl").trim(), path = val("smAddPath").trim(), branch = val("smAddBranch").trim();
+  if (!url || !path) { submoduleMessage(esc(t("submodule_url_and_path_required"))); return; }
+  if (submoduleBusy) return;
+  submoduleBusy = true; syncSubmoduleSel();
+  const go = document.getElementById("submoduleAddGo");
+  if (go) go.disabled = true;
+  submoduleMessage(esc(t("submodule_adding", {path: path})));
+  post("/api/submodule-add", {url: url, path: path, branch: branch, recursive: submoduleRecursive()}).then(async r => {
+    for (const id of ["smAddUrl", "smAddPath", "smAddBranch"]) { const el = document.getElementById(id); if (el) { el.value = ""; delete el.dataset.touched; } }
+    await reloadSubmoduleRows().catch(() => {});
+    refreshGraph().catch(() => {});  // WIP の変更 (.gitmodules など) を反映する
+    submoduleMessage('<span style="color:#080">' + esc(r.message).replace(/\n/g, "<br>") + "</span>");
+  }).catch(e => submoduleMessage('<span style="color:#b00">' + esc(t("error") + e.message) + "</span>"))
+    .finally(() => { submoduleBusy = false; syncSubmoduleSel(); if (go) go.disabled = false; });
+}
+// URL から、追加先のパスの案 (最後の要素から .git を除いたもの) を入れる。パスを自分で入力したあとは触らない
+listView.addEventListener("input", ev => {
+  const el = ev.target;
+  if (el.id === "smAddPath") { el.dataset.touched = "1"; return; }
+  if (el.id !== "smAddUrl") return;
+  const pathEl = document.getElementById("smAddPath");
+  if (!pathEl || pathEl.dataset.touched) return;
+  const last = el.value.trim().replace(/[\/:]+$/, "").split(/[\/:]/).pop() || "";
+  pathEl.value = last.replace(/\.git$/, "");
+});
 listView.addEventListener("change", ev => {
   if (ev.target.id === "submoduleAll") {
     for (const el of listView.querySelectorAll("input.submodule-sel")) el.checked = ev.target.checked;
@@ -218,6 +265,13 @@ listView.addEventListener("change", ev => {
 listView.addEventListener("click", ev => {
   if (ev.target.closest("#submoduleUpdateBtn")) { updateSubmodules(false); return; }
   if (ev.target.closest("#submoduleUpdateRemoteBtn")) { updateSubmodules(true); return; }
+  if (ev.target.closest("#submoduleFetchBtn")) { fetchSubmodules(); return; }
+  if (ev.target.closest("#submoduleAddToggle")) {
+    const f = document.getElementById("submoduleAddForm");
+    if (f) { f.hidden = !f.hidden; if (!f.hidden) document.getElementById("smAddUrl").focus(); }
+    return;
+  }
+  if (ev.target.closest("#submoduleAddGo")) { addSubmodule(); return; }
   const tr = ev.target.closest("tr.submodule-row");
   if (!tr || ev.detail > 1 || ev.target.closest("td.sel")) return;  // チェック欄のクリックでは開かない
   if (!tr.dataset.init) { submoduleMessage(esc(t("submodule_uninit_tip"))); return; }

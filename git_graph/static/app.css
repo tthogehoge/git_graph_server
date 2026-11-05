@@ -153,6 +153,7 @@ html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-s
   table.log tr.submodule-row.uninit { color: #888; }
   table.log td.sel { width: 1%; text-align: center; }
   .submodule-bar { margin: 6px 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .submodule-bar[hidden] { display: none; }
   table.log tr.cur td,
   table.log tr.actionTarget td { background: #ffe4e1; }
   table.log tr.oph-undone td { opacity: .5; }
