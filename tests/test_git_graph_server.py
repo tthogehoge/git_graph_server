@@ -3362,3 +3362,45 @@ class ExternalAppsTests(unittest.TestCase):
         self.assertNotIn('id="wipBtn"', index[index.index('id="remoteActions"'):index.index('id="abActionsWrap"')])  # WIP は2行目へ移動
         reload_btn = index[index.index('id="reload"'):]
         self.assertTrue(reload_btn[:reload_btn.index("</button>")].count("<svg") == 1)  # 更新ボタンはアイコン
+
+
+class EmptyRepoTests(unittest.TestCase):
+    def test_empty_repo_shows_wip_and_allows_commit(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            subprocess.run(["git", "init", "-q", tmpdir], check=True)
+            old_repo, old_wip, old_opts, old_writable, old_worktree = (
+                state.REPO, state.WIP_ENABLED, state.OPTS, state.WRITABLE, state.HAS_WORKTREE
+            )
+            try:
+                state.REPO = tmpdir
+                state.WIP_ENABLED = True
+                state.WRITABLE = True
+                state.HAS_WORKTREE = True
+                state.OPTS = SimpleNamespace(
+                    revs=[], no_remotes=False, no_tags=False, no_stash=False, no_count=False,
+                    rankdir="BT", font="Helvetica", cluster_min_nodes=0, full_layout=False,
+                    merge_max_nodes=100
+                )
+                payload = graph_module.graph_payload({})
+                self.assertIn("WIP", payload["nodes"])
+                self.assertTrue(payload["nodes"]["WIP"]["wip"])
+                self.assertEqual(payload["edges"], {})
+                self.assertIn("WIP", payload["svg"])
+
+                with open(os.path.join(tmpdir, "initial.txt"), "w") as f:
+                    f.write("hello\n")
+
+                payload_changed = graph_module.graph_payload({})
+                self.assertEqual(payload_changed["nodes"]["WIP"]["count"], 1)
+
+                res = app.api_wip_commit({"message": "Initial commit", "paths": ["initial.txt"]})
+                self.assertTrue(res.get("ok"))
+
+                payload_after = graph_module.graph_payload({})
+                head = subprocess.check_output(["git", "-C", tmpdir, "rev-parse", "HEAD"], text=True).strip()
+                self.assertIn(head, payload_after["nodes"])
+                self.assertIn("WIP", payload_after["nodes"])
+            finally:
+                state.REPO, state.WIP_ENABLED, state.OPTS, state.WRITABLE, state.HAS_WORKTREE = (
+                    old_repo, old_wip, old_opts, old_writable, old_worktree
+                )

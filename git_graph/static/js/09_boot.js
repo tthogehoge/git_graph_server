@@ -1,7 +1,10 @@
 // ---- グラフの読み込み (サーバー側の作成に時間がかかるので、読み込み中画面を出す) ----
 function scrollToHead() {  // HEAD ノードをクリックしたのと同じ: 選択・中央表示・右ペインにログ
-  const head = Object.values(DATA.nodes).find(n => n.refs.some(ref => ref.kind === "head"));
-  if (!head) return;
+  const head = Object.values(DATA.nodes).find(n => n.refs && n.refs.some(ref => ref.kind === "head"));
+  if (!head) {
+    if (DATA.nodes && DATA.nodes["WIP"]) openWip();
+    return;
+  }
   cmpActOpen = false; abActOpen = false; setOtherMenu(false);
   selectActionTarget(head.hash, true);
   if (nodeEl[head.hash]) select(nodeEl[head.hash]);

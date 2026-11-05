@@ -255,7 +255,10 @@ def add_wip(dot_text, nodes, head, count, anchor=None):
     anchor は線を引く先のノード名 (HEAD を含むクラスターが閉じているときは、そのクラスター)。"""
     label = ('<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3" STYLE="dashed" BGCOLOR="#fff8dc">'
              f'<TR><TD><B>WIP</B></TD></TR><TR><TD>{html.escape(tr("n_changes", n=count) if count else tr("wip_clean"))}</TD></TR></TABLE>>')
-    lines = f'  "WIP" [label={label}];\n  "{anchor or head}" -> "WIP" [style=dashed];\n'
+    parent = anchor or head
+    lines = f'  "WIP" [label={label}];\n'
+    if parent:
+        lines += f'  "{parent}" -> "WIP" [style=dashed];\n'
     i = dot_text.rindex("}")
     nodes = dict(nodes)
     nodes["WIP"] = {"hash": "WIP", "refs": [], "wip": True, "count": count}
@@ -359,7 +362,7 @@ def _dot_for(model, opts, head, wip_n, requested, minimal=False):
                  "clusterOf": cluster_of, "open": open_ids}
     else:
         dot_text, nodes, edges = render_plain(model, opts)
-    if wip_n is not None and head in model["keep"]:  # wip_n が None のときは WIP が無効。0 は変更なし (それでも WIP ノードは出す: パッチ適用などでファイル表示に入れるように)
+    if wip_n is not None and (head in model["keep"] or not model["keep"]):  # wip_n が None のときは WIP が無効。0 は変更なし (それでも WIP ノードは出す: パッチ適用などでファイル表示に入れるように)
         dot_text, nodes = add_wip(dot_text, nodes, head, wip_n, anchor)
     return dot_text, nodes, edges, extra
 
