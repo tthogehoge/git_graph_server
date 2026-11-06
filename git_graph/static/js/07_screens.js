@@ -297,17 +297,35 @@ document.addEventListener("keydown", ev => {
   clearSelection();
 });
 
-// ログ一覧でも詳細と同じく ↑/↓ で選択を上下に移す
+// ログ一覧でも詳細と同じく ↑/↓ で選択を上下に移し、Enter でコミット詳細を開く
 document.addEventListener("keydown", ev => {
   if (curView !== "list") return;
   if (document.body.classList.contains("compare-logs-mode")) return;  // 比較ログは左右2列なので対象外
-  if (ev.key !== "ArrowUp" && ev.key !== "ArrowDown") return;
+  if (ev.key !== "ArrowUp" && ev.key !== "ArrowDown" && ev.key !== "Enter") return;
   const tag = ev.target && ev.target.tagName;
   if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
   if (document.querySelector('[id$="Modal"]:not([hidden])')) return;
   if (anyMenuOpen()) return;
   const rows = listView.querySelectorAll("tr.clickable");
   if (!rows.length) return;
+  // Enter: 現在の選択行の詳細を開く
+  if (ev.key === "Enter") {
+    let tr = curRow;
+    if (!tr && actionHash) {
+      for (let i = 0; i < rows.length; i++) if (rows[i].dataset.h === actionHash) { tr = rows[i]; break; }
+    }
+    if (!tr || !tr.dataset.h) return;
+    ev.preventDefault();
+    syncGraphSelection(tr.dataset.h);
+    selectActionTarget(tr.dataset.h);
+    if (curRow) curRow.classList.remove("cur");
+    curRow = tr; tr.classList.add("cur");
+    cmpActOpen = false; abActOpen = false;
+    closeMenus();
+    updateCmpClasses();
+    showDetail(tr.dataset.h);
+    return;
+  }
   ev.preventDefault();
   let idx = -1;
   if (curRow) {
