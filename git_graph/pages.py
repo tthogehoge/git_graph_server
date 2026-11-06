@@ -42,7 +42,6 @@ REMOTE_TEXT_KEYS = (
     "co_blocked_op", "co_blocked_hint_op", "co_modified", "co_untracked_op", "co_hint_stash", "co_hint_discard",
     "co_stash_retry", "co_discard_retry",
 )
-FILES_CSS = read_asset("files.css")
 # ヘッダーのアイコンボタン。files.html / index.html にも同じ絵を直接書いてある
 _SVG = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">{p}</svg>'
 _ICON_GRAPH = _SVG.format(p='<path d="M2 8 8 2.5 14 8M3.8 7v6.5h3V10h2.4v3.5h3V7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>')
