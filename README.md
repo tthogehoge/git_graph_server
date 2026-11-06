@@ -3,6 +3,7 @@
 [日本語版 README](README_JP.md)
 
 Licensed under the [MIT License](LICENSE).
+Third-party licenses are listed in [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES).
 
 A Linux-oriented local browser UI for viewing Git commit graphs, logs, diffs, and working-tree changes. It also supports operations such as branch, tag, merge, rebase, and stash management.
 

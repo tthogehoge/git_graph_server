@@ -1,6 +1,7 @@
 # git_graph_server
 
 ライセンス: [MIT License](LICENSE)
+サードパーティのライセンスは [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES) を参照。
 
 Linux 向けのローカルサーバーです。Git のコミットグラフ、ログ、差分、作業ツリーの変更をブラウザで確認できます。ブランチ、タグ、merge、rebase、stash などの操作にも対応しています。
 
