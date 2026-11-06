@@ -294,6 +294,40 @@ document.addEventListener("keydown", ev => {
   if (document.querySelector('[id$="Modal"]:not([hidden])')) return;  // ダイアログを開いているあいだも解除しない
   clearSelection();
 });
+
+// ログ一覧でも詳細と同じく ↑/↓ で選択を上下に移す
+document.addEventListener("keydown", ev => {
+  if (curView !== "list") return;
+  if (document.body.classList.contains("compare-logs-mode")) return;  // 比較ログは左右2列なので対象外
+  if (ev.key !== "ArrowUp" && ev.key !== "ArrowDown") return;
+  const tag = ev.target && ev.target.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+  if (document.querySelector('[id$="Modal"]:not([hidden])')) return;
+  if (anyMenuOpen()) return;
+  const rows = listView.querySelectorAll("tr.clickable");
+  if (!rows.length) return;
+  ev.preventDefault();
+  let idx = -1;
+  if (curRow) {
+    for (let i = 0; i < rows.length; i++) if (rows[i] === curRow) { idx = i; break; }
+  } else if (actionHash) {
+    for (let i = 0; i < rows.length; i++) if (rows[i].dataset.h === actionHash) { idx = i; break; }
+  }
+  // 未選択時は ↓ で先頭、↑ で末尾から
+  if (idx < 0) idx = ev.key === "ArrowDown" ? -1 : rows.length;
+  const next = ev.key === "ArrowUp" ? idx - 1 : idx + 1;
+  if (next < 0 || next >= rows.length) return;
+  const tr = rows[next];
+  if (!tr.dataset.h) return;
+  syncGraphSelection(tr.dataset.h);
+  selectActionTarget(tr.dataset.h);
+  if (curRow) curRow.classList.remove("cur");
+  curRow = tr; tr.classList.add("cur");
+  cmpActOpen = false; abActOpen = false;
+  closeMenus();
+  updateCmpClasses();
+  tr.scrollIntoView({block: "nearest"});
+});
 function select(g) {
   if (selected) selected.classList.remove("sel");
   selected = g; g.classList.add("sel");
