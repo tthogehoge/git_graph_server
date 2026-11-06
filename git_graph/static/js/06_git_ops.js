@@ -251,6 +251,48 @@ async function doReset() {
     btn.disabled = false;
   }
 }
+async function doResetBranch() {  // AをBへリセット: A を先端に持つローカルブランチを B へ移動する
+  if (!compareAHash || !compareBHash) return;
+  const from = compareAHash, to = compareBHash, btn = document.getElementById("resetBranchBtn");
+  const names = localBranches(from).sort();
+  if (!names.length) { setGraphStatus(t("reset_branch_no_branch", {hash: from.slice(0, 7)}), "error"); return; }
+  const defaultBranch = names.includes(currentBranch) ? currentBranch : names[0];
+  const options = await openActionDialog(t("reset_branch"),
+    '<label>' + esc(t("reset_branch_select")) + '<select name="branch">' + names.map(name =>
+      '<option value="' + esc(name) + '"' + (name === defaultBranch ? " selected" : "") + '>' + esc(name) +
+      (name === currentBranch ? " (HEAD)" : "") + "</option>").join("") + '</select></label>' +
+    '<label id="resetModeField">' + esc(t("reset_mode")) + '<select name="mode">' +
+    '<option value="mixed" selected>' + esc(t("reset_opt_mixed")) + '</option>' +
+    '<option value="soft">' + esc(t("reset_opt_soft")) + '</option>' +
+    '<option value="hard">' + esc(t("reset_opt_hard")) + '</option>' +
+    '</select></label>', t("reset_submit"), {
+      onOpen: form => {  // 現在のブランチのときだけ、reset の方式を選ばせる (ほかのブランチは ref を動かすだけ)
+        const sel = form.elements.branch, field = form.querySelector("#resetModeField");
+        const update = () => { field.hidden = sel.value !== currentBranch; };
+        sel.addEventListener("change", update);
+        update();
+        return () => sel.removeEventListener("change", update);
+      }
+    });
+  if (!options) return;
+  const branch = options.branch, isCurrent = branch === currentBranch, mode = options.mode;
+  const ask = isCurrent
+    ? t({hard: "confirm_reset_hard", soft: "confirm_reset_soft", mixed: "confirm_reset_mixed"}[mode], {hash: to.slice(0, 7)})
+    : t("confirm_reset_branch", {branch: branch, hash: to.slice(0, 7)});
+  if (!confirm(ask)) return;
+  btn.disabled = true;
+  setGraphStatus(t("resetting"), "progress");
+  try {
+    const r = await post("/api/reset-branch", {from: from, to: to, branch: branch, mode: mode});
+    clearCmp();
+    setGraphStatus(r.message, "success");
+    await refreshGraph().catch(() => {});
+  } catch (e) {
+    setGraphStatus(t("reset_error", {error: e.message}), "error");
+  } finally {
+    btn.disabled = false;
+  }
+}
 async function doRebaseI() {  // 対話的リベース (git rebase -i 相当)
   if (!actionHash) return;
   const h = actionHash, btn = document.getElementById("irebaseBtn");

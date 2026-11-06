@@ -116,6 +116,49 @@ class EngineTests(unittest.TestCase):
         self.assertTrue(self.redo()["ok"])
         self.assertEqual(self.git("rev-parse", "refs/heads/feature").strip(), self.head)
 
+    def test_reset_branch_moves_other_branch_without_touching_worktree(self):
+        base = self.head
+        branch = self.git("branch", "--show-current").strip()
+        self.git("branch", "feature")
+        self.git("checkout", "-q", "feature")
+        second = self.commit_file("second.txt", "two\n", "second")
+        self.git("checkout", "-q", branch)
+        self.write("scratch.txt", "untracked\n")
+
+        r = self.do("/api/reset-branch", {"from": second, "to": base})
+        self.assertTrue(r["ok"])
+        self.assertEqual(self.git("rev-parse", "refs/heads/feature").strip(), base)
+        self.assertEqual(self.git("rev-parse", "HEAD").strip(), base)  # 現在のブランチは動かない
+        self.assertEqual(self.read("scratch.txt"), "untracked\n")
+
+        self.assertTrue(self.undo()["ok"])
+        self.assertEqual(self.git("rev-parse", "refs/heads/feature").strip(), second)
+        self.assertTrue(self.redo()["ok"])
+        self.assertEqual(self.git("rev-parse", "refs/heads/feature").strip(), base)
+
+    def test_reset_branch_on_current_branch_uses_reset_mode(self):
+        base = self.head
+        second = self.commit_file("second.txt", "two\n", "second")
+        self.do("/api/reset-branch", {"from": second, "to": base, "mode": "hard"})
+        self.assertEqual(self.git("rev-parse", "HEAD").strip(), base)
+        self.assertFalse(self.exists("second.txt"))
+        self.undo()
+        self.assertEqual(self.git("rev-parse", "HEAD").strip(), second)
+        self.assertTrue(self.exists("second.txt"))
+
+    def test_reset_branch_rejects_bad_input(self):
+        base = self.head
+        second = self.commit_file("second.txt", "two\n", "second")
+        with self.assertRaises(UserError) as ctx:  # A を先端に持つブランチが無い
+            self.do("/api/reset-branch", {"from": base, "to": second})
+        self.assertEqual(ctx.exception.key, "reset_branch_no_branch")
+        with self.assertRaises(UserError) as ctx:  # A の先端でないブランチは指定できない
+            self.do("/api/reset-branch", {"from": second, "to": base, "branch": "nope"})
+        self.assertEqual(ctx.exception.key, "reset_branch_no_branch")
+        with self.assertRaises(UserError) as ctx:
+            self.do("/api/reset-branch", {"from": second, "to": base, "mode": "bogus"})
+        self.assertEqual(ctx.exception.key, "reset_mode_invalid")
+
     def test_branch_delete_and_rename_undo(self):
         self.do("/api/branch", {"hash": self.head, "name": "old-name"})
         self.do("/api/branch-rename", {"old": "old-name", "new": "new-name"})

@@ -7,9 +7,10 @@ from ..gitrun import (
     check_ref_name, git, HTTP_AUTH_CACHE, is_http_auth_error, net_error, remember_auth, resolve_commit, run_git_net,
     run_git_write,
 )
-from ..gitstate import branch_config, has_head, is_operation_in_progress
+from ..gitstate import branch_config, has_head, head_state, is_operation_in_progress
 from ..i18n import tr, UserError
 from . import operation
+from ._ab_helpers import local_branches_at, pick_local_branch_at
 from .dirty import checkout_resolving
 from .remote import Auth
 
@@ -134,6 +135,33 @@ def reset(commit, mode="mixed"):
     before = git("rev-parse", "HEAD").strip() if has_head() else None
     run_git_write("reset", "--" + mode, h)
     return {"hash": h, "mode": mode, "moved": before != h}
+
+
+@operation("reset_branch", touches_worktree=True, detail=lambda a, b, *_, **__: b)
+def reset_branch(a, b, mode="mixed", branch=None):
+    """A を先端に持つローカルブランチを B へ移動する (A のブランチを B にリセット)。
+    そのブランチが現在のブランチなら git reset --soft / --mixed / --hard (mode)、そうでなければ git branch -f (mode は使わない。作業ツリーも変わらない)。
+    branch を指定したときは、A を先端に持つブランチでなければエラー。省略すると、現在のブランチを優先して選ぶ。
+    戻り値: {"branch", "from", "to", "mode" (現在のブランチのときだけ。ほかは None), "moved"}。"""
+    if mode not in ("soft", "mixed", "hard"):
+        raise UserError("reset_mode_invalid")
+    if is_operation_in_progress():
+        raise UserError("reset_blocked")
+    a = resolve_commit(a)
+    b = resolve_commit(b)
+    if branch:
+        branch = str(branch).strip()
+        check_ref_name("branch", branch)
+        if branch not in local_branches_at(a):
+            raise UserError("reset_branch_no_branch", hash=a[:7])
+    else:
+        branch = pick_local_branch_at(a, error_key="reset_branch_no_branch")
+    is_current = (head_state().get("branch") or "") == branch
+    if is_current:
+        run_git_write("reset", "--" + mode, b)
+    else:
+        run_git_write("branch", "-f", "--", branch, b)
+    return {"branch": branch, "from": a, "to": b, "mode": mode if is_current else None, "moved": a != b}
 
 
 @operation("branch_rename", touches_worktree=False, detail=lambda old, new, *_, **__: new)

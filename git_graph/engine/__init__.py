@@ -53,7 +53,7 @@ LABEL_KEYS = {
     "cherry_pick": "op_label_cherry_pick", "revert": "op_label_revert", "abort": "op_label_abort", "continue": "op_label_continue",
     "resolve": "op_label_resolve", "stash": "op_label_stash", "stash_push": "op_label_stash_push",
     "branch": "op_label_branch", "tag": "op_label_tag", "delete_ref": "op_label_delete_ref",
-    "branch_rename": "op_label_branch_rename", "checkout": "op_label_checkout", "reset": "op_label_reset",
+    "branch_rename": "op_label_branch_rename", "checkout": "op_label_checkout", "reset": "op_label_reset", "reset_branch": "op_label_reset",
     "discard": "op_label_discard", "rm": "op_label_rm", "commit": "op_label_commit", "fetch": "op_label_fetch",
     "pull": "op_label_pull", "remote_add": "op_label_remote_add", "remote_remove": "op_label_remote_remove",
     "patch_apply": "op_label_patch_apply", "patch_am": "op_label_patch_am", "file_save": "op_label_file_save",

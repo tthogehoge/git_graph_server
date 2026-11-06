@@ -224,6 +224,7 @@ document.getElementById("compareToolbar").addEventListener("click", ev => {  // 
   }
   if (ev.target.closest("#rebaseRangeBtn")) { doRebaseRange(); return; }
   if (ev.target.closest("#rebaseOntoBtn")) { doRebaseOnto(); return; }
+  if (ev.target.closest("#resetBranchBtn")) { doResetBranch(); return; }
   if (ev.target.closest("#cherryOntoBtn")) { doCherryOnto(); return; }
   if (ev.target.closest("#rebaseDescendantsBtn")) { doRebaseDescendants(); return; }
   if (ev.target.closest("#rebaseEquivalentBtn")) { doRebaseEquivalent(); return; }

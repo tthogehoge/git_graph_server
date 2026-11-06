@@ -794,5 +794,13 @@
   "cherry_onto_done": "{hash} をブランチ {branch} にチェリーピックしました",
   "cherry_onto_noop": "{hash} はブランチ {branch} で変更なしでした",
   "rebase_onto_no_branch": "A ({hash}) を先端に持つローカルブランチがありません",
-  "cherry_onto_no_branch": "B ({hash}) を先端に持つローカルブランチがありません"
+  "cherry_onto_no_branch": "B ({hash}) を先端に持つローカルブランチがありません",
+  "reset_branch": "AをBへリセット",
+  "tip_reset_branch": "Aを先端に持つローカルブランチをBへ移動 (現在のブランチなら reset、それ以外は ref を動かすだけ)",
+  "reset_branch_select": "リセットするブランチ",
+  "confirm_reset_branch": "ブランチ {branch} を {hash} へ移動します。ブランチの指す先が変わり、元のコミットはブランチから辿れなくなることがあります (作業ツリーは変わりません)。よろしいですか？",
+  "reset_branch_done": "ブランチ {branch} を {hash} へ移動しました",
+  "reset_branch_done_mode": "ブランチ {branch} (HEAD) を {hash} へ {mode} リセットしました",
+  "reset_branch_noop": "ブランチ {branch} は既に {hash} です (変更なし)",
+  "reset_branch_no_branch": "A ({hash}) を先端に持つローカルブランチがありません"
 }

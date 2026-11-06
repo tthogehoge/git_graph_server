@@ -85,6 +85,17 @@ def api_reset(body):
     return {"ok": True, "message": tr("reset_done", hash=r["hash"][:7], mode=r["mode"])}
 
 
+@route("/api/reset-branch", method="POST", engine=True)
+def api_reset_branch(body):
+    """A を先端に持つローカルブランチを B へリセットする。"""
+    r = refs.reset_branch(body.get("from", ""), body.get("to", ""), body.get("mode", "mixed"), body.get("branch") or None)
+    if not r["moved"]:
+        return {"ok": True, "message": tr("reset_branch_noop", branch=r["branch"], hash=r["to"][:7])}
+    if r["mode"]:
+        return {"ok": True, "message": tr("reset_branch_done_mode", branch=r["branch"], hash=r["to"][:7], mode=r["mode"])}
+    return {"ok": True, "message": tr("reset_branch_done", branch=r["branch"], hash=r["to"][:7])}
+
+
 @route("/api/discard", method="POST", engine=True)
 def api_discard(body):
     r = worktree.discard_changes(body.get("paths"))
@@ -105,7 +116,7 @@ def api_branch_rename(body):
 
 
 __all__ = [
-    "api_branch", "api_branch_rename", "api_checkout", "api_delete_ref", "api_discard", "api_reset", "api_rm",
+    "api_branch", "api_branch_rename", "api_checkout", "api_delete_ref", "api_discard", "api_reset", "api_reset_branch", "api_rm",
     "api_stash", "api_tag", "checkout_resolving", "discard_blockers", "parse_checkout_blockers",
     "ALREADY_EXISTS_RE", "DIRTY_RE", "api_stash_push", "dirty_tracked_files",
     "dirty_worktree_blockers", "resolve_dirty_worktree", "run_resolving",

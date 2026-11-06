@@ -162,6 +162,7 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
   document.getElementById("compareLogsBtn").hidden = !compareAHash || !compareBHash;
   document.getElementById("cherryOntoBtn").hidden = !compareAHash || !compareBHash;
   document.getElementById("rebaseOntoBtn").hidden = !compareAHash || !compareBHash;
+  document.getElementById("resetBranchBtn").hidden = !compareAHash || !compareBHash;
   document.getElementById("rebaseRangeBtn").hidden = !compareAHash || !compareBHash;
   document.getElementById("rebaseDescendantsBtn").hidden = !compareAHash || !compareBHash;
   document.getElementById("rebaseEquivalentBtn").hidden = !compareAHash || !compareBHash;
@@ -182,6 +183,7 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
   const canMergeAB = !!DATA.writable && !!DATA.merge;
   document.getElementById("cherryOntoBtn").disabled = !compareAHash || !compareBHash || !canMergeAB;
   document.getElementById("rebaseOntoBtn").disabled = !compareAHash || !compareBHash || !canMergeAB;
+  document.getElementById("resetBranchBtn").disabled = !compareAHash || !compareBHash || !canMergeAB || !localBranches(compareAHash).length;
   document.getElementById("rebaseRangeBtn").disabled = !compareAHash || !compareBHash || !canMergeAB;
   document.getElementById("rebaseDescendantsBtn").disabled = !compareAHash || !compareBHash || !canMergeAB;
   document.getElementById("rebaseEquivalentBtn").disabled = !compareAHash || !compareBHash || !canMergeAB;

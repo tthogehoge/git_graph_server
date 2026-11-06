@@ -25,7 +25,7 @@ from .rebase import (  # noqa: F401
     api_rebase_range, api_rebase_todo, api_resolve, api_revert,
 )
 from .refops import (  # noqa: F401
-    api_branch, api_branch_rename, api_checkout, api_delete_ref, api_discard, api_reset, api_stash,
+    api_branch, api_branch_rename, api_checkout, api_delete_ref, api_discard, api_reset, api_reset_branch, api_stash,
     api_stash_push, api_tag,
 )
 from .remote import (  # noqa: F401

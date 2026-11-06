@@ -794,5 +794,13 @@
   "cherry_onto_done": "Cherry-picked {hash} onto branch {branch}",
   "cherry_onto_noop": "{hash} made no changes on branch {branch}",
   "rebase_onto_no_branch": "No local branch points at A ({hash})",
-  "cherry_onto_no_branch": "No local branch points at B ({hash})"
+  "cherry_onto_no_branch": "No local branch points at B ({hash})",
+  "reset_branch": "Reset A to B",
+  "tip_reset_branch": "Move the local branch pointing at A to B (reset if it is the current branch; otherwise only the ref moves)",
+  "reset_branch_select": "Branch to reset",
+  "confirm_reset_branch": "Move branch {branch} to {hash}. The branch will point elsewhere and the old commits may become unreachable from it (the working tree is unchanged). Continue?",
+  "reset_branch_done": "Moved branch {branch} to {hash}",
+  "reset_branch_done_mode": "Reset branch {branch} (HEAD) to {hash} ({mode})",
+  "reset_branch_noop": "Branch {branch} is already at {hash} (no change)",
+  "reset_branch_no_branch": "No local branch points at A ({hash})"
 }
