@@ -48,6 +48,9 @@ __FAVICON__
   .file-actions button:hover { background: #d6e2fb; }
   .file-actions .msg { margin-left: 8px; color: #0a7b35; white-space: pre-wrap; }
   .file-actions .msg.err { color: #c00; }
+  .sel-bar label.selall { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+  .sel-bar .cnt { color: #666; }
+  .entry input.ck { flex: none; margin: 0; align-self: center; cursor: pointer; }
   table.file-log { border-collapse: collapse; width: 100%; margin-top: 8px; }
   table.file-log td { border-bottom: 1px solid #e3e3e3; padding: 5px 6px; vertical-align: top; }
   table.file-log td.hash { width: 1%; font-family: monospace; white-space: nowrap; }
@@ -94,7 +97,7 @@ __FAVICON__
   .navbar span.iconbtn { border-style: solid; }
   .navbar .iconbtn[hidden] { display: none; }
 </style><script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script></head>
-<body><aside id="tree"><div class="navbar"><a class="iconbtn" id="navGraphBtn" href="/" title="{{nav_graph}}" aria-label="{{nav_graph}}"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M2 8 8 2.5 14 8M3.8 7v6.5h3V10h2.4v3.5h3V7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></a><span class="iconbtn current" title="{{nav_files}}" aria-label="{{nav_files}}" aria-current="page"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M4 2.5h5.5L12 5v8.5H4zM9.5 2.5V5H12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span><button type="button" class="iconbtn" id="navDiffBtn" disabled title="{{nav_diff}}" aria-label="{{nav_diff}}"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M2.5 3h4v10h-4zM9.5 3h4v10h-4zM7.2 5.5v5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button><button type="button" class="iconbtn" onclick="history.back()" title="{{back_prev}}" aria-label="{{back_prev}}"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M13 8H3M7.5 3.5 3 8l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button><button type="button" class="iconbtn" id="reloadBtn" hidden title="{{reload_page}}" aria-label="{{reload_page}}"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M13.5 8a5.5 5.5 0 1 1-1.7-4M13 2.5v3.2h-3.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div><h1>{{file_view}}</h1><div class="meta" id="commit"></div><div id="smMsg" class="sm-msg"></div><div class="file-actions patch-bar"><button id="patchCreateBtn">{{patch_create}}</button><button id="patchApplyBtn" hidden title="{{tip_patch_apply}}">{{patch_apply}}</button><button id="patchAmBtn" hidden title="{{tip_patch_am}}">{{patch_am}}</button><input type="file" id="patchFile" hidden><span id="patchMsg" class="msg"></span></div><div id="list"></div></aside>
+<body><aside id="tree"><div class="navbar"><a class="iconbtn" id="navGraphBtn" href="/" title="{{nav_graph}}" aria-label="{{nav_graph}}"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M2 8 8 2.5 14 8M3.8 7v6.5h3V10h2.4v3.5h3V7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></a><span class="iconbtn current" title="{{nav_files}}" aria-label="{{nav_files}}" aria-current="page"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M4 2.5h5.5L12 5v8.5H4zM9.5 2.5V5H12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span><button type="button" class="iconbtn" id="navDiffBtn" disabled title="{{nav_diff}}" aria-label="{{nav_diff}}"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M2.5 3h4v10h-4zM9.5 3h4v10h-4zM7.2 5.5v5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button><button type="button" class="iconbtn" onclick="history.back()" title="{{back_prev}}" aria-label="{{back_prev}}"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M13 8H3M7.5 3.5 3 8l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button><button type="button" class="iconbtn" id="reloadBtn" hidden title="{{reload_page}}" aria-label="{{reload_page}}"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M13.5 8a5.5 5.5 0 1 1-1.7-4M13 2.5v3.2h-3.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div><h1>{{file_view}}</h1><div class="meta" id="commit"></div><div id="smMsg" class="sm-msg"></div><div class="file-actions patch-bar"><button id="patchCreateBtn">{{patch_create}}</button><button id="patchApplyBtn" hidden title="{{tip_patch_apply}}">{{patch_apply}}</button><button id="patchAmBtn" hidden title="{{tip_patch_am}}">{{patch_am}}</button><input type="file" id="patchFile" hidden><span id="patchMsg" class="msg"></span></div><div class="file-actions patch-bar sel-bar" id="selBar" hidden><label class="selall"><input type="checkbox" id="selAll"> {{sel_all}}</label><span id="selCount" class="cnt"></span><button id="selAddBtn" disabled title="{{tip_add_selected}}">{{add_button}}</button><button id="selRmBtn" disabled title="{{tip_rm_selected}}">{{rm_button}}</button><button id="selRmCachedBtn" disabled title="{{tip_rm_cached_selected}}">{{rm_cached_button}}</button><span id="selMsg" class="msg"></span></div><div id="list"></div></aside>
 <div id="sideSplitter" role="separator" aria-orientation="vertical" aria-label="{{resize_side}}" tabindex="0"></div>
 <main id="main"><h2 id="title">{{select_file}}</h2>
 <div id="fileActions" class="file-actions" hidden><button id="fileLogBtn">{{file_log}}</button><button id="fileBlameBtn">{{file_blame}}</button><button id="fileDiffBtn" hidden>{{file_diff}}</button><button id="fileEditBtn" hidden>{{file_edit}}</button><button id="fileContentBtn" hidden>{{file_content}}</button><button id="fileGraphLogBtn" hidden>{{file_log_graph}}</button><button id="fileCopyBtn" hidden>{{copy_to_work}}</button><button id="fileDownloadBtn" hidden>{{file_download}}</button><button id="fileExtEditBtn" hidden title="{{tip_open_editor}}">{{open_editor}}</button><button id="fileRmBtn" hidden title="{{tip_rm_file}}">{{rm_button}}</button><button id="fileRmCachedBtn" hidden title="{{tip_rm_cached_file}}">{{rm_cached_button}}</button><span id="fileMsg" class="msg"></span></div>
@@ -124,6 +127,8 @@ const fileDiffBtn = document.getElementById("fileDiffBtn"), fileEditBtn = docume
 const navDiffBtn = document.getElementById("navDiffBtn");
 const patchCreateBtn = document.getElementById("patchCreateBtn"), patchApplyBtn = document.getElementById("patchApplyBtn");
 const patchAmBtn = document.getElementById("patchAmBtn"), patchFile = document.getElementById("patchFile"), patchMsg = document.getElementById("patchMsg");
+const selBar = document.getElementById("selBar"), selAll = document.getElementById("selAll"), selCount = document.getElementById("selCount"), selMsg = document.getElementById("selMsg");
+const selAddBtn = document.getElementById("selAddBtn"), selRmBtn = document.getElementById("selRmBtn"), selRmCachedBtn = document.getElementById("selRmCachedBtn");
 const CAN_EDIT = CAN_COPY && hash === "WIP";  // 作業ツリーのファイルだけ編集できる (書き込みが有効なとき)
 const isWip = hash === "WIP";  // 作業ツリーのファイルを表示する
 (function () {  // グラフへ戻るとき、このコミットの選択を復元する
@@ -241,10 +246,16 @@ function loadTree(path, push) {
       const p = path ? path + "/" + e.name : e.name;
       entryInfo[p] = e;
       const size = e.size === null ? "" : e.size.toLocaleString() + " B";
-      return '<div class="entry" data-type="' + e.type + '" data-path="' + esc(p) + '"' + entryTip(e) + '><span>' + entryIcon(e) + ' ' + statusBadge(e) + esc(e.name) + submoduleBadge(e) + '</span><span class="size">' + size + '</span></div>';
+      const ck = CAN_EDIT ? '<input type="checkbox" class="ck" data-path="' + esc(p) + '" aria-label="' + esc(p) + '"' + (checked.has(p) ? " checked" : "") + '>' : "";
+      return '<div class="entry" data-type="' + e.type + '" data-path="' + esc(p) + '"' + entryTip(e) + '>' + ck + '<span>' + entryIcon(e) + ' ' + statusBadge(e) + esc(e.name) + submoduleBadge(e) + '</span><span class="size">' + size + '</span></div>';
     }).join("") : '<p class="hint">' + t("empty_directory") + '</p>');
     list.querySelectorAll("[data-dir]").forEach(a => a.onclick = () => openDir(a.dataset.dir));
     list.querySelectorAll(".entry").forEach(a => a.onclick = () => openEntry(a.dataset.path, a.dataset.type));
+    list.querySelectorAll("input.ck").forEach(c => {
+      c.onclick = ev => ev.stopPropagation();  // チェックでファイルを開かない
+      c.onchange = () => { if (c.checked) checked.add(c.dataset.path); else checked.delete(c.dataset.path); updateSelBar(); };
+    });
+    updateSelBar();
   }).catch(showError);
 }
 fileDownloadBtn.onclick = () => {  // Content-Disposition: attachment なので、画面は移動せず保存される
@@ -259,6 +270,69 @@ fileExtEditBtn.onclick = () => {  // OS の標準のエディタ、または設�
     .catch(e => setFileMsg(e.message, false))
     .finally(() => { fileExtEditBtn.disabled = false; });
 };
+// ---- 左ペインでチェックしたファイル・ディレクトリの git add / git rm (作業ツリーの表示だけ) ----
+// チェックはディレクトリを移っても残る (パスで覚える)。ディレクトリをチェックすると、中のすべてが対象になる
+const checked = new Set();
+selBar.hidden = !CAN_EDIT;
+function setSelMsg(text, ok) { selMsg.textContent = text; selMsg.className = "msg" + (ok ? "" : " err"); }
+function updateSelBar() {
+  const n = checked.size, boxes = [...list.querySelectorAll("input.ck")];
+  selCount.textContent = n ? t("sel_count", {n: n}) : "";
+  selAddBtn.disabled = selRmBtn.disabled = selRmCachedBtn.disabled = !n;
+  selAll.disabled = !boxes.length;
+  selAll.checked = boxes.length > 0 && boxes.every(b => b.checked);
+  selAll.indeterminate = !selAll.checked && boxes.some(b => b.checked);
+}
+selAll.onchange = () => {  // いま表示しているディレクトリの項目をすべてチェック / 外す
+  const on = selAll.checked;
+  list.querySelectorAll("input.ck").forEach(c => { c.checked = on; if (on) checked.add(c.dataset.path); else checked.delete(c.dataset.path); });
+  updateSelBar();
+};
+function isUntrackedEntry(p) {  // 未追跡のファイル / 中がすべて未追跡のディレクトリ (git rm できない)
+  const e = entryInfo[p] || {};
+  return e.xy === "??" || (e.type === "tree" && e.st === "?");
+}
+function runSel(url, body, onDone) {
+  if (!CAN_EDIT) return;
+  const wasEditing = editing;
+  if (!leaveEdit()) return;
+  selAddBtn.disabled = selRmBtn.disabled = selRmCachedBtn.disabled = true;
+  setSelMsg(t("wip_execute"), true);
+  fetch(url, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)})
+    .then(r => r.ok ? r.json() : r.text().then(m => { throw new Error(m || r.status); }))
+    .then(r => { checked.clear(); setSelMsg(r.message, true); return onDone(r, wasEditing); })
+    .catch(e => setSelMsg(e.message, false))
+    .finally(updateSelBar);
+}
+function reloadAfterSel(dir, fileGone, wasEditing) {  // 一覧を読み直し、変更の印・差分ボタン・開いているファイルを合わせる
+  entryInfo = {};
+  if (fileGone) clearFile();
+  return loadTree(dir, dir !== current).then(() => {
+    if (!currentFile) showDir();
+    else if (wasEditing) return loadFile(currentFile, false);  // 編集欄を閉じたので内容を出し直す
+    else updateDiffBtn();
+  });
+}
+selAddBtn.onclick = () => {
+  const paths = [...checked].sort();
+  if (paths.length) runSel("/api/add", {paths: paths}, (r, wasEditing) => reloadAfterSel(current, false, wasEditing));
+};
+function underAny(path, dirs) { return dirs.some(d => path === d || path.startsWith(d + "/")); }
+function doSelRm(cached) {  // チェックしたものを git rm / git rm --cached。変更があるものは -f で実行する (確認文で変更が失われることを伝える)
+  const paths = [...checked].sort(), n = paths.length;
+  if (!n) return;
+  const bad = paths.filter(isUntrackedEntry);
+  if (bad.length) { setSelMsg(t("rm_untracked", {files: bad.slice(0, 3).join(", ")}), false); return; }
+  const changed = paths.some(p => { const e = entryInfo[p] || {}; return !!(e.xy || e.st); });
+  if (!confirm(t(cached ? "confirm_rm_cached_selected" : changed ? "confirm_rm_selected_changed" : "confirm_rm_selected", {n: n}))) return;
+  runSel("/api/rm", {paths: paths, cached: cached, force: changed, recursive: true}, (r, wasEditing) => {
+    let dir = current;  // 表示中のディレクトリごと削除したときは、残っている親に移る
+    while (!cached && dir && underAny(dir, paths)) dir = dir.includes("/") ? dir.slice(0, dir.lastIndexOf("/")) : "";
+    return reloadAfterSel(dir, !cached && !!currentFile && underAny(currentFile, paths), wasEditing);
+  });
+}
+selRmBtn.onclick = () => doSelRm(false);
+selRmCachedBtn.onclick = () => doSelRm(true);
 function doRm(cached) {  // git rm / git rm --cached。変更のあるファイルは -f で実行する (確認文で変更が失われることを伝える)
   if (!currentFile || !CAN_EDIT) return;
   const path = currentFile, changed = !!(entryInfo[path] || {}).xy;
@@ -675,6 +749,7 @@ reloadBtn.onclick = () => {
   const treeEl = document.getElementById("tree"), mainEl = document.getElementById("main");
   const keep = {tree: treeEl.scrollTop, main: mainEl.scrollTop};
   reloadBtn.disabled = true;
+  checked.clear();
   entryInfo = {};
   Promise.resolve(restoreFromUrl(true)).finally(() => {
     treeEl.scrollTop = keep.tree; mainEl.scrollTop = keep.main;

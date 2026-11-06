@@ -104,6 +104,39 @@ class EngineTests(unittest.TestCase):
         self.git("commit", "-q", "-m", msg)
         return self.git("rev-parse", "HEAD").strip()
 
+    # ---- git add / git rm (ファイル表示でチェックしたもの)
+
+    def test_add_untracked_directory_undo_keeps_files_and_redo_restages(self):
+        self.write("newdir/a.txt", "a\n")
+        self.write("newdir/sub/b.txt", "b\n")
+        self.write("other.txt", "other\n")
+
+        self.assertTrue(self.do("/api/add", {"paths": ["newdir"]})["ok"])
+        self.assertEqual(sorted(self.git("diff", "--cached", "--name-only").split()), ["newdir/a.txt", "newdir/sub/b.txt"])
+        self.assertEqual([e["op"] for e in engine._load()["entries"]], ["add"])
+
+        self.assertTrue(self.undo()["ok"])
+        self.assertEqual(self.git("diff", "--cached", "--name-only").strip(), "")
+        self.assertEqual(self.read("newdir/a.txt"), "a\n")  # 管理外に戻るだけで、ファイルは消えない
+        self.assertEqual(self.read("newdir/sub/b.txt"), "b\n")
+        self.assertEqual(self.read("other.txt"), "other\n")
+
+        self.assertTrue(self.redo()["ok"])
+        self.assertEqual(sorted(self.git("diff", "--cached", "--name-only").split()), ["newdir/a.txt", "newdir/sub/b.txt"])
+
+    def test_rm_recursive_directory_undo_restores_files(self):
+        self.commit_file("dir/a.txt", "a\n", "add a")
+        self.commit_file("dir/sub/b.txt", "b\n", "add b")
+
+        self.assertTrue(self.do("/api/rm", {"paths": ["dir"], "recursive": True})["ok"])
+        self.assertFalse(self.exists("dir/a.txt"))
+        self.assertFalse(self.exists("dir/sub/b.txt"))
+
+        self.assertTrue(self.undo()["ok"])
+        self.assertEqual(self.read("dir/a.txt"), "a\n")
+        self.assertEqual(self.read("dir/sub/b.txt"), "b\n")
+        self.assertEqual(self.git("status", "--porcelain").strip(), "")
+
     # ---- ref 操作
 
     def test_branch_create_undo_redo(self):

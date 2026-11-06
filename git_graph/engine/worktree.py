@@ -142,23 +142,60 @@ def discard_changes(paths):
     return {"count": len(checked)}
 
 
+@operation("add", touches_worktree="names")
+def stage_files(paths):
+    """選んだファイル・ディレクトリを git add する (git add -A: 変更・新規・削除をステージする)。ディレクトリは中の変更をすべてステージする。
+    いま変更ありと報告されているもの (未ステージの変更と未追跡ファイル) に当たるパスだけが対象で、変更のないパスは何もしない。
+    競合中のファイルは対象外 (解決は WIP の「解決」から行う)。戻り値: {"count" (ステージしたパスの数)}。"""
+    if not state.WIP_ENABLED:
+        raise UserError("wip_disabled")
+    if not isinstance(paths, list) or not paths or not all(isinstance(p, str) and p and "\0" not in p for p in paths):
+        raise UserError("select_files")
+    paths = sorted(set(p.rstrip("/") for p in paths))
+    s = status_lists(limit=10 ** 9)
+    conflict = _matching(paths, {f["path"] for f in s["conflicts"]})
+    if conflict:
+        raise UserError("add_conflict", files=", ".join(sorted(conflict)[:3]))
+    addable = {f["path"] for f in s["untracked"]} | {f["path"] for f in s["unstaged"]}  # 任意のパスを add させない。いま変更ありと報告されているものだけ
+    todo = [p for p in paths if _matches(p, addable)]
+    if not todo:
+        raise UserError("files_unchanged", files=", ".join(paths[:3]))
+    for i in range(0, len(todo), _STEP):
+        run_git_write("add", "-A", "--", *todo[i:i + _STEP], literal=True)
+    return {"count": len(todo)}
+
+
+def _matches(path, names):
+    """path (ファイルまたはディレクトリ) が names のどれかに当たるか (ディレクトリは、その中のパスに当たる)。"""
+    prefix = path + "/"
+    return path in names or any(n.startswith(prefix) for n in names)
+
+
+def _matching(paths, names):
+    """paths のうち names に当たるもの。"""
+    return [p for p in paths if _matches(p, names)]
+
+
 @operation("rm", touches_worktree=True)
-def remove_files(paths, *, cached=False, force=False):
+def remove_files(paths, *, cached=False, force=False, recursive=False):
     """追跡中のファイルを git rm する (削除をステージする)。cached=True なら作業ツリーのファイルは残して追跡だけやめる (git rm --cached)。
-    ステージ済みの変更や編集中の変更があるファイルは、git と同じく force=True でないと失敗する。戻り値: {"count", "cached"}。"""
+    ステージ済みの変更や編集中の変更があるファイルは、git と同じく force=True でないと失敗する。
+    recursive=True ならディレクトリも指定でき、中の追跡中のファイルをすべて対象にする (git rm -r)。追跡中のファイルが無いディレクトリは対象外。
+    戻り値: {"count", "cached"}。"""
     if not state.WIP_ENABLED:
         raise UserError("wip_disabled")
     if not isinstance(paths, list) or not paths or not all(isinstance(p, str) and p for p in paths):
         raise UserError("select_files")
-    paths = sorted(set(paths))
+    paths = sorted(set(p.rstrip("/") if recursive else p for p in paths))
     tracked = set()
     for i in range(0, len(paths), _STEP):
         out = git("ls-files", "-z", "--", *paths[i:i + _STEP], literal=True)
         tracked.update(p for p in out.split("\0") if p)
-    bad = [p for p in paths if p not in tracked]  # 追跡中のファイルだけ (ディレクトリや未追跡ファイルは対象外)
+    # 追跡中のファイルだけ (未追跡ファイルは対象外。ディレクトリは recursive のときだけ、追跡中のファイルがあれば対象)
+    bad = [p for p in paths if not (p in tracked or (recursive and _matches(p, tracked)))]
     if bad:
         raise UserError("rm_not_tracked", files=", ".join(bad[:3]))
-    opts = (["--cached"] if cached else []) + (["-f"] if force else [])
+    opts = (["--cached"] if cached else []) + (["-f"] if force else []) + (["-r"] if recursive else [])
     for i in range(0, len(paths), _STEP):
         run_git_write("rm", "-q", *opts, "--", *paths[i:i + _STEP], literal=True)
     return {"count": len(paths), "cached": bool(cached)}

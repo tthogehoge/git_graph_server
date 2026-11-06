@@ -1294,6 +1294,77 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertEqual(self.read_file("untracked.txt"), "x\n")
         self.assertEqual(self.read_file("tracked.txt"), "initial\n")
 
+    def test_rm_recursive_removes_tracked_files_under_directory(self):
+        os.makedirs(os.path.join(self.repo, "dir", "sub"), exist_ok=True)
+        self.write_file("dir/a.txt", "a\n")
+        self.write_file("dir/sub/b.txt", "b\n")
+        self.git("add", "dir")
+        self.git("commit", "-q", "-m", "add dir")
+        self.write_file("dir/untracked.txt", "u\n")  # 追跡中でないファイルは git rm の対象にならず、残る
+
+        result = app.api_rm({"paths": ["dir"], "recursive": True})
+
+        self.assertTrue(result["ok"])
+        self.assertFalse(os.path.exists(os.path.join(self.repo, "dir", "a.txt")))
+        self.assertFalse(os.path.exists(os.path.join(self.repo, "dir", "sub")))
+        self.assertEqual(self.read_file("dir/untracked.txt"), "u\n")
+        self.assertEqual(sorted(self.git("status", "--porcelain", "--untracked-files=all").splitlines()),
+                         ["?? dir/untracked.txt", "D  dir/a.txt", "D  dir/sub/b.txt"])
+
+    def test_rm_recursive_rejects_directory_without_tracked_files(self):
+        os.makedirs(os.path.join(self.repo, "emptyish"), exist_ok=True)
+        self.write_file("emptyish/x.txt", "x\n")
+
+        with self.assertRaises(app.UserError):
+            app.api_rm({"paths": ["emptyish"], "recursive": True})
+        self.assertEqual(self.read_file("emptyish/x.txt"), "x\n")
+
+    def test_add_stages_selected_file_and_directory(self):
+        os.makedirs(os.path.join(self.repo, "newdir", "sub"), exist_ok=True)
+        self.write_file("newdir/a.txt", "a\n")
+        self.write_file("newdir/sub/b.txt", "b\n")
+        self.write_file("tracked.txt", "edited\n")
+        self.write_file("other.txt", "not selected\n")
+
+        result = app.api_add({"paths": ["newdir", "tracked.txt"]})
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(sorted(self.git("status", "--porcelain", "--untracked-files=all").splitlines()),
+                         ["?? other.txt", "A  newdir/a.txt", "A  newdir/sub/b.txt", "M  tracked.txt"])
+
+    def test_add_stages_deletion_inside_directory(self):
+        os.makedirs(os.path.join(self.repo, "gone"), exist_ok=True)
+        self.write_file("gone/a.txt", "a\n")
+        self.git("add", "gone")
+        self.git("commit", "-q", "-m", "add gone")
+        os.remove(os.path.join(self.repo, "gone", "a.txt"))
+
+        app.api_add({"paths": ["gone"]})
+
+        self.assertEqual(self.git("status", "--porcelain").splitlines(), ["D  gone/a.txt"])
+
+    def test_add_rejects_unchanged_paths_and_selection_errors(self):
+        for body in ({"paths": ["tracked.txt"]}, {"paths": ["missing.txt"]}, {"paths": ["../outside"]}, {"paths": []}, {}):
+            with self.assertRaises(app.UserError):
+                app.api_add(body)
+        self.assertEqual(self.git("status", "--porcelain").strip(), "")
+
+    def test_add_ignores_unchanged_paths_when_something_else_is_selected(self):
+        self.write_file("fresh.txt", "x\n")
+
+        result = app.api_add({"paths": ["tracked.txt", "fresh.txt"]})
+
+        self.assertIn("1", result["message"])
+        self.assertEqual(self.git("status", "--porcelain").splitlines(), ["A  fresh.txt"])
+
+    def test_files_page_has_checkbox_add_rm_controls(self):
+        page = viewer.render_files_page()
+
+        for element in ('id="selBar"', 'id="selAddBtn"', 'id="selRmBtn"', 'id="selRmCachedBtn"', 'id="selAll"'):
+            self.assertIn(element, page)
+        self.assertIn('"/api/add"', page)
+        self.assertIn("recursive: true", page)
+
     def test_wip_patch_includes_staged_unstaged_and_untracked_without_touching_index(self):
         self.write_file("tracked.txt", "staged\n")
         self.git("add", "tracked.txt")

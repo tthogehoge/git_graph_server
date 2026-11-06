@@ -102,9 +102,16 @@ def api_discard(body):
     return {"ok": True, "message": tr("discarded", n=r["count"])}
 
 
+@route("/api/add", method="POST", engine=True)
+def api_add(body):
+    r = worktree.stage_files(body.get("paths"))
+    return {"ok": True, "message": tr("add_done", n=r["count"])}
+
+
 @route("/api/rm", method="POST", engine=True)
 def api_rm(body):
-    r = worktree.remove_files(body.get("paths"), cached=body.get("cached") is True, force=body.get("force") is True)
+    r = worktree.remove_files(body.get("paths"), cached=body.get("cached") is True, force=body.get("force") is True,
+                              recursive=body.get("recursive") is True)
     return {"ok": True, "message": tr("rm_cached_done" if r["cached"] else "rm_done", n=r["count"])}
 
 
@@ -116,7 +123,7 @@ def api_branch_rename(body):
 
 
 __all__ = [
-    "api_branch", "api_branch_rename", "api_checkout", "api_delete_ref", "api_discard", "api_reset", "api_reset_branch", "api_rm",
+    "api_add", "api_branch", "api_branch_rename", "api_checkout", "api_delete_ref", "api_discard", "api_reset", "api_reset_branch", "api_rm",
     "api_stash", "api_tag", "checkout_resolving", "discard_blockers", "parse_checkout_blockers",
     "ALREADY_EXISTS_RE", "DIRTY_RE", "api_stash_push", "dirty_tracked_files",
     "dirty_worktree_blockers", "resolve_dirty_worktree", "run_resolving",
