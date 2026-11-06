@@ -109,6 +109,9 @@ def start_page_url():
     """最初に開く WIP 画面。一度きりで、2回目以降の / はグラフを出す。
     グラフの作成は時間がかかるので、変更がある場合は WIP のファイル差分ページを先に出す。
     コミットが無いリポジトリでも、WIP のファイル差分ページを開く。"""
+    if state.START_PATH:  # 指定された画面を、一度だけ先に出す (WIP の画面は出さない)
+        path, state.START_PATH, state.START_WIP = state.START_PATH, "", False
+        return path
     if not (state.START_WIP and state.WRITABLE and state.WIP_ENABLED):
         return None
     state.START_WIP = False
@@ -283,6 +286,7 @@ def main():
     ap.add_argument("--dot", action="store_true", help=tr("cli_help_dot"))
     ap.add_argument("--no-wip", action="store_true", help=tr("cli_help_no_wip"))
     ap.add_argument("--start", choices=("wip", "graph"), default="wip", help=tr("cli_help_start"))
+    ap.add_argument("--start-path", default="", help=tr("cli_help_start_path"))
     ap.add_argument("--read-only", action="store_true", help=tr("cli_help_read_only"))
     ap.add_argument("--allow-write", action="store_true", help=tr("cli_help_allow_write"))
     ap.add_argument("--no-undo", action="store_true", help=tr("cli_help_no_undo"))
@@ -320,6 +324,10 @@ def main():
     state.WIP_ENABLED = state.HAS_WORKTREE and not state.OPTS.no_wip
     state.PROJECT_NAME = os.path.basename(os.path.abspath(state.REPO)) or state.REPO
     state.START_WIP = state.OPTS.start == "wip"
+    start_path = state.OPTS.start_path
+    if start_path and (not start_path.startswith("/") or start_path.startswith("//") or any(ord(c) < 32 or ord(c) == 127 for c in start_path)):
+        ap.error(tr("start_path_invalid"))  # 他のサイトへの転送にならないよう、このサーバーの中のパスだけ
+    state.START_PATH = start_path
 
     if state.OPTS.dot:
         print(dot_text_for_cli(state.OPTS))

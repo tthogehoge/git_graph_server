@@ -97,12 +97,12 @@ class _StdoutTee(io.TextIOBase):
                 pass
 
 
-def child_command(path):
+def child_command(path, start_path=""):
     """submodule を別のウィンドウ (別プロセス) で開くコマンド。子はこのアプリをもう一つ起動する (リポジトリは submodule のパス)。
     ポートは渡さない: 子は既定のポートを試し、使用中なら空いているポートを自分で選ぶ (同じポートは使えない)。"""
     from git_graph.launcher import forwarded_args
     base = [sys.executable] if FROZEN else [sys.executable, str(Path(__file__).resolve())]
-    args = base + [path] + forwarded_args()
+    args = base + [path] + forwarded_args() + (["--start-path", start_path] if start_path else [])
     if _DEBUG:
         args.append("--debug")
     return args

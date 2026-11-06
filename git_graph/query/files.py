@@ -132,7 +132,7 @@ def wip_file(path):
         with open(target, "rb") as f:
             raw = f.read(FILE_CONTENT_LIMIT + 1)
     else:
-        raise UserError("not_a_file")
+        raise not_a_file(None, path)
     truncated = len(raw) > FILE_CONTENT_LIMIT
     data = raw[:FILE_CONTENT_LIMIT]
     text, encoding = decode_text(data, truncated)
@@ -145,6 +145,19 @@ def wip_file(path):
     else:
         res.update(edit_info(raw, text, encoding, truncated))
     return res
+
+
+def not_a_file(commit, path):
+    """path がファイルでないときの UserError。submodule (gitlink) なら、そう分かる文言にする。
+    commit が None のときは、インデックスで調べる (作業ツリーの表示)。"""
+    try:
+        if commit:
+            out = git("ls-tree", "-z", commit, "--", path, literal=True)
+        else:
+            out = git("ls-files", "-s", "-z", "--", path, literal=True)
+    except subprocess.CalledProcessError:
+        return UserError("not_a_file")
+    return UserError("is_submodule" if out.startswith("160000 ") else "not_a_file")
 
 
 def tree(hash_, path=""):
@@ -166,7 +179,10 @@ def tree(hash_, path=""):
             continue
         head, name = item.split("\t", 1)
         mode, kind, obj, size = (head.split() + [""])[:4]
-        entries.append({"name": name, "type": kind, "size": None if size == "-" else int(size), "mode": mode})
+        entry = {"name": name, "type": kind, "size": None if size == "-" else int(size), "mode": mode}
+        if kind == "commit":  # submodule: 記録されているコミット (画面が、submodule のファイル表示をそのコミットで開く)
+            entry["sha"] = obj
+        entries.append(entry)
     return {"hash": h, "path": path, "entries": sorted(entries, key=lambda x: (x["type"] != "tree", x["name"]))}
 
 
@@ -253,10 +269,13 @@ def file_content(hash_, path):
     if libgit.available():
         kind, raw = libgit.blob_at(spec)
     else:
-        kind = git("cat-file", "-t", spec).strip()
+        try:
+            kind = git("cat-file", "-t", spec).strip()
+        except subprocess.CalledProcessError:  # submodule のコミットは、このリポジトリには無い
+            kind = ""
         raw = subprocess.check_output(["git", "-C", state.REPO, "cat-file", "blob", spec]) if kind == "blob" else None
     if kind != "blob" or raw is None:
-        raise UserError("not_a_file")
+        raise not_a_file(h, path)
     truncated = len(raw) > FILE_CONTENT_LIMIT
     data = raw[:FILE_CONTENT_LIMIT]
     text, encoding = decode_text(data, truncated)
@@ -365,17 +384,21 @@ def file_bytes(hash_, path):
             with open(target, "rb") as f:
                 raw = f.read()
         else:
-            raise UserError("not_a_file")
+            raise not_a_file(None, path)
     else:
         h = resolve_commit(hash_)
         spec = h + ":" + path
         if libgit.available():
             kind, raw = libgit.blob_at(spec)
             if kind != "blob" or raw is None:
-                raise UserError("not_a_file")
+                raise not_a_file(h, path)
         else:
-            if git("cat-file", "-t", spec).strip() != "blob":
-                raise UserError("not_a_file")
+            try:
+                kind = git("cat-file", "-t", spec).strip()
+            except subprocess.CalledProcessError:  # submodule のコミットは、このリポジトリには無い
+                kind = ""
+            if kind != "blob":
+                raise not_a_file(h, path)
             raw = subprocess.check_output(["git", "-C", state.REPO, "cat-file", "blob", spec])
     return path.rsplit("/", 1)[-1], raw
 
@@ -486,9 +509,14 @@ def require_blob(commit, path):
     if libgit.available():
         kind, _ = libgit.blob_at(commit + ":" + path)
         if kind != "blob":
-            raise UserError("not_a_file")
-    elif git("cat-file", "-t", commit + ":" + path).strip() != "blob":
-        raise UserError("not_a_file")
+            raise not_a_file(commit, path)
+    else:
+        try:
+            kind = git("cat-file", "-t", commit + ":" + path).strip()
+        except subprocess.CalledProcessError:  # submodule のコミットは、このリポジトリには無い
+            kind = ""
+        if kind != "blob":
+            raise not_a_file(commit, path)
 
 
 def blob_for_worktree(commit, path):

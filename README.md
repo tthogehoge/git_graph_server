@@ -78,6 +78,8 @@ The three rebase actions rewrite commits and may affect shared history. Back up 
 Histories containing merge commits may not be supported by some rebase actions, or the merge structure may not be preserved. The matching actions may also fail to find the correct equivalent commits in some histories. These features are not guaranteed to work perfectly; review their results and keep a backup before using them on important repositories.
 
 ### Submodules
+In the file view, a submodule is shown with 🔗 and a **submodule** badge, apart from files (trying to open it as a file says "This is a submodule"). Clicking it opens the submodule's file view in another process: at the recorded commit when viewing a commit, or its working tree when viewing the working tree. If the submodule is not initialized or does not have the recorded commit, it is not opened and the reason is shown (fetch it with the update / fetch below).
+
 In **Other → Submodule list**, click an initialized submodule to open it in another process (another server): a new tab in the browser, or a new window in pywebview. The server state is per process, so a submodule is not opened in the same process. Two processes cannot listen on the same port, so the new server picks a free port automatically (the original `--port` is not inherited). Options such as `--read-only` and `--lang` are inherited. Opening the same submodule again reuses the server that is already running. The opened server runs independently, so stop it with **Other → Quit** in its page when you no longer need it (when started from a terminal, Ctrl+C also stops them together). Uninitialized submodules cannot be opened (fetch them with the update below).
 
 When writing is enabled, check submodules in the list to update them. **Update selected** updates them to the commit recorded in this repository (`git submodule update --init`; uninitialized ones are fetched). **Update selected to remote latest** updates them to the remote's latest (`--remote`; it shows up as a change in this repository, so commit it if you want to record it). They run one at a time; a failure does not stop the rest and is shown above the list. Uncommitted edits inside a submodule are never overwritten. A submodule's contents are a separate repository, so **Undo** does not cover update and fetch.
@@ -117,6 +119,7 @@ These buttons work only with `--desktop` on a loopback address with writing enab
 | `--include-tips` | Include terminal commits without a branch or tag |
 | `--no-wip` | Hide the WIP node for uncommitted changes |
 | `--start {wip,graph}` | First page: `wip` (default) opens the file diff of uncommitted changes while the graph is built in the background; without any commits, it still opens the WIP file-diff page. `graph` opens the graph |
+| `--start-path PATH` | Redirect the first access to `/` to a path on this server (e.g. `/files?hash=...`), once. Only paths starting with `/` are accepted (no redirect to other sites). Used internally to open a submodule in another window |
 | `--no-count` | Do not check for collapsed commits (dashed/solid lines) |
 | `--cluster-min-nodes N` | Group nodes into year/month/day clusters (click to expand) when there are more than N (0 = never, default 1000) |
 | `--merge-max-nodes N` | Cap the total graph nodes when showing merges, newest merges first (0 = unlimited, default 2200) |

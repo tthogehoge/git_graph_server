@@ -178,7 +178,7 @@ class SubmoduleOpenTests(unittest.TestCase):
     def test_window_mode_runs_the_hook_command_without_a_port(self):
         seen = []
 
-        def hook(path):
+        def hook(path, start_path=""):
             seen.append(path)
             return [sys.executable, "-c", "import time; time.sleep(30)"]
         state.CHILD_CMD = hook
@@ -189,7 +189,7 @@ class SubmoduleOpenTests(unittest.TestCase):
         self.assertIsNone(res["port"])
 
     def test_window_mode_reports_a_child_that_fails_to_start(self):
-        state.CHILD_CMD = lambda path: [sys.executable, "-c", "import sys; sys.stderr.write('boom'); sys.exit(3)"]
+        state.CHILD_CMD = lambda path, start_path="": [sys.executable, "-c", "import sys; sys.stderr.write('boom'); sys.exit(3)"]
         with mock.patch.object(launcher, "EARLY_EXIT_WAIT", 5):
             with self.assertRaises(UserError) as cm:
                 launcher.api_submodule_open({"path": SUB_DIR})
