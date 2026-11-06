@@ -130,6 +130,19 @@ class SubmoduleFileViewTests(SubmoduleTestBase):
         self.assertIsNone(res["port"])
 
 
+class FilesPageStyleTests(unittest.TestCase):
+    def test_the_styles_for_the_submodule_marks_reach_the_page(self):
+        # ファイル表示の CSS は files.html の <style> にある (static/files.css は読み込まれない)。
+        # そこへ書き漏らすと、印の装飾が効かず、名前と印がくっついて見える
+        page = server_module.render_files_page()
+        for rule in (".sm-badge {", ".sm-msg {", ".sm-msg.err {"):
+            self.assertIn(rule, page)
+
+    def test_the_badge_is_separated_from_the_name_even_without_styles(self):
+        page = server_module.render_files_page()
+        self.assertIn("""' <span class="sm-badge">'""", page)
+
+
 class StartPathTests(unittest.TestCase):
     def setUp(self):
         saved = (state.START_PATH, state.START_WIP)
