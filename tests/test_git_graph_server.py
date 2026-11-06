@@ -3364,6 +3364,58 @@ class ExternalAppsTests(unittest.TestCase):
         self.assertTrue(reload_btn[:reload_btn.index("</button>")].count("<svg") == 1)  # 更新ボタンはアイコン
 
 
+
+class BranchListSortTests(unittest.TestCase):
+    """ブランチ一覧はローカル・リモート混在で tip の新しい順。"""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
+        self.repo = self.temp_dir.name
+        previous_repo = state.REPO
+        previous_opts = state.OPTS
+        self.addCleanup(lambda: (setattr(state, "REPO", previous_repo), setattr(state, "OPTS", previous_opts)))
+        state.REPO = self.repo
+        state.OPTS = SimpleNamespace(no_remotes=False)
+        self.git("init", "-q", "-b", "main")
+        self.git("config", "user.name", "Test User")
+        self.git("config", "user.email", "test@example.com")
+        # main: 古い tip、newer: 新しい tip、alpha: 中間 (名前順だと alpha が先)
+        self.commit("a.txt", "on main", "2020-01-01T12:00:00")
+        self.git("branch", "alpha")
+        self.git("checkout", "-q", "-b", "newer")
+        self.commit("b.txt", "on newer", "2022-06-15T12:00:00")
+        self.git("checkout", "-q", "alpha")
+        self.commit("c.txt", "on alpha", "2021-03-10T12:00:00")
+        self.git("checkout", "-q", "main")
+        # リモート: origin/fresh は newer と同じ新しい tip、origin/old は main と同じ古い tip
+        self.git("update-ref", "refs/remotes/origin/old", self.git("rev-parse", "main").strip())
+        self.git("update-ref", "refs/remotes/origin/fresh", self.git("rev-parse", "newer").strip())
+
+    def git(self, *args, env=None):
+        e = dict(os.environ, **(env or {}))
+        return subprocess.check_output(["git", "-C", self.repo, *args], text=True, encoding="utf-8", env=e).strip()
+
+    def commit(self, name, message, date):
+        with open(os.path.join(self.repo, name), "w", encoding="utf-8") as f:
+            f.write(message + "\n")
+        self.git("add", name)
+        self.git("commit", "-q", "-m", message, env={
+            "GIT_AUTHOR_DATE": date, "GIT_COMMITTER_DATE": date,
+            "GIT_AUTHOR_NAME": "Test User", "GIT_AUTHOR_EMAIL": "test@example.com",
+            "GIT_COMMITTER_NAME": "Test User", "GIT_COMMITTER_EMAIL": "test@example.com",
+        })
+
+    def test_all_branches_newest_tip_first_local_and_remote_mixed(self):
+        from git_graph import libgit
+        libgit.reset_cache()
+        result = qh.branches()
+        names = [c[2].lstrip("★ ").lstrip() for c in result["commits"]]
+        # tip 新しい順: newer(=origin/fresh) → alpha → main(=origin/old)
+        # 同時刻は名前順 (newer < origin/fresh, main < origin/old)
+        self.assertEqual(names, ["newer", "origin/fresh", "alpha", "main", "origin/old"], names)
+
+
 class EmptyRepoTests(unittest.TestCase):
     def test_empty_repo_shows_wip_and_allows_commit(self):
         with tempfile.TemporaryDirectory() as tmpdir:

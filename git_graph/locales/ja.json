@@ -574,7 +574,7 @@
   "tip_tag_list": "タグ一覧",
   "branch_list_title": "ブランチ一覧",
   "tag_list_title": "タグ一覧",
-  "branch_list_help": "ローカルブランチ、リモート追跡ブランチの順 (★ は現在のブランチ)。クリックでそのコミットを表示します",
+  "branch_list_help": "tip の新しい順 (ローカル・リモート混在。★ は現在のブランチ)。クリックでそのコミットを表示します",
   "tag_list_help": "新しい順。クリックでそのコミットを表示します",
   "submodule_list": "submodule一覧",
   "tip_submodule_list": "登録されている submodule の一覧 (git submodule status)",

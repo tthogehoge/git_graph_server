@@ -366,9 +366,13 @@ def stash_list():
 
 
 
-def _ref_list(refs, fmt):
-    """for-each-ref の結果を行ごとのリストにする。"""
-    out = git("for-each-ref", "--format=" + fmt, *refs)
+def _ref_list(refs, fmt, sort=None):
+    """for-each-ref の結果を行ごとのリストにする。sort は --sort に渡す値 (例: -committerdate)。"""
+    args = ["for-each-ref"]
+    if sort:
+        args.append("--sort=" + sort)
+    args += ["--format=" + fmt, *refs]
+    out = git(*args)
     rows = []
     for l in out.splitlines():
         parts = (l.split("\x1f") + [""] * 6)[:6]
@@ -377,16 +381,16 @@ def _ref_list(refs, fmt):
 
 
 def branches():
-    """ローカルブランチ → リモート追跡ブランチの順の一覧。現在のブランチには ★ を付ける。"""
+    """ブランチ一覧 (ローカル・リモート混在、tip の新しい順)。現在のブランチには ★ を付ける。"""
     if libgit.available():  # ブランチごとに rev-parse を起動しない
         from datetime import datetime, timezone, timedelta
-        local, remote = [], []
+        rows = []
         prefixes = ("refs/heads/",) if state.OPTS.no_remotes else ("refs/heads/", "refs/remotes/")
         for ref, target, peeled, is_head in libgit.list_ref_infos(prefixes):  # タグなど他の ref は peel しない
             if ref.startswith("refs/heads/"):
-                bucket, name = local, ref[len("refs/heads/"):]
+                name, is_local = ref[len("refs/heads/"):], True
             elif ref.startswith("refs/remotes/") and not ref.endswith("/HEAD") and not state.OPTS.no_remotes:
-                bucket, name = remote, ref[len("refs/remotes/"):]
+                name, is_local = ref[len("refs/remotes/"):], False
             else:
                 continue
             c = libgit.peel_commit(libgit.repo()[peeled or target])
@@ -395,9 +399,10 @@ def branches():
             off = getattr(c, "commit_time_offset", 0) or 0
             date = datetime.fromtimestamp(c.commit_time, timezone(timedelta(minutes=off))).date().isoformat()
             h = str(c.id)
-            bucket.append((ref, [h, h[:7], ("★ " if is_head and bucket is local else "") + name,
-                                 date, (c.message or "").split("\n", 1)[0]]))
-        commits = [row for _, row in sorted(local)] + [row for _, row in sorted(remote)]
+            label = ("★ " if is_head and is_local else "") + name
+            # (-commit_time, name) で新しい順。同時刻は名前順
+            rows.append((-c.commit_time, name, [h, h[:7], label, date, (c.message or "").split("\n", 1)[0]]))
+        commits = [row for _, _, row in sorted(rows)]
         return {"commits": commits, "has_more": False, "total": len(commits)}
     fmt = "%(refname)%1f%(objectname)%1f%(HEAD)%1f%(committerdate:short)%1f%(subject)%1f%(objecttype)"
     commits = []
@@ -407,15 +412,17 @@ def branches():
             return objectname
         return git("rev-parse", ref + "^{commit}").strip()
 
-    for ref, objectname, head, date, subj, otype in _ref_list(["refs/heads"], fmt):
+    # ローカル・リモートをまとめて tip の新しい順 (タグ一覧と同じ考え方)
+    ref_dirs = ["refs/heads"] if state.OPTS.no_remotes else ["refs/heads", "refs/remotes"]
+    for ref, objectname, head, date, subj, otype in _ref_list(ref_dirs, fmt, sort="-committerdate"):
+        if ref.startswith("refs/remotes/") and ref.endswith("/HEAD"):
+            continue
         h = commit_of(ref, objectname, otype)
-        commits.append([h, h[:7], ("★ " if head == "*" else "") + ref[len("refs/heads/"):], date, subj])
-    if not state.OPTS.no_remotes:
-        for ref, objectname, head, date, subj, otype in _ref_list(["refs/remotes"], fmt):
-            if ref.endswith("/HEAD"):
-                continue
-            h = commit_of(ref, objectname, otype)
-            commits.append([h, h[:7], ref[len("refs/remotes/"):], date, subj])
+        if ref.startswith("refs/heads/"):
+            name = ("★ " if head == "*" else "") + ref[len("refs/heads/"):]
+        else:
+            name = ref[len("refs/remotes/"):]
+        commits.append([h, h[:7], name, date, subj])
     return {"commits": commits, "has_more": False, "total": len(commits)}
 
 

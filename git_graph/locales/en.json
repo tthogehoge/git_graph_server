@@ -574,7 +574,7 @@
   "tip_tag_list": "List of tags",
   "branch_list_title": "Branch list",
   "tag_list_title": "Tag list",
-  "branch_list_help": "Local branches first, then remote-tracking branches (★ is the current branch). Click an entry to view that commit",
+  "branch_list_help": "Newest tip first (local and remote mixed; ★ is the current branch). Click an entry to view that commit",
   "tag_list_help": "Newest first. Click an entry to view that commit",
   "submodule_list": "Submodule list",
   "tip_submodule_list": "List of registered submodules (git submodule status)",
