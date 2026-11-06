@@ -1,0 +1,50 @@
+Third-Party Notices
+===================
+
+This software incorporates or depends on the following third-party components.
+Full license texts are available under the licenses/ directory.
+
+---------------------------------------------------------------------------
+libgit2
+---------------------------------------------------------------------------
+License : GPLv2 with Linking Exception
+Files   : licenses/libgit2.txt
+Notes   : The Linking Exception permits linking this library into
+          proprietary or differently-licensed programs without requiring
+          the combined work to be licensed under the GPL. Modifications
+          to libgit2 itself remain under GPLv2.
+
+---------------------------------------------------------------------------
+pygit2
+---------------------------------------------------------------------------
+License : GPLv2 with Linking Exception
+Files   : licenses/pygit2.txt
+Notes   : Same Linking Exception as libgit2. Python bindings for libgit2.
+
+---------------------------------------------------------------------------
+pywebview
+---------------------------------------------------------------------------
+License : BSD 3-Clause
+Files   : licenses/pywebview.txt
+Notes   : Copyright (c) 2014-2017, Roman Sirokov and contributors.
+          Redistribution in binary form requires reproduction of the
+          copyright notice and disclaimer.
+
+---------------------------------------------------------------------------
+Python (CPython)
+---------------------------------------------------------------------------
+License : Python Software Foundation License Version 2
+          (plus additional component licenses in the license stack)
+Files   : licenses/python.txt
+Notes   : Bundled when distributing a PyInstaller-built executable.
+          The PSF License and copyright notice must be retained.
+          "Python" is a registered trademark of the Python Software Foundation.
+
+---------------------------------------------------------------------------
+Graphviz
+---------------------------------------------------------------------------
+License : Eclipse Public License 1.0 (EPL-1.0)
+Files   : licenses/graphviz.txt
+Notes   : Not bundled with this application. Graphviz must be installed
+          separately by the user. The application only invokes the
+          external `dot` (or related) executables when present.
