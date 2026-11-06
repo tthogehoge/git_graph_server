@@ -123,6 +123,7 @@ def files_start_path(target, files_hash):
 def api_submodule_open(body):
     """submodule を別のプロセスで開く。リポジトリは変更しない。
     files_hash を付けると、submodule のファイル表示をそのコミット (WIP なら作業ツリー) で開く。最初に開く画面のパスを start_path で返す。
+    files_hash が無い (一覧から開く) ときはグラフを開く (--start graph。親の --start wip は引き継がない)。
     ブラウザーの場合は子のサーバーのポートを返す (画面が、そのポートの start_path を新しいタブで開く)。
     pywebview の場合は子が自分のウィンドウを開くので、ポートは返さない。"""
     path = body.get("path")
@@ -141,6 +142,11 @@ def api_submodule_open(body):
         argv = state.CHILD_CMD(target, start_path)  # 子が自分のウィンドウを開く。最初の画面は --start-path で渡す
     else:
         argv = [sys.executable, str(SCRIPT), target, "--port", str(port)] + forwarded_args()
+        if start_path:
+            argv += ["--start-path", start_path]  # ファイル表示から: 指定コミットの /files
+        else:
+            # 一覧から: グラフ。親の --start wip を引き継ぐと WIP 画面になるので上書き
+            argv += ["--start", "graph"]
     with tempfile.TemporaryFile() as errfile:  # 起動に失敗したときのメッセージを取るため。子はこのファイルへ書き続けてもよい
         try:
             proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=errfile)

@@ -168,10 +168,11 @@ function openSubmodule(path) {
   submoduleMessage(esc(t("submodule_opening", {path: path})));
   post("/api/submodule-open", {path: path}).then(r => {
     // ブラウザーでは、子のサーバーが待ち受けているポートを新しいタブで開く (pywebview では子が自分のウィンドウを開く)。
+    // 一覧からは start_path が空 = グラフ。ファイル表示から開くときと同じく start_path を付ける。
     // ポップアップとしてブロックされることがあるので、リンクも残す
     let link = "";
     if (r.port) {
-      const url = location.protocol + "//" + location.hostname + ":" + r.port + "/";
+      const url = location.protocol + "//" + location.hostname + ":" + r.port + (r.start_path || "/");
       window.open(url, "_blank");
       link = ' <a href="' + esc(url) + '" target="_blank" rel="noopener">' + esc(url) + "</a>";
     }

@@ -117,6 +117,48 @@ class SubmoduleFileViewTests(SubmoduleTestBase):
     def test_without_files_hash_the_start_path_is_empty(self):
         self.assertEqual(launcher.api_submodule_open({"path": SUB_DIR})["start_path"], "")
 
+    def test_without_files_hash_starts_the_child_with_graph(self):
+        """一覧から開くときは --start graph (親が --start wip でも WIP 画面にしない)。"""
+        seen = []
+        real_popen = subprocess.Popen
+
+        def capture(*args, **kwargs):
+            argv = list(args[0]) if args else list(kwargs.get("args", []))
+            if str(launcher.SCRIPT) in argv or (argv and "git_graph_server" in str(argv[0])):
+                seen.append(argv)
+            return real_popen(*args, **kwargs)
+
+        with mock.patch.object(subprocess, "Popen", side_effect=capture):
+            res = launcher.api_submodule_open({"path": SUB_DIR})
+        self.assertTrue(res["ok"])
+        self.assertEqual(res["start_path"], "")
+        self.assertTrue(seen, "child Popen was not called")
+        argv = seen[0]
+        # 最後の --start が graph (forwarded の wip を上書き)
+        starts = [argv[i + 1] for i, a in enumerate(argv) if a == "--start"]
+        self.assertTrue(starts, argv)
+        self.assertEqual(starts[-1], "graph")
+        self.assertNotIn("--start-path", argv)
+
+    def test_with_files_hash_passes_start_path_to_the_child(self):
+        """ファイル表示から開くときは子に --start-path を渡す。"""
+        seen = []
+        real_popen = subprocess.Popen
+
+        def capture(*args, **kwargs):
+            argv = list(args[0]) if args else list(kwargs.get("args", []))
+            if str(launcher.SCRIPT) in argv or (argv and "git_graph_server" in str(argv[0])):
+                seen.append(argv)
+            return real_popen(*args, **kwargs)
+
+        with mock.patch.object(subprocess, "Popen", side_effect=capture):
+            res = launcher.api_submodule_open({"path": SUB_DIR, "files_hash": self.sub_first})
+        self.assertEqual(res["start_path"], f"/files?hash={self.sub_first}")
+        self.assertTrue(seen, "child Popen was not called")
+        argv = seen[0]
+        self.assertIn("--start-path", argv)
+        self.assertEqual(argv[argv.index("--start-path") + 1], f"/files?hash={self.sub_first}")
+
     def test_window_mode_passes_the_start_path_to_the_command(self):
         seen = []
 
