@@ -3330,7 +3330,7 @@ class ExternalAppsTests(unittest.TestCase):
         self.assertIn('onclick="history.back()"', files)
         index = (Path(viewer.__file__).parent / "static" / "index.html").read_text(encoding="utf-8")
         other = index[index.index('id="otherActions"'):]
-        other = other[:other.index("</span>")]
+        other = other[:other.index("</div>")]  # 「その他」メニューは、<div class="dropdown"> の中 (項目の button の中に <span> があるので、</span> では切れない)
         self.assertIn('id="quitBtn"', other)  # 終了ボタンは「その他」メニューの中
         self.assertLess(index.index('id="navGraphBtn"'), index.index('id="backBtn"'))  # ページ切替が戻るより左
         self.assertLess(index.index('id="backBtn"'), index.index('id="reload"'))  # 戻る → 更新
@@ -3355,7 +3355,7 @@ class ExternalAppsTests(unittest.TestCase):
         self.assertIn(">HEAD</button>", row2)
         self.assertIn(">WIP</button>", row2)
         other = index[index.index('id="otherActions"'):]
-        other = other[:other.index("</span>")]
+        other = other[:other.index("</div>")]  # 「その他」メニューは、<div class="dropdown"> の中 (項目の button の中に <span> があるので、</span> では切れない)
         self.assertIn('id="showMerges"', other)  # マージ表示のチェックは「その他」メニューの中
         self.assertEqual(index.count('id="showMerges"'), 1)
         self.assertLess(index.index('id="pushBtn"'), index.index('data-cact="pull"'))
