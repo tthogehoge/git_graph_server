@@ -6,6 +6,7 @@ from . import app_state as state
 from .engine import files, patch
 from .i18n import tr, UserError
 from .query import files as qf
+from .query import merge as qm
 from .routing import route
 from .textcodec import decode_text, detect_eol  # noqa: F401  (decode_text / detect_eol は互換のため再公開)
 
@@ -32,6 +33,12 @@ def api_file_save(body):
     if r["unchanged"]:
         return {"ok": True, "unchanged": True, "sha": r["sha"], "message": tr("edit_unchanged")}
     return {"ok": True, "sha": r["sha"], "message": tr("edit_saved", path=r["path"])}
+
+
+@route("/api/merge-sources")
+def api_merge_sources(q):
+    """競合しているファイルの ours / base / theirs、3 way マージの結果、作業ツリーの内容 (マージエディタ用)。"""
+    return qm.merge_sources(q.get("path", [""])[0])
 
 
 @route("/api/tree")
@@ -140,5 +147,5 @@ def api_blame(q):
 __all__ = [
     "FILE_CONTENT_LIMIT", "api_file", "api_file_copy", "api_tree", "api_tree_log", "decode_text", "api_blame",
     "validate_file_path", "WIP_HASH", "api_file_save", "SAVE_BODY_LIMIT", "file_download", "patch_download",
-    "api_patch_apply", "api_patch_am", "PATCH_BODY_LIMIT", "wip_patch", "worktree_target", "status_mark",
+    "api_patch_apply", "api_patch_am", "api_merge_sources", "PATCH_BODY_LIMIT", "wip_patch", "worktree_target", "status_mark",
 ]

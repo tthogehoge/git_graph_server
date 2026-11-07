@@ -10,6 +10,7 @@ from . import app_state as state
 
 ASSET_DIR = Path(__file__).resolve().parent
 STATIC_DIR = ASSET_DIR / "static"
+VENDOR_DIR = STATIC_DIR / "vendor"
 LOCALES_DIR = ASSET_DIR / "locales"
 def read_asset(name):
     return (STATIC_DIR / name).read_text(encoding="utf-8")
@@ -19,6 +20,7 @@ TRANSLATIONS = {lang: json.loads((LOCALES_DIR / f"{lang}.json").read_text(encodi
                 for lang in ("ja", "en")}
 HTML_TEMPLATE = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
 FILES_PAGE = (STATIC_DIR / "files.html").read_text(encoding="utf-8")
+MERGE_PAGE = (STATIC_DIR / "merge.html").read_text(encoding="utf-8")
 # ブラウザ側の JavaScript は static/js/ の部品 (番号順) を連結して、/static/app.js として配る。
 # 部品の境界を示すコメントを挟むので、ブラウザーのエラーに出る行番号から元のファイルを探せる。
 APP_JS = "".join(f"/* ---- js/{path.name} ---- */\n" + path.read_text(encoding="utf-8")
@@ -117,8 +119,10 @@ def check_i18n():
     py_files = sorted(Path(__file__).resolve().parent.rglob("*.py"))  # engine/ などのサブパッケージも含む
     sources = {path: path.read_text(encoding="utf-8") for path in py_files}
     src = "\n".join(sources.values())
+    # vendor/ は、ビルド済みの外部ライブラリ (CodeMirror など)。自前の文言は入っていないので検査しない
     assets = "\n".join(path.read_text(encoding="utf-8")
-                       for ext in ("html", "js", "css") for path in sorted(STATIC_DIR.rglob(f"*.{ext}")))
+                       for ext in ("html", "js", "css") for path in sorted(STATIC_DIR.rglob(f"*.{ext}"))
+                       if VENDOR_DIR not in path.parents)
     template_text = "\n".join(path.read_text(encoding="utf-8") for path in sorted(STATIC_DIR.rglob("*.html")))
     literals = set()
     for path, source in sources.items():
@@ -158,7 +162,7 @@ def check_i18n():
             if lang == "ja":
                 continue
             state.UI_LANG = lang
-            for name, page in (("main page", HTML_TEMPLATE), ("files page", FILES_PAGE)):
+            for name, page in (("main page", HTML_TEMPLATE), ("files page", FILES_PAGE), ("merge page", MERGE_PAGE)):
                 text = _strip_comments(fill_template(page))
                 problems += [f"[{lang}] {name}: untranslated text: {l.strip()[:80]}" for l in text.split("\n") if _CJK.search(l)]
                 problems += [f"[{lang}] {name}: unresolved key: {k}" for k in re.findall(r"\{\{(\w+)\}\}", text)]
@@ -173,7 +177,7 @@ def check_i18n():
 
 __all__ = [
     "read_asset",
-    "FILES_PAGE",
+    "FILES_PAGE", "MERGE_PAGE",
     "APP_CSS", "APP_JS", "DEFAULT_LANG", "FAVICON_LINK", "HTML_TEMPLATE",
     "TRANSLATIONS", "UserError", "check_i18n", "client_translations",
     "detect_language", "fill_template", "render_app_js", "render_main_page",

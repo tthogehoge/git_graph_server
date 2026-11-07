@@ -2,17 +2,18 @@
 import html
 import json
 import os
+import re
 from collections import Counter
 from urllib.parse import urlencode
 from . import app_state as state
 from .history import api_commit, api_compare, api_diff
 from .i18n import (
-    client_translations, FAVICON_LINK, FILES_PAGE, fill_template, read_asset, tr, UserError,
+    client_translations, FAVICON_LINK, FILES_PAGE, fill_template, MERGE_PAGE, read_asset, tr, UserError,
     with_project,
 )
 from .external import configured
 from .wip import api_status
-from .files import WIP_HASH, worktree_target
+from .files import validate_file_path, WIP_HASH, worktree_target
 from .query.files import file_exists_at
 
 
@@ -31,6 +32,8 @@ PANE_RESIZE_JS = read_asset("pane_resize.js")
 WIP_DIFF_COMMIT_JS = read_asset("wip_diff_commit.js")
 WIP_DIFF_REMOTE_JS = read_asset("wip_diff_remote.js")
 DIFF_DIALOG_JS = read_asset("diff_dialog.js")
+MERGE_JS = read_asset("merge.js")
+MERGE_EDITOR_JS = read_asset("vendor/merge_editor.js")  # CodeMirror 6 をまとめたもの (tools/merge_editor でビルド)
 # WIP の差分ページの push / pull / fetch ダイアログが使う文言
 REMOTE_TEXT_KEYS = (
     "cancel", "ok", "prune_label", "pull_mode", "pull_opt_ff", "pull_opt_merge", "pull_opt_rebase",
@@ -223,6 +226,11 @@ def render_diff_page(q):
         edit_url = "/files?" + urlencode({"hash": WIP_HASH, "path": dir_of(path), "file": path, "view": "edit"})
         edit_link = (f'<a class="ebtn" href="{html.escape(edit_url)}">{html.escape(tr("file_edit"))}</a>')
 
+    merge_link = ""
+    if wip == "conflict" and path and state.WRITABLE and state.HAS_WORKTREE and wip_file_exists(path):  # 競合しているファイルは、マージエディタで解決できる
+        merge_link = (f'<a class="ebtn" href="{html.escape("/merge?" + urlencode({"path": path}))}" '
+                      f'title="{html.escape(tr("tip_merge_editor"), quote=True)}">{html.escape(tr("merge_editor"))}</a>')
+
     files_link = ""
     if view_hash:  # この差分のファイルを、ファイル表示 (/files) で開く
         files_link = (f'<a class="ebtn" href="{html.escape(files_view_url(view_hash, path))}" '
@@ -403,7 +411,7 @@ def render_diff_page(q):
 </div>
 <div id="sideSplitter" role="separator" aria-orientation="vertical" aria-label="{html.escape(tr("resize_side"), quote=True)}" tabindex="0"></div>
 <div id="main">
-  <h1>{html.escape(name)}{edit_link}{files_link}{patch_btn}{ext_diff}</h1>
+  <h1>{html.escape(name)}{merge_link}{edit_link}{files_link}{patch_btn}{ext_diff}</h1>
   {'<div class="meta hint" id="pmsg"></div>' if patch_btn else ""}
   {'<div class="meta hint" id="xmsg"></div>' if ext_diff else ""}
   {info}
@@ -434,7 +442,21 @@ def render_files_page():
                      + "const DESKTOP = " + ("true" if state.DESKTOP and state.WRITABLE and state.HAS_WORKTREE else "false") + ";"))
 
 
+def render_merge_page(q):
+    """競合しているファイルのマージエディタ (/merge?path=...)。内容は /api/merge-sources で読み込む。"""
+    path = validate_file_path(q.get("path", [""])[0], allow_empty=False)
+    back = "/diff?" + urlencode({"wip": "conflict", "path": path})
+    values = {"PATH": html.escape(path), "BACK": html.escape(back)}
+    page = re.sub(r"__(PATH|BACK)__", lambda m: values[m.group(1)],  # 1 回の置換で済ませる (パスの中に __BACK__ があっても置き換えない)
+                  with_project(fill_template(MERGE_PAGE)).replace('<html lang="ja">', f'<html lang="{state.UI_LANG}">'))
+    return (page
+            .replace("/*__MERGE_I18N__*/", "const I18N = " + client_translations() + ";\n"
+                     + "const MERGE_PATH = " + json.dumps(path, ensure_ascii=False).replace("</", "<\\/") + ";")
+            .replace("/*__MERGE_JS__*/", MERGE_JS)
+            .replace("/*__MERGE_EDITOR__*/", MERGE_EDITOR_JS))
+
+
 __all__ = [
     "WIP_DIR_COLLAPSE", "diff_lines_html", "diff_url", "dir_of", "localized_wip_title",
-    "render_diff_page", "render_files_page", "wip_files",
+    "render_diff_page", "render_files_page", "render_merge_page", "wip_files",
 ]

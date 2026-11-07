@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="ja"><head><meta charset="utf-8"><title>__PROJECT__ - {{merge_editor}}: __PATH__</title>
+__FAVICON__
+<style>
+  html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-size: 13px; color: #222; }
+  body { display: flex; flex-direction: column; }
+  [hidden] { display: none !important; }
+  #bar { flex: none; display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid #ccc; background: #fafafa; }
+  #bar h1 { font-size: 15px; margin: 0; word-break: break-all; flex: 1; min-width: 0; }
+  .btn { background: #e8eefc; border: 1px solid #b8c7ee; padding: 4px 8px; border-radius: 3px; cursor: pointer; color: inherit; text-decoration: none; font: inherit; white-space: nowrap; }
+  .btn:hover:not(:disabled) { background: #d6e2fb; }
+  .btn:disabled { opacity: 0.5; cursor: default; }
+  .btn.primary { background: #2c7be5; border-color: #2c7be5; color: #fff; }
+  .btn.primary:hover:not(:disabled) { background: #1f66c4; }
+  #tools { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 12px; border-bottom: 1px solid #ddd; }
+  #tools .sep { width: 1px; align-self: stretch; background: #ddd; margin: 0 4px; }
+  #count { font-weight: 600; color: #8a6d00; }
+  #count.done { color: #0a7b35; }
+  .hint { color: #666; }
+  #hint { flex: none; padding: 4px 12px; }
+  .msg { flex: none; padding: 4px 12px; white-space: pre-wrap; min-height: 1.2em; }
+  .msg:empty { display: none; }
+  .msg.ok { color: #0a7b35; }
+  .msg.err { color: #c00; }
+  #heads { flex: none; display: flex; border-bottom: 1px solid #ddd; background: #f6f8fa; }
+  #heads div { flex: 1 1 0; padding: 3px 12px; font-weight: 600; }
+  #heads div + div { border-left: 1px solid #ddd; }
+  #top { flex: none; height: 36vh; min-height: 90px; resize: vertical; overflow: hidden; border-bottom: 1px solid #ccc; }
+  #top .cm-mergeView { height: 100%; }
+  #resultHead { flex: none; padding: 3px 12px; font-weight: 600; background: #f6f8fa; border-bottom: 1px solid #ddd; }
+  #result { flex: 1 1 0; min-height: 0; }
+</style></head>
+<body>
+<div id="bar"><a class="btn" id="backLink" href="__BACK__">← {{merge_back_diff}}</a><h1>{{merge_editor}}: __PATH__</h1><span class="hint" id="encoding"></span><a class="btn" href="/">{{nav_graph}}</a></div>
+<div id="msg" class="msg"></div>
+<div id="tools" hidden>
+  <button class="btn" id="prevBtn">{{merge_prev}}</button><button class="btn" id="nextBtn">{{merge_next}}</button><span id="count"></span>
+  <span class="sep"></span>
+  <button class="btn" id="allOursBtn">{{merge_all_ours}}</button><button class="btn" id="allTheirsBtn">{{merge_all_theirs}}</button>
+  <span class="sep"></span>
+  <button class="btn" id="regenBtn">{{merge_regenerate}}</button><button class="btn" id="reloadBtn">{{merge_reload_worktree}}</button>
+  <span class="sep"></span>
+  <button class="btn" id="saveBtn">{{merge_save}}</button><button class="btn primary" id="resolveBtn">{{merge_save_resolve}}</button>
+</div>
+<div id="hint" class="hint" hidden></div>
+<div id="heads" hidden><div>{{merge_head_ours}}</div><div>{{merge_head_theirs}}</div></div>
+<div id="top" hidden></div>
+<div id="resultHead" hidden>{{merge_head_result}}</div>
+<div id="result" hidden></div>
+<script>/*__MERGE_EDITOR__*/</script>
+<script>
+/*__MERGE_I18N__*/
+/*__MERGE_JS__*/
+</script>
+</body></html>

@@ -65,7 +65,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.test_git_graph_server.InputV
 | `git_graph/gitstate.py` | マージ中・HEAD の有無・`git status` / `--numstat` の解析など、リポジトリの状態を調べる共通関数。機能モジュールから共通で使われる低レベルの層。 |
 | `git_graph/equivalent.py` | 互換の再公開。本体は `query/equivalent.py`。 |
 | `git_graph/engine/` | git 操作エンジン (パッケージ)。リポジトリを変更する git の処理はここに置き、route (`api_*`) は body を読んで engine を呼び、結果を画面用のレスポンスに整える薄い層にします。`__init__.py` は操作の記録と `operation` デコレーターで、`refs.py` (ブランチ・タグ・checkout・reset)、`worktree.py` (stash・破棄・git add・git rm)、`commit.py` (WIP からのコミット)、`remote.py` (fetch・pull・push・リモートの追加と削除。HTTP 認証の指定は `Auth`)、`patch.py` (git apply / git am)、`files.py` (編集したファイルの保存)、`integrate.py` (merge・cherry-pick・revert・競合の解決・中断)、`rebase.py` (rebase・rebase-range・rebase-descendants・rebase-equivalent・対話的リベース)、`tags.py` (リベース時のタグの付け替え)、`dirty.py` (編集中のファイルに邪魔されたときの stash / 破棄) に git の操作があります。リポジトリを変更する git の処理はすべて engine に移してあります。engine の操作は `@operation` で登録し、呼ぶと操作の前後で ref / HEAD / stash 一覧 / ローカル config / 作業ツリーと index の状態を記録して、その差分をメモリ上の履歴に積みます (ファイルには保存せず、再起動すると消えます)。元に戻す・やり直し (`/api/undo`、`/api/redo`、`/api/undo-history`) はこの差分を逆向き・順方向に適用するだけなので、操作ごとに逆操作を書く必要はありません。作業ツリーの退避 (blob / tree) は `GIT_OBJECT_DIRECTORY` を一時ディレクトリにして書き (本物の objects は `GIT_ALTERNATE_OBJECT_DIRECTORIES` で読み取り専用に見せます)、`.git` には objects も ref も残しません。一時ディレクトリは起動時・終了時・再起動時に `cleanup()` で消します。作業ツリーが操作後に変わっているのを確認のうえ上書きして戻したときは、上書きされる現在の状態を履歴側の反対向きの行き先にするので、やり直し (または元に戻す) で戻せます。エンジン内で git を呼ぶときは `_run()` を使ってください (書き込まれるオブジェクトが一時ディレクトリに入ります)。 |
-| `git_graph/query/` | git からの読み取り (query)。リポジトリを変更しないデータ取得を置く。`history.py` (log・branches・tags・reflog・commit・compare・diff)、`status.py` (作業ツリー status・WIP 差分)、`files.py` (tree・file・blame)、`equivalent.py` (等価コミット探索)、`graph.py` (残すコミットとエッジのモデル)。HTTP の引数や画面用の文言は知らず、結果は dict で返す。route (`history.py` / `wip.py`) が query を呼ぶ。書き込みは `engine/` に置き、読み取りを engine に混ぜない。 |
+| `git_graph/query/` | git からの読み取り (query)。リポジトリを変更しないデータ取得を置く。`history.py` (log・branches・tags・reflog・commit・compare・diff)、`status.py` (作業ツリー status・WIP 差分)、`files.py` (tree・file・blame)、`merge.py` (競合しているファイルの ours / base / theirs と、`git merge-file` による 3 way マージの結果。マージエディタ用)、`equivalent.py` (等価コミット探索)、`graph.py` (残すコミットとエッジのモデル)。HTTP の引数や画面用の文言は知らず、結果は dict で返す。route (`history.py` / `wip.py`) が query を呼ぶ。書き込みは `engine/` に置き、読み取りを engine に混ぜない。 |
 | `git_graph/tmpdir.py` | アプリのインスタンスごとの一時ディレクトリ (`git_graph_<PID>_xxxx`)。差分用 (外部差分ツールに渡すファイル。`diff_*`) と undo 用 (退避したオブジェクトと一時 index。`objects_*` / `snap_*` / `restore_*`) の一時ファイルをここにまとめ、終了時に丸ごと消します。異常終了で残ったものは、PID のプロセスがもう居なければ次の起動時に消します (`cleanup_stale`)。 |
 | `git_graph/graph.py` | グラフの描画 (DOT/SVG・クラスター) と `/api/graph` route。残すコミットとエッジの決定は `query/graph.py` の `build_model`。 |
 | `git_graph/history.py` | ログ・ブランチ・タグ・reflog・stash 一覧・コミット詳細・比較・差分の route。git からの読み取りは `query/history.py` に任せ、ここは query 文字列を読んで JSON を返す薄い層。 |
@@ -73,8 +73,8 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.test_git_graph_server.InputV
 | `git_graph/launcher.py` | submodule を別プロセスで開く (`/api/submodule-open`)。サーバーの状態 (`app_state`) はプロセスに1つなので、submodule は同じプロセスで切り替えず、子のサーバーを起動する。ポートは共有できないので、空いているポートを選んで `--port` で渡し、待ち受けを確認してからポートを画面へ返す (画面が新しいタブで開く)。pywebview のように子が自分のウィンドウを開く方式は、`app_state.CHILD_CMD` に起動コマンド (`(path, start_path) -> argv`) を返す関数を設定する (ポートは渡さない)。`files_hash` (コミットか `WIP`) を付けると、submodule のファイル表示をそのコミットで開く。最初の画面は `start_path` (`/files?hash=...`) で返し、ブラウザーでは画面がそれを新しいタブで開き、ウィンドウ方式では子へ `--start-path` で渡す (最初の `/` だけをそのパスへ移す。`app_state.START_PATH`。このサーバーの中のパス以外は拒否する)。ファイル表示の一覧は、submodule を `type: "commit"` (`sha` = 記録されたコミット) で返し、ファイルとして読もうとしたときは `is_submodule` を返す (`query/files.not_a_file`)。子へはオプションを引き継ぐが (`forwarded_args`)、リポジトリ・リビジョン・`--port` は引き継がない。同じ submodule の子が生きていれば使い回す。リポジトリを変更しないので `engine.IGNORED` に入れてあり、`--read-only` でもローカルからは使える (`server.py` の `LOCAL_PATHS`)。 |
 | `git_graph/submodules.py` | submodule の更新・fetch・追加 (`/api/submodule-update` / `-fetch` / `-add`)。更新は `git submodule update --init [--remote] [--recursive]`、fetch は `git -C <path> fetch`。どちらも 1 つずつ実行して結果を返し、実行の前にすべてのパスが登録済み (gitlink) か確認する。submodule の中身は別のリポジトリで、engine の元に戻す記録では戻せないので `engine.IGNORED` に入れてある (`--force` は使わず、編集中のファイルは上書きしない)。追加 (`git submodule add`) はインデックスと `.gitmodules` を変えるので、engine の操作 (`engine/submodule.py`) として履歴に積む (元に戻すと、インデックスと `.gitmodules` は戻るが、取得したディレクトリは残る)。URL は `-` 始まり・制御文字・`ext::` / `fd::` を弾き、`protocol.ext.allow=never` で実行する。HTTP 認証は接続先 (origin = `scheme://host[:port]`) 単位で扱う (`gitrun.run_git_net_origin`)。認証が必要なら、結果に `auth_origin` を付け、`auth_required` / `auth_requests: [{origin, paths}]` を返す。画面が尋ねて、そのパスだけを `auth` / `auth_origin` 付きでやり直す。入力された認証情報は、その origin の質問にだけ答える (`run_git_net(auth_host=)`。askpass が質問の URL のホストを照合する)。入れ子の submodule や、悪意のある `.gitmodules` が別のホストを指しても、認証情報は渡らない。覚えた認証情報は `HTTP_AUTH_CACHE` に origin をキーにして入れる (リモート名は `:` を含められないのでぶつからない)。 |
 | `git_graph/textcodec.py` | バイト列の文字コード判別と保存時エンコード。git / HTTP に依存しない。 |
-| `git_graph/files.py` | ファイルの route (tree/file/blame は `query/files.py`)、作業ツリーへの保存・コピー、パッチの作成と適用。文字コードは `textcodec.py`。 |
-| `git_graph/pages.py` | `/diff`(差分ページ)と `/files`(ファイル表示ページ)の HTML を組み立てます。 |
+| `git_graph/files.py` | ファイルの route (tree/file/blame は `query/files.py`)、作業ツリーへの保存・コピー、パッチの作成と適用、マージエディタ用の `/api/merge-sources` (`query/merge.py`)。文字コードは `textcodec.py`。 |
+| `git_graph/pages.py` | `/diff`(差分ページ)、`/files`(ファイル表示ページ)、`/merge`(マージエディタ)の HTML を組み立てます。 |
 | `git_graph/wip.py` | WIP の route。status / 差分の読み取りは `query/status.py`、コミットは `engine/commit.py`。 |
 | `git_graph/refops.py` | ブランチ・タグの作成/削除/rename、checkout、reset、stash、変更の破棄。 |
 | `git_graph/rebase.py` | merge、rebase、cherry-pick、revert、rebase 中断、競合解決と履歴上の対応コミット検索。 |
@@ -83,6 +83,8 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.test_git_graph_server.InputV
 | `git_graph/locales/ja.json`、`git_graph/locales/en.json` | 日本語・英語の翻訳辞書。 |
 | `git_graph/static/index.html` | メイン画面の HTML 骨格。 |
 | `git_graph/static/files.html` | ファイル表示ページ(`/files`)の HTML。このページの CSS と JavaScript は、この HTML の中の `<style>` / `<script>` にあります(別ファイルの CSS はありません。見た目を変えるときは、ここの `<style>` を直します)。`i18n.py` が読み込み、`pages.py` が翻訳と `pane_resize.js` を埋め込みます。 |
+| `git_graph/static/merge.html`、`merge.js` | マージエディタ (`/merge?path=...`。競合しているファイルを、上段の ours | theirs と下段の編集できる結果で解決する)。`merge.html` は `files.html` と同じくページの HTML で、`i18n.py` が読み込み、`pages.py` の `render_merge_page` が翻訳・`merge.js`・エディタ本体を埋め込みます (CSS はこの HTML の中の `<style>`)。`merge.js` は画面の動作で、内容は `/api/merge-sources` で読み、保存は `/api/file-save`、解決済み (ステージ) は `/api/resolve` の `current` を使います。競合マーカーの扱い (どの行が ours / theirs か、採用ボタン) はエディタ本体側です。 |
+| `git_graph/static/vendor/merge_editor.js` | マージエディタの本体。CodeMirror 6 と、競合マーカーの解析・採用ボタンを 1 つにまとめたビルド済みのファイルで、手で編集しません。元は `tools/merge_editor` (後述)。ライセンスは `licenses/codemirror.txt` と `THIRD_PARTY_NOTICES`。`--check-i18n` の検査の対象外です。 |
 | `git_graph/static/diff.css`、`copy.js`、`pane_resize.js`、`ext_diff.js`、`diff_patch.js`、`diff_fold.js`、`diff_reload.js`、`diff_dialog.js`、`wip_diff_commit.js`、`wip_diff_remote.js` | `/diff` ページに `pages.py` が埋め込む CSS / JavaScript (外部差分・パッチ・WIP のときだけ入るものがあります)。`pane_resize.js` は `/files` ページにも埋め込まれます。 |
 | `git_graph/static/js/*.js` | ブラウザー側の動作。番号順に連結され、1つの `/static/app.js` として配られます(`01_core` 共通部、`02_log` ログ、`03_detail` 詳細、`04_graph_compare` グラフ更新と比較、`05_actions` メニューと操作、`06_git_ops` rebase / revert / merge など、`07_screens` 画面遷移と初期化、`08_wip` WIP、`09_boot` 起動)。翻訳辞書は起動時に埋め込まれます。 |
 | `git_graph/static/app.css` | メイン画面と各ビューのスタイル。 |
@@ -114,6 +116,19 @@ GET は JSON を返し、POST も JSON オブジェクトを受け取って JSON
 - API のエラーには既存の `UserError` と翻訳キーを使い、画面に返すメッセージを一貫させてください。
 - `git_graph/i18n.py` は静的ファイルをモジュール読み込み時に読み込みます。画面テンプレートや翻訳を編集した後は、サーバーを再起動して反映を確認してください。
 - HTML に動的値を挿入するときは、既存の `html.escape` 等のエスケープ方法を使ってください。信頼できない値を `innerHTML` やテンプレートへそのまま連結しないでください。
+
+### マージエディタのエディタ本体 (CodeMirror 6) を変える
+
+`git_graph/static/vendor/merge_editor.js` は `tools/merge_editor` からビルドしたものです (Node.js が要るのは、このビルドのときだけで、アプリの実行には要りません)。競合マーカーの解析と採用ボタンの動作は `tools/merge_editor/src/conflicts.js` と `tools/merge_editor/src/entry.js` にあります。
+
+```sh
+cd tools/merge_editor
+npm ci          # package-lock.json のとおりに入れる
+npm test        # 競合マーカーの解析と、エディタの採用ボタンの確認 (jsdom)
+npm run build   # git_graph/static/vendor/merge_editor.js を作り直す
+```
+
+ソースを変えたら、ビルドし直した `git_graph/static/vendor/merge_editor.js` も一緒にコミットしてください (アプリは、ビルド済みのファイルだけを読みます)。ライブラリを足す・上げるときは `package-lock.json` と `licenses/codemirror.txt` も更新します。画面の文言はエディタ本体に書かず、`merge.js` から `labels` で渡します (翻訳の検査が `vendor/` を見ないため)。
 
 ### Git 操作と安全性
 

@@ -44,7 +44,7 @@ from .external import DEFAULT_CONFIG_PATH, load_config
 from .launcher import api_submodule_open  # noqa: F401
 from .submodules import api_submodule_add, api_submodule_fetch, api_submodule_update  # noqa: F401
 from . import engine, tmpdir
-from .pages import diff_url, render_diff_page, render_files_page, wip_files
+from .pages import diff_url, render_diff_page, render_files_page, render_merge_page, wip_files
 from .wip import api_status, api_wip_commit  # noqa: F401
 
 
@@ -184,6 +184,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_download(*patch_download(q))
             elif u.path == "/diff":
                 self._send(200, "text/html", render_diff_page(q))
+            elif u.path == "/merge":
+                self._send(200, "text/html", render_merge_page(q))
             else:
                 self._send(404, "text/plain", "not found")
         except ValueError as e:

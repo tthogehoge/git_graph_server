@@ -7,3 +7,4 @@ python/
 git_graph_server.json
 *~
 *.bak
+node_modules/

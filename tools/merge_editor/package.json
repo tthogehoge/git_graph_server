@@ -1,0 +1,21 @@
+{
+  "name": "git-graph-merge-editor",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Bundles CodeMirror 6 for the git_graph_server merge editor (build output: git_graph/static/vendor/merge_editor.js)",
+  "scripts": {
+    "build": "esbuild src/entry.js --bundle --minify --format=iife --global-name=GGMerge --charset=ascii --target=es2019 --legal-comments=none --outfile=../../git_graph/static/vendor/merge_editor.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "@codemirror/commands": "^6.8.0",
+    "@codemirror/merge": "^6.10.0",
+    "@codemirror/state": "^6.5.0",
+    "@codemirror/view": "^6.36.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "jsdom": "^26.1.0"
+  }
+}
