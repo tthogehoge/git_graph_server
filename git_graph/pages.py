@@ -458,5 +458,5 @@ def render_merge_page(q):
 
 __all__ = [
     "WIP_DIR_COLLAPSE", "diff_lines_html", "diff_url", "dir_of", "localized_wip_title",
-    "render_diff_page", "render_files_page", "render_merge_page", "wip_files",
+    "MERGE_EDITOR_JS", "render_diff_page", "render_files_page", "render_merge_page", "wip_files",
 ]

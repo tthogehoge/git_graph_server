@@ -62,3 +62,34 @@ test("the top MergeView shows both sides read-only", () => {
   assert.equal(ed.topView.a.state.readOnly, true);
   ed.destroy();
 });
+
+test("the plain text editor (file edit): text, change/save callbacks, Tab and search phrases", () => {
+  const w = load();
+  let changes = 0, saves = 0;
+  const ed = w.GGMerge.createTextEditor({
+    parent: w.document.getElementById("result"), text: "a\r\nb\r\n", phrases: {Find: "検索"},
+    onChange: () => { changes++; }, onSave: () => { saves++; },
+  });
+  assert.equal(ed.getText(), "a\nb\n");  // 改行は LF にそろう (保存時に元の改行コードへ戻すのは呼び出し側)
+  assert.equal(changes, 0);               // 最初の内容を入れただけでは、変更扱いにしない
+  const key = (name, extra = {}) => {
+    const ev = new w.KeyboardEvent("keydown", {key: name, bubbles: true, cancelable: true, ...extra});
+    w.document.querySelector(".cm-content").dispatchEvent(ev);
+    return ev;
+  };
+  const save = key("s", {ctrlKey: true});
+  assert.equal(saves, 1);
+  assert.equal(save.defaultPrevented, true);  // ブラウザーの「ページを保存」を出さない
+  ed.view.dispatch({selection: {anchor: 0}});
+  key("Tab");
+  assert.equal(ed.getText(), "\ta\nb\n");     // Tab はタブ文字を入れる
+  assert.equal(changes, 1);
+  ed.setText("x\n");
+  assert.equal(ed.getText(), "x\n");
+  assert.equal(changes, 2);
+  assert.equal(w.document.querySelectorAll(".cm-gutters").length, 1);
+  assert.equal(w.document.querySelector(".cm-conflict-bar"), null);  // マージエディタの部品は出ない
+  assert.equal(ed.view.state.phrase("Find"), "検索");
+  ed.destroy();
+  assert.equal(w.document.querySelectorAll(".cm-editor").length, 0);
+});

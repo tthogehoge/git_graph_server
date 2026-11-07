@@ -849,5 +849,19 @@
   "merge_unsupported": "{reason}\nThis file cannot be resolved in the merge editor. Use \"Resolve with ours / theirs\" in WIP instead",
   "merge_one_side_deleted": "One side deleted this file",
   "merge_special_file": "Submodules and symbolic links cannot be merged",
-  "merge_not_conflict": "{path} is not in conflict"
+  "merge_not_conflict": "{path} is not in conflict",
+  "editor_load_failed": "Could not load the editor",
+  "editor_find": "Find",
+  "editor_replace": "Replace",
+  "editor_next": "next",
+  "editor_previous": "previous",
+  "editor_all": "all",
+  "editor_match_case": "match case",
+  "editor_regexp": "regexp",
+  "editor_by_word": "by word",
+  "editor_replace_one": "replace",
+  "editor_replace_all": "replace all",
+  "editor_close": "close",
+  "editor_goto_line": "Go to line",
+  "editor_go": "go"
 }

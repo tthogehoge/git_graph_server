@@ -849,5 +849,19 @@
   "merge_unsupported": "{reason}\nこのファイルはマージエディタでは解決できません。WIP の「ours / theirs で解決」を使ってください",
   "merge_one_side_deleted": "片側でファイルが削除されています",
   "merge_special_file": "submodule とシンボリックリンクはマージできません",
-  "merge_not_conflict": "{path} は競合していません"
+  "merge_not_conflict": "{path} は競合していません",
+  "editor_load_failed": "エディタを読み込めませんでした",
+  "editor_find": "検索",
+  "editor_replace": "置換",
+  "editor_next": "次へ",
+  "editor_previous": "前へ",
+  "editor_all": "すべて選択",
+  "editor_match_case": "大文字小文字を区別",
+  "editor_regexp": "正規表現",
+  "editor_by_word": "単語単位",
+  "editor_replace_one": "置換",
+  "editor_replace_all": "すべて置換",
+  "editor_close": "閉じる",
+  "editor_goto_line": "行へ移動",
+  "editor_go": "移動"
 }

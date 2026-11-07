@@ -81,7 +81,7 @@ __FAVICON__
   .blame-code { width: 99%; white-space: pre-wrap; min-width: 0; }
   .edit-info { color: #666; margin: 4px 0; }
   .edit-info.warn { color: #b35900; }
-  textarea.editor { width: 100%; height: calc(100vh - 190px); min-height: 200px; box-sizing: border-box; font: 12px monospace; tab-size: 4; padding: 8px; border: 1px solid #bbb; resize: vertical; white-space: pre; overflow-wrap: normal; }
+  #editor { height: calc(100vh - 190px); min-height: 200px; box-sizing: border-box; border: 1px solid #bbb; }
   .edit-bar { display: flex; gap: 6px; margin: 6px 0; }
   .edit-bar button { background: #e8eefc; border: 1px solid #b8c7ee; padding: 4px 10px; border-radius: 3px; cursor: pointer; }
   .edit-bar button.primary { background: #1a7f37; border-color: #1a7f37; color: #fff; }
@@ -515,12 +515,32 @@ function backToContent(after) {  // ファイル内容の表示に戻る。前�
 }
 // ---- 編集 (作業ツリーのみ) ----
 // 編集欄では改行が LF になるので、保存時にサーバー側で元の改行コード・文字コード・BOM に戻す
-let fileData = null, editing = false, editDirty = false;
+let fileData = null, editing = false, editDirty = false, textEditor = null;
 const EOL_LABEL = {crlf: "CRLF", lf: "LF", cr: "CR"};
+function closeEditor() {
+  if (textEditor) { textEditor.destroy(); textEditor = null; }
+}
 function leaveEdit() {  // 編集中なら、変更を捨ててよいか確認して編集をやめる
   if (editing && editDirty && !confirm(t("edit_discard_confirm"))) return false;
   editing = editDirty = false;
+  closeEditor();
   return true;
+}
+function loadEditorScript() {  // CodeMirror 6 は、編集を始めるときに初めて読み込む (見るだけなら読み込まない)
+  if (window.GGMerge) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "/static/vendor/merge_editor.js";
+    script.onload = resolve;
+    script.onerror = () => reject(new Error(t("editor_load_failed")));
+    document.head.appendChild(script);
+  });
+}
+function editorPhrases() {  // 検索パネルなどの文言 (CodeMirror 側の英語の文言 → 翻訳)
+  return {"Find": t("editor_find"), "Replace": t("editor_replace"), "next": t("editor_next"), "previous": t("editor_previous"),
+          "all": t("editor_all"), "match case": t("editor_match_case"), "regexp": t("editor_regexp"), "by word": t("editor_by_word"),
+          "replace": t("editor_replace_one"), "replace all": t("editor_replace_all"), "close": t("editor_close"),
+          "Go to line": t("editor_goto_line"), "go": t("editor_go")};
 }
 window.addEventListener("beforeunload", ev => { if (editing && editDirty) { ev.preventDefault(); ev.returnValue = ""; } });
 function startEdit() {
@@ -534,32 +554,32 @@ function startEdit() {
   content.innerHTML = '<div class="edit-info">' + esc(t("edit_format", {encoding: fileData.encoding, eol: eol})) + '</div>' +
     (fileData.eol_mixed ? '<div class="edit-info warn">' + esc(t("edit_eol_mixed", {eol: eol})) + '</div>' : "") +
     '<div class="edit-bar"><button class="primary" id="editSave">' + esc(t("edit_save")) + '</button><button id="editCancel">' +
-    esc(t("edit_cancel")) + '</button></div><textarea class="editor" id="editor" spellcheck="false"></textarea>';
-  const ta = document.getElementById("editor");
-  ta.value = fileData.content;
-  ta.focus();
-  ta.addEventListener("input", () => { editDirty = true; });
-  ta.addEventListener("keydown", ev => {
-    if ((ev.ctrlKey || ev.metaKey) && ev.key === "s") { ev.preventDefault(); saveEdit(); }
-    else if (ev.key === "Tab" && !ev.shiftKey && !ev.ctrlKey && !ev.altKey) {  // Tab でフォーカスを移さず、タブ文字を入れる
-      ev.preventDefault();
-      ta.setRangeText("\t", ta.selectionStart, ta.selectionEnd, "end");
-      editDirty = true;
-    }
+    esc(t("edit_cancel")) + '</button></div><div id="editor"></div>';
+  const loaded = fileData;
+  loadEditorScript().then(() => {
+    const host = document.getElementById("editor");
+    if (!editing || fileData !== loaded || !host) return;  // 読み込んでいる間に、別の表示に移った
+    textEditor = GGMerge.createTextEditor({parent: host, text: loaded.content, phrases: editorPhrases(),
+                                           onChange: () => { editDirty = true; }, onSave: saveEdit});
+    textEditor.focus();
+  }).catch(e => {
+    if (!leaveEdit()) return;
+    backToContent(() => setFileMsg(e.message, false));
   });
   document.getElementById("editSave").onclick = saveEdit;
   document.getElementById("editCancel").onclick = () => { if (leaveEdit()) backToContent(); };
 }
 function saveEdit() {
-  const ta = document.getElementById("editor"), btn = document.getElementById("editSave");
-  if (!editing || !ta || btn.disabled) return;
+  const btn = document.getElementById("editSave");
+  if (!editing || !textEditor || btn.disabled) return;
   btn.disabled = true;
   const path = currentFile;
   fetch("/api/file-save", {method: "POST", headers: {"Content-Type": "application/json"},
-                           body: JSON.stringify({path: path, content: ta.value, sha: fileData.sha})})
+                           body: JSON.stringify({path: path, content: textEditor.getText(), sha: fileData.sha})})
     .then(r => r.ok ? r.json() : r.text().then(m => { throw new Error(m || r.status); }))
     .then(r => {
       editing = editDirty = false;
+      closeEditor();
       fileData = null;  // 保存後の内容は読み込み直す
       backToContent(() => loadTree(current, false)  // 変更の印と差分ボタンを更新する
         .then(() => { updateDiffBtn(); setFileMsg(r.message, true); }));

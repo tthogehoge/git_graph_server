@@ -84,7 +84,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.test_git_graph_server.InputV
 | `git_graph/static/index.html` | メイン画面の HTML 骨格。 |
 | `git_graph/static/files.html` | ファイル表示ページ(`/files`)の HTML。このページの CSS と JavaScript は、この HTML の中の `<style>` / `<script>` にあります(別ファイルの CSS はありません。見た目を変えるときは、ここの `<style>` を直します)。`i18n.py` が読み込み、`pages.py` が翻訳と `pane_resize.js` を埋め込みます。 |
 | `git_graph/static/merge.html`、`merge.js` | マージエディタ (`/merge?path=...`。競合しているファイルを、上段の ours | theirs と下段の編集できる結果で解決する)。`merge.html` は `files.html` と同じくページの HTML で、`i18n.py` が読み込み、`pages.py` の `render_merge_page` が翻訳・`merge.js`・エディタ本体を埋め込みます (CSS はこの HTML の中の `<style>`)。`merge.js` は画面の動作で、内容は `/api/merge-sources` で読み、保存は `/api/file-save`、解決済み (ステージ) は `/api/resolve` の `current` を使います。競合マーカーの扱い (どの行が ours / theirs か、採用ボタン) はエディタ本体側です。 |
-| `git_graph/static/vendor/merge_editor.js` | マージエディタの本体。CodeMirror 6 と、競合マーカーの解析・採用ボタンを 1 つにまとめたビルド済みのファイルで、手で編集しません。元は `tools/merge_editor` (後述)。ライセンスは `licenses/codemirror.txt` と `THIRD_PARTY_NOTICES`。`--check-i18n` の検査の対象外です。 |
+| `git_graph/static/vendor/merge_editor.js` | CodeMirror 6 を使うエディタ 2 つ (`GGMerge.createMergeEditor` = マージエディタ、`GGMerge.createTextEditor` = `/files` の編集画面) と、競合マーカーの解析・採用ボタンを 1 つにまとめたビルド済みのファイルで、手で編集しません。マージエディタのページには埋め込み、`/files` のページには編集を始めるときに `/static/vendor/merge_editor.js` から読み込ませます (見るだけなら読み込みません)。元は `tools/merge_editor` (後述)。ライセンスは `licenses/codemirror.txt` と `THIRD_PARTY_NOTICES`。`--check-i18n` の検査の対象外です。 |
 | `git_graph/static/diff.css`、`copy.js`、`pane_resize.js`、`ext_diff.js`、`diff_patch.js`、`diff_fold.js`、`diff_reload.js`、`diff_dialog.js`、`wip_diff_commit.js`、`wip_diff_remote.js` | `/diff` ページに `pages.py` が埋め込む CSS / JavaScript (外部差分・パッチ・WIP のときだけ入るものがあります)。`pane_resize.js` は `/files` ページにも埋め込まれます。 |
 | `git_graph/static/js/*.js` | ブラウザー側の動作。番号順に連結され、1つの `/static/app.js` として配られます(`01_core` 共通部、`02_log` ログ、`03_detail` 詳細、`04_graph_compare` グラフ更新と比較、`05_actions` メニューと操作、`06_git_ops` rebase / revert / merge など、`07_screens` 画面遷移と初期化、`08_wip` WIP、`09_boot` 起動)。翻訳辞書は起動時に埋め込まれます。 |
 | `git_graph/static/app.css` | メイン画面と各ビューのスタイル。 |
@@ -119,7 +119,7 @@ GET は JSON を返し、POST も JSON オブジェクトを受け取って JSON
 
 ### マージエディタのエディタ本体 (CodeMirror 6) を変える
 
-`git_graph/static/vendor/merge_editor.js` は `tools/merge_editor` からビルドしたものです (Node.js が要るのは、このビルドのときだけで、アプリの実行には要りません)。競合マーカーの解析と採用ボタンの動作は `tools/merge_editor/src/conflicts.js` と `tools/merge_editor/src/entry.js` にあります。
+`git_graph/static/vendor/merge_editor.js` は `tools/merge_editor` からビルドしたものです (名前は、最初にマージエディタ用に作った名残りで、ファイルの編集画面のエディタも同じファイルに入っています) (Node.js が要るのは、このビルドのときだけで、アプリの実行には要りません)。競合マーカーの解析は `tools/merge_editor/src/conflicts.js`、2 つのエディタは `tools/merge_editor/src/entry.js` にあります。
 
 ```sh
 cd tools/merge_editor
@@ -128,7 +128,7 @@ npm test        # 競合マーカーの解析と、エディタの採用ボタ�
 npm run build   # git_graph/static/vendor/merge_editor.js を作り直す
 ```
 
-ソースを変えたら、ビルドし直した `git_graph/static/vendor/merge_editor.js` も一緒にコミットしてください (アプリは、ビルド済みのファイルだけを読みます)。ライブラリを足す・上げるときは `package-lock.json` と `licenses/codemirror.txt` も更新します。画面の文言はエディタ本体に書かず、`merge.js` から `labels` で渡します (翻訳の検査が `vendor/` を見ないため)。
+ソースを変えたら、ビルドし直した `git_graph/static/vendor/merge_editor.js` も一緒にコミットしてください (アプリは、ビルド済みのファイルだけを読みます)。ライブラリを足す・上げるときは `package-lock.json` と `licenses/codemirror.txt` も更新します。画面の文言はエディタ本体に書かず、呼び出す側 (`merge.js` は `labels`、`files.html` は `phrases`) から渡します (翻訳の検査が `vendor/` を見ないため)。
 
 ### Git 操作と安全性
 

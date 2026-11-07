@@ -44,7 +44,7 @@ from .external import DEFAULT_CONFIG_PATH, load_config
 from .launcher import api_submodule_open  # noqa: F401
 from .submodules import api_submodule_add, api_submodule_fetch, api_submodule_update  # noqa: F401
 from . import engine, tmpdir
-from .pages import diff_url, render_diff_page, render_files_page, render_merge_page, wip_files
+from .pages import diff_url, MERGE_EDITOR_JS, render_diff_page, render_files_page, render_merge_page, wip_files
 from .wip import api_status, api_wip_commit  # noqa: F401
 
 
@@ -168,6 +168,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, "text/html", render_main_page())
             elif u.path == "/static/app.js":
                 self._send(200, "application/javascript", render_app_js())
+            elif u.path == "/static/vendor/merge_editor.js":  # CodeMirror 6。ファイルの編集画面が、編集を始めるときに読み込む
+                self._send(200, "application/javascript", MERGE_EDITOR_JS)
             elif u.path == "/static/app.css":
                 self._send(200, "text/css", APP_CSS)
             elif (handler := ROUTES.get(("GET", u.path))) is not None:

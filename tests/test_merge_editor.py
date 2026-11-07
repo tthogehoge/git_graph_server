@@ -2,7 +2,10 @@
 import os
 import subprocess
 import tempfile
+import threading
 import unittest
+from types import SimpleNamespace
+from urllib.request import urlopen
 
 import git_graph_server as app
 from git_graph import app_state as state
@@ -240,6 +243,33 @@ class MergeEditorTests(unittest.TestCase):
 
     def test_route_is_registered(self):
         self.assertIs(app.ROUTES[("GET", "/api/merge-sources")], app.api_merge_sources)
+
+
+class EditorBundleTests(unittest.TestCase):
+    """CodeMirror のバンドルは、マージエディタのページに埋め込み、ファイルの編集画面には /static/vendor/ から読み込ませる。"""
+
+    def test_files_page_edits_with_codemirror_loaded_on_demand(self):
+        page = viewer.render_files_page()
+        self.assertIn("GGMerge.createTextEditor", page)
+        self.assertIn("/static/vendor/merge_editor.js", page)
+        self.assertNotIn("<textarea", page)  # 編集欄は CodeMirror
+        self.assertNotIn("createMergeEditor", page)  # バンドルそのものは埋め込まない (編集を始めるときに読み込む)
+
+    def test_bundle_route_serves_the_javascript(self):
+        previous = (state.OPTS, state.WRITABLE)
+        state.OPTS = SimpleNamespace(host="127.0.0.1", revs=[], no_remotes=False, no_tags=False, rankdir="BT", no_count=False)
+        server = app.QuietServer(("127.0.0.1", 0), app.Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            with urlopen(f"http://127.0.0.1:{server.server_address[1]}/static/vendor/merge_editor.js") as response:
+                body = response.read().decode("utf-8")
+                self.assertIn("application/javascript", response.headers.get("Content-Type"))
+        finally:
+            server.shutdown()
+            server.server_close()
+            state.OPTS, state.WRITABLE = previous
+        self.assertIn("createTextEditor", body)
+        self.assertIn("createMergeEditor", body)
 
 
 def state_tmp_root():
