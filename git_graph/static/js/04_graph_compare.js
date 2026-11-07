@@ -160,6 +160,7 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
   if (!abActOpen) restoreMenuPosition(document.getElementById("abActions"));
   document.getElementById("compareBtn").hidden = !compareAHash || !compareBHash;
   document.getElementById("compareLogsBtn").hidden = !compareAHash || !compareBHash;
+  document.getElementById("mergeIntoBtn").hidden = !compareAHash || !compareBHash;
   document.getElementById("cherryOntoBtn").hidden = !compareAHash || !compareBHash;
   document.getElementById("rebaseOntoBtn").hidden = !compareAHash || !compareBHash;
   document.getElementById("resetBranchBtn").hidden = !compareAHash || !compareBHash;
@@ -181,6 +182,7 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
   document.getElementById("irebaseBtn").disabled = !canMerge;
   // AB操作は A と B だけで決まる。操作対象 (actionHash) が選ばれていなくても使える (ドラッグ&ドロップでセットしたときなど)
   const canMergeAB = !!DATA.writable && !!DATA.merge;
+  document.getElementById("mergeIntoBtn").disabled = !compareAHash || !compareBHash || !canMergeAB || !localBranches(compareBHash).length;
   document.getElementById("cherryOntoBtn").disabled = !compareAHash || !compareBHash || !canMergeAB;
   document.getElementById("rebaseOntoBtn").disabled = !compareAHash || !compareBHash || !canMergeAB;
   document.getElementById("resetBranchBtn").disabled = !compareAHash || !compareBHash || !canMergeAB || !localBranches(compareAHash).length;
@@ -196,7 +198,7 @@ function updateCmpClasses() {  // 選択中のコミットを、グラフのノ�
   document.querySelectorAll("#aActions button")
     .forEach(el => {
       if (el.id === "compareWipBtn" || el.dataset.setCmp) return;
-      el.disabled = !canWrite || (["mergeBtn", "rebaseBtn", "irebaseBtn", "cherryBtn", "revertBtn", "resetBtn"].includes(el.id) && !DATA.merge);
+      el.disabled = !canWrite || (["mergeBtn", "mergeIntoBtn", "rebaseBtn", "irebaseBtn", "cherryBtn", "revertBtn", "resetBtn"].includes(el.id) && !DATA.merge);
     });
   // すでにそのスロットにセットされているコミットなら、ボタンは「セット解除」になる
   const setA = document.getElementById("setABtn"), setB = document.getElementById("setBBtn");

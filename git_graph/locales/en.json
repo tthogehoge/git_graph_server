@@ -814,5 +814,11 @@
   "reset_branch_done": "Moved branch {branch} to {hash}",
   "reset_branch_done_mode": "Reset branch {branch} (HEAD) to {hash} ({mode})",
   "reset_branch_noop": "Branch {branch} is already at {hash} (no change)",
-  "reset_branch_no_branch": "No local branch points at A ({hash})"
+  "reset_branch_no_branch": "No local branch points at A ({hash})",
+  "merge_into": "Merge A into B",
+  "tip_merge_into": "Check out the local branch pointing at B and merge A into it",
+  "confirm_merge_into": "Check out the local branch pointing at B ({to}) and merge A ({from}) into it{noff} (the working tree changes; on a conflict you resolve it on that branch). Continue?",
+  "merge_into_done": "Merged {hash} into branch {branch}",
+  "merge_into_uptodate": "{hash} is already merged into branch {branch} (no change)",
+  "merge_into_no_branch": "No local branch points at B ({hash})"
 }

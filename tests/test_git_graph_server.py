@@ -2091,6 +2091,72 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
             app.api_cherry_pick_onto({"from": picked, "to": orphan})
         self.assertEqual(cm.exception.key, "cherry_onto_no_branch")
 
+    def diverge_source_and_target(self, same_file=False):
+        """main から source と target を分け、それぞれの先端を返す。最後は main に戻る。"""
+        self.git("checkout", "-q", "-b", "source")
+        self.write_file("tracked.txt" if same_file else "source.txt", "source side\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "source change")
+        source = self.git("rev-parse", "HEAD").strip()
+        self.git("checkout", "-q", "main")
+        self.git("checkout", "-q", "-b", "target")
+        self.write_file("tracked.txt" if same_file else "target.txt", "target side\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "target change")
+        target = self.git("rev-parse", "HEAD").strip()
+        self.git("checkout", "-q", "main")
+        return source, target
+
+    def test_merge_into_checks_out_b_branch_and_merges_a(self):
+        source, target = self.diverge_source_and_target()
+        main_tip = self.git("rev-parse", "main").strip()
+
+        result = app.api_merge_into({"from": source, "to": target})
+
+        self.assertTrue(result["ok"])
+        self.assertFalse(result.get("conflict"))
+        self.assertEqual(app.api_head()["branch"], "target")
+        self.assertEqual(self.git("rev-parse", "HEAD^1").strip(), target)
+        self.assertEqual(self.git("rev-parse", "HEAD^2").strip(), source)
+        self.assertEqual(self.git("rev-parse", "main").strip(), main_tip)  # 元のブランチは動かない
+        self.assertEqual(self.git("show", "HEAD:source.txt"), "source side\n")
+
+    def test_merge_into_reports_uptodate_when_a_is_already_in_b(self):
+        source, target = self.diverge_source_and_target()
+        app.api_merge_into({"from": source, "to": target})
+        merged = self.git("rev-parse", "HEAD").strip()
+
+        result = app.api_merge_into({"from": source, "to": merged})
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(self.git("rev-parse", "HEAD").strip(), merged)  # 何も増えない
+
+    def test_merge_into_conflict_stops_on_b_branch(self):
+        source, target = self.diverge_source_and_target(same_file=True)
+
+        result = app.api_merge_into({"from": source, "to": target})
+
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["conflict"])
+        self.assertEqual(app.api_head()["branch"], "target")  # 競合は B のブランチで解決する
+        self.assertTrue(app.is_merging())
+
+    def test_merge_into_requires_local_branch_at_b(self):
+        source, _ = self.diverge_source_and_target()
+        orphan = self.git("commit-tree", "HEAD^{tree}", "-m", "orphan").strip()
+
+        with self.assertRaises(app.UserError) as cm:
+            app.api_merge_into({"from": source, "to": orphan})
+        self.assertEqual(cm.exception.key, "merge_into_no_branch")
+
+    def test_merge_into_can_be_undone(self):
+        source, target = self.diverge_source_and_target()
+
+        app.api_merge_into({"from": source, "to": target})
+        self.assertTrue(app.ROUTES[("POST", "/api/undo")]({})["ok"])
+
+        self.assertEqual(self.git("rev-parse", "target").strip(), target)
+
     def test_rebase_onto_checks_out_a_branch_and_rebases_onto_b(self):
         base = self.head
         self.git("checkout", "-q", "-b", "topic")

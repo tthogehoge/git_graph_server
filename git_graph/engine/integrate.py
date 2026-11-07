@@ -132,6 +132,50 @@ def cherry_pick_onto(a, b, *, on_conflict=None):
         raise ValueError(with_stash_note({"stashed": stashed}, (r.stdout + r.stderr).strip() or tr("cherry_failed")))
     return {"hash": a, "branch": branch, "noop": git("rev-parse", "HEAD").strip() == before, "stashed": stashed}
 
+@operation("merge", touches_worktree=True, detail=lambda a, b, *_, **__: a)
+def merge_into(a, b, *, no_ff=False, on_conflict=None):
+    """B を先端に持つローカルブランチへ checkout し、A をそこへマージする (A を B のブランチにマージ)。
+    競合したときは、B のブランチにいたまま、マージ途中の状態で止める (WIP の一覧に競合ファイルが出るので、解決してコミットする)。
+    B にローカルブランチが無いときはエラー。編集中のファイルや同名の管理外ファイルに邪魔されたときは、元のブランチへ戻して止めているファイルを返す。
+    戻り値: {"hash", "branch", "updated", "stashed"} / 競合 {"conflict": True, "hash", "branch", "stashed"} / blocked。"""
+    if not state.HAS_WORKTREE:
+        raise UserError("merge_no_worktree")
+    a = resolve_commit(a)
+    b = resolve_commit(b)
+    if is_merging():
+        raise UserError("merge_in_progress")
+    if is_operation_in_progress():
+        raise UserError("op_in_progress")
+    if not has_head():
+        raise UserError("merge_no_commits")
+    branch = pick_local_branch_at(b, error_key="merge_into_no_branch")
+    original = head_state().get("branch") or ""
+
+    def back_to_original():
+        if original and original != branch:
+            subprocess.run(["git", "-C", state.REPO, "checkout", original], capture_output=True)
+
+    stashed_co = None
+    if original != branch:  # B のブランチへ切り替え (既にそこにいれば何もしない)
+        res = checkout_resolving([branch, "--"], on_conflict)
+        if res and res.get("blocked"):
+            return res
+        stashed_co = (res or {}).get("stashed")
+    before = git("rev-parse", "HEAD").strip()
+    args = ["merge", "--no-edit"] + (["--no-ff"] if no_ff else []) + [a]
+    r, blocked, stashed = run_resolving(lambda c_locale: git_run(args, c_locale), on_conflict)
+    stashed = stashed or stashed_co
+    if blocked:
+        back_to_original()
+        return blocked
+    if r.returncode != 0:
+        if is_merging():  # 競合 → B のブランチにいるまま、途中の状態で止める
+            return {"conflict": True, "hash": a, "branch": branch, "stashed": stashed}
+        back_to_original()
+        raise ValueError(with_stash_note({"stashed": stashed}, (r.stdout + r.stderr).strip() or tr("merge_failed")))
+    return {"hash": a, "branch": branch, "updated": git("rev-parse", "HEAD").strip() != before, "stashed": stashed}
+
+
 @operation("revert", touches_worktree=True, detail=lambda commit, *_, **__: commit)
 def revert(commit, *, on_conflict=None):
     """選んだコミットの変更を打ち消すコミットを、いまの HEAD の上に作る (git revert)。

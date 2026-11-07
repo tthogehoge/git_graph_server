@@ -85,6 +85,31 @@ function doCherryOnto() {
     .catch(e => { setGraphStatus(t("cherry_pick_error", {error: e.message}), "error"); })
     .finally(() => { btn.disabled = false; });
 }
+async function doMergeInto() {  // AをBへマージ: B を先端に持つローカルブランチへ checkout し、A をマージする
+  if (!compareAHash || !compareBHash) return;
+  const from = compareAHash, to = compareBHash, btn = document.getElementById("mergeIntoBtn");
+  const options = await openActionDialog(t("merge_into"), '<label class="check" title="' + esc(t("tip_no_ff")) + '">' +
+    '<input type="checkbox" name="noFf"> --no-ff</label>', t("merge"));
+  if (!options) return;
+  const noFf = options.noFf;
+  btn.disabled = true;
+  fetch("/api/head").then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); }))
+    .then(hd => {
+      if (hd.merging) throw new Error(t("merge_in_progress_resolve"));
+      if (!confirm(t("confirm_merge_into", {from: from.slice(0, 7), to: to.slice(0, 7), noff: noFf ? " (--no-ff)" : ""}))) return null;
+      setGraphStatus(t("merging"), "progress");
+      return post("/api/merge-into", {from: from, to: to, no_ff: noFf});
+    })
+    .then(r => retryIfBlocked(r, "merge", t("merging"), mode => post("/api/merge-into", {from: from, to: to, no_ff: noFf, on_conflict: mode})))
+    .then(r => {
+      if (r === null) { setGraphStatus(""); return; }
+      clearCmp();
+      setGraphStatus(r.message, r.conflict ? "error" : "success");
+      return refreshGraph().catch(() => {}).then(() => { if (r.conflict) openWip(); });  // 競合で止まったら、WIP の競合解決画面を開く
+    })
+    .catch(e => { setGraphStatus(t("merge_error", {error: e.message}), "error"); })
+    .finally(() => { btn.disabled = false; });
+}
 function doRebaseDescendants() {
   if (!compareAHash || !compareBHash) return;
   const from = compareAHash, to = compareBHash, btn = document.getElementById("rebaseDescendantsBtn");

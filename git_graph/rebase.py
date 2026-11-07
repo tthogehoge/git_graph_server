@@ -37,6 +37,17 @@ def api_merge(body):
     return {"ok": True, "message": with_stash_note(r, tr("merge_done" if r["updated"] else "merge_uptodate", hash=r["hash"][:7]))}
 
 
+@route("/api/merge-into", method="POST", engine=True)
+def api_merge_into(body):
+    """B を先端に持つローカルブランチへ checkout し、A をマージする。競合したらマージ途中の状態で止める。"""
+    r = integrate.merge_into(body.get("from", ""), body.get("to", ""), no_ff=bool(body.get("no_ff")), on_conflict=body.get("on_conflict"))
+    if r.get("blocked"):
+        return r
+    if r.get("conflict"):
+        return {"ok": True, "conflict": True, "message": with_stash_note(r, tr("merge_conflict", target=r["hash"][:7]))}
+    return {"ok": True, "message": with_stash_note(r, tr("merge_into_done" if r["updated"] else "merge_into_uptodate", hash=r["hash"][:7], branch=r["branch"]))}
+
+
 @route("/api/rebase", method="POST", engine=True)
 def api_rebase(body):
     """現在のブランチを、選んだコミットの上にリベースする。競合したらリベース途中の状態で止める。"""
@@ -218,7 +229,7 @@ def api_rebase_i(body):
 
 __all__ = [
     "REBASE_I_ACTIONS", "REBASE_I_MAX", "api_abort", "api_continue", "api_cherry_pick", "api_cherry_pick_onto",
-    "api_find_equivalent_branch", "api_find_equivalent_parents", "api_head", "api_merge",
+    "api_find_equivalent_branch", "api_find_equivalent_parents", "api_head", "api_merge", "api_merge_into",
     "api_rebase", "api_rebase_onto", "api_rebase_descendants", "api_rebase_equivalent", "api_rebase_i",
     "api_rebase_range", "api_rebase_todo", "api_resolve", "api_revert", "check_rebase_i_range",
     "equivalent_commit_prefix", "first_parent_commits", "nearest_equivalent_parent",

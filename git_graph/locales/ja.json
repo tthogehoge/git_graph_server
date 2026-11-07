@@ -814,5 +814,11 @@
   "reset_branch_done": "ブランチ {branch} を {hash} へ移動しました",
   "reset_branch_done_mode": "ブランチ {branch} (HEAD) を {hash} へ {mode} リセットしました",
   "reset_branch_noop": "ブランチ {branch} は既に {hash} です (変更なし)",
-  "reset_branch_no_branch": "A ({hash}) を先端に持つローカルブランチがありません"
+  "reset_branch_no_branch": "A ({hash}) を先端に持つローカルブランチがありません",
+  "merge_into": "AをBへマージ",
+  "tip_merge_into": "Bを先端に持つローカルブランチをcheckoutし、Aをマージ",
+  "confirm_merge_into": "B ({to}) を先端に持つローカルブランチをcheckoutし、A ({from}) をマージします{noff} (作業ツリーが変わります。競合したときは、そのブランチで競合解決の画面になります)。よろしいですか？",
+  "merge_into_done": "{hash} をブランチ {branch} にマージしました",
+  "merge_into_uptodate": "{hash} はブランチ {branch} に既にマージ済みです (変更なし)",
+  "merge_into_no_branch": "B ({hash}) を先端に持つローカルブランチがありません"
 }
