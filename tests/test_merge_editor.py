@@ -222,13 +222,19 @@ class MergeEditorTests(unittest.TestCase):
         self.conflict()
         page = viewer.render_merge_page({"path": ["f.txt"]})
         for needle in ('id="modeMarkersBtn"', 'id="modeBaseBtn"',            # 方式の切り替え
-                       'id="baseAutoBtn"', 'id="baseResetBtn"',              # 自動マージの状態 / 元の base に戻す
                        'id="markerMode"', 'id="baseMode"',
                        'id="oursPair"', 'id="theirsPair"',                   # ベース編集方式の 2 行 (ours | base と theirs | base)
                        'id="markerSplitter"', 'id="baseSplitter"', 'role="separator"',  # 上下の高さを変える仕切り
                        "createBaseMergeEditor", "createMergeEditor"):
             self.assertIn(needle, page, needle)
         self.assertEqual(page.count('class="splitter"'), 2)
+        # 競合のツールは両方の方式で共通 (方式ごとに別のボタンを持たない)。ベース編集方式にだけあるのは、差分の移動
+        for needle in ('id="prevBtn"', 'id="nextBtn"', 'id="allOursBtn"', 'id="allTheirsBtn"', 'id="regenBtn"', 'id="reloadBtn"', 'id="basePrevBtn"', 'id="baseNextBtn"'):
+            self.assertIn(needle, page, needle)
+        for gone in ('id="baseOursBtn"', 'id="baseTheirsBtn"', 'id="baseAutoBtn"', 'id="baseResetBtn"', 'id="baseCount"'):
+            self.assertNotIn(gone, page, gone)
+        self.assertIn("Alt+", page)  # ショートカットキー (ボタンの説明と、画面のヒント)
+        self.assertIn(".cm-merge-revert button", page)  # 矢印ボタンの見た目 (目立たせる)
         self.assertNotIn("resize: vertical", page)  # 高さは仕切りで変える
 
     def test_merge_page_escapes_the_path(self):

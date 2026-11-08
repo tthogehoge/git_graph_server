@@ -16,14 +16,21 @@ __FAVICON__
   #tools .sep { width: 1px; align-self: stretch; background: #ddd; margin: 0 4px; }
   #tools .group { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
   .btn.active { background: #c5d4f7; border-color: #7a96d8; color: #034; cursor: default; }
-  #count, #baseCount { font-weight: 600; color: #8a6d00; }
-  #count.done, #baseCount.done { color: #0a7b35; }
+  #count { font-weight: 600; color: #b52b27; }
+  #count.done { color: #0a7b35; }
   .hint { color: #666; }
   #hint { flex: none; padding: 4px 12px; }
   .msg { flex: none; padding: 4px 12px; white-space: pre-wrap; min-height: 1.2em; }
   .msg:empty { display: none; }
   .msg.ok { color: #0a7b35; }
   .msg.err { color: #c00; }
+  /* ベース編集方式の矢印ボタン (差分を結果に取り込む)。目立つように、青い大きめのボタンにする。競合の矢印は赤 */
+  .cm-mergeView .cm-merge-revert { width: 38px; }
+  .cm-mergeView .cm-merge-revert button { width: 30px; height: 22px; left: 4px; padding: 0; font: 700 17px/20px system-ui, sans-serif; color: #fff; background: #2c7be5;
+                                          border: 1px solid #1a5fc0; border-radius: 4px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35); cursor: pointer; }
+  .cm-mergeView .cm-merge-revert button:hover { background: #1a5fc0; }
+  .cm-mergeView .cm-merge-revert button.gg-conflict { background: #d9534f; border-color: #a82a26; }
+  .cm-mergeView .cm-merge-revert button.gg-conflict:hover { background: #b52b27; }
   #work { flex: 1 1 0; min-height: 0; }
   #work > section { height: 100%; display: flex; flex-direction: column; }
   .upper { flex: 0 0 45%; min-height: 60px; display: flex; flex-direction: column; overflow: hidden; }  /* 高さは、間の仕切りをドラッグして変える */
@@ -45,18 +52,16 @@ __FAVICON__
 <div id="tools" hidden>
   <span class="group"><button class="btn" id="modeMarkersBtn" title="{{tip_merge_mode_markers}}">{{merge_mode_markers}}</button><button class="btn" id="modeBaseBtn" title="{{tip_merge_mode_base}}">{{merge_mode_base}}</button></span>
   <span class="sep"></span>
-  <span class="group" id="markerTools">
-    <button class="btn" id="prevBtn">{{merge_prev}}</button><button class="btn" id="nextBtn">{{merge_next}}</button><span id="count"></span>
-    <span class="sep"></span>
-    <button class="btn" id="allOursBtn">{{merge_all_ours}}</button><button class="btn" id="allTheirsBtn">{{merge_all_theirs}}</button>
-    <span class="sep"></span>
-    <button class="btn" id="regenBtn">{{merge_regenerate}}</button><button class="btn" id="reloadBtn">{{merge_reload_worktree}}</button>
+  <span class="group">
+    <button class="btn" id="prevBtn" title="Alt+↑">{{merge_prev}}</button><button class="btn" id="nextBtn" title="Alt+↓">{{merge_next}}</button><span id="count"></span>
   </span>
   <span class="group" id="baseTools" hidden>
-    <button class="btn" id="basePrevBtn">{{merge_prev_diff}}</button><button class="btn" id="baseNextBtn">{{merge_next_diff}}</button><span id="baseCount"></span>
-    <span class="sep"></span>
-    <button class="btn" id="baseOursBtn">{{merge_base_use_ours}}</button><button class="btn" id="baseTheirsBtn">{{merge_base_use_theirs}}</button><button class="btn" id="baseAutoBtn">{{merge_base_auto}}</button><button class="btn" id="baseResetBtn">{{merge_base_reset}}</button>
+    <button class="btn" id="basePrevBtn">{{merge_prev_diff}}</button><button class="btn" id="baseNextBtn">{{merge_next_diff}}</button>
   </span>
+  <span class="sep"></span>
+  <span class="group"><button class="btn" id="allOursBtn">{{merge_all_ours}}</button><button class="btn" id="allTheirsBtn">{{merge_all_theirs}}</button></span>
+  <span class="sep"></span>
+  <span class="group"><button class="btn" id="regenBtn">{{merge_regenerate}}</button><button class="btn" id="reloadBtn">{{merge_reload_worktree}}</button></span>
   <span class="sep"></span>
   <button class="btn" id="saveBtn">{{merge_save}}</button><button class="btn primary" id="resolveBtn">{{merge_save_resolve}}</button>
 </div>

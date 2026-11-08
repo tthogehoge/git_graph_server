@@ -199,111 +199,183 @@ test("read-only viewer: trailing newline is not shown as an extra empty line (LF
   assert.equal(lines(""), 1);
 });
 
-// ---- ベース編集方式: ours | base と theirs | base の 2 組 ----
-const BASE = "one\ntwo\nthree\nfour\nfive\n", OURS = "one\nTWO ours\nthree\nfour\nfive\n", THEIRS = "one\ntwo\nthree\nFOUR theirs\nfive\n";
+// ---- ベース編集方式: ours | 結果 と theirs | 結果 の 2 組 (結果は 1 つの内容で、競合マーカー入り) ----
+const OURS = "one\nTWO main\nthree\nfour\nfive\nSIX main\n";
+const THEIRS = "one\ntwo\nthree\nFOUR side\nfive\nSIX side\n";
+// 競合しない変更 (2 行目の ours・4 行目の theirs) は取り込み済みで、6 行目だけが競合している
+const MERGED = "one\nTWO main\nthree\nFOUR side\nfive\n<<<<<<< ours\nSIX main\n||||||| base\nsix\n=======\nSIX side\n>>>>>>> theirs\n";
 function baseEditor(w, extra = {}) {
   const counts = [];
   const ed = w.GGMerge.createBaseMergeEditor({
     oursParent: w.document.getElementById("top"), theirsParent: w.document.getElementById("result"),
-    ours: OURS, theirs: THEIRS, base: BASE, labels: {revert: "取り込む"}, onChange: c => counts.push(c), ...extra,
+    ours: OURS, theirs: THEIRS, text: MERGED, labels: {revert: "取り込む"}, onChange: n => counts.push(n), ...extra,
   });
   return {ed, counts};
 }
-const plain = value => JSON.parse(JSON.stringify(value));  // jsdom のウィンドウの中で作った値は、別の Object なので、そのまま deepEqual できない
-const frame = w => new Promise(resolve => w.requestAnimationFrame(() => setTimeout(resolve, 20)));
+const frames = async (w, n = 2) => { for (let i = 0; i < n; i++) await new Promise(resolve => w.requestAnimationFrame(() => setTimeout(resolve, 20))); };
+const press = (w, view, name, extra = {}) => {
+  const ev = new w.KeyboardEvent("keydown", {key: name, bubbles: true, cancelable: true, ...extra});
+  view.contentDOM.dispatchEvent(ev);
+  return ev;
+};
 
-test("base editor: two pairs, each side compared with base, counts reported", () => {
+test("base editor: two pairs, the result (with conflict markers) in both, conflicts highlighted without per-conflict bars", () => {
   const w = load();
   const {ed, counts} = baseEditor(w);
-  assert.equal(w.document.querySelectorAll("#top .cm-editor").length, 2);     // ours | base
-  assert.equal(w.document.querySelectorAll("#result .cm-editor").length, 2);  // theirs | base
+  assert.equal(w.document.querySelectorAll("#top .cm-editor").length, 2);     // ours | 結果
+  assert.equal(w.document.querySelectorAll("#result .cm-editor").length, 2);  // theirs | 結果
   assert.equal(ed.oursView.a.state.doc.toString(), OURS);
   assert.equal(ed.theirsView.a.state.doc.toString(), THEIRS);
   assert.equal(ed.oursView.a.state.readOnly, true);
-  assert.equal(ed.theirsView.a.state.readOnly, true);
   assert.equal(ed.baseA.state.readOnly, false);
-  assert.equal(ed.getText(), BASE);                                       // 初期値は本物の base
-  assert.deepEqual(plain(ed.counts()), {ours: 1, theirs: 1});
-  assert.deepEqual(plain(counts.at(0)), {ours: 1, theirs: 1});                   // 最初の 1 回
+  assert.equal(ed.getText(), MERGED);                                       // 結果の初めの内容は、渡した (競合マーカー入りの) 内容
+  assert.equal(ed.baseB.state.doc.toString(), MERGED);
+  assert.equal(ed.conflictCount(), 1);
+  assert.equal(counts.at(0), 1);
+  // 競合の範囲は、両方の結果のペインで赤っぽく強調する (行ごとのクラス)
+  for (const parent of ["#top", "#result"]) {
+    assert.equal(w.document.querySelectorAll(parent + " .cm-conf").length, 7, parent);          // マーカー 4 行 + ours / base / theirs が 1 行ずつ
+    assert.equal(w.document.querySelectorAll(parent + " .cm-conf-marker").length, 4, parent);
+    assert.equal(w.document.querySelectorAll(parent + " .cm-conf-ours, " + parent + " .cm-conf-theirs, " + parent + " .cm-conf-base").length, 3, parent);
+  }
+  assert.equal(w.document.querySelector(".cm-conflict-bar"), null);          // 採用ボタンの帯は出さない (左右の行の高さがずれるため)
   ed.destroy();
 });
 
-test("base editor: edits in either base are mirrored to the other, and the counts follow", () => {
+test("base editor: edits in either result are mirrored, the conflict count follows, no echo loop", () => {
   const w = load();
   const {ed, counts} = baseEditor(w);
   const same = () => ed.baseA.state.doc.toString() === ed.baseB.state.doc.toString();
   ed.baseA.dispatch({changes: {from: 0, insert: "HEAD\n"}});
   assert.ok(same());
-  assert.ok(ed.baseB.state.doc.toString().startsWith("HEAD\n"));
   ed.baseB.dispatch({changes: {from: ed.baseB.state.doc.length, insert: "TAIL\n"}});
   assert.ok(same());
   assert.ok(ed.baseA.state.doc.toString().endsWith("TAIL\n"));
-  assert.deepEqual(plain(ed.counts()), {ours: 3, theirs: 3});                    // HEAD と TAIL の分だけ差分が増える
-  assert.deepEqual(plain(counts.at(-1)), {ours: 3, theirs: 3});
-  // 1 つの編集で、変更の通知が増え続けない (反映の反映でループしない)
+  assert.equal(ed.conflictCount(), 1);
+  // マーカーの行を消すと、競合ではなくなる (両方のペインの強調も消える)
+  const doc = ed.baseB.state.doc.toString(), at = doc.indexOf("<<<<<<< ours");
+  ed.baseB.dispatch({changes: {from: at, to: at + "<<<<<<< ours\n".length}});
+  assert.ok(same());
+  assert.equal(ed.conflictCount(), 0);
+  assert.equal(counts.at(-1), 0);
+  assert.equal(w.document.querySelectorAll(".cm-conf").length, 0);
   const before = counts.length;
   ed.baseA.dispatch({changes: {from: 0, insert: "X"}});
   assert.ok(counts.length - before <= 2, "notifications: " + (counts.length - before));
   ed.destroy();
 });
 
-test("base editor: one undo history for both bases (typing in either base is undone in order)", () => {
+test("base editor: one undo history for both results (typing in either is undone in order)", () => {
   const w = load();
   const {ed} = baseEditor(w);
-  const key = (view, name, extra = {}) => {
-    const ev = new w.KeyboardEvent("keydown", {key: name, bubbles: true, cancelable: true, ...extra});
-    view.contentDOM.dispatchEvent(ev);
-    return ev;
-  };
   // 近い位置の続けた入力は、CodeMirror が 1 回のアンドゥにまとめるので、離れた位置を使う
   ed.baseA.dispatch({changes: {from: 0, insert: "A1\n"}});
   ed.baseB.dispatch({changes: {from: ed.baseB.state.doc.length, insert: "B1\n"}});
-  assert.equal(ed.getText(), "A1\n" + BASE + "B1\n");
-  key(ed.baseB, "z", {ctrlKey: true});                                     // baseB で Ctrl+Z → 最後の編集 (baseB の入力) を戻す
-  assert.equal(ed.getText(), "A1\n" + BASE);
+  assert.equal(ed.getText(), "A1\n" + MERGED + "B1\n");
+  press(w, ed.baseB, "z", {ctrlKey: true});                                // baseB で Ctrl+Z → 最後の編集 (baseB の入力) を戻す
+  assert.equal(ed.getText(), "A1\n" + MERGED);
+  press(w, ed.baseA, "z", {ctrlKey: true});
+  assert.equal(ed.getText(), MERGED);
   assert.equal(ed.baseA.state.doc.toString(), ed.baseB.state.doc.toString());
-  key(ed.baseA, "z", {ctrlKey: true});                                     // baseA で Ctrl+Z → baseA の入力も戻る
-  assert.equal(ed.getText(), BASE);
-  assert.equal(ed.baseA.state.doc.toString(), ed.baseB.state.doc.toString());
-  key(ed.baseB, "y", {ctrlKey: true});                                     // baseB で Ctrl+Y → やり直し
-  assert.equal(ed.getText(), "A1\n" + BASE);
-  assert.equal(ed.baseA.state.doc.toString(), ed.baseB.state.doc.toString());
-  key(ed.baseA, "y", {ctrlKey: true});
-  assert.equal(ed.getText(), "A1\n" + BASE + "B1\n");
+  press(w, ed.baseB, "y", {ctrlKey: true});                                // baseB で Ctrl+Y → やり直し
+  assert.equal(ed.getText(), "A1\n" + MERGED);
+  press(w, ed.baseA, "y", {ctrlKey: true});
+  assert.equal(ed.getText(), "A1\n" + MERGED + "B1\n");
   ed.destroy();
 });
 
-test("base editor: setText replaces both bases and can be undone; jump moves between differences", () => {
+test("base editor: adopt resolves the conflict at the cursor; outside a conflict it only jumps; jump wraps", () => {
   const w = load();
   const {ed} = baseEditor(w);
+  ed.baseA.dispatch({selection: {anchor: 0}});
+  assert.equal(ed.adopt("ours"), false);                                   // カーソルは競合の外 → 次の競合へ移動するだけ
+  assert.equal(ed.getText(), MERGED);
+  const head = ed.baseA.state.selection.main.head;
+  assert.equal(ed.baseA.state.doc.lineAt(head).text, "<<<<<<< ours");
+  assert.equal(ed.adopt("both"), true);                                    // 競合の中 → 両方 (ours → theirs)
+  assert.equal(ed.getText(), "one\nTWO main\nthree\nFOUR side\nfive\nSIX main\nSIX side\n");
+  assert.equal(ed.baseB.state.doc.toString(), ed.getText());               // もう一方の結果にも反映
+  assert.equal(ed.conflictCount(), 0);
+  ed.setText(MERGED);
+  ed.jump(1);
+  assert.equal(ed.adopt("theirs"), true);
+  assert.ok(ed.getText().endsWith("five\nSIX side\n"));
+  ed.setText(MERGED);
+  ed.jump(-1);                                                             // 前の競合 (1 つだけなので、同じ競合)
+  assert.equal(ed.adopt("both_rev"), true);
+  assert.ok(ed.getText().endsWith("five\nSIX side\nSIX main\n"));
+  ed.setText(MERGED);
+  ed.resolveAll("ours");
+  assert.equal(ed.getText(), "one\nTWO main\nthree\nFOUR side\nfive\nSIX main\n");
+  ed.destroy();
+});
+
+test("base editor: arrows are red for conflicts (one per conflict) and resolve the whole conflict; other arrows revert the difference", async () => {
+  const w = load();
+  const {ed} = baseEditor(w);
+  await frames(w);
+  const all = parent => [...w.document.querySelectorAll(parent + " .cm-merge-revert button")];
+  const visible = parent => all(parent).filter(b => b.style.display !== "none");
+  const oursArrows = visible("#top");
+  // ours | 結果: 結果にある theirs の変更 (4 行目) の差分と、競合 (1 つ。複数の差分に分かれていても、矢印は 1 つ)
+  assert.equal(oursArrows.length, 2, "visible ours arrows: " + oursArrows.length);
+  assert.equal(oursArrows.filter(b => b.classList.contains("gg-conflict")).length, 1);
+  assert.equal(all("#top").length, 3, "the conflict is split into two differences, one arrow is hidden");
+  assert.equal(oursArrows[0].getAttribute("title"), "取り込む");
+  assert.equal(oursArrows[0].textContent, "\u2192");
+  // 競合の矢印 → 競合全体を ours で解決する
+  oursArrows.find(b => b.classList.contains("gg-conflict")).dispatchEvent(new w.MouseEvent("mousedown", {bubbles: true, cancelable: true}));
+  assert.equal(ed.getText(), "one\nTWO main\nthree\nFOUR side\nfive\nSIX main\n");
+  assert.equal(ed.baseB.state.doc.toString(), ed.getText());
+  assert.equal(ed.conflictCount(), 0);
+  await frames(w);
+  // theirs | 結果 の、競合ではない差分 (2 行目: 結果にある ours の変更) の矢印 → その差分だけ theirs の内容にする (ライブラリの動作)
+  const theirsArrows = visible("#result");
+  assert.ok(theirsArrows.length >= 1);
+  assert.ok(theirsArrows.every(b => !b.classList.contains("gg-conflict")));
+  theirsArrows[0].dispatchEvent(new w.MouseEvent("mousedown", {bubbles: true, cancelable: true}));
+  assert.equal(ed.getText(), "one\ntwo\nthree\nFOUR side\nfive\nSIX main\n");
+  assert.equal(ed.baseA.state.doc.toString(), ed.baseB.state.doc.toString());
+  ed.destroy();
+});
+
+test("base editor: the arrow of the theirs pair resolves the conflict with theirs", async () => {
+  const w = load();
+  const {ed} = baseEditor(w);
+  await frames(w);
+  const red = [...w.document.querySelectorAll("#result .cm-merge-revert button")].filter(b => b.style.display !== "none" && b.classList.contains("gg-conflict"));
+  assert.equal(red.length, 1);
+  red[0].dispatchEvent(new w.MouseEvent("mousedown", {bubbles: true, cancelable: true}));
+  assert.equal(ed.getText(), "one\nTWO main\nthree\nFOUR side\nfive\nSIX side\n");
+  ed.destroy();
+});
+
+test("base editor: jumpDiff moves between differences; setText replaces both results (undoable)", () => {
+  const w = load();
+  const {ed} = baseEditor(w);
+  ed.baseA.focus();
+  assert.equal(ed.jumpDiff(1), true);
+  assert.equal(ed.jumpDiff(-1), true);
   ed.setText(OURS);
   assert.equal(ed.baseB.state.doc.toString(), OURS);
-  assert.deepEqual(plain(ed.counts()), {ours: 0, theirs: 2});                     // base を ours にした → ours との差分は 0
-  ed.setText(BASE);
-  assert.deepEqual(plain(ed.counts()), {ours: 1, theirs: 1});
-  ed.baseA.focus();
-  assert.equal(ed.jump(1), true);
-  assert.equal(ed.jump(1), true);   // 差分が 1 つなので、端まで行っても反対側に戻って同じ差分に着く
-  assert.equal(ed.jump(-1), true);
-  ed.setText(OURS); ed.setText(THEIRS.replace("FOUR theirs", "four"));       // どちらとも差分が 0 の組は動かない
+  assert.equal(ed.conflictCount(), 0);
+  press(w, ed.baseB, "z", {ctrlKey: true});
+  assert.equal(ed.getText(), MERGED);
   ed.destroy();
 });
 
-test("base editor: the revert buttons apply ours' / theirs' change to base (both bases follow)", async () => {
+test("marker editor: adopt resolves the conflict at the cursor too, and conflicts are highlighted with the red classes", () => {
   const w = load();
-  const {ed} = baseEditor(w);
-  await frame(w);
-  const buttons = [...w.document.querySelectorAll(".cm-merge-revert button")];
-  assert.ok(buttons.length >= 2, "revert buttons: " + buttons.length);
-  assert.equal(buttons[0].getAttribute("title"), "取り込む");              // ボタンの説明は呼び出し側の翻訳
-  buttons[0].dispatchEvent(new w.MouseEvent("mousedown", {bubbles: true, cancelable: true}));  // ours の変更を base へ
-  assert.equal(ed.getText(), OURS);
-  assert.equal(ed.baseB.state.doc.toString(), OURS);
-  await frame(w);
-  const rest = [...w.document.querySelectorAll("#result .cm-merge-revert button")];
-  assert.equal(rest.length, 2);        // base が ours になったので、theirs との差分は 2 つ (2 行目と 4 行目)
-  rest[1].dispatchEvent(new w.MouseEvent("mousedown", {bubbles: true, cancelable: true}));     // 4 行目の theirs の変更を base へ
-  assert.equal(ed.getText(), "one\nTWO ours\nthree\nFOUR theirs\nfive\n");
-  assert.deepEqual(plain(ed.counts()), {ours: 1, theirs: 1});                     // 取り込んだ分、片方との差分は残る (ours 側は theirs の変更の分)
+  const ed = w.GGMerge.createMergeEditor({
+    top: w.document.getElementById("top"), result: w.document.getElementById("result"),
+    ours: OURS, theirs: THEIRS, text: MERGED, labels: {ours: "O", theirs: "T", both: "B", both_rev: "R", base: "S", keys: {ours: "Alt+\u2192"}},
+  });
+  assert.equal(w.document.querySelectorAll("#result .cm-conf").length, 7);
+  assert.equal(w.document.querySelector("[data-choice=ours]").getAttribute("title"), "Alt+\u2192");   // ボタンの説明にショートカットキー
+  ed.view.dispatch({selection: {anchor: 0}});
+  assert.equal(ed.adopt("theirs"), false);   // 外 → 移動だけ
+  assert.equal(ed.getText(), MERGED);
+  assert.equal(ed.adopt("theirs"), true);
+  assert.equal(ed.getText(), "one\nTWO main\nthree\nFOUR side\nfive\nSIX side\n");
   ed.destroy();
 });
