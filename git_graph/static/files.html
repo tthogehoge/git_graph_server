@@ -17,6 +17,7 @@ __FAVICON__
   .crumb a:hover, .entry:hover { text-decoration: underline; }
   .entry { display: flex; gap: 8px; padding: 4px 6px; border-radius: 3px; font-family: monospace; }
   .entry:hover { background: #eef; }
+  .entry.selected { background: #d0e3ff; outline: 1px solid #8ab4f8; }
   .st { display: inline-block; min-width: 1.3em; text-align: center; font-weight: bold; color: #fff; border-radius: 2px; margin-right: 4px; font-family: system-ui, sans-serif; }
   .stM { background: #d29922; } .stA { background: #1a7f37; } .stD { background: #cf222e; } .stR { background: #6f42c1; } .stU { background: #cf222e; } .stN { background: #888; }
   .entry .size { margin-left: auto; color: #777; white-space: nowrap; }
@@ -214,6 +215,75 @@ function openSubmoduleFiles(path) {
     .finally(() => { smOpening = false; });
 }
 function openEntry(path, type) { return type === "tree" ? openDir(path) : type === "commit" ? openSubmoduleFiles(path) : loadFile(path, true); }
+
+// 左ペインのキーボード操作: ↑↓ で選択、Enter で右ペイン表示、← で親へ、→ でディレクトリに入る
+let selectedEntry = null;
+function selectEntry(el) {
+  if (selectedEntry) selectedEntry.classList.remove("selected");
+  selectedEntry = el || null;
+  if (selectedEntry) {
+    selectedEntry.classList.add("selected");
+    selectedEntry.scrollIntoView({block: "nearest"});
+  }
+}
+function focusFileActionButton() {
+  // ファイルを開いたあと、右ペインの操作ボタンにフォーカスを移す
+  const btn = fileActions.querySelector("button:not([hidden])");
+  if (btn) btn.focus();
+}
+function parentDir(path) {
+  if (!path) return "";
+  const i = path.lastIndexOf("/");
+  return i < 0 ? "" : path.slice(0, i);
+}
+document.addEventListener("keydown", ev => {
+  if (ev.key !== "ArrowUp" && ev.key !== "ArrowDown" && ev.key !== "ArrowLeft" &&
+      ev.key !== "ArrowRight" && ev.key !== "Enter") return;
+  if (ev.altKey || ev.ctrlKey || ev.metaKey) return;
+  const tag = ev.target && ev.target.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || tag === "BUTTON") return;
+  if (ev.target && (ev.target.isContentEditable || ev.target.closest(".cm-editor"))) return;
+  if (ev.target === document.getElementById("sideSplitter")) return;  // スプリッタの ←→ は幅変更に使う
+  const rows = [...list.querySelectorAll(".entry")];
+  if (!rows.length) return;
+
+  if (ev.key === "ArrowLeft") {
+    if (!current) return;
+    ev.preventDefault();
+    openDir(parentDir(current));
+    return;
+  }
+
+  if (ev.key === "Enter" || ev.key === "ArrowRight") {
+    let el = selectedEntry;
+    if (!el || !el.isConnected) {
+      // 未選択なら現在開いているファイルを優先
+      if (currentFile) el = rows.find(r => r.dataset.path === currentFile) || null;
+    }
+    if (!el) return;
+    const type = el.dataset.type, path = el.dataset.path;
+    if (ev.key === "ArrowRight" && type !== "tree" && type !== "commit") return;  // → はディレクトリ / サブモジュールだけ
+    ev.preventDefault();
+    selectEntry(el);
+    const p = openEntry(path, type);
+    if (type !== "tree" && type !== "commit" && p && typeof p.then === "function") {
+      p.then(() => focusFileActionButton());
+    }
+    return;
+  }
+
+  // ↑ / ↓
+  ev.preventDefault();
+  let idx = selectedEntry ? rows.indexOf(selectedEntry) : -1;
+  if (idx < 0 && currentFile) {
+    for (let i = 0; i < rows.length; i++) if (rows[i].dataset.path === currentFile) { idx = i; break; }
+  }
+  if (idx < 0) idx = ev.key === "ArrowDown" ? -1 : rows.length;
+  const next = ev.key === "ArrowUp" ? idx - 1 : idx + 1;
+  if (next < 0 || next >= rows.length) return;
+  selectEntry(rows[next]);
+});
+
 function loadTree(path, push) {
   current = path;
   dirEntries = null;
@@ -235,11 +305,22 @@ function loadTree(path, push) {
       return '<div class="entry" data-type="' + e.type + '" data-path="' + esc(p) + '"' + entryTip(e) + '>' + ck + '<span>' + entryIcon(e) + ' ' + statusBadge(e) + esc(e.name) + submoduleBadge(e) + '</span><span class="size">' + size + '</span></div>';
     }).join("") : '<p class="hint">' + t("empty_directory") + '</p>');
     list.querySelectorAll("[data-dir]").forEach(a => a.onclick = () => openDir(a.dataset.dir));
-    list.querySelectorAll(".entry").forEach(a => a.onclick = () => openEntry(a.dataset.path, a.dataset.type));
+    list.querySelectorAll(".entry").forEach(a => {
+      a.onclick = () => {
+        selectEntry(a);
+        openEntry(a.dataset.path, a.dataset.type);
+      };
+    });
     list.querySelectorAll("input.ck").forEach(c => {
       c.onclick = ev => ev.stopPropagation();  // チェックでファイルを開かない
       c.onchange = () => { if (c.checked) checked.add(c.dataset.path); else checked.delete(c.dataset.path); updateSelBar(); };
     });
+    // 一覧を作り直したあと、開いているファイルがあればそれを選択状態にする
+    selectedEntry = null;
+    if (currentFile) {
+      const cur = [...list.querySelectorAll(".entry")].find(e => e.dataset.path === currentFile);
+      if (cur) selectEntry(cur);
+    }
     updateSelBar();
   }).catch(showError);
 }
