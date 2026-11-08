@@ -488,6 +488,9 @@ function showDetail(h, fromHistory) {
       "<pre>" + esc(c.message) + "</pre>" + filesHtml(curCtx, c.files) +
       '<div class="meta"><code>git show ' + esc(c.hash.slice(0, 7)) + "</code></div>";
     bindDetailNavButtons();
+    // キーボード操作の続きのため、ファイル表示リンクへフォーカスを移す
+    const filesLink = detailView.querySelector("a.detail-files");
+    if (filesLink) filesLink.focus({preventScroll: true});
     detailNavBusy = false;
   }).catch(e => {
     if (seq !== detailFetchSeq) return;
