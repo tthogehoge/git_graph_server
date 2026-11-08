@@ -90,6 +90,7 @@ test("the plain text editor (file edit): text, change/save callbacks, Tab and se
   assert.equal(changes, 2);
   assert.equal(w.document.querySelectorAll(".cm-gutters").length, 1);
   assert.equal(ed.language, "");                                       // .txt は言語なし
+  assert.equal(w.document.querySelector(".cm-lineWrapping"), null);     // 編集は折り返さない
   assert.equal(w.document.querySelectorAll(".cm-line span").length, 0);  // ハイライトの span は付かない
   assert.equal(ed.view.state.phrase("Find"), "検索");
   assert.equal(w.document.querySelector(".cm-vim-panel"), null);       // Vim モードは既定ではオフ
@@ -144,4 +145,52 @@ test("Vim mode: off by default, can be switched on and off, :w / :q / :q! call b
   ed.setVim(true);
   assert.ok(w.document.querySelector(".cm-vim-panel"));
   ed.destroy();
+});
+
+test("read-only viewer (file view): shows the text, blocks typing, still allows selecting and searching, jumps to a line", () => {
+  const w = load(TEXT_BUNDLE);
+  let changes = 0, saves = 0;
+  const ed = w.GGText.createTextEditor({
+    parent: w.document.getElementById("result"), text: "def f():\n    return 1\nx = 2\n", path: "a.py", readOnly: true,
+    onChange: () => { changes++; }, onSave: () => { saves++; },
+  });
+  assert.equal(ed.language, "python");
+  assert.ok(w.document.querySelectorAll(".cm-line span").length > 0, "highlighted");
+  assert.equal(w.document.querySelectorAll(".cm-gutters").length, 1);
+  assert.equal(ed.view.state.readOnly, true);
+  assert.equal(w.document.querySelector(".cm-activeLine"), null);  // 表示では、カーソル行を強調しない
+  assert.ok(w.document.querySelector(".cm-lineWrapping"), "view wraps long lines");
+  ed.view.dispatch({selection: {anchor: 0}});
+  const ev = new w.KeyboardEvent("keydown", {key: "Tab", bubbles: true, cancelable: true});
+  w.document.querySelector(".cm-content").dispatchEvent(ev);
+  assert.equal(ed.getText(), "def f():\n    return 1\nx = 2");  // Tab でも書き換わらない。末尾の改行は、空の行として出さない
+  assert.equal(changes, 0);
+  ed.scrollToLine(2);
+  const sel = ed.view.state.selection.main;
+  assert.equal(ed.view.state.sliceDoc(sel.from, sel.to), "    return 1");  // 2 行目を選択する
+  ed.scrollToLine(999);  // 行数を超えたら最後の行
+  assert.equal(ed.view.state.doc.lineAt(ed.view.state.selection.main.from).number, 3);
+  assert.equal(ed.view.state.doc.lines, 3);
+  ed.scrollToLine(0);    // 0 以下なら先頭の行
+  assert.equal(ed.view.state.doc.lineAt(ed.view.state.selection.main.from).number, 1);
+  assert.equal(typeof ed.getScrollTop(), "number");
+  ed.setScrollTop(0);
+  ed.destroy();
+});
+
+test("read-only viewer: trailing newline is not shown as an extra empty line (LF and CRLF), empty file is one empty line", () => {
+  const w = load(TEXT_BUNDLE);
+  const lines = text => {
+    w.document.getElementById("result").replaceChildren();
+    const ed = w.GGText.createTextEditor({parent: w.document.getElementById("result"), text: text, path: "a.txt", readOnly: true});
+    const n = ed.view.state.doc.lines;
+    ed.destroy();
+    return n;
+  };
+  assert.equal(lines("a\nb\n"), 2);
+  assert.equal(lines("a\r\nb\r\n"), 2);
+  assert.equal(lines("a\nb"), 2);
+  assert.equal(lines("a\n\n"), 2);  // 末尾の空行は 1 つだけ残る
+  assert.equal(lines("\n"), 1);
+  assert.equal(lines(""), 1);
 });

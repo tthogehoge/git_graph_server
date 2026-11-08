@@ -1,7 +1,6 @@
 <!DOCTYPE html>
 <html lang="ja"><head><meta charset="utf-8"><title>__PROJECT__ - {{file_view}}</title>
 __FAVICON__
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
 <style>
   html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-size: 13px; color: #222; }
   body { display: flex; }
@@ -26,21 +25,6 @@ __FAVICON__
   .sm-msg:empty { display: none; }
   .sm-msg.err { color: #c00; }
   pre { white-space: pre-wrap; word-break: break-word; background: #fff; border: 1px solid #ddd; padding: 10px; font: 12px monospace; }
-  pre.code { color: #24292f; tab-size: 4; }
-  pre.code { padding-left: 0; }
-  .ln { display: flex; }
-  .ln:hover { background: #f6f8fa; }
-  .ln .no { flex: none; width: var(--nw, 3ch); box-sizing: content-box; padding: 0 10px; margin-right: 10px; text-align: right; color: #8c959f; border-right: 1px solid #e3e3e3; user-select: none; }
-  .ln .tx { flex: 1; min-width: 0; }
-  .tok-keyword { color: #8250df; font-weight: 600; }
-  .tok-string { color: #0a7b35; }
-  .tok-comment { color: #6e7781; font-style: italic; }
-  .tok-number { color: #0550ae; }
-  .tok-type { color: #953800; }
-  .tok-tag { color: #116329; }
-  .tok-attr { color: #8250df; }
-  .tok-regex { color: #cf222e; }
-  .binary { color: #777; padding: 10px; border: 1px solid #ddd; }
   .file-actions { display: flex; gap: 6px; margin: 8px 0; }
   .file-actions[hidden] { display: none; }
   .patch-bar { flex-wrap: wrap; align-items: center; }
@@ -81,7 +65,7 @@ __FAVICON__
   .blame-code { width: 99%; white-space: pre-wrap; min-width: 0; }
   .edit-info { color: #666; margin: 4px 0; }
   .edit-info.warn { color: #b35900; }
-  #editor { height: calc(100vh - 190px); min-height: 200px; box-sizing: border-box; border: 1px solid #bbb; }
+  .cm-host { min-height: 200px; box-sizing: border-box; border: 1px solid #bbb; }  /* ファイルの表示と編集のエディタ。高さは fitEditor() が本文の領域に合わせる */
   .edit-bar { display: flex; gap: 6px; margin: 6px 0; }
   .edit-bar label.edit-vim { align-self: center; margin-left: 8px; color: #444; cursor: pointer; }
   .edit-bar button { background: #e8eefc; border: 1px solid #b8c7ee; padding: 4px 10px; border-radius: 3px; cursor: pointer; }
@@ -97,7 +81,7 @@ __FAVICON__
   .navbar .iconbtn:disabled:hover { background: #f0f0f0; }
   .navbar span.iconbtn { border-style: solid; }
   .navbar .iconbtn[hidden] { display: none; }
-</style><script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script></head>
+</style></head>
 <body><aside id="tree"><div class="navbar"><a class="iconbtn" id="navGraphBtn" href="/" title="{{nav_graph}}" aria-label="{{nav_graph}}"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M2 8 8 2.5 14 8M3.8 7v6.5h3V10h2.4v3.5h3V7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></a><span class="iconbtn current" title="{{nav_files}}" aria-label="{{nav_files}}" aria-current="page"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M4 2.5h5.5L12 5v8.5H4zM9.5 2.5V5H12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span><button type="button" class="iconbtn" id="navDiffBtn" disabled title="{{nav_diff}}" aria-label="{{nav_diff}}"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M2.5 3h4v10h-4zM9.5 3h4v10h-4zM7.2 5.5v5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button><button type="button" class="iconbtn" onclick="history.back()" title="{{back_prev}}" aria-label="{{back_prev}}"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M13 8H3M7.5 3.5 3 8l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button><button type="button" class="iconbtn" id="reloadBtn" hidden title="{{reload_page}}" aria-label="{{reload_page}}"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M13.5 8a5.5 5.5 0 1 1-1.7-4M13 2.5v3.2h-3.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div><h1>{{file_view}}</h1><div class="meta" id="commit"></div><div id="smMsg" class="sm-msg"></div><div class="file-actions patch-bar"><button id="patchCreateBtn">{{patch_create}}</button><button id="patchApplyBtn" hidden title="{{tip_patch_apply}}">{{patch_apply}}</button><button id="patchAmBtn" hidden title="{{tip_patch_am}}">{{patch_am}}</button><input type="file" id="patchFile" hidden><span id="patchMsg" class="msg"></span></div><div class="file-actions patch-bar sel-bar" id="selBar" hidden><label class="selall"><input type="checkbox" id="selAll"> {{sel_all}}</label><span id="selCount" class="cnt"></span><button id="selAddBtn" disabled title="{{tip_add_selected}}">{{add_button}}</button><button id="selRmBtn" disabled title="{{tip_rm_selected}}">{{rm_button}}</button><button id="selRmCachedBtn" disabled title="{{tip_rm_cached_selected}}">{{rm_cached_button}}</button><span id="selMsg" class="msg"></span></div><div id="list"></div></aside>
 <div id="sideSplitter" role="separator" aria-orientation="vertical" aria-label="{{resize_side}}" tabindex="0"></div>
 <main id="main"><h2 id="title">{{select_file}}</h2>
@@ -419,6 +403,7 @@ fileCopyBtn.onclick = () => {
     .catch(e => setFileMsg(e.message, false));
 };
 function clearFile() {  // ファイルを選ぶ前の表示に戻す
+  closeEditor();
   currentFile = ""; currentView = "";
   setDocumentTitle("");
   fileActions.hidden = true;
@@ -435,6 +420,7 @@ function dirNameCell(e) {
   return '<td class="dir-name"' + entryTip(e) + '>' + entryIcon(e) + ' ' + statusBadge(e) + esc(e.name) + submoduleBadge(e) + '</td>';
 }
 function showDir() {  // ファイルを開いていないとき、ディレクトリ内の一覧を各項目の最終コミットつきで本文に出す
+  closeEditor();
   if (dirEntries === null || currentFile) return;
   const seq = ++dirLogSeq, path = current, entries = dirEntries;
   setDocumentTitle(path || t("root"));
@@ -482,10 +468,9 @@ function loadFile(path, push) {
     fileEditBtn.hidden = !CAN_EDIT || r.binary;
     fileEditBtn.disabled = !r.editable;
     fileEditBtn.title = r.editable ? "" : t(r.edit_reason || "edit_bad_encoding");
-    const lang = languageFor(r.path);
-    title.textContent = r.path + (lang ? " (" + lang + ")" : "") + (r.encoding ? " [" + r.encoding + "]" : "");
-    content.className = r.binary ? "binary" : "";
-    content.innerHTML = r.binary ? t("binary_file") : numberedCode(r.content, lang) + (r.truncated ? '<p class="hint">' + t("large_file_head") + '</p>' : '');
+    title.textContent = fileTitle(r, "");
+    if (r.binary) { content.className = "binary"; content.textContent = t("binary_file"); }
+    else showCode(r);
     fileBlameBtn.hidden = r.binary || (isWip && !wipHead);
   }).catch(e => { title.textContent = path; content.className = "hint"; content.textContent = t("error") + e.message; });
 }
@@ -524,21 +509,56 @@ const EOL_LABEL = {crlf: "CRLF", lf: "LF", cr: "CR"};
 function closeEditor() {
   if (textEditor) { textEditor.destroy(); textEditor = null; }
 }
+function fileTitle(r, lang) { return r.path + (lang ? " (" + lang + ")" : "") + (r.encoding ? " [" + r.encoding + "]" : ""); }
+function fitEditor(host) {  // エディタの高さを本文の領域に合わせる (ページではなくエディタの中でスクロールさせる)
+  const main = document.getElementById("main");
+  const top = host.getBoundingClientRect().top - main.getBoundingClientRect().top + main.scrollTop;
+  host.style.height = Math.max(200, main.clientHeight - top - 14 - 2) + "px";  // 14: #main の下の余白、2: 枠線
+}
+window.addEventListener("resize", () => { const host = document.querySelector(".cm-host"); if (host) fitEditor(host); });
+let keepViewerScroll = null;  // 更新ボタンで読み直すとき、表示のスクロール位置を引き継ぐ ({path, top})
+function jumpToHashLine() {  // URL の #L12 で、その行を出す
+  const m = /^#L(\d+)$/.exec(location.hash);
+  if (m && textEditor && !editing) textEditor.scrollToLine(parseInt(m[1], 10));
+}
+window.addEventListener("hashchange", jumpToHashLine);
+function showCode(r) {  // ファイルの内容を、読み取り専用のエディタで出す (編集画面と同じ CodeMirror。行番号・構文ハイライト・検索 Ctrl+F)
+  content.className = "";
+  content.innerHTML = (r.truncated ? '<p class="hint">' + esc(t("large_file_head")) + '</p>' : "") + '<div class="cm-host" id="viewer"></div>';
+  document.getElementById("main").scrollTop = 0;
+  const host = document.getElementById("viewer");
+  fitEditor(host);
+  loadEditorScript().then(() => {
+    if (fileData !== r || currentView !== "" || !host.isConnected) return;  // 読み込んでいる間に、別の表示に移った
+    closeEditor();
+    textEditor = GGText.createTextEditor({parent: host, text: r.content, path: r.path, readOnly: true, phrases: editorPhrases()});
+    title.textContent = fileTitle(r, textEditor.language);
+    if (keepViewerScroll && keepViewerScroll.path === r.path) textEditor.setScrollTop(keepViewerScroll.top);
+    else jumpToHashLine();
+    keepViewerScroll = null;
+  }).catch(e => {  // エディタを読み込めなくても、内容は読めるようにする
+    if (fileData === r && host.isConnected) content.innerHTML = '<p class="hint">' + esc(e.message) + '</p><pre>' + esc(r.content) + '</pre>';
+  });
+}
 function leaveEdit() {  // 編集中なら、変更を捨ててよいか確認して編集をやめる
   if (editing && editDirty && !confirm(t("edit_discard_confirm"))) return false;
   editing = editDirty = false;
   closeEditor();
   return true;
 }
-function loadEditorScript() {  // エディタ (CodeMirror 6 + 言語 + Vim。1MB ほど) は、編集を始めるときに初めて読み込む (見るだけなら読み込まない)
+let editorScript = null;
+function loadEditorScript() {  // エディタ (CodeMirror 6 + 言語 + Vim。1MB ほど) は、最初にファイルの内容を出すときに読み込む (ディレクトリの一覧だけなら読み込まない)
   if (window.GGText) return Promise.resolve();
-  return new Promise((resolve, reject) => {
-    const script = document.createElement("script");
-    script.src = "/static/vendor/text_editor.js";
-    script.onload = resolve;
-    script.onerror = () => reject(new Error(t("editor_load_failed")));
-    document.head.appendChild(script);
-  });
+  if (!editorScript) {
+    editorScript = new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = "/static/vendor/text_editor.js";
+      script.onload = resolve;
+      script.onerror = () => { editorScript = null; reject(new Error(t("editor_load_failed"))); };  // 次の機会に読み直せるようにする
+      document.head.appendChild(script);
+    });
+  }
+  return editorScript;
 }
 function editorPhrases() {  // 検索パネルなどの文言 (CodeMirror 側の英語の文言 → 翻訳)
   return {"Find": t("editor_find"), "Replace": t("editor_replace"), "next": t("editor_next"), "previous": t("editor_previous"),
@@ -549,6 +569,7 @@ function editorPhrases() {  // 検索パネルなどの文言 (CodeMirror 側の
 window.addEventListener("beforeunload", ev => { if (editing && editDirty) { ev.preventDefault(); ev.returnValue = ""; } });
 function startEdit() {
   if (!fileData || !fileData.editable || !currentFile) return;
+  closeEditor();  // 表示のエディタ
   editing = true; editDirty = false;
   setFileMsg("", true);
   [fileLogBtn, fileBlameBtn, fileDiffBtn, fileEditBtn, fileContentBtn, fileGraphLogBtn, fileCopyBtn, fileDownloadBtn, fileExtEditBtn, fileRmBtn, fileRmCachedBtn].forEach(b => { b.hidden = true; });
@@ -559,7 +580,9 @@ function startEdit() {
     (fileData.eol_mixed ? '<div class="edit-info warn">' + esc(t("edit_eol_mixed", {eol: eol})) + '</div>' : "") +
     '<div class="edit-bar"><button class="primary" id="editSave">' + esc(t("edit_save")) + '</button><button id="editCancel">' +
     esc(t("edit_cancel")) + '</button><label class="edit-vim" title="' + esc(t("edit_vim_tip")) + '"><input type="checkbox" id="editVim"' + (vimOn ? " checked" : "") +
-    '> ' + esc(t("edit_vim")) + '</label></div><div id="editor"></div>';
+    '> ' + esc(t("edit_vim")) + '</label></div><div id="editor" class="cm-host"></div>';
+  document.getElementById("main").scrollTop = 0;
+  fitEditor(document.getElementById("editor"));
   const loaded = fileData;
   loadEditorScript().then(() => {
     const host = document.getElementById("editor");
@@ -601,6 +624,7 @@ function saveEdit() {
 }
 fileEditBtn.onclick = () => openView("edit");
 function loadFileBlame(path) {
+  closeEditor();  // 表示のエディタ
   fileLogBtn.hidden = true;
   fileBlameBtn.hidden = true;
   fileContentBtn.hidden = false;
@@ -647,6 +671,7 @@ content.addEventListener("click", ev => {
   location.href = "/files?" + params;
 });
 function loadFileLog(path) {
+  closeEditor();  // 表示のエディタ
   const hash = logHash();
   if (!hash) return;
   fileLogBtn.hidden = true;
@@ -672,87 +697,6 @@ fileGraphLogBtn.onclick = () => {
   const rev = logHash();
   if (rev && currentFile) location.href = "/?file_log_hash=" + encodeURIComponent(rev) + "&file_log_path=" + encodeURIComponent(currentFile);
 };
-const KEYWORDS = {
-  python: "and as assert async await break case class continue def del elif else except finally for from global if import in is lambda match nonlocal not or pass raise return try while with yield None True False self",
-  javascript: "as async await break case catch class const continue debugger default delete do else export extends false finally for from function get if import in instanceof let new null of return set static super switch this throw true try typeof undefined var void while with yield",
-  typescript: "as async await break case catch class const continue debugger default delete do else export extends false finally for from function get if import in instanceof interface let new null of private protected public readonly return set static super switch this throw true try typeof type undefined var void while with yield",
-  java: "abstract assert boolean break byte case catch char class const continue default do double else enum extends final finally float for if implements import instanceof int interface long native new package private protected public return short static strictfp super switch synchronized this throw throws transient try void volatile while true false null",
-  c: "auto break case char const continue default do double else enum extern float for goto if inline int long register restrict return short signed sizeof static struct switch typedef union unsigned void volatile while true false NULL",
-  go: "break default func interface select case defer go map struct chan else goto package switch const fallthrough if range type continue for import return var true false nil",
-  rust: "as async await break const continue crate dyn else enum extern false fn for if impl in let loop match mod move mut pub ref return self Self static struct super trait true type unsafe use where while",
-  sql: "select from where and or not insert into update delete create alter drop table index view join inner left right full outer on as group by order having limit offset distinct union all null is like values set",
-  shell: "if then else elif fi for while in do done case esac function select time coproc true false",
-  ruby: "BEGIN END alias and begin break case class def defined do else elsif end ensure false for if in module next nil not or redo rescue retry return self super then true undef unless until when while yield require attr_reader attr_writer attr_accessor include extend private protected public",
-  json: "true false null"
-};
-Object.keys(KEYWORDS).forEach(k => KEYWORDS[k] = new Set(KEYWORDS[k].split(" ")));
-function languageFor(path) {
-  const name = path.toLowerCase().split("/").pop();
-  if (["dockerfile", "makefile"].includes(name)) return "shell";
-  const ext = name.includes(".") ? name.split(".").pop() : "";
-  return ({py:"python", pyw:"python", js:"javascript", jsx:"javascript", mjs:"javascript", cjs:"javascript", ts:"typescript", tsx:"typescript", java:"java", c:"c", h:"c", cc:"c", cpp:"c", hpp:"c", go:"go", rs:"rust", rb:"ruby", ru:"ruby", sql:"sql", sh:"shell", bash:"shell", zsh:"shell", json:"json", css:"css", html:"html", htm:"html", xml:"html", md:"markdown", markdown:"markdown", yml:"yaml", yaml:"yaml"})[ext] || "";
-}
-function token(cls, text) { return '<span class="tok-' + cls + '">' + esc(text) + '</span>'; }
-function highlight(source, lang) {
-  if (!lang || lang === "markdown") return esc(source);
-  if (lang === "html") return source.split(/(<[^>]*>)/g).map(x => x.startsWith("<") ? token("tag", x) : esc(x)).join("");
-  const words = KEYWORDS[lang] || new Set(), out = [];
-  let i = 0;
-  while (i < source.length) {
-    const rest = source.slice(i), ch = source[i];
-    const lineComment = (["python", "ruby", "shell", "yaml"].includes(lang)) && ch === "#";
-    const slashComment = (ch === "/" && (source[i + 1] === "/" || source[i + 1] === "*"));
-    if (lineComment || slashComment) {
-      const end = lineComment ? source.indexOf("\n", i) : (source[i + 1] === "/" ? source.indexOf("\n", i) : source.indexOf("*/", i) + 2);
-      const j = end < (lineComment ? 0 : 2) ? source.length : end;
-      out.push(token("comment", source.slice(i, j))); i = j; continue;
-    }
-    const triple = lang === "python" && (source.startsWith("'''", i) || source.startsWith('\"\"\"', i));
-    if (triple || ch === "'" || ch === '"' || (ch === "`" && ["javascript", "typescript"].includes(lang))) {
-      const quote = triple ? source.slice(i, i + 3) : ch; let j = i + quote.length;
-      if (triple) {
-        const end = source.indexOf(quote, j);
-        j = end < 0 ? source.length : end + quote.length;
-      } else {
-        while (j < source.length) { if (source[j] === "\\") j += 2; else if (source[j++] === quote) break; }
-      }
-      out.push(token("string", source.slice(i, j))); i = j; continue;
-    }
-    const number = rest.match(/^(?:0x[\da-f]+|\d+(?:\.\d+)?(?:e[+-]?\d+)?)/i);
-    if (number) { out.push(token("number", number[0])); i += number[0].length; continue; }
-    const word = rest.match(/^[A-Za-z_$][\w$]*/);
-    if (word) { const w = word[0]; out.push(words.has(w) ? token("keyword", w) : esc(w)); i += w.length; continue; }
-    out.push(esc(ch)); i++;
-  }
-  return out.join("");
-}
-function highlightCode(source, lang) {
-  if (window.hljs && lang && hljs.getLanguage(lang)) {
-    try { return hljs.highlight(source, {language: lang, ignoreIllegals: true}).value; } catch (e) {}
-  }
-  return highlight(source, lang);
-}
-/* ハイライト済み HTML を行ごとに分割する。複数行にまたがる span は行末で閉じて次の行で開き直す */
-function splitHighlightedLines(html) {
-  const lines = [], open = [];
-  let cur = "";
-  html.split(/(<[^>]+>|\n)/).forEach(p => {
-    if (p === "\n") { cur += "</span>".repeat(open.length); lines.push(cur); cur = open.join(""); }
-    else if (p.startsWith("</")) { open.pop(); cur += p; }
-    else if (p.startsWith("<")) { open.push(p); cur += p; }
-    else cur += p;
-  });
-  lines.push(cur);
-  return lines;
-}
-function numberedCode(source, lang) {
-  const lines = splitHighlightedLines(highlightCode(source.replace(/\r\n?/g, "\n"), lang));
-  if (lines.length > 1 && lines[lines.length - 1].replace(/<[^>]*>/g, "") === "") lines.pop();  // 末尾の改行は空行として数えない
-  const width = String(lines.length).length;
-  return '<pre class="code" style="--nw:' + width + 'ch"><code>' +
-    lines.map((l, i) => '<div class="ln" id="L' + (i + 1) + '"><span class="no">' + (i + 1) + '</span><span class="tx">' + l + '</span></div>').join("") +
-    '</code></pre>';
-}
 function restoreFromUrl(first) {  // URL の path / file / view の状態を画面に反映する
   const p = new URLSearchParams(location.search), dir = p.get("path") || "", file = p.get("file") || "";
   const view = file ? (p.get("view") || (p.get("edit") === "1" ? "edit" : "")) : "";
@@ -778,7 +722,10 @@ window.onpopstate = () => restoreFromUrl(false);
 const reloadBtn = document.getElementById("reloadBtn");
 reloadBtn.hidden = !isWip || !hash;
 reloadBtn.onclick = () => {
-  if (reloadBtn.disabled || !leaveEdit()) return;
+  if (reloadBtn.disabled) return;
+  const viewerScroll = textEditor && !editing ? {path: currentFile, top: textEditor.getScrollTop()} : null;  // leaveEdit() が閉じる前に控える
+  if (!leaveEdit()) return;
+  keepViewerScroll = viewerScroll;
   const treeEl = document.getElementById("tree"), mainEl = document.getElementById("main");
   const keep = {tree: treeEl.scrollTop, main: mainEl.scrollTop};
   reloadBtn.disabled = true;

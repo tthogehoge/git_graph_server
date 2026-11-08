@@ -89,11 +89,13 @@ When writing is enabled, check submodules in the list to update them. **Update s
 
 **Add submodule...** takes a URL, a path (prefilled from the end of the URL; editable) and an optional branch, and runs `git submodule add`. It changes the index and `.gitmodules`, so commit it if you want to record it. **Undo** can revert an add, but the cloned directory is left in place (you can add it again to the same path). URLs starting with `-` or containing control characters are rejected, and `ext::` is not usable. When HTTP authentication is needed, you are asked for a username and password per host (`https://host`), and only those paths are retried (if a nested submodule asks for another host, you are asked for that host too). The credentials you enter are used only for questions from that host and are never given to another host. They are remembered while the app runs, so you are not asked again (a configured credential helper or SSH keeps working as before).
 
-### Editing files
+### Viewing and editing files
 
-When writing is enabled, the **Edit** button in the file view of the working tree (WIP) edits the file in the browser and saves it. The editor is CodeMirror 6, with line numbers, undo/redo, find and replace (Ctrl+F), go to line (Ctrl+G) and Ctrl+S to save. Syntax highlighting covers the same languages as the file view (Python, JavaScript / TypeScript, Java, C / C++, Go, Rust, Ruby, SQL, shell, JSON, CSS, HTML / XML, Markdown, YAML). The line endings, character encoding and BOM of the original file are restored when saving.
+The content in the file view (`/files`) is shown in a read-only CodeMirror 6: line numbers, syntax highlighting, search (click the editor, then Ctrl+F), and jumping to a line with `#L12` in the URL. Syntax highlighting covers Python, JavaScript / TypeScript, Java, C / C++, Go, Rust, Ruby, SQL, shell, JSON, CSS, HTML / XML, Markdown and YAML. It does not depend on any external site, so it looks the same offline.
 
-Tick **Vim mode** in the edit bar to edit with Vim keys (`:w` saves, `:q` quits, `:q!` discards changes and quits). The setting is remembered in the browser. The editor (about 1 MB) is loaded only when you start editing, not when you just view a file.
+When writing is enabled, the **Edit** button in the file view of the working tree (WIP) edits the file in the same editor and saves it, with undo/redo, find and replace (Ctrl+F), go to line (Ctrl+G) and Ctrl+S to save. The line endings, character encoding and BOM of the original file are restored when saving.
+
+Tick **Vim mode** in the edit bar to edit with Vim keys (`:w` saves, `:q` quits, `:q!` discards changes and quits). The setting is remembered in the browser. The editor (about 1 MB) is loaded when a file's content is first shown, so a directory listing alone does not load it.
 
 ## Display language
 
