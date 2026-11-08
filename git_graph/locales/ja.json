@@ -869,8 +869,8 @@
   "merge_mode_markers": "競合マーカー方式",
   "merge_mode_base": "ベース編集方式",
   "tip_merge_mode_markers": "競合マーカーの入った結果を、競合ごとのボタンで解決します (競合しない変更は自動でマージ済みです)",
-  "tip_merge_mode_base": "ours と base、theirs と base を並べて、base を編集して結果にします",
-  "merge_base_hint": "左の列が ours / theirs (読み取り専用)、右の列が base です。上下の base は同じ内容で、どちらを編集しても連動します。差分の矢印ボタンで ours / theirs の変更を base に取り込めます。base の内容が結果として保存されます。",
+  "tip_merge_mode_base": "ours と base、theirs と base を並べて、base を編集して結果にします (競合しない変更は、自動でマージした状態から始まります)",
+  "merge_base_hint": "左の列が ours / theirs (読み取り専用)、右の列が base です。base は、競合しない変更を自動でマージした状態から始まります。競合している箇所 (ours と theirs が同じ場所を変えた箇所) は、元の base の内容のままなので、差分の矢印ボタンで ours / theirs を取り込むか、直接編集してください。上下の base は同じ内容で、どちらを編集しても連動します。base の内容が結果として保存されます。",
   "merge_no_base": "このファイルにはベースがありません (両側で追加されました)。base は空から始まります。",
   "merge_head_base": "base (結果。編集できます。上下で連動)",
   "merge_prev_diff": "前の差分",
@@ -878,8 +878,9 @@
   "merge_base_counts": "ours との差分: {ours} 件 / theirs との差分: {theirs} 件",
   "merge_base_use_ours": "base を ours にする",
   "merge_base_use_theirs": "base を theirs にする",
-  "merge_base_reset": "元の base に戻す",
+  "merge_base_reset": "元の base に戻す (自動マージ前)",
   "merge_revert_chunk": "この差分を base に取り込む",
-  "merge_confirm_base_unchanged": "base が元のままです。このまま保存すると、ours と theirs のどちらの変更も入っていない内容になります。保存しますか？",
-  "merge_resize": "上下の高さを変える"
+  "merge_resize": "上下の高さを変える",
+  "merge_base_auto": "自動マージの状態に戻す",
+  "merge_confirm_base_unresolved": "競合している箇所が、まだ解決されていません。このまま保存すると、そこは元の base の内容になり、ours と theirs のどちらの変更も入りません。保存しますか？"
 }

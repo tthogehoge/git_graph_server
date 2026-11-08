@@ -72,6 +72,15 @@ class MergeEditorTests(unittest.TestCase):
         self.assertEqual(len(d["sha"]), 64)
         self.assertFalse(d["rebasing"])
 
+    def test_merged_has_non_conflicting_changes_applied_and_the_base_inside_each_conflict(self):
+        """ベース編集方式の初期状態は、merged の競合を base 側にしたもの。そのために、競合しない変更は競合の外に取り込まれ、
+        各競合に base のセクションがあることを確かめる。"""
+        base = "one\ntwo\nthree\nfour\nfive\nsix\n"
+        self.conflict(base=base, main="one\nTWO main\nthree\nfour\nfive\nSIX main\n", side="one\ntwo\nthree\nFOUR side\nfive\nSIX side\n")
+        d = app.api_merge_sources({"path": ["f.txt"]})
+        self.assertEqual(d["merge_conflicts"], 1)
+        self.assertEqual(d["merged"], "one\nTWO main\nthree\nFOUR side\nfive\n<<<<<<< ours\nSIX main\n||||||| base\nsix\n=======\nSIX side\n>>>>>>> theirs\n")
+
     def test_non_overlapping_changes_merge_cleanly_so_there_is_nothing_to_edit(self):
         self.write("f.txt", "a\nb\nc\nd\ne\nf\ng\nh\ni\n")
         self.commit("base")
@@ -213,6 +222,7 @@ class MergeEditorTests(unittest.TestCase):
         self.conflict()
         page = viewer.render_merge_page({"path": ["f.txt"]})
         for needle in ('id="modeMarkersBtn"', 'id="modeBaseBtn"',            # 方式の切り替え
+                       'id="baseAutoBtn"', 'id="baseResetBtn"',              # 自動マージの状態 / 元の base に戻す
                        'id="markerMode"', 'id="baseMode"',
                        'id="oursPair"', 'id="theirsPair"',                   # ベース編集方式の 2 行 (ours | base と theirs | base)
                        'id="markerSplitter"', 'id="baseSplitter"', 'role="separator"',  # 上下の高さを変える仕切り

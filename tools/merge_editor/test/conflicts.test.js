@@ -81,3 +81,14 @@ test("resolveAll with base leaves blocks without a base alone", () => {
   assert.ok(out.startsWith("a\nB\nz\n"));
   assert.equal(findConflicts(out).length, 1);
 });
+
+test("resolveAll(base) on a diff3 merge: non-conflicting changes stay, conflicting places go back to the base (start of the base-edit mode)", () => {
+  // base: one two three four five six / ours: line 2 and 6 changed / theirs: line 4 and 6 changed → line 6 conflicts
+  const merged = "one\nTWO main\nthree\nFOUR side\nfive\n<<<<<<< ours\nSIX main\n||||||| base\nsix\n=======\nSIX side\n>>>>>>> theirs\n";
+  assert.equal(findConflicts(merged).length, 1);
+  assert.equal(resolveAll(merged, "base"), "one\nTWO main\nthree\nFOUR side\nfive\nsix\n");
+  // a file the merge could not conflict on: nothing to resolve, the text is unchanged
+  assert.equal(resolveAll("a\nb\n", "base"), "a\nb\n");
+  // an add/add conflict has an empty base section: the conflicting place becomes empty
+  assert.equal(resolveAll("<<<<<<< ours\nX\n||||||| base\n=======\nY\n>>>>>>> theirs\n", "base"), "");
+});

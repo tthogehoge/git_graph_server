@@ -869,8 +869,8 @@
   "merge_mode_markers": "Conflict markers",
   "merge_mode_base": "Edit base",
   "tip_merge_mode_markers": "Resolve a result that contains conflict markers with the per-conflict buttons (changes that do not conflict are already merged)",
-  "tip_merge_mode_base": "Compare ours with base and theirs with base, and edit base to make the result",
-  "merge_base_hint": "The left column is ours / theirs (read-only) and the right column is base. The two base panes always have the same content, so you can edit either. Use the arrow button of a difference to apply the change of ours / theirs to base. The content of base is saved as the result.",
+  "tip_merge_mode_base": "Compare ours with base and theirs with base, and edit base to make the result (it starts with the changes that do not conflict already merged)",
+  "merge_base_hint": "The left column is ours / theirs (read-only) and the right column is base. Base starts with the changes that do not conflict already merged. Places that conflict (where ours and theirs changed the same lines) still have the original base content: apply ours / theirs with the arrow button of the difference, or edit them directly. The two base panes always have the same content, so you can edit either. The content of base is saved as the result.",
   "merge_no_base": "This file has no base (it was added on both sides). Base starts empty.",
   "merge_head_base": "base (the result; editable; the two copies are linked)",
   "merge_prev_diff": "Previous difference",
@@ -878,8 +878,9 @@
   "merge_base_counts": "Differences from ours: {ours} / from theirs: {theirs}",
   "merge_base_use_ours": "Set base to ours",
   "merge_base_use_theirs": "Set base to theirs",
-  "merge_base_reset": "Back to the original base",
+  "merge_base_reset": "Back to the original base (before the auto-merge)",
   "merge_revert_chunk": "Apply this change to base",
-  "merge_confirm_base_unchanged": "Base is unchanged. Saving it now gives a file without the changes of either ours or theirs. Save anyway?",
-  "merge_resize": "Resize the panes"
+  "merge_resize": "Resize the panes",
+  "merge_base_auto": "Back to the auto-merged state",
+  "merge_confirm_base_unresolved": "Places that conflict are not resolved yet. Saving now keeps the original base content there, without the changes of either ours or theirs. Save anyway?"
 }

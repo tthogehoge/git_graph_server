@@ -1,7 +1,8 @@
 // マージエディタ (/merge) の画面の動作。エディタ本体 (CodeMirror 6) は vendor/merge_editor.js (window.GGMerge)。
 // I18N と MERGE_PATH (対象ファイルのパス) は pages.py が先に埋め込む。
 // 方式は 2 つ。「競合マーカー方式」は、競合マーカーの入った結果を、競合ごとのボタンで解決する。
-// 「ベース編集方式」は、ours | base と theirs | base を並べて、base を編集して結果にする (2 つの base は連動する)。
+// 「ベース編集方式」は、ours | base と theirs | base を並べて、base を編集して結果にする (2 つの base は連動する。
+// 初めの内容は、競合しない変更を自動でマージしたもの)。
 function t(key, values = {}) {
   let text = key in I18N ? I18N[key] : key;
   Object.entries(values).forEach(([name, value]) => { text = text.replaceAll("{" + name + "}", () => String(value)); });
@@ -14,7 +15,7 @@ try { if (localStorage.getItem(MODE_KEY) === "base") mode = "base"; } catch (e) 
 let data = null;
 let editor = null, baseEditor = null;     // 方式ごとのエディタ (使うときに作る)
 let baseline = "", baseBaseline = "";     // 最後に読み込んだ / 保存した内容 (エディタの改行は LF)。これと違えば、未保存の編集がある
-let baseOriginal = "";                    // 本物の base (ベース編集方式の初期値)
+let baseTrue = "", baseStart = "";        // 本物の base と、ベース編集方式の初期状態 (競合しない変更を自動でマージした内容)
 let conflicts = 0, diffs = {ours: 0, theirs: 0}, busy = false;
 
 function say(text, ok) {
@@ -36,7 +37,7 @@ function refreshButtons() {
   const none = !conflicts, noDiff = !diffs.ours && !diffs.theirs;
   [$("prevBtn"), $("nextBtn"), $("allOursBtn"), $("allTheirsBtn")].forEach(b => { b.disabled = busy || none; });
   [$("basePrevBtn"), $("baseNextBtn")].forEach(b => { b.disabled = busy || noDiff; });
-  [$("regenBtn"), $("reloadBtn"), $("baseOursBtn"), $("baseTheirsBtn"), $("baseResetBtn"), $("saveBtn"), $("resolveBtn")].forEach(b => { b.disabled = busy; });
+  [$("regenBtn"), $("reloadBtn"), $("baseOursBtn"), $("baseTheirsBtn"), $("baseAutoBtn"), $("baseResetBtn"), $("saveBtn"), $("resolveBtn")].forEach(b => { b.disabled = busy; });
   $("modeMarkersBtn").classList.toggle("active", mode === "markers");
   $("modeBaseBtn").classList.toggle("active", mode === "base");
   $("modeMarkersBtn").setAttribute("aria-pressed", String(mode === "markers"));
@@ -69,12 +70,19 @@ function createMarkersEditor() {
   baseline = editor.getText();
   if (conflicts) editor.jump(1);
 }
+// ours と theirs が重ならない変更は取り込み、競合している箇所 (同じ場所を両側が変えた箇所) は元の base の内容のままにした内容。
+// 競合している箇所は、矢印ボタンで ours / theirs を選ぶ。
+function autoMergedBase() {
+  const text = GGMerge.resolveAll(data.merged, "base");
+  return GGMerge.findConflicts(text).length ? data.base : text;  // 念のため。マーカーが残るなら (起きないはず)、本物の base から始める
+}
 function createBaseEditor() {
   baseEditor = GGMerge.createBaseMergeEditor({
-    oursParent: $("oursPair"), theirsParent: $("theirsPair"), ours: data.ours, theirs: data.theirs, base: data.base,
+    oursParent: $("oursPair"), theirsParent: $("theirsPair"), ours: data.ours, theirs: data.theirs, base: autoMergedBase(),
     labels: {revert: t("merge_revert_chunk")}, onChange: onDiffCounts,
   });
-  baseOriginal = baseBaseline = baseEditor.getText();
+  baseStart = baseBaseline = baseEditor.getText();
+  baseTrue = data.base.replace(/\r\n?/g, "\n");  // エディタの中の改行 (LF) にそろえて比べる
 }
 function setMode(next, remember) {
   mode = next;
@@ -105,8 +113,8 @@ function save(resolve) {
   const text = ed.getText();
   if (savedMode === "markers") {
     if (resolve && conflicts && !confirm(t("merge_confirm_markers"))) return;
-  } else if (text === baseOriginal && !confirm(t("merge_confirm_base_unchanged"))) {
-    return;  // base のまま保存すると、ours / theirs のどちらの変更も入っていない内容になる
+  } else if ((text === baseTrue || (text === baseStart && data.merge_conflicts > 0)) && !confirm(t("merge_confirm_base_unresolved"))) {
+    return;  // 競合している箇所が元の base のまま (ours / theirs のどちらも入っていない) になる
   }
   setBusy(true); say(t("wip_execute"), true);
   post("/api/file-save", {path: MERGE_PATH, content: text, sha: data.sha})
@@ -151,7 +159,8 @@ $("baseNextBtn").onclick = () => baseEditor.jump(1);
 // base の入れ替えは、アンドゥで戻せる (2 つの base で 1 つの履歴)
 $("baseOursBtn").onclick = () => baseEditor.setText(data.ours);
 $("baseTheirsBtn").onclick = () => baseEditor.setText(data.theirs);
-$("baseResetBtn").onclick = () => baseEditor.setText(baseOriginal);
+$("baseAutoBtn").onclick = () => baseEditor.setText(baseStart);
+$("baseResetBtn").onclick = () => baseEditor.setText(baseTrue);
 $("saveBtn").onclick = () => save(false);
 $("resolveBtn").onclick = () => save(true);
 document.addEventListener("keydown", ev => {
