@@ -209,6 +209,18 @@ class MergeEditorTests(unittest.TestCase):
             self.assertNotIn(placeholder, page, placeholder)
         self.assertEqual(page.count("</script>"), page.count("<script>"))  # 埋め込んだ JS の中に </script> が混ざっていない
 
+    def test_merge_page_has_both_modes_with_resizable_panes(self):
+        self.conflict()
+        page = viewer.render_merge_page({"path": ["f.txt"]})
+        for needle in ('id="modeMarkersBtn"', 'id="modeBaseBtn"',            # 方式の切り替え
+                       'id="markerMode"', 'id="baseMode"',
+                       'id="oursPair"', 'id="theirsPair"',                   # ベース編集方式の 2 行 (ours | base と theirs | base)
+                       'id="markerSplitter"', 'id="baseSplitter"', 'role="separator"',  # 上下の高さを変える仕切り
+                       "createBaseMergeEditor", "createMergeEditor"):
+            self.assertIn(needle, page, needle)
+        self.assertEqual(page.count('class="splitter"'), 2)
+        self.assertNotIn("resize: vertical", page)  # 高さは仕切りで変える
+
     def test_merge_page_escapes_the_path(self):
         page = viewer.render_merge_page({"path": ['a"><script>x.txt']})
         self.assertIn("&quot;&gt;&lt;script&gt;x.txt", page)  # 見出しとタイトルは HTML エスケープ

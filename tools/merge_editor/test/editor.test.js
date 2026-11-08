@@ -1,5 +1,5 @@
 // バンドルしたエディタを jsdom に読み込んで、競合ごとの採用ボタンが働くことを確認する。
-import test from "node:test";
+import test, {after} from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import {JSDOM} from "jsdom";
@@ -7,6 +7,9 @@ import {JSDOM} from "jsdom";
 const MERGE_BUNDLE = new URL("../../../git_graph/static/vendor/merge_editor.js", import.meta.url);
 const TEXT_BUNDLE = new URL("../../../git_graph/static/vendor/text_editor.js", import.meta.url);
 const TEXT = "a\n<<<<<<< HEAD\nO\n||||||| base\nB\n=======\nT\n>>>>>>> feature\nz\n<<<<<<< HEAD\nO2\n=======\nT2\n>>>>>>> feature\n";
+
+const windows = [];
+after(() => { windows.forEach(w => w.close()); });  // 閉じないと、jsdom の描画のタイマーが残って、テストが終わらない
 
 function load(bundle = MERGE_BUNDLE) {
   const dom = new JSDOM("<!DOCTYPE html><div id='top'></div><div id='result'></div>", {runScripts: "outside-only", pretendToBeVisual: true});
@@ -18,6 +21,7 @@ function load(bundle = MERGE_BUNDLE) {
   w.Element.prototype.getClientRects = () => [];
   w.document.elementFromPoint = () => null;
   w.eval(fs.readFileSync(bundle, "utf8"));
+  windows.push(w);
   return w;
 }
 
@@ -193,4 +197,113 @@ test("read-only viewer: trailing newline is not shown as an extra empty line (LF
   assert.equal(lines("a\n\n"), 2);  // 末尾の空行は 1 つだけ残る
   assert.equal(lines("\n"), 1);
   assert.equal(lines(""), 1);
+});
+
+// ---- ベース編集方式: ours | base と theirs | base の 2 組 ----
+const BASE = "one\ntwo\nthree\nfour\nfive\n", OURS = "one\nTWO ours\nthree\nfour\nfive\n", THEIRS = "one\ntwo\nthree\nFOUR theirs\nfive\n";
+function baseEditor(w, extra = {}) {
+  const counts = [];
+  const ed = w.GGMerge.createBaseMergeEditor({
+    oursParent: w.document.getElementById("top"), theirsParent: w.document.getElementById("result"),
+    ours: OURS, theirs: THEIRS, base: BASE, labels: {revert: "取り込む"}, onChange: c => counts.push(c), ...extra,
+  });
+  return {ed, counts};
+}
+const plain = value => JSON.parse(JSON.stringify(value));  // jsdom のウィンドウの中で作った値は、別の Object なので、そのまま deepEqual できない
+const frame = w => new Promise(resolve => w.requestAnimationFrame(() => setTimeout(resolve, 20)));
+
+test("base editor: two pairs, each side compared with base, counts reported", () => {
+  const w = load();
+  const {ed, counts} = baseEditor(w);
+  assert.equal(w.document.querySelectorAll("#top .cm-editor").length, 2);     // ours | base
+  assert.equal(w.document.querySelectorAll("#result .cm-editor").length, 2);  // theirs | base
+  assert.equal(ed.oursView.a.state.doc.toString(), OURS);
+  assert.equal(ed.theirsView.a.state.doc.toString(), THEIRS);
+  assert.equal(ed.oursView.a.state.readOnly, true);
+  assert.equal(ed.theirsView.a.state.readOnly, true);
+  assert.equal(ed.baseA.state.readOnly, false);
+  assert.equal(ed.getText(), BASE);                                       // 初期値は本物の base
+  assert.deepEqual(plain(ed.counts()), {ours: 1, theirs: 1});
+  assert.deepEqual(plain(counts.at(0)), {ours: 1, theirs: 1});                   // 最初の 1 回
+  ed.destroy();
+});
+
+test("base editor: edits in either base are mirrored to the other, and the counts follow", () => {
+  const w = load();
+  const {ed, counts} = baseEditor(w);
+  const same = () => ed.baseA.state.doc.toString() === ed.baseB.state.doc.toString();
+  ed.baseA.dispatch({changes: {from: 0, insert: "HEAD\n"}});
+  assert.ok(same());
+  assert.ok(ed.baseB.state.doc.toString().startsWith("HEAD\n"));
+  ed.baseB.dispatch({changes: {from: ed.baseB.state.doc.length, insert: "TAIL\n"}});
+  assert.ok(same());
+  assert.ok(ed.baseA.state.doc.toString().endsWith("TAIL\n"));
+  assert.deepEqual(plain(ed.counts()), {ours: 3, theirs: 3});                    // HEAD と TAIL の分だけ差分が増える
+  assert.deepEqual(plain(counts.at(-1)), {ours: 3, theirs: 3});
+  // 1 つの編集で、変更の通知が増え続けない (反映の反映でループしない)
+  const before = counts.length;
+  ed.baseA.dispatch({changes: {from: 0, insert: "X"}});
+  assert.ok(counts.length - before <= 2, "notifications: " + (counts.length - before));
+  ed.destroy();
+});
+
+test("base editor: one undo history for both bases (typing in either base is undone in order)", () => {
+  const w = load();
+  const {ed} = baseEditor(w);
+  const key = (view, name, extra = {}) => {
+    const ev = new w.KeyboardEvent("keydown", {key: name, bubbles: true, cancelable: true, ...extra});
+    view.contentDOM.dispatchEvent(ev);
+    return ev;
+  };
+  // 近い位置の続けた入力は、CodeMirror が 1 回のアンドゥにまとめるので、離れた位置を使う
+  ed.baseA.dispatch({changes: {from: 0, insert: "A1\n"}});
+  ed.baseB.dispatch({changes: {from: ed.baseB.state.doc.length, insert: "B1\n"}});
+  assert.equal(ed.getText(), "A1\n" + BASE + "B1\n");
+  key(ed.baseB, "z", {ctrlKey: true});                                     // baseB で Ctrl+Z → 最後の編集 (baseB の入力) を戻す
+  assert.equal(ed.getText(), "A1\n" + BASE);
+  assert.equal(ed.baseA.state.doc.toString(), ed.baseB.state.doc.toString());
+  key(ed.baseA, "z", {ctrlKey: true});                                     // baseA で Ctrl+Z → baseA の入力も戻る
+  assert.equal(ed.getText(), BASE);
+  assert.equal(ed.baseA.state.doc.toString(), ed.baseB.state.doc.toString());
+  key(ed.baseB, "y", {ctrlKey: true});                                     // baseB で Ctrl+Y → やり直し
+  assert.equal(ed.getText(), "A1\n" + BASE);
+  assert.equal(ed.baseA.state.doc.toString(), ed.baseB.state.doc.toString());
+  key(ed.baseA, "y", {ctrlKey: true});
+  assert.equal(ed.getText(), "A1\n" + BASE + "B1\n");
+  ed.destroy();
+});
+
+test("base editor: setText replaces both bases and can be undone; jump moves between differences", () => {
+  const w = load();
+  const {ed} = baseEditor(w);
+  ed.setText(OURS);
+  assert.equal(ed.baseB.state.doc.toString(), OURS);
+  assert.deepEqual(plain(ed.counts()), {ours: 0, theirs: 2});                     // base を ours にした → ours との差分は 0
+  ed.setText(BASE);
+  assert.deepEqual(plain(ed.counts()), {ours: 1, theirs: 1});
+  ed.baseA.focus();
+  assert.equal(ed.jump(1), true);
+  assert.equal(ed.jump(1), true);   // 差分が 1 つなので、端まで行っても反対側に戻って同じ差分に着く
+  assert.equal(ed.jump(-1), true);
+  ed.setText(OURS); ed.setText(THEIRS.replace("FOUR theirs", "four"));       // どちらとも差分が 0 の組は動かない
+  ed.destroy();
+});
+
+test("base editor: the revert buttons apply ours' / theirs' change to base (both bases follow)", async () => {
+  const w = load();
+  const {ed} = baseEditor(w);
+  await frame(w);
+  const buttons = [...w.document.querySelectorAll(".cm-merge-revert button")];
+  assert.ok(buttons.length >= 2, "revert buttons: " + buttons.length);
+  assert.equal(buttons[0].getAttribute("title"), "取り込む");              // ボタンの説明は呼び出し側の翻訳
+  buttons[0].dispatchEvent(new w.MouseEvent("mousedown", {bubbles: true, cancelable: true}));  // ours の変更を base へ
+  assert.equal(ed.getText(), OURS);
+  assert.equal(ed.baseB.state.doc.toString(), OURS);
+  await frame(w);
+  const rest = [...w.document.querySelectorAll("#result .cm-merge-revert button")];
+  assert.equal(rest.length, 2);        // base が ours になったので、theirs との差分は 2 つ (2 行目と 4 行目)
+  rest[1].dispatchEvent(new w.MouseEvent("mousedown", {bubbles: true, cancelable: true}));     // 4 行目の theirs の変更を base へ
+  assert.equal(ed.getText(), "one\nTWO ours\nthree\nFOUR theirs\nfive\n");
+  assert.deepEqual(plain(ed.counts()), {ours: 1, theirs: 1});                     // 取り込んだ分、片方との差分は残る (ours 側は theirs の変更の分)
+  ed.destroy();
 });

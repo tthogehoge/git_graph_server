@@ -865,5 +865,21 @@
   "editor_goto_line": "Go to line",
   "editor_go": "go",
   "edit_vim": "Vim mode",
-  "edit_vim_tip": "Edit with Vim keys. :w saves, :q quits, :q! discards changes and quits"
+  "edit_vim_tip": "Edit with Vim keys. :w saves, :q quits, :q! discards changes and quits",
+  "merge_mode_markers": "Conflict markers",
+  "merge_mode_base": "Edit base",
+  "tip_merge_mode_markers": "Resolve a result that contains conflict markers with the per-conflict buttons (changes that do not conflict are already merged)",
+  "tip_merge_mode_base": "Compare ours with base and theirs with base, and edit base to make the result",
+  "merge_base_hint": "The left column is ours / theirs (read-only) and the right column is base. The two base panes always have the same content, so you can edit either. Use the arrow button of a difference to apply the change of ours / theirs to base. The content of base is saved as the result.",
+  "merge_no_base": "This file has no base (it was added on both sides). Base starts empty.",
+  "merge_head_base": "base (the result; editable; the two copies are linked)",
+  "merge_prev_diff": "Previous difference",
+  "merge_next_diff": "Next difference",
+  "merge_base_counts": "Differences from ours: {ours} / from theirs: {theirs}",
+  "merge_base_use_ours": "Set base to ours",
+  "merge_base_use_theirs": "Set base to theirs",
+  "merge_base_reset": "Back to the original base",
+  "merge_revert_chunk": "Apply this change to base",
+  "merge_confirm_base_unchanged": "Base is unchanged. Saving it now gives a file without the changes of either ours or theirs. Save anyway?",
+  "merge_resize": "Resize the panes"
 }

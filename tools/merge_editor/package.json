@@ -8,7 +8,7 @@
     "build": "npm run build:merge && npm run build:text",
     "build:merge": "esbuild src/merge_entry.js --bundle --minify --format=iife --charset=ascii --target=es2019 --legal-comments=none --global-name=GGMerge --outfile=../../git_graph/static/vendor/merge_editor.js",
     "build:text": "esbuild src/text_entry.js --bundle --minify --format=iife --charset=ascii --target=es2019 --legal-comments=none --global-name=GGText --outfile=../../git_graph/static/vendor/text_editor.js",
-    "test": "node --test test/*.test.js"
+    "test": "node --test --test-timeout=60000 test/*.test.js"
   },
   "dependencies": {
     "@codemirror/commands": "^6.8.0",
