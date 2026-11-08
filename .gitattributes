@@ -1,0 +1,2 @@
+# ビルド済みのバンドル (tools/merge_editor でビルド)。ミニファイした JS なので、空白の検査はしない
+git_graph/static/vendor/*.js whitespace=-trailing-space,-space-before-tab linguist-generated=true

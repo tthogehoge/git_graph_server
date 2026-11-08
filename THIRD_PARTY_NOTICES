@@ -41,13 +41,16 @@ Notes   : Bundled when distributing a PyInstaller-built executable.
           "Python" is a registered trademark of the Python Software Foundation.
 
 ---------------------------------------------------------------------------
-CodeMirror 6 (@codemirror/*, @lezer/*, style-mod, w3c-keyname, crelt)
+CodeMirror 6 (@codemirror/*, @lezer/*, style-mod, w3c-keyname, crelt,
+@marijn/find-cluster-break) and @replit/codemirror-vim
 ---------------------------------------------------------------------------
 License : MIT License
 Files   : licenses/codemirror.txt
-Notes   : Bundled into git_graph/static/vendor/merge_editor.js, which is
-          the editor of the merge editor screen. The bundle is built from
-          tools/merge_editor. Copyright (C) Marijn Haverbeke and others.
+Notes   : Bundled into git_graph/static/vendor/merge_editor.js (the merge
+          editor screen) and git_graph/static/vendor/text_editor.js (the
+          file edit screen: syntax highlighting and Vim mode). The bundles
+          are built from tools/merge_editor. Copyright (C) Marijn Haverbeke,
+          Replit and others.
 
 ---------------------------------------------------------------------------
 Graphviz

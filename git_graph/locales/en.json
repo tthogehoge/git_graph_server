@@ -863,5 +863,7 @@
   "editor_replace_all": "replace all",
   "editor_close": "close",
   "editor_goto_line": "Go to line",
-  "editor_go": "go"
+  "editor_go": "go",
+  "edit_vim": "Vim mode",
+  "edit_vim_tip": "Edit with Vim keys. :w saves, :q quits, :q! discards changes and quits"
 }

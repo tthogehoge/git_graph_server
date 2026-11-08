@@ -1,5 +1,6 @@
 """マージエディタ (/merge, /api/merge-sources) のテスト。一時リポジトリで本物の競合を作って確認する。"""
 import os
+import re
 import subprocess
 import tempfile
 import threading
@@ -246,14 +247,22 @@ class MergeEditorTests(unittest.TestCase):
 
 
 class EditorBundleTests(unittest.TestCase):
-    """CodeMirror のバンドルは、マージエディタのページに埋め込み、ファイルの編集画面には /static/vendor/ から読み込ませる。"""
+    """CodeMirror のバンドルは 2 つ。マージエディタのページには merge_editor.js を埋め込み、
+    ファイルの編集画面には text_editor.js (構文ハイライトと Vim モードで大きい) を、編集を始めるときに /static/vendor/ から読み込ませる。"""
 
     def test_files_page_edits_with_codemirror_loaded_on_demand(self):
         page = viewer.render_files_page()
-        self.assertIn("GGMerge.createTextEditor", page)
-        self.assertIn("/static/vendor/merge_editor.js", page)
+        self.assertIn("GGText.createTextEditor", page)
+        self.assertIn("/static/vendor/text_editor.js", page)
         self.assertNotIn("<textarea", page)  # 編集欄は CodeMirror
-        self.assertNotIn("createMergeEditor", page)  # バンドルそのものは埋め込まない (編集を始めるときに読み込む)
+        self.assertNotIn("createMergeEditor", page)
+        self.assertNotIn("createTextEditor(opts)", page)  # バンドルそのものは埋め込まない (編集を始めるときに読み込む)
+
+    def test_merge_page_does_not_carry_the_text_editor(self):
+        self.assertNotIn("createTextEditor", viewer.MERGE_EDITOR_JS)
+        self.assertIn("createMergeEditor", viewer.MERGE_EDITOR_JS)
+        self.assertIn("createTextEditor", viewer.TEXT_EDITOR_JS)
+        self.assertNotIn("createMergeEditor", viewer.TEXT_EDITOR_JS)
 
     def test_bundle_route_serves_the_javascript(self):
         previous = (state.OPTS, state.WRITABLE)
@@ -261,15 +270,32 @@ class EditorBundleTests(unittest.TestCase):
         server = app.QuietServer(("127.0.0.1", 0), app.Handler)
         threading.Thread(target=server.serve_forever, daemon=True).start()
         try:
-            with urlopen(f"http://127.0.0.1:{server.server_address[1]}/static/vendor/merge_editor.js") as response:
+            with urlopen(f"http://127.0.0.1:{server.server_address[1]}/static/vendor/text_editor.js") as response:
                 body = response.read().decode("utf-8")
                 self.assertIn("application/javascript", response.headers.get("Content-Type"))
         finally:
             server.shutdown()
             server.server_close()
             state.OPTS, state.WRITABLE = previous
+        self.assertIn("GGText", body)
         self.assertIn("createTextEditor", body)
-        self.assertIn("createMergeEditor", body)
+
+    def test_editor_languages_match_the_viewer(self):
+        """編集画面の構文ハイライトの対応表 (tools/merge_editor/src/languages.js) は、閲覧画面 (files.html の languageFor) と同じにそろえる。"""
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(root, "git_graph", "static", "files.html"), encoding="utf-8") as f:
+            viewer_src = f.read()
+        with open(os.path.join(root, "tools", "merge_editor", "src", "languages.js"), encoding="utf-8") as f:
+            editor_src = f.read()
+        pairs = lambda text: dict(re.findall(r'(\w+):\s*"(\w+)"', text))
+        fn = viewer_src[viewer_src.index("function languageFor(path)"):viewer_src.index("function token(cls, text)")]
+        viewer_exts = pairs(re.search(r"return \(\{(.*?)\}\)\[ext\]", fn, re.S).group(1))
+        viewer_names = {name: "shell" for name in re.search(r'if \(\[(.*?)\]\.includes\(name\)\)', fn).group(1).replace('"', "").split(", ")}
+        editor_exts = pairs(re.search(r"export const EXTENSIONS = \{(.*?)\};", editor_src, re.S).group(1))
+        editor_names = pairs(re.search(r"export const FILENAMES = \{(.*?)\};", editor_src, re.S).group(1))
+        self.assertGreater(len(viewer_exts), 20)
+        self.assertEqual(editor_exts, viewer_exts)
+        self.assertEqual(editor_names, viewer_names)
 
 
 def state_tmp_root():

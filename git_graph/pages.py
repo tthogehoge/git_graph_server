@@ -34,6 +34,7 @@ WIP_DIFF_REMOTE_JS = read_asset("wip_diff_remote.js")
 DIFF_DIALOG_JS = read_asset("diff_dialog.js")
 MERGE_JS = read_asset("merge.js")
 MERGE_EDITOR_JS = read_asset("vendor/merge_editor.js")  # CodeMirror 6 をまとめたもの (tools/merge_editor でビルド)
+TEXT_EDITOR_JS = read_asset("vendor/text_editor.js")  # ファイル編集のエディタ (CodeMirror 6 + 言語 + Vim)。こちらも tools/merge_editor でビルド
 # WIP の差分ページの push / pull / fetch ダイアログが使う文言
 REMOTE_TEXT_KEYS = (
     "cancel", "ok", "prune_label", "pull_mode", "pull_opt_ff", "pull_opt_merge", "pull_opt_rebase",
@@ -458,5 +459,5 @@ def render_merge_page(q):
 
 __all__ = [
     "WIP_DIR_COLLAPSE", "diff_lines_html", "diff_url", "dir_of", "localized_wip_title",
-    "MERGE_EDITOR_JS", "render_diff_page", "render_files_page", "render_merge_page", "wip_files",
+    "TEXT_EDITOR_JS", "render_diff_page", "render_files_page", "render_merge_page", "wip_files",
 ]

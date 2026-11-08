@@ -4,10 +4,11 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import {JSDOM} from "jsdom";
 
-const BUNDLE = new URL("../../../git_graph/static/vendor/merge_editor.js", import.meta.url);
+const MERGE_BUNDLE = new URL("../../../git_graph/static/vendor/merge_editor.js", import.meta.url);
+const TEXT_BUNDLE = new URL("../../../git_graph/static/vendor/text_editor.js", import.meta.url);
 const TEXT = "a\n<<<<<<< HEAD\nO\n||||||| base\nB\n=======\nT\n>>>>>>> feature\nz\n<<<<<<< HEAD\nO2\n=======\nT2\n>>>>>>> feature\n";
 
-function load() {
+function load(bundle = MERGE_BUNDLE) {
   const dom = new JSDOM("<!DOCTYPE html><div id='top'></div><div id='result'></div>", {runScripts: "outside-only", pretendToBeVisual: true});
   const w = dom.window;
   // jsdom に無い、レイアウトの API (CodeMirror が測定に使う) を空の値で補う
@@ -16,7 +17,7 @@ function load() {
   w.Range.prototype.getBoundingClientRect = () => rect;
   w.Element.prototype.getClientRects = () => [];
   w.document.elementFromPoint = () => null;
-  w.eval(fs.readFileSync(BUNDLE, "utf8"));
+  w.eval(fs.readFileSync(bundle, "utf8"));
   return w;
 }
 
@@ -64,10 +65,10 @@ test("the top MergeView shows both sides read-only", () => {
 });
 
 test("the plain text editor (file edit): text, change/save callbacks, Tab and search phrases", () => {
-  const w = load();
+  const w = load(TEXT_BUNDLE);
   let changes = 0, saves = 0;
-  const ed = w.GGMerge.createTextEditor({
-    parent: w.document.getElementById("result"), text: "a\r\nb\r\n", phrases: {Find: "検索"},
+  const ed = w.GGText.createTextEditor({
+    parent: w.document.getElementById("result"), text: "a\r\nb\r\n", path: "notes.txt", phrases: {Find: "検索"},
     onChange: () => { changes++; }, onSave: () => { saves++; },
   });
   assert.equal(ed.getText(), "a\nb\n");  // 改行は LF にそろう (保存時に元の改行コードへ戻すのは呼び出し側)
@@ -88,8 +89,59 @@ test("the plain text editor (file edit): text, change/save callbacks, Tab and se
   assert.equal(ed.getText(), "x\n");
   assert.equal(changes, 2);
   assert.equal(w.document.querySelectorAll(".cm-gutters").length, 1);
-  assert.equal(w.document.querySelector(".cm-conflict-bar"), null);  // マージエディタの部品は出ない
+  assert.equal(ed.language, "");                                       // .txt は言語なし
+  assert.equal(w.document.querySelectorAll(".cm-line span").length, 0);  // ハイライトの span は付かない
   assert.equal(ed.view.state.phrase("Find"), "検索");
+  assert.equal(w.document.querySelector(".cm-vim-panel"), null);       // Vim モードは既定ではオフ
   ed.destroy();
   assert.equal(w.document.querySelectorAll(".cm-editor").length, 0);
+});
+
+// 閲覧画面 (files.html の languageFor) が対応している言語の、拡張子や名前の例
+const SAMPLES = {
+  "a.py": ["python", "def f():\n    return 1  # c\n"], "a.js": ["javascript", "const a = 1; // c\n"], "a.jsx": ["javascript", "const a = <b/>;\n"],
+  "a.ts": ["typescript", "let a: number = 1;\n"], "a.tsx": ["typescript", "let a = <b/>;\n"], "A.java": ["java", "class A { int a; }\n"],
+  "a.c": ["c", "int main(void) { return 0; }\n"], "a.hpp": ["c", "class A {};\n"], "a.go": ["go", "package main\n"],
+  "a.rs": ["rust", "fn main() {}\n"], "a.rb": ["ruby", "def a\n  1\nend\n"], "a.sql": ["sql", "select 1 from t;\n"],
+  "a.sh": ["shell", "echo $A # c\n"], "Dockerfile": ["shell", "FROM x # c\n"], "Makefile": ["shell", "a: b\n\techo $@\n"],
+  "a.json": ["json", "{\"a\": [1, true]}\n"], "a.css": ["css", "a { color: red; }\n"], "a.html": ["html", "<p class=\"a\">x</p>\n"],
+  "a.xml": ["html", "<a b=\"c\"/>\n"], "a.md": ["markdown", "# t\n\n*a*\n"], "a.yaml": ["yaml", "a: [1, true]\n"],
+};
+test("syntax highlighting for every language the viewer supports", () => {
+  const w = load(TEXT_BUNDLE);
+  for (const [path, [lang, text]] of Object.entries(SAMPLES)) {
+    w.document.getElementById("result").replaceChildren();
+    const ed = w.GGText.createTextEditor({parent: w.document.getElementById("result"), text: text, path: path});
+    assert.equal(ed.language, lang, path);
+    assert.ok(w.document.querySelectorAll(".cm-line span").length > 0, path + ": highlighted");
+    ed.destroy();
+  }
+});
+
+test("Vim mode: off by default, can be switched on and off, :w / :q / :q! call back", () => {
+  const w = load(TEXT_BUNDLE);
+  const calls = [];
+  const ed = w.GGText.createTextEditor({
+    parent: w.document.getElementById("result"), text: "abc\ndef\n", vim: true,
+    onSave: () => calls.push("save"), onQuit: force => calls.push(force ? "quit!" : "quit"),
+  });
+  assert.ok(w.document.querySelector(".cm-vim-panel"), "status panel");
+  const cm = w.GGText.getCM(ed.view);
+  assert.ok(cm);
+  const run = command => w.GGText.Vim.handleEx(cm, command);
+  run("w"); run("wq"); run("x"); run("q"); run("q!");
+  assert.deepEqual(calls, ["save", "save", "save", "quit", "quit!"]);
+  const press = key => w.GGText.Vim.handleKey(cm, key, "user");
+  ed.view.dispatch({selection: {anchor: 0}});
+  press("x");                               // 標準モードの x は 1 文字削除
+  assert.equal(ed.getText(), "bc\ndef\n");
+  press("d"); press("d");                   // dd は行を削除
+  assert.equal(ed.getText(), "def\n");
+  press("u");                               // u でアンドゥ
+  assert.equal(ed.getText(), "bc\ndef\n");
+  ed.setVim(false);
+  assert.equal(w.document.querySelector(".cm-vim-panel"), null);
+  ed.setVim(true);
+  assert.ok(w.document.querySelector(".cm-vim-panel"));
+  ed.destroy();
 });

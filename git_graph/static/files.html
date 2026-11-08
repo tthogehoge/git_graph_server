@@ -83,6 +83,7 @@ __FAVICON__
   .edit-info.warn { color: #b35900; }
   #editor { height: calc(100vh - 190px); min-height: 200px; box-sizing: border-box; border: 1px solid #bbb; }
   .edit-bar { display: flex; gap: 6px; margin: 6px 0; }
+  .edit-bar label.edit-vim { align-self: center; margin-left: 8px; color: #444; cursor: pointer; }
   .edit-bar button { background: #e8eefc; border: 1px solid #b8c7ee; padding: 4px 10px; border-radius: 3px; cursor: pointer; }
   .edit-bar button.primary { background: #1a7f37; border-color: #1a7f37; color: #fff; }
   .edit-bar button:disabled { opacity: .5; cursor: default; }
@@ -516,6 +517,9 @@ function backToContent(after) {  // ファイル内容の表示に戻る。前�
 // ---- 編集 (作業ツリーのみ) ----
 // 編集欄では改行が LF になるので、保存時にサーバー側で元の改行コード・文字コード・BOM に戻す
 let fileData = null, editing = false, editDirty = false, textEditor = null;
+const VIM_KEY = "gitGraphEditorVim";
+let vimOn = false;  // Vim モードにするか。保存先 (localStorage) が使えない pywebview などでも切り替わるよう、メモリ上の値を正とする
+try { vimOn = localStorage.getItem(VIM_KEY) === "1"; } catch (e) { vimOn = false; }
 const EOL_LABEL = {crlf: "CRLF", lf: "LF", cr: "CR"};
 function closeEditor() {
   if (textEditor) { textEditor.destroy(); textEditor = null; }
@@ -526,11 +530,11 @@ function leaveEdit() {  // 編集中なら、変更を捨ててよいか確認�
   closeEditor();
   return true;
 }
-function loadEditorScript() {  // CodeMirror 6 は、編集を始めるときに初めて読み込む (見るだけなら読み込まない)
-  if (window.GGMerge) return Promise.resolve();
+function loadEditorScript() {  // エディタ (CodeMirror 6 + 言語 + Vim。1MB ほど) は、編集を始めるときに初めて読み込む (見るだけなら読み込まない)
+  if (window.GGText) return Promise.resolve();
   return new Promise((resolve, reject) => {
     const script = document.createElement("script");
-    script.src = "/static/vendor/merge_editor.js";
+    script.src = "/static/vendor/text_editor.js";
     script.onload = resolve;
     script.onerror = () => reject(new Error(t("editor_load_failed")));
     document.head.appendChild(script);
@@ -554,18 +558,27 @@ function startEdit() {
   content.innerHTML = '<div class="edit-info">' + esc(t("edit_format", {encoding: fileData.encoding, eol: eol})) + '</div>' +
     (fileData.eol_mixed ? '<div class="edit-info warn">' + esc(t("edit_eol_mixed", {eol: eol})) + '</div>' : "") +
     '<div class="edit-bar"><button class="primary" id="editSave">' + esc(t("edit_save")) + '</button><button id="editCancel">' +
-    esc(t("edit_cancel")) + '</button></div><div id="editor"></div>';
+    esc(t("edit_cancel")) + '</button><label class="edit-vim" title="' + esc(t("edit_vim_tip")) + '"><input type="checkbox" id="editVim"' + (vimOn ? " checked" : "") +
+    '> ' + esc(t("edit_vim")) + '</label></div><div id="editor"></div>';
   const loaded = fileData;
   loadEditorScript().then(() => {
     const host = document.getElementById("editor");
     if (!editing || fileData !== loaded || !host) return;  // 読み込んでいる間に、別の表示に移った
-    textEditor = GGMerge.createTextEditor({parent: host, text: loaded.content, phrases: editorPhrases(),
-                                           onChange: () => { editDirty = true; }, onSave: saveEdit});
+    textEditor = GGText.createTextEditor({
+      parent: host, text: loaded.content, path: currentFile, vim: vimOn, phrases: editorPhrases(),
+      onChange: () => { editDirty = true; }, onSave: saveEdit,
+      onQuit: force => { if (force) editDirty = false; if (leaveEdit()) backToContent(); },  // Vim の :q / :q!
+    });
     textEditor.focus();
   }).catch(e => {
     if (!leaveEdit()) return;
     backToContent(() => setFileMsg(e.message, false));
   });
+  document.getElementById("editVim").onchange = ev => {
+    vimOn = ev.target.checked;
+    try { localStorage.setItem(VIM_KEY, vimOn ? "1" : "0"); } catch (e) { /* 保存できなくても切り替わる (次回は引き継がれない) */ }
+    if (textEditor) { textEditor.setVim(vimOn); textEditor.focus(); }
+  };
   document.getElementById("editSave").onclick = saveEdit;
   document.getElementById("editCancel").onclick = () => { if (leaveEdit()) backToContent(); };
 }

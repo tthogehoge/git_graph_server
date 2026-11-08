@@ -863,5 +863,7 @@
   "editor_replace_all": "すべて置換",
   "editor_close": "閉じる",
   "editor_goto_line": "行へ移動",
-  "editor_go": "移動"
+  "editor_go": "移動",
+  "edit_vim": "Vim モード",
+  "edit_vim_tip": "Vim のキー操作で編集します。:w で保存、:q でやめる、:q! で変更を捨ててやめます"
 }

@@ -1,15 +1,13 @@
-// CodeMirror 6 を使うエディタ 2 つ。ブラウザーでは window.GGMerge として使う (esbuild で 1 つの JS にまとめる)。
-//   createMergeEditor: マージエディタ
-//     上段: ours | theirs を並べた読み取り専用の MergeView (違いを強調)
-//     下段: 結果の編集ペイン。競合マーカーの範囲を色分けし、各競合の上に採用ボタンを出す。
-//   createTextEditor: ファイル編集 (/files の編集画面) 用の、ふつうのテキストエディタ
+// マージエディタの CodeMirror 6 部分。ブラウザーでは window.GGMerge として使う (esbuild で 1 つの JS にまとめる)。
+//   上段: ours | theirs を並べた読み取り専用の MergeView (違いを強調)
+//   下段: 結果の編集ペイン。競合マーカーの範囲を色分けし、各競合の上に採用ボタンを出す。
+// ファイル編集のエディタ (構文ハイライトと Vim モードで大きくなる) は別のバンドル (text_entry.js) にしてある。
 import {EditorState, StateField} from "@codemirror/state";
 import {Decoration, drawSelection, EditorView, highlightActiveLine, keymap, lineNumbers, WidgetType} from "@codemirror/view";
-import {defaultKeymap, history, historyKeymap, indentLess, insertTab} from "@codemirror/commands";
-import {indentUnit} from "@codemirror/language";
-import {highlightSelectionMatches, search, searchKeymap} from "@codemirror/search";
+import {defaultKeymap, history, historyKeymap} from "@codemirror/commands";
 import {MergeView} from "@codemirror/merge";
 import {CHOICES, findConflicts, resolution, resolveAll} from "./conflicts.js";
+import {THEME, VIEW_SIZE} from "./theme.js";
 
 class ConflictBar extends WidgetType {
   constructor(block, labels, pick) {
@@ -74,28 +72,6 @@ function buildDecorations(state, labels, pick) {
   return {blocks: blocks, decorations: Decoration.set(ranges, true)};
 }
 
-const THEME = EditorView.theme({
-  "&": {fontSize: "12px", backgroundColor: "#fff"},
-  ".cm-content, .cm-gutters": {fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"},
-  ".cm-gutters": {backgroundColor: "#f6f8fa", color: "#8c959f", borderRight: "1px solid #e3e3e3"},
-  ".cm-activeLine": {backgroundColor: "rgba(120, 140, 200, 0.10)"},
-  ".cm-conf-ours": {backgroundColor: "#e3f4e6"},
-  ".cm-conf-base": {backgroundColor: "#eeeeee"},
-  ".cm-conf-theirs": {backgroundColor: "#e0eafb"},
-  ".cm-conf-marker": {backgroundColor: "#fff1c2", color: "#8a6d00"},
-  ".cm-conflict-bar": {display: "flex", flexWrap: "wrap", alignItems: "center", gap: "6px", padding: "3px 6px", backgroundColor: "#fff8dc",
-                       borderTop: "1px solid #e6d58a", fontFamily: "system-ui, sans-serif"},
-  ".cm-conflict-names": {color: "#6b5a00", marginRight: "4px"},
-  ".cm-conflict-bar button": {background: "#e8eefc", border: "1px solid #b8c7ee", borderRadius: "3px", padding: "1px 8px",
-                               cursor: "pointer", font: "inherit"},
-  ".cm-conflict-bar button:hover": {background: "#d6e2fb"},
-}, {dark: false});
-
-const VIEW_SIZE = EditorView.theme({
-  "&": {height: "100%"},
-  ".cm-scroller": {overflow: "auto"},
-});
-
 // opts: {top, result, ours, theirs, text, labels, onChange}
 //   top / result: 親の要素。labels: {ours, theirs, both, both_rev, base} (ボタンの文言)。
 //   onChange(conflictCount): 結果の内容が変わるたび (最初の 1 回を含む) に呼ぶ。
@@ -153,38 +129,6 @@ export function createMergeEditor(opts) {
     },
     focus: () => view.focus(),
     destroy: () => { view.destroy(); topView.destroy(); },
-  };
-}
-
-// opts: {parent, text, phrases, onChange, onSave}
-//   phrases: 検索パネルなどの文言の翻訳 ({"Find": "検索", ...})。onChange(): 内容が変わるたびに呼ぶ。onSave(): Ctrl+S / Cmd+S で呼ぶ。
-// 改行は LF として扱う (保存するときに、元の改行コードに戻すのは呼び出し側)。折り返しはしない。
-export function createTextEditor(opts) {
-  const view = new EditorView({
-    parent: opts.parent,
-    state: EditorState.create({
-      doc: opts.text,
-      extensions: [
-        lineNumbers(), history(), drawSelection(), highlightActiveLine(), highlightSelectionMatches(), search({top: true}),
-        indentUnit.of("\t"), EditorState.tabSize.of(4),  // Tab はタブ文字を入れる (選択が複数行ならインデント)
-        EditorState.phrases.of(opts.phrases || {}),
-        keymap.of([
-          {key: "Mod-s", preventDefault: true, run: () => { if (opts.onSave) opts.onSave(); return true; }},
-          {key: "Tab", run: insertTab, shift: indentLess},
-          ...searchKeymap, ...defaultKeymap, ...historyKeymap,
-        ]),
-        THEME, VIEW_SIZE,
-        EditorView.contentAttributes.of({spellcheck: "false", autocorrect: "off", autocapitalize: "off"}),
-        EditorView.updateListener.of(update => { if (update.docChanged && opts.onChange) opts.onChange(); }),
-      ],
-    }),
-  });
-  return {
-    view: view,
-    getText: () => view.state.doc.toString(),
-    setText: text => view.dispatch({changes: {from: 0, to: view.state.doc.length, insert: text}}),
-    focus: () => view.focus(),
-    destroy: () => view.destroy(),
   };
 }
 
