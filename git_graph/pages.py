@@ -27,6 +27,7 @@ def wip_file_exists(path):
 COPY_JS = read_asset("copy.js")
 DIFF_CSS = read_asset("diff.css")
 DIFF_FOLD_JS = read_asset("diff_fold.js")
+DIFF_KEYBOARD_JS = read_asset("diff_keyboard.js")
 DIFF_RELOAD_JS = read_asset("diff_reload.js")
 PANE_RESIZE_JS = read_asset("pane_resize.js")
 WIP_DIFF_COMMIT_JS = read_asset("wip_diff_commit.js")
@@ -430,6 +431,7 @@ def render_diff_page(q):
 <script>{EXT_DIFF_JS if ext_diff else ""}</script>
 <script>{DIFF_PATCH_JS if patch_btn or patch_bar else ""}</script>
 <script>{DIFF_RELOAD_JS if wip else ""}</script>
+<script>{DIFF_KEYBOARD_JS}</script>
 </body></html>
 """
 

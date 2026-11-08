@@ -7,6 +7,8 @@
   #side a > span:first-child { flex: 1; min-width: 0; }
   #side a:hover { background: #eef; }
   #side a.cur { background: #ffe9a0; color: #222; font-weight: bold; }
+  #side a.selected, #side .drow.selected { background: #d0e3ff; outline: 1px solid #8ab4f8; }
+  #side a.cur.selected { background: #c8daf8; }
   #side .n { white-space: nowrap; }
   #side .n .plus, #side .n .minus { display: none; }
   #side .grp { margin: 10px 0 2px; font-weight: bold; }
