@@ -90,7 +90,7 @@ __FAVICON__
 <div id="sideSplitter" role="separator" aria-orientation="vertical" aria-label="{{resize_side}}" tabindex="0"></div>
 <main id="main"><h2 id="title">{{select_file}}</h2>
 <div id="dirActions" class="file-actions" hidden><button id="dirLogBtn">{{dir_log}}</button><button id="dirListBtn" hidden>{{dir_list}}</button><button id="dirGraphLogBtn" hidden>{{file_log_graph}}</button></div>
-<div id="fileActions" class="file-actions" hidden><button id="fileLogBtn">{{file_log}}</button><button id="fileBlameBtn">{{file_blame}}</button><button id="fileDiffBtn" hidden>{{file_diff}}</button><button id="fileEditBtn" hidden>{{file_edit}}</button><button id="fileContentBtn" hidden>{{file_content}}</button><button id="fileGraphLogBtn" hidden>{{file_log_graph}}</button><button id="fileCopyBtn" hidden>{{copy_to_work}}</button><button id="fileDownloadBtn" hidden>{{file_download}}</button><button id="fileExtEditBtn" hidden title="{{tip_open_editor}}">{{open_editor}}</button><button id="fileRmBtn" hidden title="{{tip_rm_file}}">{{rm_button}}</button><button id="fileRmCachedBtn" hidden title="{{tip_rm_cached_file}}">{{rm_cached_button}}</button><span id="fileMsg" class="msg"></span></div>
+<div id="fileActions" class="file-actions" hidden><button id="fileLogBtn">{{file_log}}</button><button id="fileBlameBtn">{{file_blame}}</button><button id="fileDiffBtn">{{file_diff}}</button><button id="fileEditBtn">{{file_edit}}</button><button id="fileContentBtn" hidden>{{file_content}}</button><button id="fileGraphLogBtn" hidden>{{file_log_graph}}</button><button id="fileCopyBtn">{{copy_to_work}}</button><button id="fileDownloadBtn">{{file_download}}</button><button id="fileExtEditBtn" title="{{tip_open_editor}}">{{open_editor}}</button><button id="fileRmBtn" title="{{tip_rm_file}}">{{rm_button}}</button><button id="fileRmCachedBtn" title="{{tip_rm_cached_file}}">{{rm_cached_button}}</button><span id="fileMsg" class="msg"></span></div>
 <div id="content" class="hint">{{select_file_hint}}</div></main>
 <script>/*__PANE_RESIZE__*/</script>
 <script>
@@ -127,7 +127,7 @@ const isWip = hash === "WIP";  // 作業ツリーのファイルを表示する
   const g = document.getElementById("navGraphBtn");
   if (g && hash && !isWip) g.href = "/?select_hash=" + encodeURIComponent(hash);
 })();
-fileCopyBtn.hidden = !CAN_COPY || isWip;
+fileCopyBtn.disabled = !CAN_COPY || isWip;
 let current = "", currentFile = "", wipHead = null;
 let dirEntries = null, dirLogSeq = 0;  // dirEntries: 表示中のディレクトリの項目 (読み込み前は null), dirLogSeq: 古い応答を捨てるための通し番号
 let dirLogOn = false;  // ディレクトリの本文に、項目の一覧ではなく「このディレクトリのログ」を出しているか
@@ -148,11 +148,11 @@ function diffParams(path) {  // このファイルの差分ページの引数。
 }
 function updateRmBtns() {  // git rm できるのは、作業ツリー表示の追跡中のファイルだけ (書き込みが有効なとき)
   const tracked = !!currentFile && (entryInfo[currentFile] || {}).xy !== "??";
-  fileRmBtn.hidden = fileRmCachedBtn.hidden = !(CAN_EDIT && tracked);
+  fileRmBtn.disabled = fileRmCachedBtn.disabled = !(CAN_EDIT && tracked);
 }
 function updateDiffBtn() {
   const p = currentFile && diffParams(currentFile);
-  fileDiffBtn.hidden = !p;
+  fileDiffBtn.disabled = !p;
   if (p) {
     navDiffBtn.disabled = false;
     navDiffBtn.onclick = () => { location.href = "/diff?" + new URLSearchParams(p); };
@@ -264,7 +264,7 @@ function selectEntry(el) {
 }
 function focusFileActionButton() {
   // ファイルを開いたあと、右ペインの操作ボタンにフォーカスを移す
-  const btn = fileActions.querySelector("button:not([hidden])");
+  const btn = fileActions.querySelector("button:not([hidden]):not([disabled])");
   if (btn) btn.focus();
 }
 function parentDir(path) {
@@ -620,23 +620,31 @@ function loadFile(path, push) {
   setFileMsg("", true);
   fileActions.hidden = false;
   fileLogBtn.hidden = !logHash();
-  fileBlameBtn.hidden = isWip && !wipHead;
+  fileLogBtn.disabled = !logHash();
+  fileBlameBtn.hidden = false;
+  fileBlameBtn.disabled = isWip && !wipHead;
   fileContentBtn.hidden = true;
   fileGraphLogBtn.hidden = true;
   fileDownloadBtn.hidden = false;
-  fileExtEditBtn.hidden = !(DESKTOP && isWip);  // pywebview などでは、作業ツリーのファイルを外部エディタで開ける
+  fileDownloadBtn.disabled = false;
+  fileExtEditBtn.hidden = false;
+  fileExtEditBtn.disabled = !(DESKTOP && isWip);  // pywebview などでは、作業ツリーのファイルを外部エディタで開ける
+  fileCopyBtn.disabled = !CAN_COPY || isWip;
   updateDiffBtn();
-  fileEditBtn.hidden = true; fileData = null;
+  fileEditBtn.hidden = false;
+  fileEditBtn.disabled = true;  // 内容取得後に更新
+  fileData = null;
   return api("/api/file", {hash: hash, path: path}).then(r => {
     if (path !== currentFile) return;
     fileData = r;
-    fileEditBtn.hidden = !CAN_EDIT || r.binary;
-    fileEditBtn.disabled = !r.editable;
-    fileEditBtn.title = r.editable ? "" : t(r.edit_reason || "edit_bad_encoding");
+    fileEditBtn.hidden = false;
+    fileEditBtn.disabled = !CAN_EDIT || r.binary || !r.editable;
+    fileEditBtn.title = (!CAN_EDIT || r.binary) ? "" : (r.editable ? "" : t(r.edit_reason || "edit_bad_encoding"));
     title.textContent = fileTitle(r, "");
     if (r.binary) { content.className = "binary"; content.textContent = t("binary_file"); }
     else showCode(r);
-    fileBlameBtn.hidden = r.binary || (isWip && !wipHead);
+    fileBlameBtn.hidden = false;
+    fileBlameBtn.disabled = r.binary || (isWip && !wipHead);
   }).catch(e => { title.textContent = path; content.className = "hint"; content.textContent = t("error") + e.message; });
 }
 // ---- ファイルごとの表示 (内容 / 編集 / blame / ログ) ----
