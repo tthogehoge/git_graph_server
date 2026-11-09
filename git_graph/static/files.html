@@ -40,6 +40,7 @@ __FAVICON__
   table.file-log td { border-bottom: 1px solid #e3e3e3; padding: 5px 6px; vertical-align: top; }
   table.file-log td.hash { width: 1%; font-family: monospace; white-space: nowrap; }
   table.file-log td.date { width: 1%; color: #777; white-space: nowrap; }
+  table.file-log td.author { width: 1%; color: #555; white-space: nowrap; }
   table.file-log a { color: inherit; text-decoration: none; }
   table.file-log a.commit-graph:hover { text-decoration: underline; }
   table.file-log tr:hover td { background: #eef; }
@@ -552,7 +553,7 @@ function showDirLog() {  // ファイルを開いていないとき、このデ�
   api("/api/log", {rev: rev, path: path}).then(r => {
     if (seq !== dirLogSeq || currentFile || !dirLogOn) return;  // 別のディレクトリ / ファイルに移った
     const rows = r.commits.map(c => '<tr class="file-log-row" data-hash="' + esc(c[0]) + '"><td class="hash"><a class="commit-graph" href="/?commit_hash=' + encodeURIComponent(c[0]) + '">' + esc(c[1]) + '</a>' +
-      '</td><td class="date">' + esc(c[3]) + '</td><td>' + esc(c[4]) + '</td></tr>').join("");
+      '</td><td class="date">' + esc(c[3]) + '</td><td class="author">' + esc(c[2]) + '</td><td>' + esc(c[4]) + '</td></tr>').join("");
     content.className = "";
     content.innerHTML = '<div class="meta">' + esc(t("n_commits", {n: r.total})) + '</div>' +
       (rows ? '<table class="file-log"><tbody>' + rows + '</tbody></table>' : '<p class="hint">' + esc(t("no_history")) + '</p>') +
@@ -826,7 +827,7 @@ function loadFileLog(path) {
   content.textContent = t("loading");
   api("/api/log", {rev: hash, path: path}).then(r => {
     const rows = r.commits.map(c => '<tr class="file-log-row" data-hash="' + esc(c[0]) + '"><td class="hash"><a class="commit-graph" href="/?commit_hash=' + encodeURIComponent(c[0]) + '">' + esc(c[1]) + '</a>' +
-      '</td><td class="date">' + esc(c[3]) + '</td><td>' + esc(c[4]) + '</td></tr>').join("");
+      '</td><td class="date">' + esc(c[3]) + '</td><td class="author">' + esc(c[2]) + '</td><td>' + esc(c[4]) + '</td></tr>').join("");
     content.className = "";
     content.innerHTML = '<div class="meta">' + esc(t("n_commits", {n: r.total})) + '</div>' +
       (rows ? '<table class="file-log"><tbody>' + rows + '</tbody></table>' : '<p class="hint">' + t("no_history") + '</p>');
