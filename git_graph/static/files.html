@@ -86,6 +86,7 @@ __FAVICON__
 <body><aside id="tree"><div class="navbar"><a class="iconbtn" id="navGraphBtn" href="/" title="{{nav_graph}}" aria-label="{{nav_graph}}"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M2 8 8 2.5 14 8M3.8 7v6.5h3V10h2.4v3.5h3V7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></a><span class="iconbtn current" title="{{nav_files}}" aria-label="{{nav_files}}" aria-current="page"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M4 2.5h5.5L12 5v8.5H4zM9.5 2.5V5H12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span><button type="button" class="iconbtn" id="navDiffBtn" disabled title="{{nav_diff}}" aria-label="{{nav_diff}}"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M2.5 3h4v10h-4zM9.5 3h4v10h-4zM7.2 5.5v5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button><button type="button" class="iconbtn" onclick="history.back()" title="{{back_prev}}" aria-label="{{back_prev}}"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M13 8H3M7.5 3.5 3 8l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button><button type="button" class="iconbtn" id="reloadBtn" hidden title="{{reload_page}}" aria-label="{{reload_page}}"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M13.5 8a5.5 5.5 0 1 1-1.7-4M13 2.5v3.2h-3.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div><h1>{{file_view}}</h1><div class="meta" id="commit"></div><div id="smMsg" class="sm-msg"></div><div class="file-actions patch-bar"><button id="patchCreateBtn">{{patch_create}}</button><button id="patchApplyBtn" hidden title="{{tip_patch_apply}}">{{patch_apply}}</button><button id="patchAmBtn" hidden title="{{tip_patch_am}}">{{patch_am}}</button><input type="file" id="patchFile" hidden><span id="patchMsg" class="msg"></span></div><div class="file-actions patch-bar sel-bar" id="selBar" hidden><label class="selall"><input type="checkbox" id="selAll"> {{sel_all}}</label><span id="selCount" class="cnt"></span><button id="selAddBtn" disabled title="{{tip_add_selected}}">{{add_button}}</button><button id="selRmBtn" disabled title="{{tip_rm_selected}}">{{rm_button}}</button><button id="selRmCachedBtn" disabled title="{{tip_rm_cached_selected}}">{{rm_cached_button}}</button><span id="selMsg" class="msg"></span></div><div id="list"></div></aside>
 <div id="sideSplitter" role="separator" aria-orientation="vertical" aria-label="{{resize_side}}" tabindex="0"></div>
 <main id="main"><h2 id="title">{{select_file}}</h2>
+<div id="dirActions" class="file-actions" hidden><button id="dirLogBtn">{{dir_log}}</button><button id="dirListBtn" hidden>{{dir_list}}</button><button id="dirGraphLogBtn" hidden>{{file_log_graph}}</button></div>
 <div id="fileActions" class="file-actions" hidden><button id="fileLogBtn">{{file_log}}</button><button id="fileBlameBtn">{{file_blame}}</button><button id="fileDiffBtn" hidden>{{file_diff}}</button><button id="fileEditBtn" hidden>{{file_edit}}</button><button id="fileContentBtn" hidden>{{file_content}}</button><button id="fileGraphLogBtn" hidden>{{file_log_graph}}</button><button id="fileCopyBtn" hidden>{{copy_to_work}}</button><button id="fileDownloadBtn" hidden>{{file_download}}</button><button id="fileExtEditBtn" hidden title="{{tip_open_editor}}">{{open_editor}}</button><button id="fileRmBtn" hidden title="{{tip_rm_file}}">{{rm_button}}</button><button id="fileRmCachedBtn" hidden title="{{tip_rm_cached_file}}">{{rm_cached_button}}</button><span id="fileMsg" class="msg"></span></div>
 <div id="content" class="hint">{{select_file_hint}}</div></main>
 <script>/*__PANE_RESIZE__*/</script>
@@ -106,6 +107,8 @@ const qs = new URLSearchParams(location.search), hash = qs.get("hash"), fileView
 const list = document.getElementById("list"), content = document.getElementById("content"), title = document.getElementById("title");
 const fileActions = document.getElementById("fileActions"), fileLogBtn = document.getElementById("fileLogBtn"), fileBlameBtn = document.getElementById("fileBlameBtn"), fileContentBtn = document.getElementById("fileContentBtn");
 const fileGraphLogBtn = document.getElementById("fileGraphLogBtn");
+const dirActions = document.getElementById("dirActions"), dirLogBtn = document.getElementById("dirLogBtn");
+const dirListBtn = document.getElementById("dirListBtn"), dirGraphLogBtn = document.getElementById("dirGraphLogBtn");
 const fileDownloadBtn = document.getElementById("fileDownloadBtn"), fileExtEditBtn = document.getElementById("fileExtEditBtn");
 const fileRmBtn = document.getElementById("fileRmBtn"), fileRmCachedBtn = document.getElementById("fileRmCachedBtn");
 const fileCopyBtn = document.getElementById("fileCopyBtn"), fileMsg = document.getElementById("fileMsg");
@@ -124,6 +127,7 @@ const isWip = hash === "WIP";  // 作業ツリーのファイルを表示する
 fileCopyBtn.hidden = !CAN_COPY || isWip;
 let current = "", currentFile = "", wipHead = null;
 let dirEntries = null, dirLogSeq = 0;  // dirEntries: 表示中のディレクトリの項目 (読み込み前は null), dirLogSeq: 古い応答を捨てるための通し番号
+let dirLogOn = false;  // ディレクトリの本文に、項目の一覧ではなく「このディレクトリのログ」を出しているか
 let entryInfo = {}, commitChanges = null;  // entryInfo: パス → 一覧の項目 (WIP の変更の種類 xy), commitChanges: パス → コミットでの変更
 function diffParams(path) {  // このファイルの差分ページの引数。変更がなければ null
   if (isWip) {
@@ -171,11 +175,12 @@ function logHash() { return isWip ? wipHead : hash; }  // ファイルのログ�
 function esc(s) { return String(s).replace(/[&<>\"]/g, c => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", "\"":"&quot;"}[c])); }
 function api(path, params) { return fetch(path + "?" + new URLSearchParams(params)).then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); })); }
 function showError(e) { list.innerHTML = '<p class="hint">' + t("error") + esc(e.message) + '</p>'; }
-function pageUrl(path, file, view) {  // 表示中のディレクトリ・ファイル・表示 (edit / blame / log) を URL に残す (戻る/進む・再読み込みで復元する)
+function pageUrl(path, file, view, dirlog) {  // 表示中のディレクトリ・ファイル・表示 (edit / blame / log) を URL に残す (戻る/進む・再読み込みで復元する)。dirlog: ファイルを開かずに、ディレクトリのログを出している
   const p = new URLSearchParams({hash: hash});
   if (path) p.set("path", path);
   if (file) p.set("file", file);
   if (file && view) p.set("view", view);
+  else if (!file && dirlog) p.set("view", "log");
   if (fileViewTab) p.set("file_view", "1");
   return "?" + p;
 }
@@ -500,9 +505,18 @@ function dirLogCells(c) {  // 最終コミットのセル (ハッシュ・件名
 function dirNameCell(e) {
   return '<td class="dir-name"' + entryTip(e) + '>' + entryIcon(e) + ' ' + statusBadge(e) + esc(e.name) + submoduleBadge(e) + '</td>';
 }
+function setDirActions() {  // ディレクトリを表示しているときの操作ボタン (項目の一覧 ↔ このディレクトリのログ)
+  dirActions.hidden = !!currentFile;
+  const canLog = !!logHash();
+  dirLogBtn.hidden = dirLogOn || !canLog;
+  dirListBtn.hidden = !dirLogOn;
+  dirGraphLogBtn.hidden = !dirLogOn || !canLog || !current;  // ルートは、グラフ画面のファイルログの対象にならない
+}
 function showDir() {  // ファイルを開いていないとき、ディレクトリ内の一覧を各項目の最終コミットつきで本文に出す
   closeEditor();
   if (dirEntries === null || currentFile) return;
+  dirLogOn = false;
+  setDirActions();
   const seq = ++dirLogSeq, path = current, entries = dirEntries;
   setDocumentTitle(path || t("root"));
   title.textContent = "📁 " + (path || t("root"));
@@ -523,6 +537,44 @@ function showDir() {  // ファイルを開いていないとき、ディレク�
     if (!r.complete) document.getElementById("dirLogNote").innerHTML = '<p class="hint">' + esc(t("dir_log_incomplete")) + '</p>';
   }).catch(e => { if (seq === dirLogSeq && !currentFile) { content.className = "hint"; content.textContent = t("error") + e.message; } });
 }
+function showDirLog() {  // ファイルを開いていないとき、このディレクトリの git log を本文に出す
+  closeEditor();
+  const rev = logHash();
+  if (currentFile || !rev) { showDir(); return; }  // 作業ツリーに HEAD が無いときは、ログが無い
+  const seq = ++dirLogSeq, path = current, label = path || t("root");
+  dirLogOn = true;
+  setDirActions();
+  setDocumentTitle(t("file_history_title", {path: label}));
+  title.textContent = "📁 " + t("file_history_title", {path: label});
+  content.className = "hint";
+  content.textContent = t("loading");
+  document.getElementById("main").scrollTop = 0;
+  api("/api/log", {rev: rev, path: path}).then(r => {
+    if (seq !== dirLogSeq || currentFile || !dirLogOn) return;  // 別のディレクトリ / ファイルに移った
+    const rows = r.commits.map(c => '<tr class="file-log-row" data-hash="' + esc(c[0]) + '"><td class="hash"><a class="commit-graph" href="/?commit_hash=' + encodeURIComponent(c[0]) + '">' + esc(c[1]) + '</a>' +
+      '</td><td class="date">' + esc(c[3]) + '</td><td>' + esc(c[4]) + '</td></tr>').join("");
+    content.className = "";
+    content.innerHTML = '<div class="meta">' + esc(t("n_commits", {n: r.total})) + '</div>' +
+      (rows ? '<table class="file-log"><tbody>' + rows + '</tbody></table>' : '<p class="hint">' + esc(t("no_history")) + '</p>') +
+      (r.has_more ? '<p class="hint">' + esc(t("dir_log_more", {n: r.commits.length})) + '</p>' : "");
+  }).catch(e => { if (seq === dirLogSeq && !currentFile && dirLogOn) { content.className = "hint"; content.textContent = t("error") + e.message; } });
+}
+function openDirLog() {  // 「このディレクトリのログ」: 履歴に積んで出す (ブラウザーの戻るで一覧に戻れる)
+  if (currentFile || dirLogOn || !logHash()) return;
+  history.pushState({path: current, dirlog: true, viaPush: true}, "", pageUrl(current, "", "", true));
+  showDirLog();
+}
+function backToDirList() {  // ディレクトリの一覧に戻る。前の履歴が同じディレクトリのログ表示なら、そこへ戻る
+  if (history.state && history.state.viaPush && history.state.dirlog) { history.back(); return; }
+  history.replaceState({path: current}, "", pageUrl(current, ""));
+  showDir();
+}
+dirLogBtn.onclick = openDirLog;
+dirListBtn.onclick = backToDirList;
+dirGraphLogBtn.onclick = () => {
+  const rev = logHash();
+  if (rev && current) location.href = "/?file_log_hash=" + encodeURIComponent(rev) + "&file_log_path=" + encodeURIComponent(current);
+};
 function openDir(path) {  // ディレクトリを選ぶ: 開いているファイルは閉じて、ディレクトリの一覧を本文に出す
   if (!leaveEdit()) return;
   if (currentFile) clearFile();
@@ -532,6 +584,7 @@ function loadFile(path, push) {
   if (!leaveEdit()) return;
   if (push && (path !== currentFile || currentView)) history.pushState({path: current, file: path}, "", pageUrl(current, path));
   currentFile = path; currentView = "";
+  dirLogOn = false; dirActions.hidden = true;
   setDocumentTitle(path);
   setFileMsg("", true);
   fileActions.hidden = false;
@@ -743,7 +796,15 @@ content.addEventListener("click", ev => {
     return;
   }
   const row = ev.target.closest("tr.file-log-row, .blame-line");
-  if (!row || !row.dataset.hash || !currentFile) return;
+  if (!row || !row.dataset.hash) return;
+  if (!currentFile) {  // ディレクトリのログの項目: そのコミットでのディレクトリを開く
+    if (!dirLogOn) return;
+    const dirParams = new URLSearchParams({hash: row.dataset.hash});
+    if (current) dirParams.set("path", current);
+    if (fileViewTab) dirParams.set("file_view", "1");
+    location.href = "/files?" + dirParams;
+    return;
+  }
   const params = new URLSearchParams({hash: row.dataset.hash, file: currentFile});
   const slash = currentFile.lastIndexOf("/");
   const dir = slash < 0 ? "" : currentFile.slice(0, slash);
@@ -792,7 +853,11 @@ function restoreFromUrl(first) {  // URL の path / file / view の状態を画�
   const tree = first || dir !== current ? loadTree(dir, false) : Promise.resolve();
   // WIP ではツリーの読み込みで HEAD が分かってから開く (ログ / blame ボタンの表示に使う)
   return tree.then(() => {
-    if (!file) { if (currentFile) clearFile(); showDir(); return; }
+    if (!file) {
+      if (currentFile) clearFile();
+      if (p.get("view") === "log") showDirLog(); else showDir();  // ファイルを開かない view=log は、ディレクトリのログ
+      return;
+    }
     const reload = first || file !== currentFile || !view || currentView === "edit" || !fileData;
     return (reload ? loadFile(file, false) : Promise.resolve()).then(() => { if (view) renderView(view); });
   }).then(() => { const f = afterRestore; afterRestore = null; if (f) f(); });
