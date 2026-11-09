@@ -64,6 +64,8 @@ __FAVICON__
   .blame-hash a:hover, a.blame-hash:hover { text-decoration: underline; }
   .blame-author { width: 1%; color: #666; max-width: 20em; overflow: hidden; text-overflow: ellipsis; }
   .blame-date { width: 1%; color: #666; }
+  .blame-subject { width: 1%; color: #888; }
+  .blame-subject > span { display: inline-block; max-width: 18em; overflow: hidden; text-overflow: ellipsis; vertical-align: top; }  /* 長いと本文のコードが見えなくなるので、短く切る */
   .blame-code { width: 99%; white-space: pre-wrap; min-width: 0; }
   .edit-info { color: #666; margin: 4px 0; }
   .edit-info.warn { color: #b35900; }
@@ -801,10 +803,10 @@ function loadFileBlame(path) {
       r.lines.map(line => {
         const nc = /^0+$/.test(line.hash);
         const meta = nc
-          ? '<span class="blame-hash"></span><span class="blame-author">' + esc(t("not_committed_yet")) + '</span><span class="blame-date"></span>'
+          ? '<span class="blame-hash"></span><span class="blame-author">' + esc(t("not_committed_yet")) + '</span><span class="blame-date"></span><span class="blame-subject"></span>'
           : '<span class="blame-hash"><a class="blame-commit commit-graph" href="/?commit_hash=' + encodeURIComponent(line.hash) + '">' +
             esc(line.hash.slice(0, 7)) + '</a></span><span class="blame-author">' + esc(line.author) +
-            '</span><span class="blame-date">' + esc(line.date) + '</span>';
+            '</span><span class="blame-date">' + esc(line.date) + '</span><span class="blame-subject"><span title="' + esc(line.subject || "") + '">' + esc(line.subject || "") + '</span></span>';
         return '<div class="blame-line" data-hash="' + (nc ? "" : esc(line.hash)) + '"><span class="blame-no">' + line.line +
           '</span>' + meta + '<span class="blame-code">' + esc(line.content) + '</span></div>';
       }).join("") + '</div>';

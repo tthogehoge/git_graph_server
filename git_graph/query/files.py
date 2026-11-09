@@ -338,7 +338,7 @@ def blame(hash_, path):
         if len(header) < 3:
             raise ValueError("bad blame output")
         commit, line_no = header[0], int(header[2])
-        author, author_time, author_tz = "", "", "+0000"
+        author, author_time, author_tz, subject = "", "", "+0000", ""
         i += 1
         while i < len(raw_lines) and not raw_lines[i].startswith("\t"):
             item = raw_lines[i]
@@ -348,6 +348,8 @@ def blame(hash_, path):
                 author_time = item[12:]
             elif item.startswith("author-tz "):
                 author_tz = item[10:]
+            elif item.startswith("summary "):
+                subject = item[8:]
             i += 1
         if i >= len(raw_lines):
             raise ValueError("bad blame output")
@@ -360,7 +362,7 @@ def blame(hash_, path):
         idx = len(lines)
         content = content_lines[idx] if idx < len(content_lines) else ""
         lines.append({"hash": commit, "line": line_no, "author": author,
-                      "date": date, "content": content})
+                      "date": date, "subject": subject, "content": content})
         i += 1
     return {"hash": h, "path": path, "lines": lines}
 

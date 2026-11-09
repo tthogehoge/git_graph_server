@@ -384,6 +384,7 @@ class GitApiIntegrationTests(unittest.TestCase):
             "line": 1,
             "author": "Test User",
             "date": self.git("show", "-s", "--format=%ad", "--date=short", self.second_commit).strip(),
+            "subject": self.git("show", "-s", "--format=%s", self.second_commit).strip(),
             "content": "second version",
         }])
 
@@ -393,6 +394,7 @@ class GitApiIntegrationTests(unittest.TestCase):
         self.assertIn('id="fileBlameBtn"', page)
         self.assertIn(".blame { display: table;", page)
         self.assertIn(".blame-author", page)
+        self.assertIn(".blame-subject", page)
         self.assertIn('class="blame-commit commit-graph"', page)
         self.assertIn('class="blame-line" data-hash="', page)
         self.assertIn('ev.target.closest("tr.file-log-row, .blame-line")', page)

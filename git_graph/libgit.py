@@ -661,7 +661,7 @@ def blame_lines(path, commit_hex=None):
     content_lines = [ln[:-1] if ln.endswith("\r") else ln for ln in content_lines]
 
     out = []
-    meta = {}  # commit -> (author, date)
+    meta = {}  # commit -> (author, date, subject)
     for hunk in blame:
         oid = str(hunk.final_commit_id)
         if oid not in meta:
@@ -672,10 +672,11 @@ def blame_lines(path, commit_hex=None):
                 ts = hc.author.time
                 off = hc.author.offset  # minutes
                 date = datetime.fromtimestamp(ts, timezone(timedelta(minutes=off))).date().isoformat()
+                subject = (hc.message or "").strip().split("\n", 1)[0].strip()  # コミットログの 1 行目
             except (KeyError, ValueError, pygit2.GitError):
-                author, date = "", "1970-01-01"
-            meta[oid] = (author, date)
-        author, date = meta[oid]
+                author, date, subject = "", "1970-01-01", ""
+            meta[oid] = (author, date, subject)
+        author, date, subject = meta[oid]
         start = hunk.final_start_line_number  # 1-based
         for i in range(hunk.lines_in_hunk):
             line_no = start + i
@@ -685,6 +686,7 @@ def blame_lines(path, commit_hex=None):
                 "line": line_no,
                 "author": author,
                 "date": date,
+                "subject": subject,
                 "content": content,
             })
     return out

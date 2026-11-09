@@ -58,6 +58,13 @@ class LibgitReviewTests(unittest.TestCase):
         self.assertEqual([l["line"] for l in lines], [1, 2])
         self.assertEqual(lines[0]["content"], "a\fb")
 
+    def test_blame_has_commit_subject(self):
+        self.write("f.txt", "a\n")
+        run(self.repo, "add", "f.txt")
+        run(self.repo, "commit", "-qm", "1行目の件名\n\n本文は含めない")
+        lines = libgit.blame_lines("f.txt")
+        self.assertEqual(lines[0]["subject"], "1行目の件名")
+
     def test_blame_decodes_cp932(self):
         with open(os.path.join(self.repo, "j.txt"), "wb") as f:
             f.write("テスト\n".encode("cp932"))
