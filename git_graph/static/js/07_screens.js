@@ -297,6 +297,18 @@ document.addEventListener("keydown", ev => {
   clearSelection();
 });
 
+// Backspace で戻る (戻るボタンと同じ)
+document.addEventListener("keydown", ev => {
+  if (ev.key !== "Backspace" || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+  const tag = ev.target && ev.target.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+  if (ev.target && ev.target.isContentEditable) return;
+  if (document.querySelector('[id$="Modal"]:not([hidden])')) return;
+  if (anyMenuOpen()) { closeMenus(); return; }
+  ev.preventDefault();
+  history.back();
+});
+
 // ログ一覧でも詳細と同じく ↑/↓ で選択を上下に移し、Enter でコミット詳細を開く
 document.addEventListener("keydown", ev => {
   if (curView !== "list") return;
