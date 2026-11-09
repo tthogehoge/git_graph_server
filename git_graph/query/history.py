@@ -520,10 +520,31 @@ def commit(hash_):
         base = parents[0] if parents else libgit.EMPTY_TREE
         letters, files = libgit.diff_name_numstat_trees(base, info["hash"])
         info["files"] = files
+        for f in files:
+            f["status"] = (letters.get(f["path"]) or ("M",))[0] or "M"
     else:
         raw = git("show", "--numstat", "-z", "-M", "--first-parent", "--format=", info["hash"], "--")
         info["files"] = parse_numstat(raw)
+        marks = _name_status_marks(git("show", "--name-status", "-z", "-M", "--first-parent", "--format=",
+                                       info["hash"], "--"))
+        for f in info["files"]:
+            f["status"] = marks.get(f["path"], "M")
     return info
+
+
+def _name_status_marks(raw):
+    """git show --name-status -z の出力を {パス: 変更の種類 (A / M / D / R ...)} にする (リネームは新しい側のパス)。"""
+    toks, marks, i = raw.split("\0"), {}, 0
+    while i < len(toks) and toks[i]:
+        st = toks[i][0]
+        if st in "RC" and i + 2 < len(toks):
+            marks[toks[i + 2]] = st
+            i += 3
+        else:
+            if i + 1 < len(toks):
+                marks[toks[i + 1]] = st
+            i += 2
+    return marks
 
 
 

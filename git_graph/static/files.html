@@ -129,7 +129,7 @@ fileCopyBtn.hidden = !CAN_COPY || isWip;
 let current = "", currentFile = "", wipHead = null;
 let dirEntries = null, dirLogSeq = 0;  // dirEntries: 表示中のディレクトリの項目 (読み込み前は null), dirLogSeq: 古い応答を捨てるための通し番号
 let dirLogOn = false;  // ディレクトリの本文に、項目の一覧ではなく「このディレクトリのログ」を出しているか
-let entryInfo = {}, commitChanges = null;  // entryInfo: パス → 一覧の項目 (WIP の変更の種類 xy), commitChanges: パス → コミットでの変更
+let entryInfo = {}, commitChanges = null, commitDirs = new Set();  // entryInfo: パス → 一覧の項目 (WIP の変更の種類 xy), commitChanges: パス → コミットでの変更
 function diffParams(path) {  // このファイルの差分ページの引数。変更がなければ null
   if (isWip) {
     const xy = (entryInfo[path] || {}).xy;
@@ -164,8 +164,13 @@ function loadCommitChanges() {  // このコミットで変更されたファイ
   if (isWip || !hash) return;
   api("/api/commit", {hash: hash}).then(c => {
     commitChanges = {};
-    c.files.forEach(f => { commitChanges[f.path] = f; });
+    commitDirs = new Set();
+    c.files.forEach(f => {
+      commitChanges[f.path] = f;
+      for (let i = f.path.indexOf("/"); i > 0; i = f.path.indexOf("/", i + 1)) commitDirs.add(f.path.slice(0, i));  // 上のディレクトリすべて
+    });
     updateDiffBtn();
+    refreshBadges();
   }).catch(() => {});
 }
 fileDiffBtn.onclick = () => {
@@ -186,7 +191,30 @@ function pageUrl(path, file, view, dirlog) {  // 表示中のディレクトリ�
   return "?" + p;
 }
 const ST_CLASS = {M: "stM", A: "stA", D: "stD", R: "stR", U: "stU", "?": "stN"};
-function statusBadge(e) {  // 作業ツリー表示での変更の印 (ディレクトリは中に変更があるとき)
+const COMMIT_MARK_KEY = {A: "commit_mark_A", R: "commit_mark_R"};
+function commitBadge(e, path) {  // コミット表示での、そのコミットで変更・追加されたものの印 (ディレクトリは中に変更があるとき)
+  if (!commitChanges) return "";
+  let mark, tip;
+  if (e.type === "tree") {
+    if (!commitDirs.has(path)) return "";
+    mark = "M"; tip = t("commit_dir_changed");
+  } else {
+    const f = commitChanges[path];
+    if (!f) return "";
+    mark = f.status === "A" || f.status === "C" ? "A" : f.status === "R" ? "R" : "M";
+    tip = t(COMMIT_MARK_KEY[mark] || "commit_mark_M") + (mark === "R" && f.old_path ? ": " + f.old_path : "");
+  }
+  return '<span class="st ' + ST_CLASS[mark] + '" title="' + esc(tip) + '">' + mark + '</span>';
+}
+function refreshBadges() {  // 変更の一覧が読み込めたあと、表示済みの項目に印を付ける
+  if (isWip) return;
+  document.querySelectorAll("#list .entry, #content tr.dir-log-row").forEach(el => {
+    const e = entryInfo[el.dataset.path], slot = el.querySelector(".bd");
+    if (e && slot) slot.innerHTML = statusBadge(e, el.dataset.path);
+  });
+}
+function statusBadge(e, path) {  // 作業ツリー表示での変更の印 (ディレクトリは中に変更があるとき)。コミット表示ではそのコミットでの変更の印
+  if (!isWip) return commitBadge(e, path);
   if (!e.st) return "";
   const tip = e.type === "tree" ? t("wip_dir_changed") : e.xy === "??" ? t("untracked") : e.st === "U" ? t("conflict")
     : [e.xy[0] !== " " ? t("staged") : "", e.xy[1] !== " " ? t("unstaged") : ""].filter(Boolean).join(" / ");
@@ -308,7 +336,7 @@ function loadTree(path, push) {
       entryInfo[p] = e;
       const size = e.size === null ? "" : e.size.toLocaleString() + " B";
       const ck = CAN_EDIT ? '<input type="checkbox" class="ck" data-path="' + esc(p) + '" aria-label="' + esc(p) + '"' + (checked.has(p) ? " checked" : "") + '>' : "";
-      return '<div class="entry" data-type="' + e.type + '" data-path="' + esc(p) + '"' + entryTip(e) + '>' + ck + '<span>' + entryIcon(e) + ' ' + statusBadge(e) + esc(e.name) + submoduleBadge(e) + '</span><span class="size">' + size + '</span></div>';
+      return '<div class="entry" data-type="' + e.type + '" data-path="' + esc(p) + '"' + entryTip(e) + '>' + ck + '<span>' + entryIcon(e) + ' <span class="bd">' + statusBadge(e, p) + '</span>' + esc(e.name) + submoduleBadge(e) + '</span><span class="size">' + size + '</span></div>';
     }).join("") : '<p class="hint">' + t("empty_directory") + '</p>');
     list.querySelectorAll("[data-dir]").forEach(a => a.onclick = () => openDir(a.dataset.dir));
     list.querySelectorAll(".entry").forEach(a => {
@@ -503,8 +531,8 @@ function dirLogCells(c) {  // 最終コミットのセル (ハッシュ・件名
   return '<td class="hash"><a class="commit-graph" href="/?commit_hash=' + encodeURIComponent(c[0]) + '">' + esc(c[1]) + '</a></td><td class="dir-msg" title="' + esc(c[4]) + '">' +
     esc(c[4]) + '</td><td class="date">' + esc(c[3]) + '</td>';
 }
-function dirNameCell(e) {
-  return '<td class="dir-name"' + entryTip(e) + '>' + entryIcon(e) + ' ' + statusBadge(e) + esc(e.name) + submoduleBadge(e) + '</td>';
+function dirNameCell(e, path) {
+  return '<td class="dir-name"' + entryTip(e) + '>' + entryIcon(e) + ' <span class="bd">' + statusBadge(e, path) + '</span>' + esc(e.name) + submoduleBadge(e) + '</td>';
 }
 function setDirActions() {  // ディレクトリを表示しているときの操作ボタン (項目の一覧 ↔ このディレクトリのログ)
   dirActions.hidden = !!currentFile;
@@ -526,14 +554,14 @@ function showDir() {  // ファイルを開いていないとき、ディレク�
   content.innerHTML = '<table class="file-log dir-log"><thead><tr><th class="dir-name">' + esc(t("dir_log_name")) + '</th><th class="hash">' + esc(t("dir_log_commit")) +
     '</th><th class="dir-msg">' + esc(t("dir_log_message")) + '</th><th class="date">' + esc(t("dir_log_date")) + '</th></tr></thead><tbody>' +
     entries.map(e => '<tr class="dir-log-row" data-type="' + e.type + '" data-name="' + esc(e.name) + '" data-path="' +
-      esc(path ? path + "/" + e.name : e.name) + '">' + dirNameCell(e) + dirLogCells(null) + '</tr>').join("") + '</tbody></table><div id="dirLogNote"></div>';
+      esc(path ? path + "/" + e.name : e.name) + '">' + dirNameCell(e, path ? path + "/" + e.name : e.name) + dirLogCells(null) + '</tr>').join("") + '</tbody></table><div id="dirLogNote"></div>';
   api("/api/tree-log", {hash: hash, path: path}).then(r => {
     if (seq !== dirLogSeq || currentFile) return;  // 別のディレクトリ / ファイルに移った
     const byName = {};
     entries.forEach(e => { byName[e.name] = e; });
     content.querySelectorAll("tr.dir-log-row").forEach(row => {
       const e = byName[row.dataset.name];
-      row.innerHTML = dirNameCell(e) + dirLogCells(r.commits[e.name]);
+      row.innerHTML = dirNameCell(e, row.dataset.path) + dirLogCells(r.commits[e.name]);
     });
     if (!r.complete) document.getElementById("dirLogNote").innerHTML = '<p class="hint">' + esc(t("dir_log_incomplete")) + '</p>';
   }).catch(e => { if (seq === dirLogSeq && !currentFile) { content.className = "hint"; content.textContent = t("error") + e.message; } });

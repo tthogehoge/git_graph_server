@@ -326,6 +326,13 @@ class GitApiIntegrationTests(unittest.TestCase):
         self.assertEqual(result["hash"], self.second_commit)
         self.assertEqual(result["parents"], [self.first_commit])
         self.assertEqual({item["path"] for item in result["files"]}, {"README.md", "new.txt"})
+        # 変更の種類 (ファイル表示の M / A の印に使う)
+        self.assertEqual({item["path"]: item["status"] for item in result["files"]}, {"README.md": "M", "new.txt": "A"})
+
+    def test_name_status_marks_parses_git_show_output(self):
+        from git_graph.query import history as qh
+        raw = "M\0a.txt\0A\0dir/b.txt\0R100\0old.txt\0new.txt\0D\0gone.txt\0"
+        self.assertEqual(qh._name_status_marks(raw), {"a.txt": "M", "dir/b.txt": "A", "new.txt": "R", "gone.txt": "D"})
 
     def test_render_diff_page_includes_favicon(self):
         page = app.render_diff_page({
