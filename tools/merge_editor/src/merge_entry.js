@@ -14,6 +14,35 @@ import {getChunks, goToNextChunk, goToPreviousChunk, MergeView} from "@codemirro
 import {CHOICES, findConflicts, resolution, resolveAll} from "./conflicts.js";
 import {THEME, VIEW_SIZE} from "./theme.js";
 
+// 上下（または左右）のエディタのスクロール位置を比例で同期する。
+// 内容の長さが違っても、相対位置（先頭〜末尾の割合）を揃える。
+// 戻り値は解除用の関数（destroy 時に呼ぶ）。
+function linkScroll(views) {
+  const doms = views.map(v => v.scrollDOM).filter(Boolean);
+  if (doms.length < 2) return () => {};
+  let syncing = false;
+  const handlers = [];
+  for (const src of doms) {
+    const onScroll = () => {
+      if (syncing) return;
+      const maxSrc = src.scrollHeight - src.clientHeight;
+      const ratio = maxSrc > 0 ? src.scrollTop / maxSrc : 0;
+      syncing = true;
+      for (const dst of doms) {
+        if (dst === src) continue;
+        const maxDst = dst.scrollHeight - dst.clientHeight;
+        const next = maxDst > 0 ? ratio * maxDst : 0;
+        if (Math.abs(dst.scrollTop - next) > 0.5) dst.scrollTop = next;
+      }
+      // 次のフレームまでロックし、フィードバックを防ぐ
+      requestAnimationFrame(() => { syncing = false; });
+    };
+    src.addEventListener("scroll", onScroll, {passive: true});
+    handlers.push([src, onScroll]);
+  }
+  return () => { for (const [el, fn] of handlers) el.removeEventListener("scroll", fn); };
+}
+
 class ConflictBar extends WidgetType {
   constructor(block, labels, pick) {
     super();
@@ -151,6 +180,9 @@ export function createMergeEditor(opts) {
   });
   notify();
 
+  // 上段 (ours|theirs) と下段 (結果) の縦スクロールを同期。MergeView 内の a/b はライブラリが揃えるので a を代表にする
+  const unlinkScroll = linkScroll([topView.a, view]);
+
   return {
     view: view, topView: topView,
     getText: () => view.state.doc.toString(),
@@ -161,7 +193,7 @@ export function createMergeEditor(opts) {
     adopt: choice => adoptAtCursor(view, field, choice),
     remeasure: () => { for (const v of [view, topView.a, topView.b]) v.requestMeasure(); },
     focus: () => view.focus(),
-    destroy: () => { view.destroy(); topView.destroy(); },
+    destroy: () => { unlinkScroll(); view.destroy(); topView.destroy(); },
   };
 }
 
@@ -253,6 +285,9 @@ export function createBaseMergeEditor(opts) {
   baseA = viewOurs.b; baseB = viewTheirs.b; lastFocused = baseA;
   notify();
 
+  // 上段 (ours|結果) と下段 (theirs|結果) の縦スクロールを同期。結果同士は同じ内容なので揃えると見やすい
+  const unlinkScroll = linkScroll([baseA, baseB]);
+
   const current = () => lastFocused;  // 直前に触った方の結果
   return {
     oursView: viewOurs, theirsView: viewTheirs, baseA: baseA, baseB: baseB,
@@ -271,7 +306,7 @@ export function createBaseMergeEditor(opts) {
     },
     remeasure: () => { for (const v of [viewOurs.a, viewOurs.b, viewTheirs.a, viewTheirs.b]) v.requestMeasure(); },
     focus: () => baseA.focus(),
-    destroy: () => { viewOurs.destroy(); viewTheirs.destroy(); },
+    destroy: () => { unlinkScroll(); viewOurs.destroy(); viewTheirs.destroy(); },
   };
 }
 
