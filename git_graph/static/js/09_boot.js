@@ -50,6 +50,7 @@ fetch(graphUrl())
     const fileLogPath = qs.get("file_log_path");
     const commitHash = qs.get("commit_hash");
     const selectHash = qs.get("select_hash");
+    const selectWip = qs.get("select_wip");
     if (fileLogHash && fileLogPath) {
       // 一度だけ消費し、以後の履歴には一時的なクエリを残さない。
       history.replaceState({screen: "home"}, "", "/");
@@ -59,6 +60,10 @@ fetch(graphUrl())
       selectActionTarget(commitHash, true);
       if (nodeEl[commitHash]) select(nodeEl[commitHash]);
       showTargetLog(commitHash, true);
+    } else if (selectWip) {
+      // WIP を表示していたファイル/差分ページから戻る: WIP ノードを選んで変更一覧を開く (HEAD に飛ばさない)
+      history.replaceState({screen: "home"}, "", "/");
+      if (DATA.nodes && DATA.nodes["WIP"]) openWip(); else scrollToHead();
     } else if (selectHash) {
       // ファイル/差分の「グラフ」アイコンから戻る: ログは開かず選択だけ復元する
       history.replaceState({screen: "home"}, "", "/");

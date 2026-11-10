@@ -1757,6 +1757,20 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
             self.assertIn('data-mb="quit"', page)  # 終了と再起動は読み取り専用でも使える
             self.assertIn('id="mbHead"', page)
 
+    def test_wip_pages_link_back_to_the_graph_with_wip_selected(self):
+        # WIP を選んだままグラフ - ファイル - 差分と移っても、グラフへ戻ると WIP が選ばれている (HEAD に飛ばない)
+        for wip in ("unstaged", "staged", "untracked"):
+            with self.subTest(wip):
+                page = viewer.render_diff_page({"wip": [wip]})
+                self.assertIn('href="/?select_wip=1"', page)
+        head = self.git("rev-parse", "HEAD").strip()
+        commit_page = viewer.render_diff_page({"hash": [head]})
+        self.assertIn(f'href="/?select_hash={head}"', commit_page)
+        self.assertNotIn("select_wip", commit_page)
+        self.assertIn("select_wip", viewer.render_files_page())  # ファイル表示は JS で、表示中の hash が WIP のときに付け替える
+        boot = (Path(app.__file__).parent / "git_graph" / "static" / "js" / "09_boot.js").read_text(encoding="utf-8")
+        self.assertIn('qs.get("select_wip")', boot)
+
     def test_commit_diff_page_without_a_file_lists_the_files(self):
         head = self.git("rev-parse", "HEAD").strip()
         page = viewer.render_diff_page({"hash": [head]})

@@ -437,7 +437,7 @@ def render_diff_page(q):
     # 文言 T と共通のダイアログ部品は、メニューバー・コミット欄・push / pull で共通なので、1度だけ入れる
     dialog_js = menubar_dialog_js([*commit_keys, *(REMOTE_TEXT_KEYS if remote_bar else ())])
     remote_js = WIP_DIFF_REMOTE_JS if remote_bar else ""
-    # グラフへ戻るとき、この差分のコミットを選択状態で復元する (作業ツリーだけの WIP は対象外)
+    # グラフへ戻るとき、この差分のコミットを選択状態で復元する。作業ツリーの WIP は、WIP ノードを選んだ状態に戻す (HEAD にしない)
     graph_href = "/"
     if wip == "compare":
         sel = ctx.get("from")  # 比較元コミット
@@ -447,6 +447,8 @@ def render_diff_page(q):
         sel = None
     if sel:
         graph_href = "/?" + urlencode({"select_hash": sel})
+    elif wip and wip != "compare":
+        graph_href = "/?select_wip=1"
 
     nav = (page_nav_html("diff", files_href=files_view_url(view_hash, path) if view_hash and path else None, graph_href=graph_href)
            + NAV_BACK_BUTTON.format(label=html.escape(tr("back_prev"), quote=True))

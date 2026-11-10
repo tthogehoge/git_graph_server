@@ -129,7 +129,7 @@ const CAN_EDIT = CAN_COPY && hash === "WIP";  // 作業ツリーのファイル�
 const isWip = hash === "WIP";  // 作業ツリーのファイルを表示する
 (function () {  // グラフへ戻るとき、このコミットの選択を復元する
   const g = document.getElementById("navGraphBtn");
-  if (g && hash && !isWip) g.href = "/?select_hash=" + encodeURIComponent(hash);
+  if (g && hash) g.href = isWip ? "/?select_wip=1" : "/?select_hash=" + encodeURIComponent(hash);  // WIP もコミットも、戻ったグラフで同じ選択にする
 })();
 fileCopyBtn.disabled = !CAN_COPY || isWip;
 let current = "", currentFile = "", wipHead = null;
