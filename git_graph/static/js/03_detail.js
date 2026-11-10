@@ -4,35 +4,33 @@ function pageNavIsStash(hash) {
   return !!hash && (!!stashByHash[hash] || (typeof stashNameOf === "function" && !!stashNameOf(hash)));
 }
 function updatePageNav(hash, files) {
-  // 左上のファイル / 差分アイコンを、選択中コミットに合わせて有効化する
+  // 左上のファイル / 差分アイコンは、いつでも押せる。選択中のコミットを開き、何も選んでいないときは HEAD (まだコミットが無ければ作業ツリー) を開く。
+  // 差分は、変更ファイルが分かっていればその先頭のファイルを、分からなければファイルを選ばない一覧を開く (/diff はファイル未選択でも開ける)
   const filesBtn = document.getElementById("navFilesBtn");
   const diffBtn = document.getElementById("navDiffBtn");
   if (!filesBtn || !diffBtn) return;
-  if (!hash || pageNavIsStash(hash)) {
-    filesBtn.disabled = true;
-    filesBtn.onclick = null;
-    diffBtn.disabled = true;
-    diffBtn.onclick = null;
-    return;
-  }
+  const open = build => {
+    if (hash) { location.href = build(hash); return; }
+    fetch("/api/head").then(r => r.ok ? r.json() : r.text().then(m => { throw new Error(m || r.status); }))
+      .then(r => { location.href = build(r.head || "WIP"); })
+      .catch(e => setGraphStatus(e.message, "error"));
+  };
+  const diffUrlFor = h => {
+    const f = files && files.length ? files[0] : null;
+    if (h === "WIP") return "/diff?" + new URLSearchParams(f ? {hash: h, path: f.path, wip: f.wip || "unstaged"} : {wip: "unstaged"});
+    const p = {hash: h};
+    if (f) { p.path = f.path; if (f.old_path) p.old = f.old_path; if (f.wip) p.wip = f.wip; }
+    return "/diff?" + new URLSearchParams(p);
+  };
   filesBtn.disabled = false;
-  filesBtn.onclick = () => { location.href = "/files?hash=" + encodeURIComponent(hash); };
-  if (files && files.length) {
-    diffBtn.disabled = false;
-    const f = files[0];
-    const p = {hash: hash, path: f.path};
-    if (f.old_path) p.old = f.old_path;
-    if (f.wip) p.wip = f.wip;
-    diffBtn.onclick = () => { location.href = "/diff?" + new URLSearchParams(p); };
-  } else {
-    diffBtn.disabled = true;
-    diffBtn.onclick = null;
-  }
+  filesBtn.onclick = () => open(h => "/files?hash=" + encodeURIComponent(h));
+  diffBtn.disabled = false;
+  diffBtn.onclick = () => open(diffUrlFor);
 }
 function updatePageNavForSelection(hash) {
   // 1回目のクリック (詳細を開く前) でもファイルを有効にし、差分は変更一覧を取ってから有効にする
   updatePageNav(hash, null);
-  if (!hash || pageNavIsStash(hash)) return;
+  if (!hash || pageNavIsStash(hash)) return;  // スタッシュは変更ファイルを取らない (差分ボタンはファイルを選ばない一覧を開く)
   const seq = ++pageNavFetch;
   api("/api/commit", {hash: hash}).then(c => {
     if (seq !== pageNavFetch || actionHash !== hash) return;

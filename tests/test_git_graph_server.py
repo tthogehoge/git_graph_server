@@ -1771,6 +1771,17 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         boot = (Path(app.__file__).parent / "git_graph" / "static" / "js" / "09_boot.js").read_text(encoding="utf-8")
         self.assertIn('qs.get("select_wip")', boot)
 
+    def test_diff_page_can_always_go_to_files_and_graph(self):
+        # ファイル表示 / グラフへは、開いているファイルの有無や種類にかかわらず、いつでも遷移できる (無効なボタンにしない)
+        head = self.git("rev-parse", "HEAD").strip()
+        queries = [{"hash": [head]}, {"hash": [head], "path": ["tracked.txt"]}, {"wip": ["unstaged"]}, {"wip": ["staged"]}]
+        for q in queries:
+            with self.subTest(q):
+                page = viewer.render_diff_page(q)
+                self.assertRegex(page, r'<a class="iconbtn" id="navFilesBtn" href="/files\?hash=')
+                self.assertRegex(page, r'<a class="iconbtn" id="navGraphBtn" href="/')
+                self.assertNotRegex(page, r'<button[^>]*id="navFilesBtn"')
+
     def test_commit_diff_page_without_a_file_lists_the_files(self):
         head = self.git("rev-parse", "HEAD").strip()
         page = viewer.render_diff_page({"hash": [head]})

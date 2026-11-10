@@ -157,13 +157,9 @@ function updateRmBtns() {  // git rm できるのは、作業ツリー表示の�
 function updateDiffBtn() {
   const p = currentFile && diffParams(currentFile);
   fileDiffBtn.disabled = !p;
-  if (p) {
-    navDiffBtn.disabled = false;
-    navDiffBtn.onclick = () => { location.href = "/diff?" + new URLSearchParams(p); };
-  } else {
-    navDiffBtn.disabled = true;
-    navDiffBtn.onclick = null;
-  }
+  // ヘッダーの差分アイコンは、いつでも押せる。開いているファイルに変更があればその差分を、無ければ (ファイルを選ばない) このコミット / 作業ツリーの差分一覧を開く
+  navDiffBtn.disabled = false;
+  navDiffBtn.onclick = () => { location.href = "/diff?" + new URLSearchParams(p || (isWip ? {wip: "unstaged"} : {hash: hash})); };
   updateRmBtns();
 }
 function loadCommitChanges() {  // このコミットで変更されたファイル (差分ボタンを出すかどうかに使う)
@@ -925,6 +921,7 @@ reloadBtn.onclick = () => {
     reloadBtn.disabled = false;
   });
 };
+updateDiffBtn();  // 差分アイコンは、ファイルを開く前から押せる
 if (!hash) showError(new Error(t("commit_required"))); else { loadCommitChanges(); restoreFromUrl(true); }
 </script>
 <script>/*__MENUBAR_JS__*/</script></body></html>

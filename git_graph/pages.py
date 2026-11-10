@@ -450,7 +450,10 @@ def render_diff_page(q):
     elif wip and wip != "compare":
         graph_href = "/?select_wip=1"
 
-    nav = (page_nav_html("diff", files_href=files_view_url(view_hash, path) if view_hash and path else None, graph_href=graph_href)
+    # ファイル表示へは、いつでも移れる。開いているファイルがあればそのファイルを、無ければ (削除されたファイルなども) このコミット / 作業ツリーのルートを開く
+    files_href = (files_view_url(view_hash, path) if view_hash and path
+                  else "/files?" + urlencode({"hash": bar_commit or WIP_HASH}))
+    nav = (page_nav_html("diff", files_href=files_href, graph_href=graph_href)
            + NAV_BACK_BUTTON.format(label=html.escape(tr("back_prev"), quote=True))
            + (NAV_RELOAD_BUTTON.format(label=html.escape(tr("reload_page"), quote=True)) if wip else ""))
     menubar = menubar_html("diff", nav, commit=bar_commit, wip=bool(wip and not is_wip_compare))

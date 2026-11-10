@@ -236,6 +236,7 @@ function showWip(fromHistory, okMsg) {
   document.body.classList.remove("compare-logs-mode");
   if (!fromHistory) pushScreen({screen: "wip"});
   setDocumentTitle(t("wip_title"));
+  updatePageNav("WIP", null);  // 変更ファイルを取る前でも、ファイル / 差分ボタンは WIP を開く (前に選んでいたコミットのままにしない)
   const backIcon = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">' +
     '<path d="M13 8H3M7.5 3.5 3 8l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" ' +
     'stroke-linecap="round" stroke-linejoin="round"/></svg>';
