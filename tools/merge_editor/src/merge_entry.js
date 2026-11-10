@@ -14,11 +14,19 @@ import {getChunks, goToNextChunk, goToPreviousChunk, MergeView} from "@codemirro
 import {CHOICES, findConflicts, resolution, resolveAll} from "./conflicts.js";
 import {THEME, VIEW_SIZE} from "./theme.js";
 
-// 上下（または左右）のエディタのスクロール位置を比例で同期する。
-// 内容の長さが違っても、相対位置（先頭〜末尾の割合）を揃える。
-// 戻り値は解除用の関数（destroy 時に呼ぶ）。
-function linkScroll(views) {
-  const doms = views.map(v => v.scrollDOM).filter(Boolean);
+// 上下のエディタのスクロール位置を比例で同期する。
+// CodeMirror の MergeView は、内側の .cm-scroller を overflow:visible にして高さを内容に合わせ、
+// 外側の .cm-mergeView をスクロールさせる。単独の EditorView は view.scrollDOM がスクロールする。
+// 引数は EditorView / MergeView / HTMLElement を混ぜてよい。戻り値は解除用。
+function scrollElement(target) {
+  if (!target) return null;
+  if (target.nodeType === 1) return target;                 // HTMLElement
+  if (target.dom && target.a && target.b) return target.dom; // MergeView
+  if (target.scrollDOM) return target.scrollDOM;            // EditorView
+  return null;
+}
+function linkScroll(targets) {
+  const doms = targets.map(scrollElement).filter(Boolean);
   if (doms.length < 2) return () => {};
   let syncing = false;
   const handlers = [];
@@ -180,8 +188,8 @@ export function createMergeEditor(opts) {
   });
   notify();
 
-  // 上段 (ours|theirs) と下段 (結果) の縦スクロールを同期。MergeView 内の a/b はライブラリが揃えるので a を代表にする
-  const unlinkScroll = linkScroll([topView.a, view]);
+  // 上段 (ours|theirs の MergeView) と下段 (結果の EditorView) の縦スクロールを同期
+  const unlinkScroll = linkScroll([topView, view]);
 
   return {
     view: view, topView: topView,
@@ -285,8 +293,8 @@ export function createBaseMergeEditor(opts) {
   baseA = viewOurs.b; baseB = viewTheirs.b; lastFocused = baseA;
   notify();
 
-  // 上段 (ours|結果) と下段 (theirs|結果) の縦スクロールを同期。結果同士は同じ内容なので揃えると見やすい
-  const unlinkScroll = linkScroll([baseA, baseB]);
+  // 上段 (ours|結果) と下段 (theirs|結果) の MergeView 同士で縦スクロールを同期
+  const unlinkScroll = linkScroll([viewOurs, viewTheirs]);
 
   const current = () => lastFocused;  // 直前に触った方の結果
   return {
