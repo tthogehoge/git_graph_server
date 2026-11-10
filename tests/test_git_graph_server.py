@@ -1712,6 +1712,62 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertNotIn('data-remote="push"', page)
         self.assertNotIn("/api/push-targets", page)
 
+    def test_diff_and_files_pages_have_a_full_width_menubar(self):
+        previous = (state.WRITABLE, state.WIP_ENABLED)
+        self.addCleanup(setattr, state, "WRITABLE", previous[0])
+        self.addCleanup(setattr, state, "WIP_ENABLED", previous[1])
+        state.WRITABLE = state.WIP_ENABLED = True
+        head = self.git("rev-parse", "HEAD").strip()
+        pages = {
+            "diff-commit": viewer.render_diff_page({"hash": [head], "path": ["tracked.txt"]}),
+            "diff-commit-no-file": viewer.render_diff_page({"hash": [head]}),  # メニューバーの移動先。ファイルを選んでいなくても開ける
+            "diff-wip": viewer.render_diff_page({"wip": ["unstaged"]}),
+            "files": viewer.render_files_page(),
+        }
+        for name, page in pages.items():
+            with self.subTest(name):
+                self.assertEqual(page.count('id="pageMenubar"'), 1)
+                self.assertLess(page.index('id="pageMenubar"'), page.index('id="panes"'))  # メニューバーは左右ペインの外 (全面にまたがる)
+                for element in ('id="mbWip"', 'id="mbHead"', 'id="mbTargets"', 'id="mbOtherMenu"',
+                                'data-mb="branch"', 'data-mb="tag"', 'data-mb="restart"', 'data-mb="quit"'):
+                    self.assertIn(element, page)
+                for act in ("push", "pull", "fetch"):
+                    self.assertIn(f'data-remote="{act}"', page)
+                self.assertEqual(page.count("const T = "), 1)
+                self.assertLess(page.index("const T = "), page.index("function openDialog"))
+                self.assertIn("function mbSay", page)
+        self.assertIn(f'data-commit="{head}"', pages["diff-commit"])
+        self.assertIn('data-wip="1"', pages["diff-wip"])
+        self.assertIn('data-page="files"', pages["files"])
+        self.assertNotIn("sideRemote", pages["diff-wip"])  # push / pull は左ペインではなくメニューバーにある
+        self.assertIn('id="navGraphBtn"', pages["files"])  # ファイル表示の JS が付け替えるボタンが、メニューバーの中にある
+        self.assertIn('id="reloadBtn"', pages["files"])
+
+    def test_menubar_hides_write_actions_when_read_only(self):
+        previous = (state.WRITABLE, state.WIP_ENABLED)
+        self.addCleanup(setattr, state, "WRITABLE", previous[0])
+        self.addCleanup(setattr, state, "WIP_ENABLED", previous[1])
+        state.WRITABLE = False
+        state.WIP_ENABLED = True
+        for page in (viewer.render_diff_page({"wip": ["unstaged"]}), viewer.render_files_page()):
+            self.assertNotIn('data-remote="push"', page)
+            self.assertNotIn("/api/push-targets", page)
+            self.assertNotIn('data-mb="branch"', page)
+            self.assertNotIn('data-mb="tag"', page)
+            self.assertIn('data-mb="quit"', page)  # 終了と再起動は読み取り専用でも使える
+            self.assertIn('id="mbHead"', page)
+
+    def test_commit_diff_page_without_a_file_lists_the_files(self):
+        head = self.git("rev-parse", "HEAD").strip()
+        page = viewer.render_diff_page({"hash": [head]})
+        self.assertIn(tr("select_file"), page)
+        self.assertNotIn(f">{tr('no_diff')}<", page)
+
+    def test_api_head_returns_the_head_commit(self):
+        from git_graph import gitstate
+        info = gitstate.head_state()
+        self.assertEqual(info["head"], self.git("rev-parse", "HEAD").strip())
+
     def test_push_targets_lists_remotes_local_branches_and_current_branch(self):
         self.git("branch", "feature/x")
         self.git("remote", "add", "origin", "https://example.invalid/r.git")

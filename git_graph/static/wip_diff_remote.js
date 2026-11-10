@@ -1,41 +1,12 @@
-// WIP の差分ページの push / pull / fetch ボタン (グラフ画面のメニューバーと同じ操作)。
-// ダイアログの部品 (openDialog / field / input / postJson / fmt) は diff_dialog.js、文言は T。
+// push / pull / fetch ボタン (グラフ画面のメニューバーと同じ操作)。/diff と /files のメニューバー (#pageMenubar) に置く。
+// ダイアログの部品 (openDialog / field / input / postJson / fmt など) は diff_dialog.js、文言は T、メッセージ欄は page_menubar.js の mbSay。
 (function () {
-  const bar = document.getElementById("sideRemote");
+  const bar = document.getElementById("pageMenubar");
   if (!bar) return;
-  const msg = document.getElementById("rmsg");
-  const say = (text, state) => {  // state: true = 成功 / false = 失敗 / "progress" = 実行中
-    msg.textContent = text;
-    msg.style.color = state === "progress" ? "" : state ? "#1a7f37" : "#cf222e";
-  };
-  const select = (name, options, selected) => {
-    const s = document.createElement("select"); s.name = name;
-    options.forEach(([value, text]) => {
-      const o = document.createElement("option"); o.value = value; o.textContent = text;
-      if (value === selected) o.selected = true;
-      s.appendChild(o);
-    });
-    return s;
-  };
-  const list = (form, title, files) => {
-    if (!files || !files.length) return;
-    const h = document.createElement("h3"), ul = document.createElement("ul");
-    h.textContent = title;
-    files.forEach(f => { const li = document.createElement("li"); li.textContent = f; ul.appendChild(li); });
-    form.append(h, ul);
-  };
-  const hint = (form, text) => { const p = document.createElement("p"); p.className = "hint"; p.textContent = text; form.appendChild(p); };
+  const say = mbSay;  // state: true = 成功 / false = 失敗 / "progress" = 実行中
+  const select = selectEl;
   // 編集中のファイルや管理外ファイルに pull を止められたとき、stash / 破棄を選んでもらう (null = 取りやめ)
-  async function askBlocked(r) {
-    const v = await openDialog(fmt(T.co_blocked_op, {op: "pull"}), form => {
-      hint(form, T.co_blocked_hint_op);
-      list(form, T.co_modified, r.modified);
-      list(form, T.co_untracked_op, r.untracked);
-      hint(form, T.co_hint_stash + "\n" + T.co_hint_discard);
-      form.appendChild(select("mode", [["stash", T.co_stash_retry], ["discard", T.co_discard_retry]], "stash"));
-    }, T.ok);
-    return v ? v.mode : null;
-  }
+  const askBlocked = r => askBlockedDialog(r, "pull");
   async function askAuth() {
     return openDialog(T.http_auth, form => {
       field(form, T.auth_username, input("text", "username"), false);
@@ -106,13 +77,14 @@
     }
     return r;
   }
-  bar.querySelectorAll("[data-remote]").forEach(btn => btn.addEventListener("click", async () => {
+  const remoteButtons = () => bar.querySelectorAll("[data-remote]");
+  remoteButtons().forEach(btn => btn.addEventListener("click", async () => {
     const act = btn.dataset.remote;
     try {
       const p = await prepare(act);
       if (!p) return;
       if (p.ask && !confirm(p.ask)) return;
-      bar.querySelectorAll("button").forEach(b => { b.disabled = true; });
+      remoteButtons().forEach(b => { b.disabled = true; });
       say(T.running_remote, "progress");
       const r = await run(act, p.body);
       if (r.cancelled) { say(r.message, false); return; }
@@ -121,7 +93,7 @@
     } catch (e) {
       say(e.message, false);
     } finally {
-      bar.querySelectorAll("button").forEach(b => { b.disabled = false; });
+      remoteButtons().forEach(b => { b.disabled = false; });
     }
   }));
 })();

@@ -883,5 +883,11 @@
   "merge_next_diff": "Next difference",
   "merge_revert_chunk": "Apply this difference to the result (a red arrow resolves the whole conflict with that side)",
   "merge_resize": "Resize the panes",
-  "merge_keys_hint": "Shortcuts: Alt+↓ / Alt+↑ go to the next / previous conflict, Alt+→ adopts ours and Alt+← adopts theirs (add Shift for both). The result is kept when you switch the mode."
+  "merge_keys_hint": "Shortcuts: Alt+↓ / Alt+↑ go to the next / previous conflict, Alt+→ adopts ours and Alt+← adopts theirs (add Shift for both). The result is kept when you switch the mode.",
+  "tip_go_commit": "Show this commit in this view (the open file or directory is kept)",
+  "mb_no_commit": "There is no commit yet",
+  "confirm_restart_server": "Restart the server? The page will reload automatically.",
+  "confirm_quit_server": "Stop the server?",
+  "tip_view_wip": "Show the working tree (WIP) in this view",
+  "tip_view_head": "Show the HEAD commit in this view"
 }

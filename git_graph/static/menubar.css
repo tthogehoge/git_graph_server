@@ -1,0 +1,37 @@
+
+  /* /diff と /files で共通の、左右ペインにまたがるメニューバー (グラフ画面のメニューバーと同じ見た目) */
+  html, body { height: 100%; }
+  body { display: flex; flex-direction: column; }
+  #panes { flex: 1 1 auto; min-height: 0; display: flex; }
+  #pageMenubar { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 5px 10px; box-sizing: border-box;
+                 background: #f3f5fa; border-bottom: 1px solid #ccc; position: relative; z-index: 20; }
+  #pageMenubar .navbar { margin: 0; }
+  #pageMenubar .mbgroup { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 2px; }
+  #pageMenubar .mbsep { align-self: stretch; width: 1px; margin: 2px 2px; background: #ccd3e6; }
+  #pageMenubar .mbtn { font: inherit; color: inherit; height: 28px; padding: 0 10px; box-sizing: border-box; white-space: nowrap; cursor: pointer;
+                       background: transparent; border: 1px solid transparent; border-radius: 3px; }
+  #pageMenubar .mbtn:hover { background: #dde6fa; border-color: #b8c7ee; }
+  #pageMenubar .mbtn[aria-expanded="true"] { background: #cfdcf8; border-color: #9fb4e8; }
+  #pageMenubar .mbtn:disabled { opacity: .5; cursor: default; background: transparent; border-color: transparent; }
+  #pageMenubar .mbtn.mbhash { font-family: monospace; }
+  #pageMenubar .mbtn.mbhere { background: #ffe9a0; border-color: #e0c968; }  /* いま表示しているコミット */
+  #pageMenubar .menu-wrap { position: relative; display: inline-block; margin-left: auto; }
+  #pageMenubar .dropdown { position: absolute; top: calc(100% + 2px); right: 0; z-index: 30; display: flex; flex-direction: column; gap: 2px;
+                           box-sizing: border-box; min-width: 200px; padding: 6px; background: #fff; border: 1px solid #ccc; border-radius: 4px; box-shadow: 0 2px 8px #0003; }
+  #pageMenubar .dropdown[hidden] { display: none; }
+  #pageMenubar .dropdown .mbtn { text-align: left; height: auto; padding: 5px 10px; }
+  #pageMenubar .dropdown .mbtn.danger { color: #b42318; }
+  #mbmsg { flex: 1 0 100%; margin: 0; white-space: pre-wrap; word-break: break-word; color: #666; }
+  #mbmsg:empty { display: none; }
+  #mbmsg.ok { color: #1a7f37; } #mbmsg.ng { color: #cf222e; }
+
+  /* 入力ダイアログ (push / pull / ブランチ作成など)。/diff の WIP とメニューバーの両方で、/files でも使う */
+  .wbtn { background: #1a7f37; color: #fff; border: 1px solid #176b30; padding: 3px 10px; border-radius: 3px; cursor: pointer; }
+  .wbtn:hover { background: #176b30; } .wbtn:disabled { opacity: .5; cursor: default; }
+  .wbtn.danger { background: #b42318; border-color: #912018; } .wbtn.danger:hover { background: #912018; }
+  #dlg h3 { margin: 8px 0 2px; font-size: 13px; } #dlg ul { margin: 0 0 4px; padding-left: 20px; }
+  #dlgBg { position: fixed; inset: 0; background: rgba(0, 0, 0, .35); display: flex; align-items: center; justify-content: center; z-index: 50; }
+  #dlg { background: #fff; padding: 14px 16px; border-radius: 6px; min-width: 300px; max-width: 90vw; box-shadow: 0 4px 16px rgba(0, 0, 0, .3); }
+  #dlg h2 { margin: 0 0 8px; font-size: 15px; } #dlg label { display: block; margin: 6px 0; } #dlg input[type=text], #dlg select { width: 100%; box-sizing: border-box; }
+  #dlg .dbtns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+  #dlg .hint { white-space: pre-wrap; }

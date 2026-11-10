@@ -278,10 +278,11 @@ def diff_name_numstat(*rev_and_paths):
 
 
 def head_state():
-    """現在のブランチ名 (切り離されていれば None) と、git 操作の途中かどうか。
-    ブランチ名は .git/HEAD を読むだけ (プロセス起動なし)。"""
-    _, branch = read_head()
-    return {"branch": branch or None, "merging": is_operation_in_progress() if state.HAS_WORKTREE else False}
+    """現在のブランチ名 (切り離されていれば None)、HEAD のコミット (まだコミットが無ければ None)、git 操作の途中かどうか。
+    ブランチ名とコミットは .git/HEAD を読むだけ (プロセス起動なし)。"""
+    head, branch = read_head()
+    return {"branch": branch or None, "head": head or None,
+            "merging": is_operation_in_progress() if state.HAS_WORKTREE else False}
 
 
 def amend_base():

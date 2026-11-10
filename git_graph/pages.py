@@ -33,6 +33,8 @@ PANE_RESIZE_JS = read_asset("pane_resize.js")
 WIP_DIFF_COMMIT_JS = read_asset("wip_diff_commit.js")
 WIP_DIFF_REMOTE_JS = read_asset("wip_diff_remote.js")
 DIFF_DIALOG_JS = read_asset("diff_dialog.js")
+MENUBAR_CSS = read_asset("menubar.css")
+PAGE_MENUBAR_JS = read_asset("page_menubar.js")
 MERGE_JS = read_asset("merge.js")
 MERGE_EDITOR_JS = read_asset("vendor/merge_editor.js")  # CodeMirror 6 をまとめたもの (tools/merge_editor でビルド)
 TEXT_EDITOR_JS = read_asset("vendor/text_editor.js")  # ファイル編集のエディタ (CodeMirror 6 + 言語 + Vim)。こちらも tools/merge_editor でビルド
@@ -44,6 +46,15 @@ REMOTE_TEXT_KEYS = (
     "what_branch", "confirm_push", "confirm_push_force", "push_cancelled", "operation_cancelled",
     "no_remotes", "push_no_commits", "running_remote", "http_auth", "auth_username", "auth_password",
     "authenticate", "prompt_push_remote", "confirm_set_upstream", "remote_unregistered",
+    "co_blocked_op", "co_blocked_hint_op", "co_modified", "co_untracked_op", "co_hint_stash", "co_hint_discard",
+    "co_stash_retry", "co_discard_retry",
+)
+# /diff と /files のメニューバー (ブランチ・タグの作成、再起動・終了、移動) が使う文言
+MENUBAR_TEXT_KEYS = (
+    "cancel", "ok", "create", "create_branch", "create_tag", "branch_name", "tag_name", "message_optional",
+    "checkout_after_create", "branch_name_required", "tag_name_required", "confirm_create_checkout",
+    "target_label", "compare_ab", "tip_go_commit", "mb_no_commit", "operation_cancelled",
+    "confirm_restart_server", "confirm_quit_server", "server_restarting", "server_stopped", "quit_failed",
     "co_blocked_op", "co_blocked_hint_op", "co_modified", "co_untracked_op", "co_hint_stash", "co_hint_discard",
     "co_stash_retry", "co_discard_retry",
 )
@@ -60,13 +71,14 @@ def page_nav_html(current, files_href=None, diff_href=None, graph_href="/"):
     graph_href に select_hash を付けると、グラフに戻ったときに選択を復元する。"""
     def item(kind, href, label_key, svg):
         label = html.escape(tr(label_key), quote=True)
+        ident = f'id="nav{kind.capitalize()}Btn"'  # /files の JS が、グラフへ戻るリンクと差分ボタンを付け替えるのに使う
         if kind == current:
-            return (f'<span class="iconbtn current" title="{label}" aria-label="{label}" aria-current="page">'
+            return (f'<span class="iconbtn current" {ident} title="{label}" aria-label="{label}" aria-current="page">'
                     f'{svg}</span>')
         if href:
-            return (f'<a class="iconbtn" href="{html.escape(href, quote=True)}" title="{label}" aria-label="{label}">'
+            return (f'<a class="iconbtn" {ident} href="{html.escape(href, quote=True)}" title="{label}" aria-label="{label}">'
                     f'{svg}</a>')
-        return (f'<button type="button" class="iconbtn" disabled title="{label}" aria-label="{label}">'
+        return (f'<button type="button" class="iconbtn" {ident} disabled title="{label}" aria-label="{label}">'
                 f'{svg}</button>')
     return (item("graph", graph_href, "nav_graph", _ICON_GRAPH)
             + item("files", files_href, "nav_files", _ICON_FILES)
@@ -79,6 +91,50 @@ NAV_BACK_BUTTON = ('<button type="button" class="iconbtn" onclick="history.back(
                    '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M13 8H3M7.5 3.5 3 8l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>')
 EXT_DIFF_JS = read_asset("ext_diff.js")
 DIFF_PATCH_JS = read_asset("diff_patch.js")
+
+
+def menubar_html(page, nav_html, *, commit="", wip=False):
+    """/diff と /files の、左右ペインにまたがるメニューバー。page は 'diff' | 'files'。
+    nav_html: 先頭に並べるアイコンボタン (ページ切り替え・戻る・再読み込み)。commit: 表示中のコミット (作業ツリーなどは空)。
+    push / pull / fetch は書き込めるときだけ。動作は page_menubar.js と wip_diff_remote.js。"""
+    attr = lambda key: html.escape(tr(key), quote=True)
+    text = lambda key: html.escape(tr(key))
+    remote = bar_has_remote()
+    remote_group = (
+        '<span class="mbsep"></span><div class="mbgroup">'
+        f'<button type="button" class="mbtn" data-remote="push" title="{attr("tip_push_head")}">{text("push")}</button>'
+        '<button type="button" class="mbtn" data-remote="pull">pull</button>'
+        '<button type="button" class="mbtn" data-remote="fetch">fetch</button></div>') if remote else ""
+    wip_btn = (f'<button type="button" class="mbtn" id="mbWip" title="{attr("tip_view_wip")}">WIP</button>'
+               if state.WIP_ENABLED else "")
+    items = []
+    if state.WRITABLE:
+        items += [("branch", "create_branch", ""), ("tag", "create_tag", "")]
+    items += [("restart", "quit_modal_restart", ""), ("quit", "quit", " danger")]
+    menu = "".join(f'<button type="button" class="mbtn{cls}" data-mb="{act}">{text(key)}</button>' for act, key, cls in items)
+    wip_attr = ' data-wip="1"' if wip else ""
+    return (
+        f'<div id="pageMenubar" role="menubar" data-page="{page}" data-commit="{html.escape(commit, quote=True)}"'
+        f'{wip_attr}>'
+        f'<div class="navbar">{nav_html}</div>{remote_group}'
+        f'<span class="mbsep"></span><div class="mbgroup">{wip_btn}'
+        f'<button type="button" class="mbtn" id="mbHead" title="{attr("tip_view_head")}">HEAD</button>'
+        '<span class="mbgroup" id="mbTargets"></span></div>'
+        '<span class="menu-wrap" id="mbOtherWrap">'
+        f'<button type="button" class="mbtn" id="mbOther" aria-haspopup="true" aria-expanded="false" aria-controls="mbOtherMenu">{text("other")}</button>'
+        f'<div class="dropdown" id="mbOtherMenu" hidden>{menu}</div></span>'
+        '<div id="mbmsg" role="status"></div></div>')
+
+
+def bar_has_remote():
+    """メニューバーに push / pull / fetch を出すか (書き込めて、作業ツリーを扱えるとき。変更がなくても出す)。"""
+    return bool(state.WRITABLE and state.WIP_ENABLED)
+
+
+def menubar_dialog_js(extra_keys=()):
+    """文言 T (メニューバーの分と extra_keys) と、入力ダイアログの共通部品 (diff_dialog.js)。ページに 1 度だけ入れる。"""
+    texts = {k: tr(k) for k in dict.fromkeys([*MENUBAR_TEXT_KEYS, *extra_keys])}
+    return "const T = " + json.dumps(texts, ensure_ascii=False).replace("</", "<\\/") + ";\n" + DIFF_DIALOG_JS
 
 
 WIP_DIR_COLLAPSE = 10
@@ -176,9 +232,10 @@ def render_diff_page(q):
     old = q.get("old", [""])[0]
     wip = q.get("wip", [""])[0]
     is_wip_compare = wip == "compare"
-    clean_wip_page = not path and wip == "unstaged"
+    no_file_page = not path  # ファイルを選んでいない表示 (WIP の一覧や、メニューバーから別のコミットへ移ったとき)。一覧だけを出す
     d = ({"diff": "", "encoding": "UTF-8", "truncated": False}
-         if clean_wip_page else api_diff(q))
+         if no_file_page else api_diff(q))
+    bar_commit = ""  # いま表示しているコミット (メニューバーでブランチ・タグの作成元にする)。作業ツリーだけの表示は空
     wip_status = None
     patch = None   # (ダウンロード用のパラメータ, ファイル名, ツールチップの翻訳キー)。パッチ作成ボタン用
     view_hash = None  # ファイル表示で開くコミット (None なら出さない)
@@ -192,6 +249,7 @@ def render_diff_page(q):
         cmd = f"git diff {a['hash'][:7]} -- {path}"
         patch = ({"from": a["hash"], "to": "WIP"}, f"{a['hash'][:7]}..wip.patch", "tip_patch_create_compare_wip")
         view_hash = WIP_HASH if wip_file_exists(path) else None
+        bar_commit = a["hash"]
     elif wip:  # 作業ツリーの変更
         if wip != "amend":
             wip_status = api_status({})
@@ -211,6 +269,7 @@ def render_diff_page(q):
         cmd = f"git diff {a['hash'][:7]} {b['hash'][:7]} -- {path}"
         patch = ({"from": a["hash"], "to": b["hash"]}, f"{a['hash'][:7]}..{b['hash'][:7]}.patch", "tip_patch_create_compare")
         view_hash = next((h for h in (b["hash"], a["hash"]) if file_exists_at(h, path)), None)  # B で消えたファイルは A で開く
+        bar_commit = b["hash"]
     else:
         c = api_commit(q)
         files, ctx, ref = c["files"], {"hash": c["hash"]}, c["hash"][:7]
@@ -222,7 +281,10 @@ def render_diff_page(q):
         cmd = f"git show {ref} -- {path}"
         patch = ({"hash": c["hash"]}, f"{ref}.patch", "tip_patch_create_commit")
         view_hash = next((h for h in [c["hash"], *c["parents"][:1]] if file_exists_at(h, path)), None)  # 削除されたファイルは親で開く
-    name = f"{old} => {path}" if old else path or tr("no_changes")
+        bar_commit = c["hash"]
+    if not path:
+        view_hash = None  # ファイルを選んでいないときは、ファイル表示へ飛ぶ先が無い (空のパスはルートのツリーとして存在してしまう)
+    name = f"{old} => {path}" if old else path or (tr("select_file") if files else tr("no_changes"))
     edit_link = ""
     if wip and state.WRITABLE and state.HAS_WORKTREE and wip_file_exists(path):  # 作業ツリーにあるファイルは編集画面へ
         edit_url = "/files?" + urlencode({"hash": WIP_HASH, "path": dir_of(path), "file": path, "view": "edit"})
@@ -263,14 +325,7 @@ def render_diff_page(q):
                      f'data-name="{html.escape(patch[1], quote=True)}" title="{attr_t(patch[2])}">{html.escape(tr("patch_create"))}</button>'
                      f'{apply_btns}</div><div class="hint" id="spmsg"></div>')
         patch_btn = ""  # 見出し側のパッチ作成は、左ペインのものと重複するので出さない
-    remote_bar = ""
-    can_remote = bool(wip and not is_wip_compare and wip != "amend" and state.WRITABLE and state.WIP_ENABLED)
-    if can_remote:  # グラフ画面のメニューバーと同じ push / pull / fetch (変更がなくても出す)
-        remote_bar = ('<div class="wipremote" id="sideRemote">'
-                      f'<button class="wbtn" data-remote="push" title="{html.escape(tr("tip_push_head"), quote=True)}">{html.escape(tr("push"))}</button>'
-                      '<button class="wbtn" data-remote="pull">pull</button>'
-                      '<button class="wbtn" data-remote="fetch">fetch</button></div>'
-                      '<div class="hint" id="rmsg"></div>')
+    remote_bar = bar_has_remote()  # グラフ画面と同じ push / pull / fetch は、メニューバーに出す (変更がなくても、どの差分ページでも)
     # マージ中と、チェリーピック / リバートの途中は、競合ファイルを含めて全部チェック済みが既定 (これで1つのコミットが終わる)
     merging = bool(wip_status and (wip_status.get("merging") or wip_status.get("applying")
                                    or wip_status.get("cherry_picking") or wip_status.get("reverting")))
@@ -379,12 +434,8 @@ def render_diff_page(q):
             "confirm_resolve", "confirm_resolve_current", "confirm_abort", "confirm_abort_stash",
         )
         commit_js = WIP_DIFF_COMMIT_JS
-    # 文言 T と共通のダイアログ部品は、コミット欄と push / pull 欄のどちらかがあるときに1度だけ入れる
-    text_keys = [*commit_keys, *(REMOTE_TEXT_KEYS if remote_bar else ())]
-    dialog_js = ""
-    if text_keys:
-        texts = {k: tr(k) for k in dict.fromkeys(text_keys)}
-        dialog_js = "const T = " + json.dumps(texts, ensure_ascii=False).replace("</", "<\\/") + ";\n" + DIFF_DIALOG_JS
+    # 文言 T と共通のダイアログ部品は、メニューバー・コミット欄・push / pull で共通なので、1度だけ入れる
+    dialog_js = menubar_dialog_js([*commit_keys, *(REMOTE_TEXT_KEYS if remote_bar else ())])
     remote_js = WIP_DIFF_REMOTE_JS if remote_bar else ""
     # グラフへ戻るとき、この差分のコミットを選択状態で復元する (作業ツリーだけの WIP は対象外)
     graph_href = "/"
@@ -397,16 +448,20 @@ def render_diff_page(q):
     if sel:
         graph_href = "/?" + urlencode({"select_hash": sel})
 
+    nav = (page_nav_html("diff", files_href=files_view_url(view_hash, path) if view_hash and path else None, graph_href=graph_href)
+           + NAV_BACK_BUTTON.format(label=html.escape(tr("back_prev"), quote=True))
+           + (NAV_RELOAD_BUTTON.format(label=html.escape(tr("reload_page"), quote=True)) if wip else ""))
+    menubar = menubar_html("diff", nav, commit=bar_commit, wip=bool(wip and not is_wip_compare))
     return f"""<!DOCTYPE html>
 <html lang="{state.UI_LANG}"><head><meta charset="utf-8">
 <title>{html.escape(state.PROJECT_NAME)} - {html.escape(path)} @ {ref}</title>
 {FAVICON_LINK}
-<style>{DIFF_CSS}</style></head><body>
+<style>{DIFF_CSS}{MENUBAR_CSS}</style></head><body>
+{menubar}
+<div id="panes">
 <div id="side">
-  <div class="navbar">{page_nav_html("diff", files_href=files_view_url(view_hash, path) if view_hash and path else None, graph_href=graph_href)}{NAV_BACK_BUTTON.format(label=html.escape(tr("back_prev"), quote=True))}{NAV_RELOAD_BUTTON.format(label=html.escape(tr("reload_page"), quote=True)) if wip else ""}</div>
   <div class="meta">{len(files)} {tr("files_changed")}</div>
   {patch_bar}
-  {remote_bar}
   {f'<div class="meta hint">{html.escape(tr("no_changes"))}</div>' if not files else ""}
   {commit_box}
   {"".join(side)}
@@ -420,13 +475,15 @@ def render_diff_page(q):
   <div class="meta"><code>{html.escape(cmd)}</code></div>
   <div class="meta">{html.escape(d["encoding"] or "binary")}</div>
   {'<p class="hint">' + tr("large_file_diff") + '</p>' if d["truncated"] else ""}
-  <div class="diff">{diff_lines_html(d["diff"]) or '<p class="hint">' + tr("no_diff") + '</p>'}</div>
+  <div class="diff">{diff_lines_html(d["diff"]) or ("" if no_file_page and files else '<p class="hint">' + tr("no_diff") + '</p>')}</div>
+</div>
 </div>
 <script>{COPY_JS}</script>
 <script>{PANE_RESIZE_JS}</script>
 <script>{fold_js}</script>
 <script>{dialog_js}</script>
 <script>{commit_js}</script>
+<script>{PAGE_MENUBAR_JS}</script>
 <script>{remote_js}</script>
 <script>{EXT_DIFF_JS if ext_diff else ""}</script>
 <script>{DIFF_PATCH_JS if patch_btn or patch_bar else ""}</script>
@@ -437,12 +494,20 @@ def render_diff_page(q):
 
 
 def render_files_page():
+    reload_btn = NAV_RELOAD_BUTTON.format(label=html.escape(tr("reload_page"), quote=True)).replace('id="rld"', 'id="reloadBtn" hidden')
+    nav = (page_nav_html("files")  # グラフへ戻るリンクと差分ボタンは、ページの JS が表示中のコミット / ファイルに合わせて付け替える
+           + NAV_BACK_BUTTON.format(label=html.escape(tr("back_prev"), quote=True)) + reload_btn)
+    remote = bar_has_remote()
+    menubar_js = menubar_dialog_js(REMOTE_TEXT_KEYS if remote else ()) + "\n" + PAGE_MENUBAR_JS + ("\n" + WIP_DIFF_REMOTE_JS if remote else "")
     return with_project(fill_template(FILES_PAGE)
             .replace('<html lang="ja">', f'<html lang="{state.UI_LANG}">')
+            .replace("/*__MENUBAR_CSS__*/", MENUBAR_CSS)
+            .replace("<!--__MENUBAR__-->", menubar_html("files", nav))
             .replace("/*__PANE_RESIZE__*/", PANE_RESIZE_JS)
             .replace("/*__FILE_I18N__*/", "const I18N = " + client_translations() + ";\n"
                      + "const CAN_COPY = " + ("true" if state.WRITABLE and state.HAS_WORKTREE else "false") + ";\n"
-                     + "const DESKTOP = " + ("true" if state.DESKTOP and state.WRITABLE and state.HAS_WORKTREE else "false") + ";"))
+                     + "const DESKTOP = " + ("true" if state.DESKTOP and state.WRITABLE and state.HAS_WORKTREE else "false") + ";")
+            .replace("/*__MENUBAR_JS__*/", menubar_js))
 
 
 def render_merge_page(q):

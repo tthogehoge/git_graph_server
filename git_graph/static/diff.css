@@ -1,6 +1,5 @@
 
   html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-size: 13px; color: #222; }
-  body { display: flex; }
   #side { width: 320px; flex: none; overflow: auto; border-right: 1px solid #ccc; background: #fafafa; padding: 10px; box-sizing: border-box; }
   #side a { display: flex; justify-content: space-between; gap: 8px; padding: 3px 6px; color: #06c; text-decoration: none;
             font-family: monospace; font-size: 12px; border-radius: 3px; word-break: break-all; }
@@ -18,9 +17,6 @@
   .cbox textarea { min-height: 56px; resize: vertical; }
   .cbox .arow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 6px; }
   .cbox .hint { white-space: pre-wrap; }
-  .wbtn { background: #1a7f37; color: #fff; border: 1px solid #176b30; padding: 3px 10px; border-radius: 3px; cursor: pointer; }
-  .wbtn:hover { background: #176b30; } .wbtn:disabled { opacity: .5; cursor: default; }
-  .wbtn.danger { background: #b42318; border-color: #912018; } .wbtn.danger:hover { background: #912018; }
   #sideSplitter { flex: 0 0 5px; cursor: col-resize; background: #eee; border-right: 1px solid #ccc; box-sizing: border-box; touch-action: none; }
   #sideSplitter:hover, #sideSplitter:focus-visible, body.resizing #sideSplitter { background: #c8d8f0; outline: none; }
   body.resizing { cursor: col-resize; user-select: none; }
@@ -46,17 +42,9 @@
   #side .dtog { display: inline-block; width: 1em; color: #666; }
   .ebtn { margin-left: 10px; font-size: 12px; font-weight: normal; background: #e8eefc; border: 1px solid #b8c7ee; color: #06c; padding: 2px 8px; border-radius: 3px; text-decoration: none; white-space: nowrap; }
   .ebtn:hover { background: #d6e2fb; }
-
-  .wipremote { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
-  #rmsg { white-space: pre-wrap; }
-  #dlg h3 { margin: 8px 0 2px; font-size: 13px; } #dlg ul { margin: 0 0 4px; padding-left: 20px; }
   .wippatch { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
   .wipres { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0 6px; }
   .wipop { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 6px 0; padding: 6px 8px; background: #fff8c5; border: 1px solid #d4a72c; border-radius: 3px; }
-  #dlgBg { position: fixed; inset: 0; background: rgba(0, 0, 0, .35); display: flex; align-items: center; justify-content: center; z-index: 50; }
-  #dlg { background: #fff; padding: 14px 16px; border-radius: 6px; min-width: 300px; max-width: 90vw; box-shadow: 0 4px 16px rgba(0, 0, 0, .3); }
-  #dlg h2 { margin: 0 0 8px; font-size: 15px; } #dlg label { display: block; margin: 6px 0; } #dlg input[type=text], #dlg select { width: 100%; box-sizing: border-box; }
-  #dlg .dbtns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
   .navbar { display: flex; gap: 6px; margin: 0 0 8px; }
   .navbar .iconbtn { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 28px; padding: 0; box-sizing: border-box; background: #e8eefc; border: 1px solid #b8c7ee; border-radius: 3px; color: #06c; cursor: pointer; text-decoration: none; }
   .navbar .iconbtn:hover { background: #d6e2fb; }

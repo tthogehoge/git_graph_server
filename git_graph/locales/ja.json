@@ -883,5 +883,11 @@
   "merge_next_diff": "次の差分",
   "merge_revert_chunk": "この差分を結果に取り込みます (赤い矢印は、競合全体をその側で解決します)",
   "merge_resize": "上下の高さを変える",
-  "merge_keys_hint": "ショートカット: Alt+↓ / Alt+↑ で次 / 前の競合、Alt+→ で ours、Alt+← で theirs を採用します (Shift を足すと両方)。方式を切り替えても、結果は引き継ぎます。"
+  "merge_keys_hint": "ショートカット: Alt+↓ / Alt+↑ で次 / 前の競合、Alt+→ で ours、Alt+← で theirs を採用します (Shift を足すと両方)。方式を切り替えても、結果は引き継ぎます。",
+  "tip_go_commit": "このコミットをこの画面で表示します (開いているファイル / ディレクトリは引き継ぎます)",
+  "mb_no_commit": "まだコミットがありません",
+  "confirm_restart_server": "サーバーを再起動しますか？ ページは自動でリロードされます。",
+  "confirm_quit_server": "サーバーを終了しますか？",
+  "tip_view_wip": "作業ツリー (WIP) をこの画面で表示します",
+  "tip_view_head": "HEAD のコミットをこの画面で表示します"
 }

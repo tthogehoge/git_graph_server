@@ -36,3 +36,31 @@ function field(form, labelText, el, isCheck) {
   return el;
 }
 function input(type, name, checked) { const el = document.createElement("input"); el.type = type; el.name = name; if (checked) el.checked = true; return el; }
+function selectEl(name, options, selected) {  // options: [[値, 表示], ...]
+  const s = document.createElement("select"); s.name = name;
+  options.forEach(([value, text]) => {
+    const o = document.createElement("option"); o.value = value; o.textContent = text;
+    if (value === selected) o.selected = true;
+    s.appendChild(o);
+  });
+  return s;
+}
+function listBlock(form, title, files) {  // 見出しつきのファイル一覧 (空なら何も出さない)
+  if (!files || !files.length) return;
+  const h = document.createElement("h3"), ul = document.createElement("ul");
+  h.textContent = title;
+  files.forEach(f => { const li = document.createElement("li"); li.textContent = f; ul.appendChild(li); });
+  form.append(h, ul);
+}
+function hintLine(form, text) { const p = document.createElement("p"); p.className = "hint"; p.textContent = text; form.appendChild(p); }
+// 編集中のファイルや管理外ファイルに操作 (pull / checkout) を止められたとき、stash / 破棄を選んでもらう (null = 取りやめ)。r は止まった結果、op は操作名
+async function askBlockedDialog(r, op) {
+  const v = await openDialog(fmt(T.co_blocked_op, {op: op}), form => {
+    hintLine(form, T.co_blocked_hint_op);
+    listBlock(form, T.co_modified, r.modified);
+    listBlock(form, T.co_untracked_op, r.untracked);
+    hintLine(form, T.co_hint_stash + "\n" + T.co_hint_discard);
+    form.appendChild(selectEl("mode", [["stash", T.co_stash_retry], ["discard", T.co_discard_retry]], "stash"));
+  }, T.ok);
+  return v ? v.mode : null;
+}
