@@ -502,6 +502,7 @@ function showDetail(h, fromHistory) {
 // 詳細表示中は ↑/↓ で同じ移動 (論理カーソルを先に進める)
 document.addEventListener("keydown", ev => {
   if (curView !== "detail" || !(detailNavCursor || curDetailHash)) return;
+  if (!ev.target.closest("#detailView")) return;
   const tag = ev.target && ev.target.tagName;
   if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
   if (document.querySelector('[id$="Modal"]:not([hidden])')) return;

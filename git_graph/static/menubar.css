@@ -13,6 +13,8 @@
   #compareControls { flex: 0 0 auto; position: relative; z-index: 6; padding: 4px 8px; border-bottom: 1px solid #ccc; background: #f4f5f7; }
   #compareControls [hidden] { display: none; }
   #compareToolbar { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+  #graph:focus-visible, #listView:focus-visible, #detailView:focus-visible,
+  #side:focus-visible, #tree:focus-visible, #main:focus-visible { outline: 2px solid #0969da; outline-offset: -2px; }
   #compareToolbar .sbtn { margin: 0; }
   #compareToolbar button { white-space: nowrap; }
   #compareToolbar button.cmp-hash-btn { border: 0; padding: 0; background: transparent; color: inherit; cursor: pointer; }

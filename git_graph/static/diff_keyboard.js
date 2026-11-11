@@ -87,6 +87,7 @@
     if (ev.altKey || ev.ctrlKey || ev.metaKey) return;
     if (isTypingTarget(ev.target)) return;
     if (ev.target === document.getElementById("sideSplitter")) return;
+    if (!ev.target.closest("#side")) return;
 
     const items = navItems();
     if (!items.length) return;

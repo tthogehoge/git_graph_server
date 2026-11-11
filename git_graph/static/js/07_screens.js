@@ -288,6 +288,44 @@ const menuToggles = [["cmpActToggle", "cmpActions"], ["abActToggle", "abActions"
 const menuButtons = menu => [...menu.querySelectorAll(".abtn")].filter(b => !b.disabled && !b.closest("[hidden]"));
 const toolbarItems = () => [...toolbar.querySelectorAll("button, a[href]")]
   .filter(b => !b.disabled && !b.closest(".dropdown, [hidden]"));
+const graphRegion = document.getElementById("graph"), panelRegion = document.getElementById("panel");
+const keyboardRegions = [toolbar, graphRegion, panelRegion];
+[toolbar, graphRegion, listView, detailView].forEach(region => { region.tabIndex = -1; });
+function focusKeyboardRegion(index) {
+  if (index === 0) {
+    closeMenus();
+    (toolbarItems()[0] || toolbar).focus();
+  } else if (index === 1) {
+    graphRegion.focus({preventScroll: true});
+  } else {
+    (curView === "detail" ? detailView : listView).focus({preventScroll: true});
+  }
+}
+function hasOpenKeyboardDialog() {
+  return [...document.querySelectorAll('[role="dialog"]')].some(el => !el.closest("[hidden]"));
+}
+document.addEventListener("keydown", ev => {
+  if (ev.defaultPrevented || hasOpenKeyboardDialog()) return;
+  if (ev.altKey && !ev.ctrlKey && !ev.metaKey && ev.key.toLowerCase() === "m") {
+    const target = ev.target;
+    if (target && (["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName) ||
+        target.isContentEditable || target.closest(".cm-editor"))) return;
+    ev.preventDefault();
+    focusKeyboardRegion(0);
+    return;
+  }
+  if (ev.key !== "F6" || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+  ev.preventDefault();
+  closeMenus();
+  const active = document.activeElement;
+  const current = keyboardRegions.findIndex(region => region.contains(active) ||
+    (region === graphRegion && active.id === "splitter"));
+  const direction = ev.shiftKey ? -1 : 1;
+  const next = current < 0
+    ? (direction > 0 ? 0 : keyboardRegions.length - 1)
+    : (current + direction + keyboardRegions.length) % keyboardRegions.length;
+  focusKeyboardRegion(next);
+});
 toolbar.addEventListener("click", ev => {
   if (ev.detail !== 0) return;
   const toggle = ev.target.closest("#cmpActToggle, #abActToggle, #otherMenuBtn");
@@ -367,6 +405,7 @@ document.addEventListener("keydown", ev => {
 // ログ一覧でも詳細と同じく ↑/↓ で選択を上下に移し、Enter でコミット詳細を開く
 document.addEventListener("keydown", ev => {
   if (curView !== "list") return;
+  if (!ev.target.closest("#panel")) return;
   if (document.body.classList.contains("compare-logs-mode")) return;  // 比較ログは左右2列なので対象外
   if (ev.key !== "ArrowUp" && ev.key !== "ArrowDown" && ev.key !== "Enter") return;
   const tag = ev.target && ev.target.tagName;
@@ -453,6 +492,32 @@ function onNodeClick(g, n, ev) {
   showLog("git log --oneline " + esc(n.hash.slice(0, 7)), n.hash,
           chips(n.hash) + '<div class="meta">' + t("all_log_to_root") + '</div>');
 }
+graphRegion.addEventListener("keydown", ev => {
+  if (ev.defaultPrevented || hasOpenKeyboardDialog()) return;
+  if (!["ArrowUp", "ArrowDown", "Home", "End", "Enter"].includes(ev.key)) return;
+  const items = [...graphRegion.querySelectorAll("svg g.node")].map(el => {
+    const title = el.querySelector("title");
+    const node = title && DATA.nodes[title.textContent];
+    return node ? {el: el, node: node} : null;
+  }).filter(Boolean);
+  if (!items.length) return;
+  let index = items.findIndex(item => item.el === selected || item.node.hash === selectedKey);
+  if (index < 0 && actionHash) index = items.findIndex(item => item.node.hash === actionHash);
+  if (ev.key === "Enter") {
+    if (index < 0) return;
+    ev.preventDefault();
+    onNodeClick(items[index].el, items[index].node, null);
+    return;
+  }
+  if (index < 0) index = ev.key === "ArrowUp" || ev.key === "End" ? items.length : -1;
+  const next = ev.key === "ArrowUp" ? index - 1
+    : ev.key === "ArrowDown" ? index + 1
+      : ev.key === "Home" ? 0 : items.length - 1;
+  if (next < 0 || next >= items.length) return;
+  ev.preventDefault();
+  select(items[next].el);
+  ensureGraphVisible(items[next].el, false);
+});
 
 // ---- コミットをドラッグ&ドロップして A / B にセットする (ドラッグ元が A、ドロップ先が B) ----
 // グラフのノードとログ一覧の行のどちらも、ドラッグ元にもドロップ先にもなれる (図→図 / 行→図 / 図→行 / 行→行)。

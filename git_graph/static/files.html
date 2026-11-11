@@ -267,10 +267,12 @@ document.addEventListener("keydown", ev => {
   if (ev.key !== "ArrowUp" && ev.key !== "ArrowDown" && ev.key !== "ArrowLeft" &&
       ev.key !== "ArrowRight" && ev.key !== "Enter") return;
   if (ev.altKey || ev.ctrlKey || ev.metaKey) return;
+  if (ev.target.closest("#compareToolbar")) return;
   const tag = ev.target && ev.target.tagName;
   if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || tag === "BUTTON") return;
   if (ev.target && (ev.target.isContentEditable || ev.target.closest(".cm-editor"))) return;
   if (ev.target === document.getElementById("sideSplitter")) return;  // スプリッタの ←→ は幅変更に使う
+  if (!ev.target.closest("#tree")) return;
   const rows = [...list.querySelectorAll(".entry")];
   if (!rows.length) return;
 

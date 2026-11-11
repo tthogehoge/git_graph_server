@@ -132,6 +132,45 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
   const menuButtons = menu => [...menu.querySelectorAll(".abtn")].filter(b => !b.disabled && !b.closest("[hidden]"));
   const toolbarItems = () => [...bar.querySelectorAll("button, a[href]")]
     .filter(b => !b.disabled && !b.closest(".dropdown, [hidden]"));
+  const leftPane = $("tree") || $("side"), mainPane = $("main");
+  const regions = [bar, leftPane, mainPane].filter(Boolean);
+  regions.forEach(region => { region.tabIndex = -1; });
+  function focusRegion(region) {
+    if (region === bar) {
+      closeMenus();
+      (toolbarItems()[0] || bar).focus();
+    } else if (region === mainPane) {
+      const target = [...mainPane.querySelectorAll("button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled)")]
+        .find(el => !el.closest("[hidden]"));
+      (target || mainPane).focus({preventScroll: true});
+    } else if (region) region.focus({preventScroll: true});
+  }
+  function hasOpenDialog() {
+    return [...document.querySelectorAll('[role="dialog"], #dlgBg')]
+      .some(el => !el.closest("[hidden]"));
+  }
+  document.addEventListener("keydown", ev => {
+    if (ev.defaultPrevented || hasOpenDialog()) return;
+    if (ev.altKey && !ev.ctrlKey && !ev.metaKey && ev.key.toLowerCase() === "m") {
+      const target = ev.target;
+      if (target && (["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName) ||
+          target.isContentEditable || target.closest(".cm-editor"))) return;
+      ev.preventDefault();
+      focusRegion(bar);
+      return;
+    }
+    if (ev.key !== "F6" || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+    ev.preventDefault();
+    closeMenus();
+    const active = document.activeElement;
+    const current = regions.findIndex(region => region.contains(active) ||
+      (region === leftPane && active.id === "sideSplitter"));
+    const direction = ev.shiftKey ? -1 : 1;
+    const next = current < 0
+      ? (direction > 0 ? 0 : regions.length - 1)
+      : (current + direction + regions.length) % regions.length;
+    focusRegion(regions[next]);
+  });
   menus.forEach(([b, m]) => $(b).addEventListener("click", ev => {
     ev.stopPropagation();
     const open = $(m).hidden;
