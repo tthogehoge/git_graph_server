@@ -45,14 +45,6 @@
   .wippatch { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
   .wipres { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0 6px; }
   .wipop { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 6px 0; padding: 6px 8px; background: #fff8c5; border: 1px solid #d4a72c; border-radius: 3px; }
-  .navbar { display: flex; gap: 6px; margin: 0 0 8px; }
-  .navbar .iconbtn { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 28px; padding: 0; box-sizing: border-box; background: #e8eefc; border: 1px solid #b8c7ee; border-radius: 3px; color: #06c; cursor: pointer; text-decoration: none; }
-  .navbar .iconbtn:hover { background: #d6e2fb; }
-  .navbar .iconbtn.current { background: #c5d4f7; border-color: #7a96d8; color: #034; cursor: default; }
-  .navbar .iconbtn.current:hover { background: #c5d4f7; }
-  .navbar .iconbtn:disabled { opacity: .45; cursor: default; background: #f0f0f0; border-color: #ccc; color: #888; }
-  .navbar .iconbtn:disabled:hover { background: #f0f0f0; }
-  .navbar span.iconbtn { border-style: solid; }
   button.ebtn { font: inherit; font-size: 12px; font-weight: normal; cursor: pointer; }
   button.ebtn:disabled { opacity: .5; cursor: default; }
   #xmsg { white-space: pre-wrap; } #xmsg.err { color: #c00; }

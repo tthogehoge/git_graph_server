@@ -4,6 +4,7 @@ import codecs
 import html
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -820,8 +821,8 @@ class WorkingTreeFilesTests(unittest.TestCase):
 
     def test_files_page_has_a_reload_button_that_is_shown_only_for_the_working_tree(self):
         page = viewer.render_files_page()
-        self.assertIn('id="reloadBtn" hidden', page)  # 最初は隠しておき、WIP 表示のときだけスクリプトが出す
-        self.assertIn("reloadBtn.hidden = !isWip", page)
+        self.assertIn('id="reloadBtn" class="sbtn iconbtn" disabled', page)  # 最初は無効にしておき、WIP 表示のときだけスクリプトが有効にする
+        self.assertIn("reloadBtn.disabled = !isWip", page)
         self.assertNotIn("{{", page)  # 翻訳キーの置き換え漏れがない
 
     def test_blame_marks_uncommitted_lines(self):
@@ -973,13 +974,14 @@ class WorkingTreeFilesTests(unittest.TestCase):
         self.addCleanup(setattr, state, "WRITABLE", previous[0])
         self.addCleanup(setattr, state, "WIP_ENABLED", previous[1])
         state.WRITABLE = state.WIP_ENABLED = True
-        button = '<button type="button" class="iconbtn" id="rld"'
+        button = '<button id="rld" class="sbtn iconbtn" title'
         wip = viewer.render_diff_page({"path": ["README.md"], "wip": ["unstaged"]})
         self.assertIn(button, wip)
         self.assertIn("git-graph-diff-scroll", wip)  # スクロール位置を戻すスクリプトも入っている
         self.assertIn(button, viewer.render_diff_page({"from": [self.head], "wip": ["compare"], "path": ["README.md"]}))
         commit_page = viewer.render_diff_page({"hash": [self.head], "path": ["README.md"]})
         self.assertNotIn(button, commit_page)
+        self.assertIn('<button id="rld" class="sbtn iconbtn" disabled', commit_page)  # 作業ツリーの表示でなければ、更新ボタンは無効
         self.assertNotIn("git-graph-diff-scroll", commit_page)
         state.WRITABLE = False
         self.assertNotIn("view=edit", viewer.render_diff_page({"path": ["README.md"], "wip": ["unstaged"]}))
@@ -1703,59 +1705,83 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         for query in ({"wip": ["unstaged"]}, {"path": ["tracked.txt"], "wip": ["unstaged"]}):
             page = viewer.render_diff_page(query)
             for act in ("push", "pull", "fetch"):
-                self.assertIn(f'data-remote="{act}"', page)
+                self.assertIn(f'data-cact="{act}"', page)
             self.assertIn('"/api/push-targets"', page)
             self.assertLess(page.index("const T = "), page.index("function openDialog"))
             self.assertEqual(page.count("const T = "), 1)
-        state.WRITABLE = False  # 読み取り専用では出さない
+        state.WRITABLE = False  # 読み取り専用では、ボタンは出したまま (JS が無効にする)。push の部品は入れない
         page = viewer.render_diff_page({"wip": ["unstaged"]})
-        self.assertNotIn('data-remote="push"', page)
+        self.assertIn('data-writable="0"', page)
         self.assertNotIn("/api/push-targets", page)
 
-    def test_diff_and_files_pages_have_a_full_width_menubar(self):
+    def toolbar_of(self, page):
+        """ページ中の共通メニューバー (compareControls) の部分。"""
+        start = page.index('id="compareControls"')
+        return page[start:page.index('id="panes"', start)]
+
+    def test_all_screens_share_one_full_width_menubar(self):
+        # グラフ / ファイル表示 / 差分の 3 画面は、同じ定義 (static/menubar.html) から作った同じメニューバーを、左右のペインの外 (全幅) に持つ
+        from git_graph.i18n import render_main_page
         previous = (state.WRITABLE, state.WIP_ENABLED)
         self.addCleanup(setattr, state, "WRITABLE", previous[0])
         self.addCleanup(setattr, state, "WIP_ENABLED", previous[1])
         state.WRITABLE = state.WIP_ENABLED = True
         head = self.git("rev-parse", "HEAD").strip()
         pages = {
+            "graph": render_main_page(),
+            "files": viewer.render_files_page(),
             "diff-commit": viewer.render_diff_page({"hash": [head], "path": ["tracked.txt"]}),
             "diff-commit-no-file": viewer.render_diff_page({"hash": [head]}),  # メニューバーの移動先。ファイルを選んでいなくても開ける
             "diff-wip": viewer.render_diff_page({"wip": ["unstaged"]}),
-            "files": viewer.render_files_page(),
         }
+        reload_ids = ("reload", "rld", "reloadBtn")  # 再読み込みボタンの id だけは、画面ごとに違う
+        id_sets = {}
         for name, page in pages.items():
             with self.subTest(name):
-                self.assertEqual(page.count('id="pageMenubar"'), 1)
-                self.assertLess(page.index('id="pageMenubar"'), page.index('id="panes"'))  # メニューバーは左右ペインの外 (全面にまたがる)
-                for element in ('id="mbWip"', 'id="mbHead"', 'id="mbTargets"', 'id="mbOtherMenu"',
-                                'data-mb="branch"', 'data-mb="tag"', 'data-mb="restart"', 'data-mb="quit"'):
+                self.assertEqual(page.count('id="compareControls"'), 1)
+                self.assertLess(page.index('id="compareControls"'), page.index('id="panes"'))  # 左右ペインの外 = 全幅
+                bar = self.toolbar_of(page)
+                ids = [i for i in re.findall(r'\bid="(\w+)"', bar) if i not in reload_ids]
+                self.assertEqual(len(ids), len(set(ids)), "id が重複している")
+                id_sets[name] = set(ids)
+                self.assertEqual(sum(f'id="{i}"' in bar for i in reload_ids), 1)
+                for element in ('id="wipBtn"', 'id="topBtn"', 'id="actionTarget"', 'id="cmpA"', 'id="cmpB"', 'id="swapAbBtn"',
+                                'id="clearCmpBtn"', 'id="graphZoomReset"', 'id="otherActions"', 'id="quitBtn"', 'id="undoBtn"',
+                                'id="mergeBtn"', 'id="rebaseBtn"', 'data-cact="branch"', 'data-cact="tag"', 'data-cact="checkout"',
+                                'id="quitModal"'):
                     self.assertIn(element, page)
                 for act in ("push", "pull", "fetch"):
-                    self.assertIn(f'data-remote="{act}"', page)
-                self.assertEqual(page.count("const T = "), 1)
-                self.assertLess(page.index("const T = "), page.index("function openDialog"))
-                self.assertIn("function mbSay", page)
+                    self.assertIn(f'data-cact="{act}"', bar)
+                self.assertNotIn("{{", page)
+        graph_ids = id_sets.pop("graph")
+        for name, ids in id_sets.items():
+            self.assertEqual(ids ^ graph_ids, set(), f"{name}: グラフのメニューバーと項目が違う")
+        for name in ("files", "diff-commit", "diff-wip"):
+            self.assertEqual(pages[name].count("const T = "), 1)
+            self.assertLess(pages[name].index("const T = "), pages[name].index("function openDialog"))
+            self.assertIn("function mbSay", pages[name])
         self.assertIn(f'data-commit="{head}"', pages["diff-commit"])
         self.assertIn('data-wip="1"', pages["diff-wip"])
         self.assertIn('data-page="files"', pages["files"])
+        self.assertIn('data-page="graph"', pages["graph"])
         self.assertNotIn("sideRemote", pages["diff-wip"])  # push / pull は左ペインではなくメニューバーにある
         self.assertIn('id="navGraphBtn"', pages["files"])  # ファイル表示の JS が付け替えるボタンが、メニューバーの中にある
-        self.assertIn('id="reloadBtn"', pages["files"])
 
-    def test_menubar_hides_write_actions_when_read_only(self):
+    def test_menubar_marks_unavailable_actions_by_capability_flags(self):
+        # できない操作は隠さず無効にする。書き込み・作業ツリーが使えないことは、メニューバーの data 属性で JS に伝える
         previous = (state.WRITABLE, state.WIP_ENABLED)
         self.addCleanup(setattr, state, "WRITABLE", previous[0])
         self.addCleanup(setattr, state, "WIP_ENABLED", previous[1])
         state.WRITABLE = False
         state.WIP_ENABLED = True
         for page in (viewer.render_diff_page({"wip": ["unstaged"]}), viewer.render_files_page()):
-            self.assertNotIn('data-remote="push"', page)
-            self.assertNotIn("/api/push-targets", page)
-            self.assertNotIn('data-mb="branch"', page)
-            self.assertNotIn('data-mb="tag"', page)
-            self.assertIn('data-mb="quit"', page)  # 終了と再起動は読み取り専用でも使える
-            self.assertIn('id="mbHead"', page)
+            self.assertIn('data-writable="0"', page)
+            self.assertNotIn("/api/push-targets", page)  # push の部品は入れない
+            self.assertIn('data-cact="branch"', page)  # 項目は出したまま (JS が無効にする)
+            self.assertIn('id="quitBtn"', page)
+        state.WRITABLE = True
+        self.assertIn('data-writable="1"', viewer.render_files_page())
+        self.assertIn('data-worktree="1"', viewer.render_files_page())
 
     def test_wip_pages_link_back_to_the_graph_with_wip_selected(self):
         # WIP を選んだままグラフ - ファイル - 差分と移っても、グラフへ戻ると WIP が選ばれている (HEAD に飛ばない)
@@ -1778,8 +1804,8 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         for q in queries:
             with self.subTest(q):
                 page = viewer.render_diff_page(q)
-                self.assertRegex(page, r'<a class="iconbtn" id="navFilesBtn" href="/files\?hash=')
-                self.assertRegex(page, r'<a class="iconbtn" id="navGraphBtn" href="/')
+                self.assertRegex(page, r'<a class="sbtn iconbtn page-nav" id="navFilesBtn" href="/files\?hash=')
+                self.assertRegex(page, r'<a class="sbtn iconbtn page-nav" id="navGraphBtn" href="/')
                 self.assertNotRegex(page, r'<button[^>]*id="navFilesBtn"')
 
     def test_commit_diff_page_without_a_file_lists_the_files(self):
@@ -3548,14 +3574,15 @@ class ExternalAppsTests(unittest.TestCase):
 
     def test_navigation_icon_buttons_and_quit_in_other_menu(self):
         diff = viewer.render_diff_page({"hash": [self.second], "path": ["a.txt"]})
-        self.assertIn('class="iconbtn current"', diff)  # 差分ページは差分アイコンを強調
-        self.assertIn('onclick="history.back()"', diff)
+        self.assertIn('class="iconbtn current page-nav"', diff)  # 差分ページは差分アイコンを強調
+        self.assertIn('id="backBtn"', diff)
         self.assertIn(f'href="/?select_hash={self.second}"', diff)  # グラフへ (戻ったとき選択コミットを復元する)
         files = viewer.render_files_page()
-        self.assertIn('class="iconbtn" id="navGraphBtn" href="/"', files)  # グラフへ (選択コミットの復元は JS が href を書き換える)
+        self.assertIn('class="sbtn iconbtn page-nav" id="navGraphBtn" href="/"', files)  # グラフへ (選択コミットの復元は JS が href を書き換える)
         self.assertIn('id="navDiffBtn"', files)
-        self.assertIn('onclick="history.back()"', files)
-        index = (Path(viewer.__file__).parent / "static" / "index.html").read_text(encoding="utf-8")
+        self.assertIn('id="backBtn"', files)
+        from git_graph.i18n import render_main_page
+        index = render_main_page()
         other = index[index.index('id="otherActions"'):]
         other = other[:other.index("</div>")]  # 「その他」メニューは、<div class="dropdown"> の中 (項目の button の中に <span> があるので、</span> では切れない)
         self.assertIn('id="quitBtn"', other)  # 終了ボタンは「その他」メニューの中
@@ -3568,7 +3595,8 @@ class ExternalAppsTests(unittest.TestCase):
         self.assertEqual(index.count('id="quitBtn"'), 1)
 
     def test_main_page_menubar_layout(self):
-        index = (Path(viewer.__file__).parent / "static" / "index.html").read_text(encoding="utf-8")
+        from git_graph.i18n import render_main_page
+        index = render_main_page()
         row2 = index[index.index('id="menubarRow2"'):]  # 2行目: HEAD / WIP と対象・A・B、右端にズーム
         self.assertLess(index.index('id="backBtn"'), index.index('id="menubarRow2"'))
         self.assertIn('id="graphZoomReset"', row2)  # ズーム表示は2行目

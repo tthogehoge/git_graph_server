@@ -4,8 +4,8 @@ import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC = os.path.join(ROOT, "git_graph", "static")
-# ページに直接書かれていて、pages.py が埋め込まないもの (メイン画面の骨格と CSS、/files と /merge ページの HTML)
-NOT_EMBEDDED = {"index.html", "files.html", "merge.html", "app.css"}
+# ページに直接書かれていて、pages.py が埋め込まないもの (メイン画面の骨格と CSS、/files と /merge ページの HTML、全画面共通のメニューバーの HTML。いずれも i18n.py が読む)
+NOT_EMBEDDED = {"index.html", "files.html", "merge.html", "menubar.html", "app.css"}
 
 
 def read(*parts):

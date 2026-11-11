@@ -1,21 +1,34 @@
-// /diff と /files の、左右ペインにまたがるメニューバー (#pageMenubar) の動作。
-// WIP / HEAD / 対象・A・B (グラフで選んでいたコミット) への移動と、「その他」(ブランチ作成・タグ作成・再起動・終了)。
+// ファイル表示 / 差分ページの、共通メニューバー (static/menubar.html。グラフ画面と同じ部品) の動作。
+// グラフ画面では js/ の部品が同じ部品を動かすので、ここは data-page がグラフ以外のときだけ働く。
+// 方針: その画面でできる操作はその場で行い、できない操作は隠さず無効にする (理由は title に出す)。
 // push / pull / fetch は wip_diff_remote.js。ダイアログの部品 (openDialog など) は diff_dialog.js、文言は T。
-function mbSay(text, state) {  // メニューバーのメッセージ欄。state: true = 成功 / false = 失敗 / "progress" (または省略) = 実行中・案内
+function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / false = 失敗 / "progress" (または省略) = 実行中・案内
   const el = document.getElementById("mbmsg");
   if (!el) return;
   el.textContent = text || "";
   el.className = state === true ? "ok" : state === false ? "ng" : "";
 }
 (function () {
-  const bar = document.getElementById("pageMenubar");
-  if (!bar) return;
+  const bar = document.getElementById("compareToolbar");
+  if (!bar || bar.dataset.page === "graph") return;
+  const $ = id => document.getElementById(id);
   const page = bar.dataset.page;  // "files" | "diff"
-  const here = bar.dataset.commit || "";  // いま表示しているコミット (作業ツリーなどは空)
   const q = new URLSearchParams(location.search);
+  const HASH = /^[0-9a-f]{7,40}$/;
+  // いま表示しているコミット (作業ツリーなどは空)。差分はサーバーが data-commit に入れ、ファイル表示は URL の hash
+  const here = bar.dataset.commit || (page === "files" && HASH.test(q.get("hash") || "") ? q.get("hash") : "");
+  const writable = bar.dataset.writable === "1", worktree = bar.dataset.worktree === "1";
   const go = url => { location.href = url; };
   const getJson = url => fetch(url).then(r => r.ok ? r.json() : r.text().then(m => { throw new Error(m || r.status); }));
   const fail = e => mbSay(e.message, false);
+
+  // 選択 (対象 / A / B)。グラフ画面と同じ sessionStorage に残すので、グラフへ戻っても引き継がれる
+  const KEY = "git_graph_ui_sel";
+  const load = () => { try { const o = JSON.parse(sessionStorage.getItem(KEY) || "null"); return o && typeof o === "object" ? o : {}; } catch (e) { return {}; } };
+  const sel = load();
+  for (const k of ["compareA", "compareB", "actionHash"]) if (!HASH.test(sel[k] || "")) sel[k] = null;
+  const save = () => { try { sessionStorage.setItem(KEY, JSON.stringify({compareA: sel.compareA, compareB: sel.compareB, actionHash: sel.actionHash})); } catch (e) { /* 保存できなくても動作には影響しない */ } };
+  const target = () => sel.actionHash || here;  // 操作の対象: グラフで選んだコミット、無ければ表示中のコミット
 
   // 指定したコミットを、いまと同じ種類のページで開く。開いているディレクトリ / ファイルはそのまま引き継ぐ (無ければページ側が案内する)
   function viewUrl(hash) {
@@ -37,59 +50,101 @@ function mbSay(text, state) {  // メニューバーのメッセージ欄。stat
     return r.head;
   }
 
-  const wipBtn = document.getElementById("mbWip"), headBtn = document.getElementById("mbHead");
-  if (wipBtn) {
-    const onWip = page === "files" ? q.get("hash") === "WIP" : bar.dataset.wip === "1";
-    if (onWip) wipBtn.classList.add("mbhere");
-    wipBtn.addEventListener("click", () => go(viewUrl("WIP")));
-  }
-  if (headBtn) headBtn.addEventListener("click", () => headCommit().then(h => go(viewUrl(h))).catch(fail));
+  // ---- この画面でできる操作 (id → 動作)。ここに無いボタンは、下で無効にする ----
+  const can = {};  // ボタン要素 → 有効かどうかの関数
+  const enable = (el, fn) => { if (el) can[el.id || (el.dataset.cact && "cact:" + el.dataset.cact)] = fn || (() => true); };
 
-  // グラフ画面で選んでいた 対象 / A / B (sessionStorage にグラフが残している) への移動
-  const targets = document.getElementById("mbTargets");
-  let sel = null;
-  try { sel = JSON.parse(sessionStorage.getItem("git_graph_ui_sel") || "null"); } catch (e) { /* 読めなければ出さない */ }
-  if (targets && sel) {
-    const addTarget = (label, hash) => {
-      if (!/^[0-9a-f]{7,40}$/.test(hash || "")) return;
-      const b = document.createElement("button");
-      b.type = "button"; b.className = "mbtn mbhash" + (hash === here ? " mbhere" : "");
-      b.textContent = label + ": " + hash.slice(0, 7);
-      b.title = T.tip_go_commit;
-      b.addEventListener("click", () => go(viewUrl(hash)));
-      targets.appendChild(b);
-    };
-    addTarget(T.target_label, sel.actionHash);
-    addTarget("A", sel.compareA);
-    addTarget("B", sel.compareB);
-    if (page === "diff" && /^[0-9a-f]{7,40}$/.test(sel.compareA || "") && /^[0-9a-f]{7,40}$/.test(sel.compareB || "")) {
-      const b = document.createElement("button");  // A と B の間の差分
-      b.type = "button"; b.className = "mbtn"; b.textContent = T.compare_ab;
-      b.addEventListener("click", () => {
-        const p = new URLSearchParams({from: sel.compareA, to: sel.compareB});
-        if (q.get("path")) p.set("path", q.get("path"));
-        go("/diff?" + p);
-      });
-      targets.appendChild(b);
-    }
-  }
+  $("backBtn").addEventListener("click", () => history.back());
+  $("wipBtn").addEventListener("click", () => go(viewUrl("WIP")));
+  $("topBtn").addEventListener("click", () => headCommit().then(h => go(viewUrl(h))).catch(fail));
 
-  // 「その他」メニュー
-  const wrap = document.getElementById("mbOtherWrap"), toggle = document.getElementById("mbOther"), menu = document.getElementById("mbOtherMenu");
-  const closeMenu = () => { menu.hidden = true; toggle.setAttribute("aria-expanded", "false"); };
-  toggle.addEventListener("click", ev => {
-    ev.stopPropagation();
-    menu.hidden = !menu.hidden;
-    toggle.setAttribute("aria-expanded", String(!menu.hidden));
+  const hashButtons = [["actionTarget", () => T.target_label, "actionHash"], ["cmpA", () => "A", "compareA"], ["cmpB", () => "B", "compareB"]];
+  hashButtons.forEach(([id, label, key]) => $(id).addEventListener("click", () => { if (sel[key]) go(viewUrl(sel[key])); }));
+  $("swapAbBtn").addEventListener("click", () => { [sel.compareA, sel.compareB] = [sel.compareB, sel.compareA]; save(); refresh(); });
+  $("clearCmpBtn").addEventListener("click", () => { sel.compareA = sel.compareB = sel.actionHash = null; save(); refresh(); });
+  for (const slot of ["A", "B"]) {
+    const key = "compare" + slot;
+    $("set" + slot + "Btn").addEventListener("click", () => {  // 設定済みなら解除 (グラフ画面と同じ)
+      const h = target();
+      if (!h) return;
+      sel[key] = sel[key] === h ? null : h;
+      save(); closeMenus(); refresh();
+    });
+    $("unset" + slot + "Btn").addEventListener("click", () => { sel[key] = null; save(); closeMenus(); refresh(); });
+  }
+  $("compareBtn").addEventListener("click", () => {  // A と B の間の差分
+    const p = new URLSearchParams({from: sel.compareA, to: sel.compareB});
+    if (q.get("path")) p.set("path", q.get("path"));
+    go("/diff?" + p);
   });
-  document.addEventListener("click", ev => { if (!wrap.contains(ev.target)) closeMenu(); });
-  document.addEventListener("keydown", ev => { if (ev.key === "Escape" && !menu.hidden) closeMenu(); });
 
-  // ブランチ・タグを作る元のコミット: 表示中のコミット。作業ツリーなど、コミットが無い表示なら HEAD
+  // ---- 状態に合わせて、表示と有効 / 無効を決める ----
+  const abIds = ["unsetABtn", "unsetBBtn", "compareBtn", "compareLogsBtn", "mergeIntoBtn", "cherryOntoBtn", "rebaseOntoBtn", "resetBranchBtn",
+                 "rebaseRangeBtn", "rebaseDescendantsBtn", "rebaseEquivalentBtn", "findEquivalentParentsBtn", "findEquivalentBranchBtn"];
+  function refresh() {
+    const A = sel.compareA, B = sel.compareB, h = target();
+    hashButtons.forEach(([id, label, key]) => {
+      const el = $(id);
+      el.textContent = sel[key] ? label() + ": " + sel[key].slice(0, 7) : "";
+      el.hidden = !sel[key];
+      el.title = T.tip_go_commit;
+    });
+    $("swapAbBtn").hidden = !A || !B;
+    $("clearCmpBtn").disabled = !A && !B && !sel.actionHash;
+    $("cmpActToggle").disabled = !h;
+    $("abActToggle").disabled = !A || !B;
+    $("actionsEmpty").hidden = !!h;
+    $("aActions").hidden = !h;
+    $("setABtn").textContent = h && A === h ? T.unset_a : T.set_as_a;
+    $("setBBtn").textContent = h && B === h ? T.unset_b : T.set_as_b;
+    $("unsetABtn").hidden = !A; $("unsetBBtn").hidden = !B;
+    ["compareBtn", ...abIds.slice(3)].forEach(id => { $(id).hidden = !A || !B; });
+    $("wipBtn").classList.toggle("mbhere", page === "files" ? q.get("hash") === "WIP" : bar.dataset.wip === "1");
+    $("topBtn").classList.remove("mbhere");
+    hashButtons.forEach(([id, label, key]) => $(id).classList.toggle("mbhere", !!here && sel[key] === here));
+  }
+
+  // この画面でできない操作は、隠さず無効にする。できるかどうかは can の関数 (無ければ常にできない) で決める
+  enable($("setABtn")); enable($("setBBtn")); enable($("unsetABtn")); enable($("unsetBBtn")); enable($("compareBtn"));
+  enable($("quitBtn")); enable($("clearCmpBtn")); enable($("swapAbBtn")); enable($("backBtn"));
+  enable($("wipBtn"), () => worktree); enable($("topBtn"));
+  enable(bar.querySelector('[data-cact="branch"]'), () => writable); enable(bar.querySelector('[data-cact="tag"]'), () => writable);
+  bar.querySelectorAll("#remoteActions [data-cact]").forEach(b => enable(b, () => writable && worktree));
+  function applyUnavailable() {
+    const skip = new Set(["actionTarget", "cmpA", "cmpB", "cmpActToggle", "abActToggle", "otherMenuBtn", "reload", "rld", "reloadBtn", "navGraphBtn", "navFilesBtn", "navDiffBtn", "clearCmpBtn"]);
+    bar.querySelectorAll("button").forEach(b => {
+      if (skip.has(b.id)) return;
+      const id = b.id || (b.dataset.cact && "cact:" + b.dataset.cact);
+      const f = can[id];
+      if (f && f()) return;
+      b.disabled = true;
+      b.title = T.mb_unavailable;
+    });
+  }
+  // 元に戻す / やり直す (グラフ画面の操作の履歴を使う) は、この画面ではまだ使えない
+  applyUnavailable();
+  refresh();
+
+  // ---- メニューの開閉 (操作 / AB操作 / その他) ----
+  const menus = [["cmpActToggle", "cmpActions"], ["abActToggle", "abActions"], ["otherMenuBtn", "otherActions"]];
+  const closeMenus = () => menus.forEach(([b, m]) => { $(m).hidden = true; $(b).setAttribute("aria-expanded", "false"); });
+  menus.forEach(([b, m]) => $(b).addEventListener("click", ev => {
+    ev.stopPropagation();
+    const open = $(m).hidden;
+    closeMenus();
+    $(m).hidden = !open;
+    $(b).setAttribute("aria-expanded", String(open));
+  }));
+  document.addEventListener("click", ev => { if (!ev.target.closest(".menu-wrap")) closeMenus(); });
+  document.addEventListener("keydown", ev => { if (ev.key === "Escape") closeMenus(); });
+  bar.querySelectorAll(".dropdown .abtn").forEach(b => b.addEventListener("click", () => closeMenus()));
+
+  // ---- ブランチ・タグの作成 (操作の対象のコミットに対して) ----
   async function targetCommit() {
-    if (here) return here;
-    const h = page === "files" ? q.get("hash") : "";
-    return /^[0-9a-f]{7,40}$/.test(h || "") ? h : headCommit();
+    const h = target();
+    if (HASH.test(h || "")) return h;
+    const f = page === "files" ? q.get("hash") : "";
+    return HASH.test(f || "") ? f : headCommit();  // 作業ツリーの表示で何も選んでいなければ HEAD
   }
   async function createBranch() {
     const h = await targetCommit();
@@ -123,8 +178,13 @@ function mbSay(text, state) {  // メニューバーのメッセージ欄。stat
     const r = await postJson("/api/tag", {hash: h, name: name, message: (v.message || "").trim()});
     mbSay(r.message, true);
   }
-  async function stopServer(action) {  // サーバーを再起動 / 終了する (グラフ画面の「終了」と同じ API)
-    if (!confirm(action === "restart" ? T.confirm_restart_server : T.confirm_quit_server)) return;
+  bar.querySelector('[data-cact="branch"]').addEventListener("click", () => createBranch().catch(fail));
+  bar.querySelector('[data-cact="tag"]').addEventListener("click", () => createTag().catch(fail));
+
+  // ---- 終了 / 再起動 (グラフ画面と同じ確認ダイアログ) ----
+  const quitModal = $("quitModal");
+  async function stopServer(action) {
+    quitModal.hidden = true;
     try {
       await postJson(action === "restart" ? "/api/restart" : "/api/shutdown", {});
     } catch (e) {
@@ -138,11 +198,8 @@ function mbSay(text, state) {  // メニューバーのメッセージ欄。stat
       setTimeout(tryReload, 1000);
     }
   }
-  menu.addEventListener("click", ev => {
-    const item = ev.target.closest("[data-mb]");
-    if (!item) return;
-    closeMenu();
-    const act = item.dataset.mb;
-    Promise.resolve().then(() => act === "branch" ? createBranch() : act === "tag" ? createTag() : stopServer(act)).catch(fail);
-  });
+  $("quitBtn").addEventListener("click", () => { quitModal.hidden = false; $("quitModalQuit").focus(); });
+  $("quitModalCancel").addEventListener("click", () => { quitModal.hidden = true; });
+  $("quitModalQuit").addEventListener("click", () => stopServer("quit"));
+  $("quitModalRestart").addEventListener("click", () => stopServer("restart"));
 })();

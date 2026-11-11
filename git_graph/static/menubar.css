@@ -1,29 +1,80 @@
 
-  /* /diff と /files で共通の、左右ペインにまたがるメニューバー (グラフ画面のメニューバーと同じ見た目) */
+  /* 全画面 (グラフ / ファイル表示 / 差分) 共通のメニューバーと、その部品の CSS。/static/app.css の先頭にも連結して配る */
   html, body { height: 100%; }
   body { display: flex; flex-direction: column; }
-  #panes { flex: 1 1 auto; min-height: 0; display: flex; }
-  #pageMenubar { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 5px 10px; box-sizing: border-box;
-                 background: #f3f5fa; border-bottom: 1px solid #ccc; position: relative; z-index: 20; }
-  #pageMenubar .navbar { margin: 0; }
-  #pageMenubar .mbgroup { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 2px; }
-  #pageMenubar .mbsep { align-self: stretch; width: 1px; margin: 2px 2px; background: #ccd3e6; }
-  #pageMenubar .mbtn { font: inherit; color: inherit; height: 28px; padding: 0 10px; box-sizing: border-box; white-space: nowrap; cursor: pointer;
-                       background: transparent; border: 1px solid transparent; border-radius: 3px; }
-  #pageMenubar .mbtn:hover { background: #dde6fa; border-color: #b8c7ee; }
-  #pageMenubar .mbtn[aria-expanded="true"] { background: #cfdcf8; border-color: #9fb4e8; }
-  #pageMenubar .mbtn:disabled { opacity: .5; cursor: default; background: transparent; border-color: transparent; }
-  #pageMenubar .mbtn.mbhash { font-family: monospace; }
-  #pageMenubar .mbtn.mbhere { background: #ffe9a0; border-color: #e0c968; }  /* いま表示しているコミット */
-  #pageMenubar .menu-wrap { position: relative; display: inline-block; margin-left: auto; }
-  #pageMenubar .dropdown { position: absolute; top: calc(100% + 2px); right: 0; z-index: 30; display: flex; flex-direction: column; gap: 2px;
-                           box-sizing: border-box; min-width: 200px; padding: 6px; background: #fff; border: 1px solid #ccc; border-radius: 4px; box-shadow: 0 2px 8px #0003; }
-  #pageMenubar .dropdown[hidden] { display: none; }
-  #pageMenubar .dropdown .mbtn { text-align: left; height: auto; padding: 5px 10px; }
-  #pageMenubar .dropdown .mbtn.danger { color: #b42318; }
-  #mbmsg { flex: 1 0 100%; margin: 0; white-space: pre-wrap; word-break: break-word; color: #666; }
+  #panes { flex: 1 1 auto; min-height: 0; display: flex; }  /* メニューバーの下の、左右のペイン */
+  .sbtn { background: #ddd; border: none; padding: 4px 8px; border-radius: 3px; cursor: pointer; margin: 0 6px 8px 0; }
+  .sbtn:hover { background: #ccc; }
+  a.iconbtn { text-decoration: none; color: inherit; }
+  #mbmsg { flex: 1 0 100%; order: 9; margin: 0; white-space: pre-wrap; word-break: break-word; color: #666; }
   #mbmsg:empty { display: none; }
   #mbmsg.ok { color: #1a7f37; } #mbmsg.ng { color: #cf222e; }
+  .abtn.unavailable, .abtn:disabled { opacity: .5; cursor: default; }
+  #compareControls { flex: 0 0 auto; position: relative; z-index: 6; padding: 4px 8px; border-bottom: 1px solid #ccc; background: #f4f5f7; }
+  #compareControls [hidden] { display: none; }
+  #compareToolbar { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+  #compareToolbar .sbtn { margin: 0; }
+  #compareToolbar button { white-space: nowrap; }
+  #compareToolbar button.cmp-hash-btn { border: 0; padding: 0; background: transparent; color: inherit; cursor: pointer; }
+  #compareToolbar button.cmp-hash-btn:hover { text-decoration: underline; }
+  .menu-check { display: inline-flex; align-items: center; justify-content: space-between; gap: 8px; user-select: none; }
+  .menu-check input { margin: 0; flex: none; pointer-events: none; }
+  .dropdown .menu-check { align-self: stretch; }
+  .sbtn.danger { background: #fde8e8; } .sbtn.danger:hover { background: #fbd3d3; }
+  .sbtn.iconbtn { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 26px; padding: 0; margin: 0; box-sizing: border-box; }
+  .sbtn.iconbtn.current, span.iconbtn.current.page-nav {
+    background: #c5d4f7; border: 1px solid #7a96d8; color: #034; cursor: default;
+  }
+  span.iconbtn.page-nav {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 30px; height: 26px; padding: 0; margin: 0; box-sizing: border-box;
+    background: #e8eefc; border: 1px solid #b8c7ee; border-radius: 3px; color: #06c;
+  }
+  .menubar-left { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; order: 0; min-width: 0; }  /* 幅が狭いときは折り返して、右ペインにはみ出さない */
+  .menubar-group { display: flex; align-items: center; gap: 2px; }
+  .menubar-spacer { flex: 0 0 8px; order: 1; }  /* 全幅のメニューバーなので、メニューは左に寄せて並べる */
+  #remoteActions { order: 2; }
+  #cmpActionsWrap { order: 4; }
+  #abActionsWrap { order: 5; }
+  #otherActionsWrap { order: 6; }
+  /* 2行目: HEAD / WIP と、対象・A・B の表示。幅が足りなければ、さらに次の行へ折り返す */
+  .menubar-row2 { order: 8; flex: 1 0 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; }
+  #menubarRow2 #graphZoomReset { margin-left: auto; }  /* 2行目の右端 */
+  #compareToolbar > .cmp-hash { order: 7; }
+  .abtn.mbtn { background: transparent; border-color: transparent; padding: 4px 10px; }
+  .abtn.mbtn:hover { background: #dde6fa; border-color: #b8c7ee; }
+  .abtn.mbtn[aria-expanded="true"] { background: #cfdcf8; border-color: #9fb4e8; }
+  .abtn.mbtn:disabled { background: transparent; border-color: transparent; }
+  .menu-wrap { position: relative; display: inline-block; }
+  .dropdown { position: absolute; top: calc(100% + 2px); left: 0; z-index: 20; display: flex; flex-direction: column; gap: 4px; box-sizing: border-box; min-width: 220px; max-width: min(440px, calc(100vw - 24px)); max-height: calc(100vh - 90px); overflow: auto; padding: 6px; border: 1px solid #ccc; border-radius: 4px; background: #fff; box-shadow: 0 2px 8px #0003; }
+  /* 右端のメニューは右ペイン側へはみ出さないよう右端を基準に開く。 */
+  #otherActionsWrap .dropdown { left: auto; right: 0; }  /* 一番右のメニューは、画面の右端からはみ出さないよう右端を基準に開く */
+  #cmpActions.near-pointer, #abActions.near-pointer { position: fixed; top: var(--menu-top); left: var(--menu-left); right: auto; }
+  .dropdown[hidden] { display: none; }
+  .dropdown .abtn { text-align: left; }
+  .dropdown .hint { margin: 2px 4px; }
+  #cmpActions label { white-space: nowrap; }
+  #cmpActions select { max-width: 100%; }
+  .menu-row { display: flex; flex-direction: column; gap: 4px; }
+  .menu-row > .abtn { align-self: stretch; text-align: left; }
+  .menu-section { display: flex; flex-direction: column; gap: 4px; }
+  .menu-separator { border: 0; border-top: 1px solid #ccc; width: 100%; margin: 0; }
+  #compareControls .cmp-hash { font-family: monospace; white-space: nowrap; }
+  #compareControls #actionTarget { color: #d22; }
+  #compareControls #cmpA { color: #06c; }
+  #compareControls #cmpB { color: #e8590c; }
+  .abtn { display: inline-block; background: #e8eefc; border: 1px solid #b8c7ee; padding: 3px 8px; border-radius: 3px; cursor: pointer; text-decoration: none; color: inherit; font: inherit; box-sizing: border-box; }
+  .abtn[aria-disabled="true"] { opacity: .5; cursor: default; pointer-events: none; }
+  .abtn:hover { background: #d6e2fb; } .abtn:disabled { opacity: .5; cursor: default; }
+  .abtn.danger { background: #fde8e8; border-color: #eeb8b8; } .abtn.danger:hover { background: #fbd3d3; }
+  .sbtn:disabled { opacity: .5; cursor: default; }
+  #coModal, #actionModal, #quitModal, #confirmModal { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+  #coModal[hidden] { display: none; }
+  #actionModal[hidden] { display: none; }
+  #quitModal[hidden], #confirmModal[hidden] { display: none; }
+  .comodal { background: #fff; border-radius: 6px; padding: 14px 16px; max-width: 560px; max-height: 80vh; overflow: auto; box-shadow: 0 4px 20px rgba(0,0,0,.3); }
+  .comodal ul { margin: 2px 0 8px; padding-left: 20px; font-family: monospace; word-break: break-all; }
+  .comodal .arow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 
   /* 入力ダイアログ (push / pull / ブランチ作成など)。/diff の WIP とメニューバーの両方で、/files でも使う */
   .wbtn { background: #1a7f37; color: #fff; border: 1px solid #176b30; padding: 3px 10px; border-radius: 3px; cursor: pointer; }

@@ -75,15 +75,6 @@ __FAVICON__
   .edit-bar button.primary { background: #1a7f37; border-color: #1a7f37; color: #fff; }
   .edit-bar button:disabled { opacity: .5; cursor: default; }
   .file-actions button:disabled { opacity: .5; cursor: default; }
-  .navbar { display: flex; gap: 6px; margin: 0 0 8px; }
-  .navbar .iconbtn { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 28px; padding: 0; box-sizing: border-box; background: #e8eefc; border: 1px solid #b8c7ee; border-radius: 3px; color: #06c; cursor: pointer; text-decoration: none; }
-  .navbar .iconbtn:hover { background: #d6e2fb; }
-  .navbar .iconbtn.current { background: #c5d4f7; border-color: #7a96d8; color: #034; cursor: default; }
-  .navbar .iconbtn.current:hover { background: #c5d4f7; }
-  .navbar .iconbtn:disabled { opacity: .45; cursor: default; background: #f0f0f0; border-color: #ccc; color: #888; }
-  .navbar .iconbtn:disabled:hover { background: #f0f0f0; }
-  .navbar span.iconbtn { border-style: solid; }
-  .navbar .iconbtn[hidden] { display: none; }
 /*__MENUBAR_CSS__*/
 </style></head>
 <body>
@@ -905,7 +896,7 @@ window.onpopstate = () => restoreFromUrl(false);
 // 更新ボタン (作業ツリーの表示だけ): 一覧と開いているファイル / 表示を、いまの作業ツリーから読み直す。
 // コミットの内容は変わらないので、コミット表示では出さない。編集中の変更は、捨ててよいか確認してから読み直す
 const reloadBtn = document.getElementById("reloadBtn");
-reloadBtn.hidden = !isWip || !hash;
+reloadBtn.disabled = !isWip || !hash;  // 作業ツリーのときだけ使える (それ以外は無効)
 reloadBtn.onclick = () => {
   if (reloadBtn.disabled) return;
   const viewerScroll = textEditor && !editing ? {path: currentFile, top: textEditor.getScrollTop()} : null;  // leaveEdit() が閉じる前に控える

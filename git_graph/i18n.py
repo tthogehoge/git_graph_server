@@ -21,11 +21,13 @@ TRANSLATIONS = {lang: json.loads((LOCALES_DIR / f"{lang}.json").read_text(encodi
 HTML_TEMPLATE = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
 FILES_PAGE = (STATIC_DIR / "files.html").read_text(encoding="utf-8")
 MERGE_PAGE = (STATIC_DIR / "merge.html").read_text(encoding="utf-8")
+MENUBAR_TEMPLATE = (STATIC_DIR / "menubar.html").read_text(encoding="utf-8")  # 全画面共通のメニューバー (pages.menubar_html が使う)
 # ブラウザ側の JavaScript は static/js/ の部品 (番号順) を連結して、/static/app.js として配る。
 # 部品の境界を示すコメントを挟むので、ブラウザーのエラーに出る行番号から元のファイルを探せる。
 APP_JS = "".join(f"/* ---- js/{path.name} ---- */\n" + path.read_text(encoding="utf-8")
                  for path in sorted((STATIC_DIR / "js").glob("*.js")))
-APP_CSS = (STATIC_DIR / "app.css").read_text(encoding="utf-8")
+# 共通のメニューバーの CSS (menubar.css) を先頭に連結する。ファイル表示 / 差分ページは menubar.css だけを埋め込む
+APP_CSS = (STATIC_DIR / "menubar.css").read_text(encoding="utf-8") + (STATIC_DIR / "app.css").read_text(encoding="utf-8")
 _FAVICON_SVG = ("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'>"
                 "<path d='M16 7V25M16 16C16 11 24 13 24 7' stroke='#889' stroke-width='3' fill='none'/>"
                 "<circle cx='16' cy='25' r='4' fill='#2c7be5'/><circle cx='16' cy='16' r='4' fill='#2c7be5'/>"
@@ -83,7 +85,8 @@ def with_project(page):
     return page.replace("__PROJECT__", html.escape(state.PROJECT_NAME)).replace("__FAVICON__", FAVICON_LINK)
 
 def render_main_page():
-    return with_project(fill_template(HTML_TEMPLATE)
+    from .pages import menubar_html  # pages は i18n を使うので、循環しないよう呼ぶときに読み込む
+    return with_project(fill_template(HTML_TEMPLATE.replace("<!--__MENUBAR__-->", menubar_html("graph")))
             .replace('<html lang="ja">', f'<html lang="{state.UI_LANG}">'))
 
 def render_app_js():
@@ -178,7 +181,7 @@ def check_i18n():
 __all__ = [
     "read_asset",
     "FILES_PAGE", "MERGE_PAGE",
-    "APP_CSS", "APP_JS", "DEFAULT_LANG", "FAVICON_LINK", "HTML_TEMPLATE",
+    "APP_CSS", "APP_JS", "DEFAULT_LANG", "FAVICON_LINK", "HTML_TEMPLATE", "MENUBAR_TEMPLATE",
     "TRANSLATIONS", "UserError", "check_i18n", "client_translations",
     "detect_language", "fill_template", "render_app_js", "render_main_page",
     "tr", "with_project",

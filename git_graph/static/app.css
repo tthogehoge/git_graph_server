@@ -1,5 +1,4 @@
 html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-size: 13px; color: #222; }
-  body { display: flex; }
   #graphWrap { flex: 1; min-width: 0; position: relative; background: #fff; display: flex; flex-direction: column; }
   #graph { flex: 1 1 auto; min-height: 0; position: relative; overflow: auto; padding: 12px; box-sizing: border-box; }
   #graphStatus { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); z-index: 5;
@@ -13,66 +12,12 @@ html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-s
   .graph-toast.error { color: #cf222e; border-color: #e7a0a4; }
   .graph-toast-message { flex: 1; min-width: 0; }
   .graph-toast-close { flex: none; border: 0; background: transparent; color: inherit; cursor: pointer; font: inherit; padding: 0 2px; }
-  #compareControls { flex: 0 0 auto; position: relative; z-index: 6; padding: 4px 8px; border-bottom: 1px solid #ccc; background: #f4f5f7; }
-  #compareControls [hidden] { display: none; }
-  #compareToolbar { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
-  #compareToolbar .sbtn { margin: 0; }
-  #compareToolbar button { white-space: nowrap; }
-  #compareToolbar button.cmp-hash-btn { border: 0; padding: 0; background: transparent; color: inherit; cursor: pointer; }
-  #compareToolbar button.cmp-hash-btn:hover { text-decoration: underline; }
-  .menu-check { display: inline-flex; align-items: center; justify-content: space-between; gap: 8px; user-select: none; }
-  .menu-check input { margin: 0; flex: none; pointer-events: none; }
-  .dropdown .menu-check { align-self: stretch; }
   #reload.busy svg { animation: spin 1s linear infinite; }
   body.node-dragging, body.node-dragging svg g.node { cursor: grabbing; user-select: none; -webkit-user-select: none; }
   g.node.drag-src, tr.drag-src { opacity: .55; }
   tr.drop-target { outline: 2px solid #e67e00; outline-offset: -2px; }
   g.node.drop-target { filter: drop-shadow(0 0 3px #e67e00); }
   #dragTip { position: fixed; z-index: 1000; pointer-events: none; background: #333; color: #fff; font: 12px monospace; padding: 2px 6px; border-radius: 3px; white-space: pre; }
-  .sbtn.danger { background: #fde8e8; } .sbtn.danger:hover { background: #fbd3d3; }
-  .sbtn.iconbtn { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 26px; padding: 0; margin: 0; box-sizing: border-box; }
-  .sbtn.iconbtn.current, span.iconbtn.current.page-nav {
-    background: #c5d4f7; border: 1px solid #7a96d8; color: #034; cursor: default;
-  }
-  span.iconbtn.page-nav {
-    display: inline-flex; align-items: center; justify-content: center;
-    width: 30px; height: 26px; padding: 0; margin: 0; box-sizing: border-box;
-    background: #e8eefc; border: 1px solid #b8c7ee; border-radius: 3px; color: #06c;
-  }
-  .menubar-left { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; order: 0; min-width: 0; }  /* 幅が狭いときは折り返して、右ペインにはみ出さない */
-  .menubar-group { display: flex; align-items: center; gap: 2px; }
-  .menubar-spacer { flex: 1 1 auto; order: 1; }
-  #remoteActions { order: 2; }
-  #cmpActionsWrap { order: 4; }
-  #abActionsWrap { order: 5; }
-  #otherActionsWrap { order: 6; }
-  /* 2行目: HEAD / WIP と、対象・A・B の表示。幅が足りなければ、さらに次の行へ折り返す */
-  .menubar-row2 { order: 8; flex: 1 0 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; }
-  #menubarRow2 #graphZoomReset { margin-left: auto; }  /* 2行目の右端 */
-  #compareToolbar > .cmp-hash { order: 7; }
-  .abtn.mbtn { background: transparent; border-color: transparent; padding: 4px 10px; }
-  .abtn.mbtn:hover { background: #dde6fa; border-color: #b8c7ee; }
-  .abtn.mbtn[aria-expanded="true"] { background: #cfdcf8; border-color: #9fb4e8; }
-  .abtn.mbtn:disabled { background: transparent; border-color: transparent; }
-  .menu-wrap { position: relative; display: inline-block; }
-  .dropdown { position: absolute; top: calc(100% + 2px); left: 0; z-index: 20; display: flex; flex-direction: column; gap: 4px; box-sizing: border-box; min-width: 220px; max-width: min(440px, calc(100vw - 24px)); max-height: calc(100vh - 90px); overflow: auto; padding: 6px; border: 1px solid #ccc; border-radius: 4px; background: #fff; box-shadow: 0 2px 8px #0003; }
-  /* 右端のメニューは右ペイン側へはみ出さないよう右端を基準に開く。 */
-  #cmpActionsWrap, #abActionsWrap, #otherActionsWrap { position: static; }
-  #cmpActionsWrap .dropdown, #abActionsWrap .dropdown, #otherActionsWrap .dropdown { left: auto; right: 0; }
-  #cmpActions.near-pointer, #abActions.near-pointer { position: fixed; top: var(--menu-top); left: var(--menu-left); right: auto; }
-  .dropdown[hidden] { display: none; }
-  .dropdown .abtn { text-align: left; }
-  .dropdown .hint { margin: 2px 4px; }
-  #cmpActions label { white-space: nowrap; }
-  #cmpActions select { max-width: 100%; }
-  .menu-row { display: flex; flex-direction: column; gap: 4px; }
-  .menu-row > .abtn { align-self: stretch; text-align: left; }
-  .menu-section { display: flex; flex-direction: column; gap: 4px; }
-  .menu-separator { border: 0; border-top: 1px solid #ccc; width: 100%; margin: 0; }
-  #compareControls .cmp-hash { font-family: monospace; white-space: nowrap; }
-  #compareControls #actionTarget { color: #d22; }
-  #compareControls #cmpA { color: #06c; }
-  #compareControls #cmpB { color: #e8590c; }
   #splitter { flex: 0 0 6px; cursor: col-resize; background: #eee; border-left: 1px solid #ccc; border-right: 1px solid #ccc; box-sizing: border-box; touch-action: none; }
   #splitter:hover, body.resizing #splitter { background: #c8d8f0; }
   body.resizing { cursor: col-resize; user-select: none; }
@@ -98,20 +43,12 @@ html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-s
   .actions { border: 1px solid #ddd; background: #fafafa; border-radius: 4px; padding: 8px; margin: 8px 0; }
   .actions .arow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0; }
   .actions input[type=text] { padding: 3px 6px; border: 1px solid #bbb; border-radius: 3px; min-width: 0; flex: 1; }
-  .abtn { display: inline-block; background: #e8eefc; border: 1px solid #b8c7ee; padding: 3px 8px; border-radius: 3px; cursor: pointer; text-decoration: none; color: inherit; font: inherit; box-sizing: border-box; }
-  .abtn[aria-disabled="true"] { opacity: .5; cursor: default; pointer-events: none; }
-  .abtn:hover { background: #d6e2fb; } .abtn:disabled { opacity: .5; cursor: default; }
   .detail-actions { display: flex; flex-wrap: wrap; gap: 2px 12px; margin: 0 0 8px; }
   .detail-files, .detail-patch { color: #06c; font-size: 13px; font-weight: normal; text-decoration: none; }
   .detail-files:hover, .detail-patch:hover { text-decoration: underline; }
   .wippatch { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
-  #coModal, #actionModal, #quitModal, #confirmModal { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-  #coModal[hidden] { display: none; }
-  #actionModal[hidden] { display: none; }
-  #quitModal[hidden], #confirmModal[hidden] { display: none; }
   .confirm-msg { white-space: pre-wrap; margin-bottom: 8px; }
   #confirmModalInput { width: 100%; box-sizing: border-box; margin-bottom: 8px; }
-  .comodal { background: #fff; border-radius: 6px; padding: 14px 16px; max-width: 560px; max-height: 80vh; overflow: auto; box-shadow: 0 4px 20px rgba(0,0,0,.3); }
   .action-dialog { background: #fff; border-radius: 6px; padding: 14px 16px; width: min(420px, calc(100vw - 48px)); max-height: 80vh; overflow: auto; box-shadow: 0 4px 20px rgba(0,0,0,.3); }
   .action-dialog h2 { font-size: 16px; margin: 0 0 12px; }
   .action-fields { display: flex; flex-direction: column; gap: 10px; }
@@ -121,8 +58,6 @@ html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-s
   .action-fields input[type=text], .action-fields select { box-sizing: border-box; width: 100%; padding: 5px 7px; }
   .dialog-buttons { display: flex; justify-content: flex-end; gap: 6px; margin-top: 14px; }
   .dialog-buttons button { margin: 0; }
-  .comodal ul { margin: 2px 0 8px; padding-left: 20px; font-family: monospace; word-break: break-all; }
-  .comodal .arow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
   .action-dialog.wide { width: min(760px, calc(100vw - 48px)); }
   .ri-note { color: #555; margin-bottom: 4px; }
   .ri-list { display: flex; flex-direction: column; gap: 4px; }
@@ -139,11 +74,9 @@ html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-s
   .ri-row.drop { background: #f6f6f6; } .ri-row.drop .ri-subj { text-decoration: line-through; color: #999; }
   .ri-row.squash, .ri-row.fixup { margin-left: 22px; background: #f3f8ff; }
   #actionError { margin-top: 8px; white-space: pre-wrap; } #actionError:empty { display: none; }
-  .abtn.danger { background: #fde8e8; border-color: #eeb8b8; } .abtn.danger:hover { background: #fbd3d3; }
   h3 { font-size: 13px; margin: 10px 0 2px; }
   .st { display: inline-block; min-width: 1.3em; text-align: center; font-weight: bold; color: #fff; border-radius: 2px; margin-right: 4px; }
   .stM { background: #d29922; } .stA { background: #1a7f37; } .stD { background: #cf222e; } .stR { background: #6f42c1; } .stU { background: #cf222e; } .stN { background: #888; }
-  .sbtn:disabled { opacity: .5; cursor: default; }
   table.log { border-collapse: collapse; width: 100%; margin-top: 6px; }
   table.log td { border-bottom: 1px solid #e3e3e3; padding: 4px; vertical-align: top; }
   table.log tr.clickable { cursor: pointer; }
@@ -254,8 +187,8 @@ html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-s
   g.node.cmpB polygon { stroke: #e8590c; stroke-width: 3; }
   g.edge.sel path { stroke: #d22; stroke-width: 2.5; } g.edge.sel polygon { stroke: #d22; fill: #d22; }
   g.edge path.hit { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke; }
-  .back-btn, .sbtn { background: #ddd; border: none; padding: 4px 8px; border-radius: 3px; cursor: pointer; margin: 0 6px 8px 0; }
-  .back-btn:hover, .sbtn:hover { background: #ccc; }
+  .back-btn { background: #ddd; border: none; padding: 4px 8px; border-radius: 3px; cursor: pointer; margin: 0 6px 8px 0; }
+  .back-btn:hover { background: #ccc; }
   .detail-nav-bar { display: inline-flex; align-items: center; gap: 2px; margin: 0 0 8px; }
   .detail-nav-bar .sbtn.iconbtn { margin: 0; }
   .detail-nav-bar .sbtn.iconbtn:disabled { opacity: .4; cursor: default; }

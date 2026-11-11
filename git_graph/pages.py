@@ -8,7 +8,7 @@ from urllib.parse import urlencode
 from . import app_state as state
 from .history import api_commit, api_compare, api_diff
 from .i18n import (
-    client_translations, FAVICON_LINK, FILES_PAGE, fill_template, MERGE_PAGE, read_asset, tr, UserError,
+    client_translations, FAVICON_LINK, FILES_PAGE, fill_template, MENUBAR_TEMPLATE, MERGE_PAGE, read_asset, tr, UserError,
     with_project,
 )
 from .external import configured
@@ -49,12 +49,12 @@ REMOTE_TEXT_KEYS = (
     "co_blocked_op", "co_blocked_hint_op", "co_modified", "co_untracked_op", "co_hint_stash", "co_hint_discard",
     "co_stash_retry", "co_discard_retry",
 )
-# /diff と /files のメニューバー (ブランチ・タグの作成、再起動・終了、移動) が使う文言
+# /diff と /files の共通メニューバー (page_menubar.js) が使う文言
 MENUBAR_TEXT_KEYS = (
     "cancel", "ok", "create", "create_branch", "create_tag", "branch_name", "tag_name", "message_optional",
     "checkout_after_create", "branch_name_required", "tag_name_required", "confirm_create_checkout",
-    "target_label", "compare_ab", "tip_go_commit", "mb_no_commit", "operation_cancelled",
-    "confirm_restart_server", "confirm_quit_server", "server_restarting", "server_stopped", "quit_failed",
+    "target_label", "tip_go_commit", "mb_no_commit", "mb_unavailable", "operation_cancelled",
+    "set_as_a", "set_as_b", "unset_a", "unset_b", "server_restarting", "server_stopped", "quit_failed",
     "co_blocked_op", "co_blocked_hint_op", "co_modified", "co_untracked_op", "co_hint_stash", "co_hint_discard",
     "co_stash_retry", "co_discard_retry",
 )
@@ -71,63 +71,43 @@ def page_nav_html(current, files_href=None, diff_href=None, graph_href="/"):
     graph_href に select_hash を付けると、グラフに戻ったときに選択を復元する。"""
     def item(kind, href, label_key, svg):
         label = html.escape(tr(label_key), quote=True)
-        ident = f'id="nav{kind.capitalize()}Btn"'  # /files の JS が、グラフへ戻るリンクと差分ボタンを付け替えるのに使う
+        ident = f'id="nav{kind.capitalize()}Btn"'  # グラフ / ファイル表示の JS が、リンクやボタンを付け替えるのに使う
         if kind == current:
-            return (f'<span class="iconbtn current" {ident} title="{label}" aria-label="{label}" aria-current="page">'
+            return (f'<span class="iconbtn current page-nav" {ident} title="{label}" aria-label="{label}" aria-current="page">'
                     f'{svg}</span>')
         if href:
-            return (f'<a class="iconbtn" {ident} href="{html.escape(href, quote=True)}" title="{label}" aria-label="{label}">'
+            return (f'<a class="sbtn iconbtn page-nav" {ident} href="{html.escape(href, quote=True)}" title="{label}" aria-label="{label}">'
                     f'{svg}</a>')
-        return (f'<button type="button" class="iconbtn" {ident} disabled title="{label}" aria-label="{label}">'
+        return (f'<button type="button" class="sbtn iconbtn page-nav" {ident} disabled title="{label}" aria-label="{label}">'
                 f'{svg}</button>')
     return (item("graph", graph_href, "nav_graph", _ICON_GRAPH)
             + item("files", files_href, "nav_files", _ICON_FILES)
             + item("diff", diff_href, "nav_diff", _ICON_DIFF))
 
 
-NAV_RELOAD_BUTTON = ('<button type="button" class="iconbtn" id="rld" title="{label}" aria-label="{label}">'
-                     '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M13.5 8a5.5 5.5 0 1 1-1.7-4M13 2.5v3.2h-3.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>')
-NAV_BACK_BUTTON = ('<button type="button" class="iconbtn" onclick="history.back()" title="{label}" aria-label="{label}">'
-                   '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M13 8H3M7.5 3.5 3 8l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>')
 EXT_DIFF_JS = read_asset("ext_diff.js")
 DIFF_PATCH_JS = read_asset("diff_patch.js")
 
 
-def menubar_html(page, nav_html, *, commit="", wip=False):
-    """/diff と /files の、左右ペインにまたがるメニューバー。page は 'diff' | 'files'。
-    nav_html: 先頭に並べるアイコンボタン (ページ切り替え・戻る・再読み込み)。commit: 表示中のコミット (作業ツリーなどは空)。
-    push / pull / fetch は書き込めるときだけ。動作は page_menubar.js と wip_diff_remote.js。"""
-    attr = lambda key: html.escape(tr(key), quote=True)
-    text = lambda key: html.escape(tr(key))
-    remote = bar_has_remote()
-    remote_group = (
-        '<span class="mbsep"></span><div class="mbgroup">'
-        f'<button type="button" class="mbtn" data-remote="push" title="{attr("tip_push_head")}">{text("push")}</button>'
-        '<button type="button" class="mbtn" data-remote="pull">pull</button>'
-        '<button type="button" class="mbtn" data-remote="fetch">fetch</button></div>') if remote else ""
-    wip_btn = (f'<button type="button" class="mbtn" id="mbWip" title="{attr("tip_view_wip")}">WIP</button>'
-               if state.WIP_ENABLED else "")
-    items = []
-    if state.WRITABLE:
-        items += [("branch", "create_branch", ""), ("tag", "create_tag", "")]
-    items += [("restart", "quit_modal_restart", ""), ("quit", "quit", " danger")]
-    menu = "".join(f'<button type="button" class="mbtn{cls}" data-mb="{act}">{text(key)}</button>' for act, key, cls in items)
-    wip_attr = ' data-wip="1"' if wip else ""
-    return (
-        f'<div id="pageMenubar" role="menubar" data-page="{page}" data-commit="{html.escape(commit, quote=True)}"'
-        f'{wip_attr}>'
-        f'<div class="navbar">{nav_html}</div>{remote_group}'
-        f'<span class="mbsep"></span><div class="mbgroup">{wip_btn}'
-        f'<button type="button" class="mbtn" id="mbHead" title="{attr("tip_view_head")}">HEAD</button>'
-        '<span class="mbgroup" id="mbTargets"></span></div>'
-        '<span class="menu-wrap" id="mbOtherWrap">'
-        f'<button type="button" class="mbtn" id="mbOther" aria-haspopup="true" aria-expanded="false" aria-controls="mbOtherMenu">{text("other")}</button>'
-        f'<div class="dropdown" id="mbOtherMenu" hidden>{menu}</div></span>'
-        '<div id="mbmsg" role="status"></div></div>')
+def menubar_html(page, *, files_href=None, diff_href=None, graph_href="/", reload_id="reload", reload_enabled=False,
+                 commit="", wip=False):
+    """全画面 (グラフ / ファイル表示 / 差分) 共通のメニューバー。static/menubar.html を 1 つの定義として使い、
+    ページごとに変わるのは、ページ切り替えのリンク・再読み込みボタンの id と有効 / 無効・data 属性だけ。
+    その画面でできない操作は、page_menubar.js (グラフ以外の画面) が無効にする。
+    commit: 表示中のコミット (作業ツリーなどは空)。wip: 作業ツリーの変更を表示している。"""
+    out = fill_template(MENUBAR_TEMPLATE).replace("<!--__NAV__-->", page_nav_html(page, files_href, diff_href, graph_href))
+    reload_old = '<button id="reload" class="sbtn iconbtn" disabled'
+    assert reload_old in out
+    out = out.replace(reload_old, f'<button id="{reload_id}" class="sbtn iconbtn"' + ("" if reload_enabled else " disabled"), 1)
+    toolbar_old = '<div id="compareToolbar" role="menubar">'
+    assert toolbar_old in out
+    attrs = (f'data-page="{page}" data-commit="{html.escape(commit, quote=True)}" data-wip="{1 if wip else 0}" '
+             f'data-writable="{1 if state.WRITABLE else 0}" data-worktree="{1 if state.WIP_ENABLED else 0}"')
+    return out.replace(toolbar_old, f'<div id="compareToolbar" role="menubar" {attrs}>', 1)
 
 
 def bar_has_remote():
-    """メニューバーに push / pull / fetch を出すか (書き込めて、作業ツリーを扱えるとき。変更がなくても出す)。"""
+    """push / pull / fetch を使えるか (書き込めて、作業ツリーを扱えるとき)。使えないときは、メニューバーのボタンを無効にする。"""
     return bool(state.WRITABLE and state.WIP_ENABLED)
 
 
@@ -453,10 +433,8 @@ def render_diff_page(q):
     # ファイル表示へは、いつでも移れる。開いているファイルがあればそのファイルを、無ければ (削除されたファイルなども) このコミット / 作業ツリーのルートを開く
     files_href = (files_view_url(view_hash, path) if view_hash and path
                   else "/files?" + urlencode({"hash": bar_commit or WIP_HASH}))
-    nav = (page_nav_html("diff", files_href=files_href, graph_href=graph_href)
-           + NAV_BACK_BUTTON.format(label=html.escape(tr("back_prev"), quote=True))
-           + (NAV_RELOAD_BUTTON.format(label=html.escape(tr("reload_page"), quote=True)) if wip else ""))
-    menubar = menubar_html("diff", nav, commit=bar_commit, wip=bool(wip and not is_wip_compare))
+    menubar = menubar_html("diff", files_href=files_href, graph_href=graph_href, reload_id="rld", reload_enabled=bool(wip),
+                           commit=bar_commit, wip=bool(wip and not is_wip_compare))
     return f"""<!DOCTYPE html>
 <html lang="{state.UI_LANG}"><head><meta charset="utf-8">
 <title>{html.escape(state.PROJECT_NAME)} - {html.escape(path)} @ {ref}</title>
@@ -499,15 +477,14 @@ def render_diff_page(q):
 
 
 def render_files_page():
-    reload_btn = NAV_RELOAD_BUTTON.format(label=html.escape(tr("reload_page"), quote=True)).replace('id="rld"', 'id="reloadBtn" hidden')
-    nav = (page_nav_html("files")  # グラフへ戻るリンクと差分ボタンは、ページの JS が表示中のコミット / ファイルに合わせて付け替える
-           + NAV_BACK_BUTTON.format(label=html.escape(tr("back_prev"), quote=True)) + reload_btn)
     remote = bar_has_remote()
     menubar_js = menubar_dialog_js(REMOTE_TEXT_KEYS if remote else ()) + "\n" + PAGE_MENUBAR_JS + ("\n" + WIP_DIFF_REMOTE_JS if remote else "")
+    # グラフへ戻るリンクと差分ボタンは、ページの JS が表示中のコミット / ファイルに合わせて付け替える
+    menubar = menubar_html("files", reload_id="reloadBtn")
     return with_project(fill_template(FILES_PAGE)
             .replace('<html lang="ja">', f'<html lang="{state.UI_LANG}">')
             .replace("/*__MENUBAR_CSS__*/", MENUBAR_CSS)
-            .replace("<!--__MENUBAR__-->", menubar_html("files", nav))
+            .replace("<!--__MENUBAR__-->", menubar)
             .replace("/*__PANE_RESIZE__*/", PANE_RESIZE_JS)
             .replace("/*__FILE_I18N__*/", "const I18N = " + client_translations() + ";\n"
                      + "const CAN_COPY = " + ("true" if state.WRITABLE and state.HAS_WORKTREE else "false") + ";\n"

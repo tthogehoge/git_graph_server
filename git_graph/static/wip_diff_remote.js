@@ -1,7 +1,7 @@
-// push / pull / fetch ボタン (グラフ画面のメニューバーと同じ操作)。/diff と /files のメニューバー (#pageMenubar) に置く。
+// push / pull / fetch ボタン (グラフ画面のメニューバーと同じ操作)。/diff と /files の共通メニューバー (#remoteActions) に置く。
 // ダイアログの部品 (openDialog / field / input / postJson / fmt など) は diff_dialog.js、文言は T、メッセージ欄は page_menubar.js の mbSay。
 (function () {
-  const bar = document.getElementById("pageMenubar");
+  const bar = document.getElementById("compareToolbar");
   if (!bar) return;
   const say = mbSay;  // state: true = 成功 / false = 失敗 / "progress" = 実行中
   const select = selectEl;
@@ -77,9 +77,9 @@
     }
     return r;
   }
-  const remoteButtons = () => bar.querySelectorAll("[data-remote]");
+  const remoteButtons = () => bar.querySelectorAll("#remoteActions [data-cact]");
   remoteButtons().forEach(btn => btn.addEventListener("click", async () => {
-    const act = btn.dataset.remote;
+    const act = btn.dataset.cact;
     try {
       const p = await prepare(act);
       if (!p) return;

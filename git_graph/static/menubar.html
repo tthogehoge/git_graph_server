@@ -1,0 +1,99 @@
+<div id="compareControls">
+  <div id="compareToolbar" role="menubar">
+    <div class="menubar-left">
+      <!--__NAV__-->
+      <button id="backBtn" class="sbtn iconbtn" title="{{back_prev}}" aria-label="{{back_prev}}"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M13 8H3M7.5 3.5 3 8l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      <button id="reload" class="sbtn iconbtn" disabled title="{{reload_title}}" aria-label="{{reload_title}}"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M13.5 8a5.5 5.5 0 1 1-1.7-4M13 2.5v3.2h-3.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      <button id="undoBtn" class="sbtn iconbtn" disabled title="{{tip_undo}}" aria-label="{{undo}}"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M5.5 3 2.5 6l3 3M2.5 6h6.5a4 4 0 0 1 0 8H6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      <button id="redoBtn" class="sbtn iconbtn" disabled title="{{tip_redo}}" aria-label="{{redo}}"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M10.5 3l3 3-3 3M13.5 6H7a4 4 0 0 0 0 8h3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    </div>
+    <span class="menubar-spacer"></span>
+    <span class="menu-wrap" id="cmpActionsWrap">
+      <button class="abtn mbtn" id="cmpActToggle" aria-haspopup="true" aria-expanded="false" aria-controls="cmpActions">{{actions}}</button>
+      <div class="dropdown" id="cmpActions" hidden>
+        <div class="hint" id="actionsEmpty">{{menu_select_commit}}</div>
+        <div class="menu-section" id="aActions" hidden>
+          <button class="abtn" id="setABtn" data-set-cmp="A">{{set_as_a}}</button>
+          <button class="abtn" id="setBBtn" data-set-cmp="B">{{set_as_b}}</button>
+          <button class="abtn" id="compareWipBtn">{{compare_wip}}</button>
+          <button class="abtn" id="pushSelBtn" data-cact="push" data-push-sel="1" title="{{tip_push_selected}}">{{push}}</button>
+          <button class="abtn" id="mergeBtn" title="{{tip_merge}}">{{merge}}</button>
+          <button class="abtn" id="rebaseBtn" title="{{tip_rebase}}">{{rebase}}</button>
+          <button class="abtn" id="irebaseBtn" title="{{tip_irebase}}">{{interactive_rebase}}</button>
+          <button class="abtn" id="cherryBtn" title="{{tip_cherry}}">{{cherry_pick}}</button>
+          <button class="abtn" id="revertBtn" title="{{tip_revert}}">{{revert}}</button>
+          <button class="abtn danger" id="resetBtn" title="{{tip_reset}}">{{reset}}</button>
+          <button class="abtn" data-cact="branch">{{create_branch}}</button>
+          <button class="abtn" id="renameBranchBtn">{{rename_branch}}</button>
+          <button class="abtn danger" id="deleteBranchBtn" data-cact="delete-branch">{{delete_branch}}</button>
+          <button class="abtn danger" id="deleteRemoteBranchBtn">{{delete_remote_branch}}</button>
+          <button class="abtn" data-cact="tag">{{create_tag}}</button>
+          <button class="abtn danger" id="deleteTagBtn" data-cact="delete-tag">{{delete_tag}}</button>
+          <button class="abtn" data-cact="checkout">{{checkout}}</button>
+        </div>
+        <div class="menu-section" id="stashActions" hidden>
+          <button class="abtn" id="stashApplyBtn" title="{{tip_stash_apply}}">{{stash_apply}}</button>
+          <button class="abtn" id="stashPopBtn" title="{{tip_stash_pop}}">{{stash_pop}}</button>
+          <button class="abtn danger" id="stashDropBtn" title="{{tip_stash_drop}}">{{stash_drop}}</button>
+        </div>
+      </div>
+    </span>
+    <div class="menubar-group" id="remoteActions">
+      <button class="abtn mbtn" id="pushBtn" data-cact="push" title="{{tip_push_head}}">{{push}}</button>
+      <button class="abtn mbtn" data-cact="pull">pull</button>
+      <button class="abtn mbtn" data-cact="fetch">fetch</button>
+    </div>
+    <span class="menu-wrap" id="abActionsWrap">
+      <button class="abtn mbtn" id="abActToggle" aria-haspopup="true" aria-expanded="false" aria-controls="abActions">{{ab_actions}}</button>
+      <div class="dropdown" id="abActions" hidden>
+        <button class="abtn" id="unsetABtn" data-unset-cmp="A" hidden>{{unset_a}}</button>
+        <button class="abtn" id="unsetBBtn" data-unset-cmp="B" hidden>{{unset_b}}</button>
+        <button class="abtn" id="compareBtn" hidden>{{compare_ab}}</button>
+        <button class="abtn" id="compareLogsBtn" hidden>{{compare_logs_ab}}</button>
+        <button class="abtn" id="mergeIntoBtn" hidden title="{{tip_merge_into}}">{{merge_into}}</button>
+        <button class="abtn" id="cherryOntoBtn" hidden title="{{tip_cherry_onto}}">{{cherry_onto}}</button>
+        <button class="abtn" id="rebaseOntoBtn" hidden title="{{tip_rebase_onto}}">{{rebase_onto}}</button>
+        <button class="abtn danger" id="resetBranchBtn" hidden title="{{tip_reset_branch}}">{{reset_branch}}</button>
+        <button class="abtn" id="rebaseRangeBtn" hidden title="{{tip_rebase_range}}">{{rebase_range}}</button>
+        <button class="abtn" id="rebaseDescendantsBtn" hidden title="{{tip_rebase_descendants}}">{{rebase_descendants}}</button>
+        <button class="abtn" id="rebaseEquivalentBtn" hidden title="{{tip_rebase_equivalent}}">{{rebase_equivalent}}</button>
+        <button class="abtn" id="findEquivalentParentsBtn" hidden title="{{tip_find_equivalent_parents}}">{{find_equivalent_parents}}</button>
+        <button class="abtn" id="findEquivalentBranchBtn" hidden title="{{tip_find_equivalent_branch}}">{{find_equivalent_branch}}</button>
+      </div>
+    </span>
+    <span class="menu-wrap" id="otherActionsWrap">
+      <button class="abtn mbtn" id="otherMenuBtn" aria-haspopup="true" aria-expanded="false" aria-controls="otherActions">{{other}}</button>
+      <div class="dropdown" id="otherActions" hidden>
+        <button type="button" class="abtn menu-check" id="showMergesBtn" title="{{tip_show_merges}}" disabled><span>{{show_merges}}</span><input type="checkbox" id="showMerges" tabindex="-1"></button>
+        <button class="abtn" id="branchListBtn" title="{{tip_branch_list}}">{{branch_list}}</button>
+        <button class="abtn" id="tagListBtn" title="{{tip_tag_list}}">{{tag_list}}</button>
+        <button class="abtn" id="stashListBtn" title="{{tip_stash_list}}">{{stash_list}}</button>
+        <button class="abtn" id="submoduleListBtn" title="{{tip_submodule_list}}">{{submodule_list}}</button>
+        <button class="abtn" id="reflogBtn" title="{{tip_reflog}}">{{reflog}}</button>
+        <button class="abtn" id="opHistoryBtn" title="{{tip_op_history}}">{{op_history}}</button>
+        <button class="abtn" id="commitGraphBtn" title="{{tip_commit_graph}}">{{commit_graph_optimize}}</button>
+        <button class="abtn" data-cact="remote-add" title="{{tip_remote_add}}">{{remote_add}}</button>
+        <button class="abtn danger" data-cact="remote-remove" title="{{tip_remote_remove}}">{{remote_remove}}</button>
+        <button class="abtn danger" id="quitBtn" title="{{tip_quit}}">{{quit}}</button>
+      </div>
+    </span>
+    <div class="menubar-row2" id="menubarRow2">
+      <button class="abtn mbtn" id="wipBtn" title="{{tip_wip_open}}">WIP</button>
+      <button class="abtn mbtn" id="topBtn" title="{{tip_scroll_head}}">HEAD</button>
+      <button type="button" class="cmp-hash cmp-hash-btn" id="actionTarget" hidden></button>
+      <button type="button" class="cmp-hash cmp-hash-btn" id="cmpA" hidden></button>
+      <button type="button" class="cmp-hash cmp-hash-btn" id="cmpB" hidden></button>
+      <button class="abtn mbtn" id="swapAbBtn" hidden>{{swap_ab}}</button>
+      <button class="sbtn" id="clearCmpBtn">{{clear}}</button>
+      <button id="graphZoomReset" class="sbtn" title="{{graph_zoom_reset}}">100%</button>
+    </div>
+  </div>
+</div>
+<div id="quitModal" hidden><div class="comodal" role="dialog" aria-modal="true" aria-labelledby="quitModalTitle">
+  <div><b id="quitModalTitle">{{quit_modal_title}}</b></div>
+  <div class="arow">
+    <button class="abtn danger" id="quitModalQuit">{{quit_modal_quit}}</button>
+    <button class="abtn" id="quitModalRestart">{{quit_modal_restart}}</button>
+    <button class="abtn" id="quitModalCancel">{{cancel}}</button>
+  </div>
+</div></div>
