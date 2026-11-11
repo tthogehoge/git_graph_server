@@ -130,6 +130,8 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
   const menus = [["cmpActToggle", "cmpActions"], ["abActToggle", "abActions"], ["otherMenuBtn", "otherActions"]];
   const closeMenus = () => menus.forEach(([b, m]) => { $(m).hidden = true; $(b).setAttribute("aria-expanded", "false"); });
   const menuButtons = menu => [...menu.querySelectorAll(".abtn")].filter(b => !b.disabled && !b.closest("[hidden]"));
+  const toolbarItems = () => [...bar.querySelectorAll("button, a[href]")]
+    .filter(b => !b.disabled && !b.closest(".dropdown, [hidden]"));
   menus.forEach(([b, m]) => $(b).addEventListener("click", ev => {
     ev.stopPropagation();
     const open = $(m).hidden;
@@ -149,7 +151,20 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
       return;
     }
     const menu = ev.target.closest(".dropdown");
-    if (!menu) return;
+    if (!menu) {
+      const items = toolbarItems();
+      const index = items.indexOf(ev.target.closest("button, a[href]"));
+      if (index < 0) return;
+      let next;
+      if (ev.key === "ArrowRight") next = (index + 1) % items.length;
+      else if (ev.key === "ArrowLeft") next = (index + items.length - 1) % items.length;
+      else if (ev.key === "Home") next = 0;
+      else if (ev.key === "End") next = items.length - 1;
+      else return;
+      ev.preventDefault();
+      items[next].focus();
+      return;
+    }
     const buttons = menuButtons(menu);
     if (ev.key === "Escape") {
       ev.preventDefault();
