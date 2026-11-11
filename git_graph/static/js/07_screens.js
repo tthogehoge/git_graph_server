@@ -283,6 +283,46 @@ document.getElementById("compareToolbar").addEventListener("click", ev => {
 document.getElementById("compareToolbar").addEventListener("click", ev => {  // メニューの項目を選んだら閉じる
   if (ev.target.closest(".dropdown .abtn:not([data-set-cmp])")) closeMenus();  // 無効なボタンはクリック自体が発火しない
 });
+const toolbar = document.getElementById("compareToolbar");
+const menuToggles = [["cmpActToggle", "cmpActions"], ["abActToggle", "abActions"], ["otherMenuBtn", "otherActions"]];
+const menuButtons = menu => [...menu.querySelectorAll(".abtn")].filter(b => !b.disabled && !b.closest("[hidden]"));
+toolbar.addEventListener("click", ev => {
+  if (ev.detail !== 0) return;
+  const toggle = ev.target.closest("#cmpActToggle, #abActToggle, #otherMenuBtn");
+  const menu = toggle && document.getElementById(toggle.getAttribute("aria-controls"));
+  if (menu && !menu.hidden) menuButtons(menu)[0]?.focus();
+});
+toolbar.addEventListener("keydown", ev => {
+  const toggle = ev.target.closest("#cmpActToggle, #abActToggle, #otherMenuBtn");
+  if (toggle && (ev.key === "ArrowDown" || ev.key === "ArrowUp")) {
+    ev.preventDefault();
+    const menu = document.getElementById(toggle.getAttribute("aria-controls"));
+    if (menu.hidden) toggle.click();
+    const buttons = menuButtons(menu);
+    buttons[ev.key === "ArrowDown" ? 0 : buttons.length - 1]?.focus();
+    return;
+  }
+  const menu = ev.target.closest(".dropdown");
+  if (!menu) return;
+  const buttons = menuButtons(menu);
+  if (ev.key === "Escape") {
+    ev.preventDefault();
+    closeMenus();
+    document.getElementById(menuToggles.find(([, id]) => id === menu.id)[0]).focus();
+    return;
+  }
+  if (!buttons.length) return;
+  const index = buttons.indexOf(ev.target.closest(".abtn"));
+  if (index < 0) return;
+  let next;
+  if (ev.key === "ArrowDown") next = (index + 1) % buttons.length;
+  else if (ev.key === "ArrowUp") next = (index + buttons.length - 1) % buttons.length;
+  else if (ev.key === "Home") next = 0;
+  else if (ev.key === "End") next = buttons.length - 1;
+  else return;
+  ev.preventDefault();
+  buttons[next].focus();
+});
 document.addEventListener("click", ev => {  // メニューの外をクリックしたら閉じる
   if (ev.target.closest(".menu-wrap") || ev.target.closest("svg g.node, svg g.edge") || ev.target.closest("#panel")) return;  // 右ペインのクリックでは閉じない  // ノードのクリックは onNodeClick が、線のクリックはその click ハンドラが扱う (ここで何もないところ扱いにすると、選んだ直後に選択が解除されて線が赤くならない)
   if (ev.target.closest("#graph") && !ev.target.closest("button, a, input, select, label")) { closeMenusOrClearSelection(); return; }  // グラフの何もないところをクリック: メニューを閉じる。メニューが無ければ選択を解除する

@@ -129,13 +129,46 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
   // ---- メニューの開閉 (操作 / AB操作 / その他) ----
   const menus = [["cmpActToggle", "cmpActions"], ["abActToggle", "abActions"], ["otherMenuBtn", "otherActions"]];
   const closeMenus = () => menus.forEach(([b, m]) => { $(m).hidden = true; $(b).setAttribute("aria-expanded", "false"); });
+  const menuButtons = menu => [...menu.querySelectorAll(".abtn")].filter(b => !b.disabled && !b.closest("[hidden]"));
   menus.forEach(([b, m]) => $(b).addEventListener("click", ev => {
     ev.stopPropagation();
     const open = $(m).hidden;
     closeMenus();
     $(m).hidden = !open;
     $(b).setAttribute("aria-expanded", String(open));
+    if (open && ev.detail === 0) menuButtons($(m))[0]?.focus();
   }));
+  bar.addEventListener("keydown", ev => {
+    const toggle = ev.target.closest("#cmpActToggle, #abActToggle, #otherMenuBtn");
+    if (toggle && (ev.key === "ArrowDown" || ev.key === "ArrowUp")) {
+      ev.preventDefault();
+      const menu = $(toggle.getAttribute("aria-controls"));
+      if (menu.hidden) toggle.click();
+      const buttons = menuButtons(menu);
+      buttons[ev.key === "ArrowDown" ? 0 : buttons.length - 1]?.focus();
+      return;
+    }
+    const menu = ev.target.closest(".dropdown");
+    if (!menu) return;
+    const buttons = menuButtons(menu);
+    if (ev.key === "Escape") {
+      ev.preventDefault();
+      closeMenus();
+      $(menus.find(([, id]) => id === menu.id)[0]).focus();
+      return;
+    }
+    if (!buttons.length) return;
+    const index = buttons.indexOf(ev.target.closest(".abtn"));
+    if (index < 0) return;
+    let next;
+    if (ev.key === "ArrowDown") next = (index + 1) % buttons.length;
+    else if (ev.key === "ArrowUp") next = (index + buttons.length - 1) % buttons.length;
+    else if (ev.key === "Home") next = 0;
+    else if (ev.key === "End") next = buttons.length - 1;
+    else return;
+    ev.preventDefault();
+    buttons[next].focus();
+  });
   document.addEventListener("click", ev => { if (!ev.target.closest(".menu-wrap")) closeMenus(); });
   document.addEventListener("keydown", ev => { if (ev.key === "Escape") closeMenus(); });
   bar.querySelectorAll(".dropdown .abtn").forEach(b => b.addEventListener("click", () => closeMenus()));
