@@ -74,6 +74,7 @@
         <button class="abtn" id="commitGraphBtn" title="{{tip_commit_graph}}">{{commit_graph_optimize}}</button>
         <button class="abtn" data-cact="remote-add" title="{{tip_remote_add}}">{{remote_add}}</button>
         <button class="abtn danger" data-cact="remote-remove" title="{{tip_remote_remove}}">{{remote_remove}}</button>
+        <button class="abtn" id="keyboardHelpBtn">{{keyboard_help}}</button>
         <button class="abtn danger" id="quitBtn" title="{{tip_quit}}">{{quit}}</button>
       </div>
     </span>
@@ -97,4 +98,19 @@
     <button class="abtn" id="quitModalRestart">{{quit_modal_restart}}</button>
     <button class="abtn" id="quitModalCancel">{{cancel}}</button>
   </div>
+</div></div>
+<div id="keyboardHelp" hidden><div class="comodal" role="dialog" aria-modal="true" aria-labelledby="keyboardHelpTitle" aria-describedby="keyboardHelpIntro">
+  <h2 id="keyboardHelpTitle">{{keyboard_help}}</h2>
+  <p id="keyboardHelpIntro" class="hint">{{keyboard_help_intro}}</p>
+  <div class="keyboard-shortcuts">
+    <div><kbd>Alt+M</kbd><span>{{keyboard_help_focus_toolbar}}</span></div>
+    <div><kbd>F6 / Shift+F6</kbd><span>{{keyboard_help_move_regions}}</span></div>
+    <div><kbd>← / →, Home / End</kbd><span>{{keyboard_help_toolbar}}</span></div>
+    <div><kbd>↓ / ↑, Home / End</kbd><span>{{keyboard_help_menu}}</span></div>
+    <div><kbd>↑ / ↓, Home / End, Enter</kbd><span>{{keyboard_help_graph}}</span></div>
+    <div><kbd>↑ / ↓, Enter</kbd><span>{{keyboard_help_log}}</span></div>
+    <div><kbd>↑ / ↓, Tab</kbd><span>{{keyboard_help_detail}}</span></div>
+    <div><kbd>↑ / ↓, ← / →, Enter</kbd><span>{{keyboard_help_files}}</span></div>
+  </div>
+  <div class="arow"><button type="button" class="abtn" id="keyboardHelpClose">{{keyboard_help_close}}</button></div>
 </div></div>

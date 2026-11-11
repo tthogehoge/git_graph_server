@@ -210,6 +210,11 @@ document.getElementById("compareToolbar").addEventListener("click", ev => {  // 
     setOtherMenu(open);
     return;
   }
+  if (ev.target.closest("#keyboardHelpBtn")) {
+    document.getElementById("keyboardHelp").hidden = false;
+    document.getElementById("keyboardHelpClose").focus();
+    return;
+  }
   if (ev.target.closest("#compareBtn") && compareAHash && compareBHash) {
     showCompare(compareAHash, compareBHash);
     return;
@@ -304,6 +309,23 @@ function focusKeyboardRegion(index) {
 function hasOpenKeyboardDialog() {
   return [...document.querySelectorAll('[role="dialog"]')].some(el => !el.closest("[hidden]"));
 }
+const keyboardHelp = document.getElementById("keyboardHelp");
+function closeKeyboardHelp() {
+  keyboardHelp.hidden = true;
+  document.getElementById("otherMenuBtn").focus();
+}
+document.getElementById("keyboardHelpClose").addEventListener("click", closeKeyboardHelp);
+keyboardHelp.addEventListener("click", ev => { if (ev.target === keyboardHelp) closeKeyboardHelp(); });
+keyboardHelp.addEventListener("keydown", ev => {
+  if (ev.key === "Escape") {
+    ev.preventDefault();
+    ev.stopPropagation();
+    closeKeyboardHelp();
+  } else if (ev.key === "Tab") {
+    ev.preventDefault();
+    document.getElementById("keyboardHelpClose").focus();
+  }
+});
 document.addEventListener("keydown", ev => {
   if (ev.defaultPrevented || hasOpenKeyboardDialog()) return;
   if (ev.altKey && !ev.ctrlKey && !ev.metaKey && ev.key.toLowerCase() === "m") {

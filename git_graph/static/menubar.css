@@ -70,13 +70,19 @@
   .abtn:hover { background: #d6e2fb; } .abtn:disabled { opacity: .5; cursor: default; }
   .abtn.danger { background: #fde8e8; border-color: #eeb8b8; } .abtn.danger:hover { background: #fbd3d3; }
   .sbtn:disabled { opacity: .5; cursor: default; }
-  #coModal, #actionModal, #quitModal, #confirmModal { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+  #coModal, #actionModal, #quitModal, #confirmModal, #keyboardHelp { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: flex; align-items: center; justify-content: center; z-index: 1000; }
   #coModal[hidden] { display: none; }
   #actionModal[hidden] { display: none; }
-  #quitModal[hidden], #confirmModal[hidden] { display: none; }
+  #quitModal[hidden], #confirmModal[hidden], #keyboardHelp[hidden] { display: none; }
   .comodal { background: #fff; border-radius: 6px; padding: 14px 16px; max-width: 560px; max-height: 80vh; overflow: auto; box-shadow: 0 4px 20px rgba(0,0,0,.3); }
   .comodal ul { margin: 2px 0 8px; padding-left: 20px; font-family: monospace; word-break: break-all; }
   .comodal .arow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  #keyboardHelp .comodal { box-sizing: border-box; width: min(720px, calc(100vw - 32px)); max-width: none; }
+  #keyboardHelp h2 { margin: 0 0 8px; font-size: 15px; }
+  .keyboard-shortcuts { display: grid; gap: 8px; margin: 12px 0; }
+  .keyboard-shortcuts > div { display: grid; grid-template-columns: minmax(0, 190px) minmax(0, 1fr); gap: 12px; align-items: start; }
+  .keyboard-shortcuts kbd { font: inherit; font-family: monospace; white-space: nowrap; }
+  @media (max-width: 520px) { .keyboard-shortcuts > div { grid-template-columns: 1fr; gap: 2px; } }
 
   /* 入力ダイアログ (push / pull / ブランチ作成など)。/diff の WIP とメニューバーの両方で、/files でも使う */
   .wbtn { background: #1a7f37; color: #fff; border: 1px solid #176b30; padding: 3px 10px; border-radius: 3px; cursor: pointer; }

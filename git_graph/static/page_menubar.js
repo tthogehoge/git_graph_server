@@ -106,7 +106,7 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
 
   // この画面でできない操作は、隠さず無効にする。できるかどうかは can の関数 (無ければ常にできない) で決める
   enable($("setABtn")); enable($("setBBtn")); enable($("unsetABtn")); enable($("unsetBBtn")); enable($("compareBtn"));
-  enable($("quitBtn")); enable($("clearCmpBtn")); enable($("swapAbBtn")); enable($("backBtn"));
+  enable($("quitBtn")); enable($("keyboardHelpBtn")); enable($("clearCmpBtn")); enable($("swapAbBtn")); enable($("backBtn"));
   enable($("wipBtn"), () => worktree); enable($("topBtn"));
   enable(bar.querySelector('[data-cact="branch"]'), () => writable); enable(bar.querySelector('[data-cact="tag"]'), () => writable);
   enable(bar.querySelector('[data-cact="checkout"]'), () => writable && worktree); enable($("resetBtn"), () => writable && worktree);
@@ -358,4 +358,25 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
   $("quitModalCancel").addEventListener("click", () => { quitModal.hidden = true; });
   $("quitModalQuit").addEventListener("click", () => stopServer("quit"));
   $("quitModalRestart").addEventListener("click", () => stopServer("restart"));
+  const keyboardHelp = $("keyboardHelp");
+  function closeKeyboardHelp() {
+    keyboardHelp.hidden = true;
+    $("otherMenuBtn").focus();
+  }
+  $("keyboardHelpBtn").addEventListener("click", () => {
+    keyboardHelp.hidden = false;
+    $("keyboardHelpClose").focus();
+  });
+  $("keyboardHelpClose").addEventListener("click", closeKeyboardHelp);
+  keyboardHelp.addEventListener("click", ev => { if (ev.target === keyboardHelp) closeKeyboardHelp(); });
+  keyboardHelp.addEventListener("keydown", ev => {
+    if (ev.key === "Escape") {
+      ev.preventDefault();
+      ev.stopPropagation();
+      closeKeyboardHelp();
+    } else if (ev.key === "Tab") {
+      ev.preventDefault();
+      $("keyboardHelpClose").focus();
+    }
+  });
 })();
