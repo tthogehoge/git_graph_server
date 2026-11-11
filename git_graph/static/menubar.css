@@ -6,7 +6,7 @@
   .sbtn { background: #ddd; border: none; padding: 4px 8px; border-radius: 3px; cursor: pointer; margin: 0 6px 8px 0; }
   .sbtn:hover { background: #ccc; }
   a.iconbtn { text-decoration: none; color: inherit; }
-  #mbmsg { flex: 1 0 100%; order: 9; margin: 0; white-space: pre-wrap; word-break: break-word; color: #666; }
+  #mbmsg { margin: 4px 0 0; white-space: pre-wrap; word-break: break-word; color: #666; }  /* 操作結果のメッセージ (グラフ以外の画面) */
   #mbmsg:empty { display: none; }
   #mbmsg.ok { color: #1a7f37; } #mbmsg.ng { color: #cf222e; }
   .abtn.unavailable, .abtn:disabled { opacity: .5; cursor: default; }

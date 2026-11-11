@@ -1814,6 +1814,31 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertIn(tr("select_file"), page)
         self.assertNotIn(f">{tr('no_diff')}<", page)
 
+    def test_commit_refs_lists_branches_pointing_at_the_commit(self):
+        # ファイル表示・差分のメニューバーのチェックアウトが、選択肢 (そのコミットに付いたブランチ) を作るのに使う
+        from git_graph import gitstate
+        head = self.git("rev-parse", "HEAD").strip()
+        self.git("branch", "menubar-refs-test", head)
+        refs = gitstate.commit_refs(head)
+        self.assertIn("menubar-refs-test", refs["local"])
+        self.assertEqual(refs["local"], sorted(refs["local"]))
+        self.assertEqual(refs["current"], gitstate.head_state()["branch"])
+        self.assertEqual(refs["remote"], [r for r in refs["remote"] if not r.endswith("/HEAD")])
+        with self.assertRaises(ValueError):
+            gitstate.commit_refs("not-a-hash")
+
+    def test_checkout_and_reset_are_enabled_in_the_menubar_script(self):
+        # グラフ以外の画面でも、チェックアウトとリセットはできる (他のグラフ専用の操作は無効のまま)
+        script = (Path(viewer.__file__).parent / "static" / "page_menubar.js").read_text(encoding="utf-8")
+        self.assertIn('enable(bar.querySelector(\'[data-cact="checkout"]\')', script)
+        self.assertIn('enable($("resetBtn")', script)
+        for key in ("checkout_detached_option", "confirm_reset_hard", "reset_submit", "confirm_checkout_branch"):
+            self.assertIn(f'"{key}"', (Path(viewer.__file__).read_text(encoding="utf-8")))  # T に入る文言
+        page = viewer.render_files_page()
+        self.assertIn("async function doCheckout()", page)
+        self.assertIn("async function doReset()", page)
+        self.assertIn('id="resetBtn"', page)
+
     def test_api_head_returns_the_head_commit(self):
         from git_graph import gitstate
         info = gitstate.head_state()

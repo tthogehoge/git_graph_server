@@ -109,6 +109,7 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
   enable($("quitBtn")); enable($("clearCmpBtn")); enable($("swapAbBtn")); enable($("backBtn"));
   enable($("wipBtn"), () => worktree); enable($("topBtn"));
   enable(bar.querySelector('[data-cact="branch"]'), () => writable); enable(bar.querySelector('[data-cact="tag"]'), () => writable);
+  enable(bar.querySelector('[data-cact="checkout"]'), () => writable && worktree); enable($("resetBtn"), () => writable && worktree);
   bar.querySelectorAll("#remoteActions [data-cact]").forEach(b => enable(b, () => writable && worktree));
   function applyUnavailable() {
     const skip = new Set(["actionTarget", "cmpA", "cmpB", "cmpActToggle", "abActToggle", "otherMenuBtn", "reload", "rld", "reloadBtn", "navGraphBtn", "navFilesBtn", "navDiffBtn", "clearCmpBtn"]);
@@ -180,6 +181,74 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
   }
   bar.querySelector('[data-cact="branch"]').addEventListener("click", () => createBranch().catch(fail));
   bar.querySelector('[data-cact="tag"]').addEventListener("click", () => createTag().catch(fail));
+
+  // ---- チェックアウト (操作の対象のコミットを。そのコミットに付いているブランチ / 切り離し / 新しいブランチ) ----
+  async function doCheckout() {
+    const h = await targetCommit();
+    const refs = await getJson("/api/commit-refs?hash=" + encodeURIComponent(h));
+    const defaultRemote = refs.remote[0] || "";
+    const slash = defaultRemote.indexOf("/");
+    const defaultNew = slash >= 0 ? defaultRemote.slice(slash + 1) : defaultRemote;
+    const v = await openDialog(T.checkout + " (" + h.slice(0, 7) + ")", form => {
+      const branch = selectEl("branch", [...refs.local.map(b => [b, b]), ["", T.checkout_detached_option], ["__new_branch__", T.checkout_new_branch_option]], refs.local[0] || "");
+      field(form, T.switch_to, branch, false);
+      const name = input("text", "newBranch"); name.value = defaultNew; name.placeholder = T.new_branch_placeholder;
+      const nameLabel = field(form, T.new_branch_name, name, false).parentElement;
+      const track = input("checkbox", "trackUpstream", !!defaultRemote);
+      const trackLabel = field(form, T.track_upstream + (defaultRemote ? " (" + defaultRemote + ")" : ""), track, true).parentElement;
+      const update = () => { const isNew = branch.value === "__new_branch__"; nameLabel.hidden = !isNew; trackLabel.hidden = !isNew || !defaultRemote; };
+      branch.addEventListener("change", update);
+      update();
+    }, T.checkout);
+    if (!v) return;
+    let url, body, ask;
+    if (v.branch === "__new_branch__") {
+      const name = v.newBranch.trim();
+      if (!name) { mbSay(T.new_branch_name_required, false); return; }
+      url = "/api/branch"; body = {hash: h, name: name, checkout: true};
+      if (v.trackUpstream && defaultRemote) body.upstream = defaultRemote;
+      ask = fmt(T.confirm_create_checkout, {name: name});
+    } else if (v.branch) {
+      url = "/api/checkout"; body = {branch: v.branch};
+      ask = fmt(T.confirm_checkout_branch, {branch: v.branch});
+    } else {
+      url = "/api/checkout"; body = {hash: h};
+      ask = fmt(T.confirm_checkout_detached, {hash: h.slice(0, 7)});
+    }
+    if (!confirm(ask)) return;
+    mbSay(T.running, "progress");
+    let r = await postJson(url, body);
+    if (r.blocked) {  // 編集中のファイルや管理外ファイルに、チェックアウトを止められた
+      mbSay("");
+      const mode = await askBlockedDialog(r, "checkout");
+      if (!mode) { mbSay(T.checkout_cancelled, false); return; }
+      mbSay(T.running, "progress");
+      r = await postJson(url, Object.assign({}, body, {on_conflict: mode}));
+    }
+    mbSay(r.message, true);
+    setTimeout(() => location.reload(), 800);  // 切り替わった作業ツリー / ブランチを表示に反映する
+  }
+
+  // ---- リセット (現在の HEAD を、操作の対象のコミットへ) ----
+  async function doReset() {
+    const h = await targetCommit();
+    const v = await openDialog(T.reset + " (" + h.slice(0, 7) + ")", form => {
+      field(form, T.reset_mode, selectEl("mode", [["mixed", T.reset_opt_mixed], ["soft", T.reset_opt_soft], ["hard", T.reset_opt_hard]], "mixed"), false);
+    }, T.reset_submit);
+    if (!v) return;
+    const key = {hard: "confirm_reset_hard", soft: "confirm_reset_soft", mixed: "confirm_reset_mixed"}[v.mode];
+    if (!confirm(fmt(T[key], {hash: h.slice(0, 7)}))) return;
+    mbSay(T.resetting, "progress");
+    try {
+      const r = await postJson("/api/reset", {hash: h, mode: v.mode});
+      mbSay(r.message, true);
+      setTimeout(() => location.reload(), 800);
+    } catch (e) {
+      mbSay(fmt(T.reset_error, {error: e.message}), false);
+    }
+  }
+  bar.querySelector('[data-cact="checkout"]').addEventListener("click", () => doCheckout().catch(fail));
+  $("resetBtn").addEventListener("click", () => doReset().catch(fail));
 
   // ---- 終了 / 再起動 (グラフ画面と同じ確認ダイアログ) ----
   const quitModal = $("quitModal");

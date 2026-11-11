@@ -57,6 +57,11 @@ MENUBAR_TEXT_KEYS = (
     "set_as_a", "set_as_b", "unset_a", "unset_b", "server_restarting", "server_stopped", "quit_failed",
     "co_blocked_op", "co_blocked_hint_op", "co_modified", "co_untracked_op", "co_hint_stash", "co_hint_discard",
     "co_stash_retry", "co_discard_retry",
+    "running", "checkout", "switch_to", "checkout_detached_option", "checkout_new_branch_option", "new_branch_name",
+    "new_branch_placeholder", "track_upstream", "new_branch_name_required", "confirm_checkout_branch",
+    "confirm_checkout_detached", "checkout_cancelled",
+    "reset", "reset_mode", "reset_opt_mixed", "reset_opt_soft", "reset_opt_hard", "reset_submit", "confirm_reset_hard",
+    "confirm_reset_soft", "confirm_reset_mixed", "resetting", "reset_error",
 )
 # ヘッダーのアイコンボタン。files.html / index.html にも同じ絵を直接書いてある
 _SVG = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">{p}</svg>'

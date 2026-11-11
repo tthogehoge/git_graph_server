@@ -12,7 +12,7 @@ from .query.equivalent import (  # noqa: F401
     equivalent_commit_prefix, find_equivalent_branches, find_equivalent_parents, first_parent_commits,
     nearest_equivalent_parent,
 )
-from .gitstate import head_state
+from .gitstate import commit_refs, head_state
 from .i18n import tr
 from .routing import route
 
@@ -25,6 +25,11 @@ def with_tags_note(message, moved):
 @route("/api/head")
 def api_head(q=None):
     return head_state()
+
+@route("/api/commit-refs")
+def api_commit_refs(q):
+    """コミットに付いているブランチ (チェックアウトの選択肢)。q は hash を持つ。"""
+    return commit_refs((q.get("hash") or [""])[0])
 
 @route("/api/merge", method="POST", engine=True)
 def api_merge(body):

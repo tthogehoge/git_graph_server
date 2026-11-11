@@ -6,7 +6,7 @@ import subprocess
 from . import app_state as state
 
 CONFLICT_CODES = {"DD", "AU", "UD", "UA", "DU", "AA", "UU"}
-from .gitrun import git, git_bytes, HASH_RE
+from .gitrun import git, git_bytes, HASH_RE, resolve_commit
 
 # git-dir の解決結果を REPO ごとにキャッシュし、MERGE_HEAD などの存在確認を
 # プロセス起動なしのファイルチェックにする (Windows で効く)。
@@ -277,6 +277,16 @@ def diff_name_numstat(*rev_and_paths):
 
 
 
+def commit_refs(h):
+    """指定したコミットを指しているローカルブランチとリモート追跡ブランチ (名前順) と、いま checkout しているブランチ。
+    グラフ以外の画面 (ファイル表示・差分) が、チェックアウトの選択肢を作るのに使う。"""
+    full = resolve_commit(h)
+    refs = git("for-each-ref", "--points-at", full, "--format=%(refname)", "refs/heads", "refs/remotes").splitlines()
+    local = sorted(r.removeprefix("refs/heads/") for r in refs if r.startswith("refs/heads/"))
+    remote = sorted(r.removeprefix("refs/remotes/") for r in refs if r.startswith("refs/remotes/") and not r.endswith("/HEAD"))
+    return {"local": local, "remote": remote, "current": head_state()["branch"]}
+
+
 def head_state():
     """現在のブランチ名 (切り離されていれば None)、HEAD のコミット (まだコミットが無ければ None)、git 操作の途中かどうか。
     ブランチ名とコミットは .git/HEAD を読むだけ (プロセス起動なし)。"""
@@ -447,6 +457,7 @@ __all__ = [
     "upstream_of_head",
     "amend_base",
     "amend_head_changes",
+    "commit_refs",
     "head_state",
     "parse_name_status",
     "branch_config",
