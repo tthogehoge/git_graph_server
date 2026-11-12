@@ -1823,6 +1823,8 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
             self.assertIn('id="wipPanel"', pages[name])
             self.assertIn('mountWipPanel(document.getElementById("wipPanel"), {diff: true})', pages[name])
         self.assertIn('id="wipPanelBox"', pages["files"])
+        self.assertRegex(pages["files"], r'<details id="wipPanelBox" class="wip-box" hidden><summary>')  # ファイル表示では畳んでおく (open を付けない)
+        self.assertIn('id="wipPanelCount"', pages["files"])  # 畳んでいても、変更のあるファイルの数が見出しに出る
         self.assertIn('get("hash") === "WIP"', pages["files"])  # 作業ツリーを開いているときだけ出す
         self.assertIn("wipPanel.render(detailView", pages["graph"])
 

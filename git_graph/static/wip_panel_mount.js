@@ -1,6 +1,7 @@
 // ファイル表示 / 差分ページに、共通の WIP の一覧とコミットフォーム (wip_panel.js) を置く。
 // 通信・入力ダイアログの部品は diff_dialog.js、文言は T、メッセージ欄は page_menubar.js の mbSay。
 // opts.diff: 差分ページ (URL の path / wip で、開いているファイルの行を強調し、amend の状態も URL で決める)
+// opts.onFiles(files): 一覧が決まったとき (省略可。ファイル表示で、畳んだ欄の見出しに件数を出すのに使う)
 function mountWipPanel(root, opts) {
   opts = opts || {};
   const bar = document.getElementById("compareToolbar");
@@ -18,6 +19,7 @@ function mountWipPanel(root, opts) {
       panel.say(message, true);
       setTimeout(() => location.reload(), 800);
     },
+    onFiles: opts.onFiles,
     amendOverride: opts.diff ? () => q.get("wip") === "amend" : undefined,
     current: opts.diff ? f => q.get("path") === f.path && q.get("wip") === f.wip : undefined,
   });
