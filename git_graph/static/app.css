@@ -46,7 +46,6 @@ html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-s
   .detail-actions { display: flex; flex-wrap: wrap; gap: 2px 12px; margin: 0 0 8px; }
   .detail-files, .detail-patch { color: #06c; font-size: 13px; font-weight: normal; text-decoration: none; }
   .detail-files:hover, .detail-patch:hover { text-decoration: underline; }
-  .wippatch { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
   .confirm-msg { white-space: pre-wrap; margin-bottom: 8px; }
   #confirmModalInput { width: 100%; box-sizing: border-box; margin-bottom: 8px; }
   .action-dialog { background: #fff; border-radius: 6px; padding: 14px 16px; width: min(420px, calc(100vw - 48px)); max-height: 80vh; overflow: auto; box-shadow: 0 4px 20px rgba(0,0,0,.3); }
@@ -75,8 +74,6 @@ html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-s
   .ri-row.squash, .ri-row.fixup { margin-left: 22px; background: #f3f8ff; }
   #actionError { margin-top: 8px; white-space: pre-wrap; } #actionError:empty { display: none; }
   h3 { font-size: 13px; margin: 10px 0 2px; }
-  .st { display: inline-block; min-width: 1.3em; text-align: center; font-weight: bold; color: #fff; border-radius: 2px; margin-right: 4px; }
-  .stM { background: #d29922; } .stA { background: #1a7f37; } .stD { background: #cf222e; } .stR { background: #6f42c1; } .stU { background: #cf222e; } .stN { background: #888; }
   table.log { border-collapse: collapse; width: 100%; margin-top: 6px; }
   table.log td { border-bottom: 1px solid #e3e3e3; padding: 4px; vertical-align: top; }
   table.log tr.clickable { cursor: pointer; }
@@ -126,30 +123,6 @@ html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-s
   .compare-log-col table.log td.h { width: 7.5em; max-width: 7.5em; overflow: hidden; }
   .compare-log-col table.log td:not(.h) { overflow-wrap: anywhere; word-break: break-word; }
   @media (max-width: 760px) { .compare-logs { grid-template-columns: 1fr; } }
-  table.files { border-collapse: collapse; margin: 6px 0; font-family: monospace; font-size: 12px; width: 100%; }
-  table.files td { padding: 2px 6px; vertical-align: top; }
-  table.files { table-layout: fixed; }
-  table.files td.fc { width: 4em; }
-  table.files td.fb { width: 7em; overflow: hidden; }
-  tr.frow.dhide { display: none; }
-  tr.drow { cursor: pointer; background: #f1f3f6; } tr.drow:hover td { background: #e6ebf5; }
-  .dtog { display: inline-block; width: 1em; color: #666; }
-  tr.frow { cursor: pointer; } tr.frow:hover td { background: #eef; }
-  td.fp { color: #06c; word-break: break-all; } td.fc { text-align: right; white-space: nowrap; } td.fb { white-space: nowrap; }
-  td.fp a { color: inherit; text-decoration: none; } td.fp a:hover { text-decoration: underline; }
-  td.fk { width: 1%; padding-right: 0; } td.fk input, h3 .wipall { margin: 0 6px 0 0; vertical-align: middle; cursor: pointer; }
-  .wipbox { border: 1px solid #ddd; background: #fafafa; border-radius: 4px; padding: 8px; margin: 8px 0; }
-  .wipbox textarea, .wipbox input[type=text] { width: 100%; box-sizing: border-box; padding: 4px 6px; border: 1px solid #bbb; border-radius: 3px; font: inherit; }
-  .wipbox textarea { min-height: 56px; resize: vertical; }
-  .wipbox .arow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 6px; }
-  .wipbox .amendrow { display: block; margin: 0 0 6px; cursor: pointer; }
-  .wipbox .amendrow input { margin: 0 6px 0 0; vertical-align: middle; }
-  .wbtn { background: #1a7f37; color: #fff; border: 1px solid #176b30; padding: 3px 10px; border-radius: 3px; cursor: pointer; }
-  .wbtn:hover { background: #176b30; } .wbtn:disabled { opacity: .5; cursor: default; }
-  .wbtn.danger { background: #b42318; border-color: #912018; } .wbtn.danger:hover { background: #912018; }
-  .wipres, .wipop { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0 8px; }
-  .wipop { padding: 6px 8px; background: #fff4e5; border: 1px solid #f0c987; border-radius: 4px; }
-  .plus { color: #1a7f37; } .minus { color: #cf222e; }
   g.node, g.edge { cursor: pointer; }
   g.node:hover polygon { stroke: #e88; } g.edge:hover path { stroke: #e88; }
   /* マージ表示の点 (ellipse): ホバー・選択・A・B・操作対象の色で塗りつぶす */

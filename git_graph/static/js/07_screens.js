@@ -116,31 +116,11 @@ listView.addEventListener("contextmenu", ev => {  // ログ一覧の右クリッ
 });
 detailView.addEventListener("click", ev => {
   if (ev.target.closest("#wipReload")) { showWip(true); refreshGraph().catch(() => {}); return; }
-  if (ev.target.closest("#wipCommit")) { doWipCommit(); return; }
-  if (ev.target.closest("#wipStash")) { doWipStash(); return; }
-  if (ev.target.closest("#wipDiscard")) { doWipDiscard(); return; }
-  if (ev.target.closest("#wipRm")) { doWipRm(); return; }
-  if (ev.target.closest("#wipAbort")) { doWipAbort(); return; }
-  if (ev.target.closest("#wipContinue")) { doWipContinue(); return; }
-  const rb = ev.target.closest("[data-resolve]");
-  if (rb) { doWipResolve(rb.dataset.resolve); return; }
   const ab = ev.target.closest(".abtn");
   if (ab) { doAction(ab); return; }
   if (ev.target.closest(".back-btn")) { history.back(); return; }
-  const dr = ev.target.closest("tr.drow");
-  if (dr) {  // ディレクトリ行: 配下のファイルを表示 / 非表示
-    if (ev.target.closest("input")) return;
-    const key = dr.dataset.kind + "|" + dr.dataset.dir, open = !wipOpenDirs.has(key);
-    if (open) wipOpenDirs.add(key); else wipOpenDirs.delete(key);
-    saveWipOpenDirs();
-    dr.querySelector(".dtog").textContent = open ? "▼" : "▶";
-    dr.closest("table").querySelectorAll("tr.frow").forEach(r => {
-      if (r.dataset.dir === dr.dataset.dir) r.classList.toggle("dhide", !open);
-    });
-    return;
-  }
   const tr = ev.target.closest("tr.frow");
-  if (tr && !ev.target.closest("a, input, td.fk") && curCtx)  // 行のどこをクリックしても差分を開く
+  if (tr && !tr.closest(".wip-panel") && !ev.target.closest("a, input, td.fk") && curCtx)  // WIP の一覧の行は、wip_panel.js が受け持つ  // 行のどこをクリックしても差分を開く
     location.href = diffUrl(curCtx, curFiles[+tr.dataset.k]);
 });
 // 中クリック/Ctrl・Cmdクリックは、ブラウザの opener 設定に関係なく

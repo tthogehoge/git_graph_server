@@ -44,7 +44,7 @@
     if (selected) {
       for (let i = 0; i < items.length; i++) if (items[i].node === selected) return i;
     }
-    const cur = document.querySelector("#side a.cur");
+    const cur = document.querySelector("#side a.cur, #side tr.cur a");  // 作業ツリーの一覧 (wip_panel.js) は行に cur が付く
     if (cur) {
       for (let i = 0; i < items.length; i++) if (items[i].node === cur) return i;
     }
@@ -63,7 +63,7 @@
   function toggleDir(row, wantOpen) {
     const open = isDirOpen(row);
     if (wantOpen === open) return;
-    row.click();  // diff_fold.js の click ハンドラで開閉と sessionStorage を処理
+    row.click();  // wip_panel.js の click ハンドラで開閉と sessionStorage を処理
   }
 
   function openFile(item) {

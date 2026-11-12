@@ -24,10 +24,13 @@ MERGE_PAGE = (STATIC_DIR / "merge.html").read_text(encoding="utf-8")
 MENUBAR_TEMPLATE = (STATIC_DIR / "menubar.html").read_text(encoding="utf-8")  # 全画面共通のメニューバー (pages.menubar_html が使う)
 # ブラウザ側の JavaScript は static/js/ の部品 (番号順) を連結して、/static/app.js として配る。
 # 部品の境界を示すコメントを挟むので、ブラウザーのエラーに出る行番号から元のファイルを探せる。
-APP_JS = "".join(f"/* ---- js/{path.name} ---- */\n" + path.read_text(encoding="utf-8")
-                 for path in sorted((STATIC_DIR / "js").glob("*.js")))
+# 3 画面共通の WIP の一覧とコミットフォーム (wip_panel.js) を先頭に置く
+APP_JS = "/* ---- wip_panel.js ---- */\n" + (STATIC_DIR / "wip_panel.js").read_text(encoding="utf-8") + "".join(
+    f"/* ---- js/{path.name} ---- */\n" + path.read_text(encoding="utf-8")
+    for path in sorted((STATIC_DIR / "js").glob("*.js")))
 # 共通のメニューバーの CSS (menubar.css) を先頭に連結する。ファイル表示 / 差分ページは menubar.css だけを埋め込む
-APP_CSS = (STATIC_DIR / "menubar.css").read_text(encoding="utf-8") + (STATIC_DIR / "app.css").read_text(encoding="utf-8")
+APP_CSS = ((STATIC_DIR / "menubar.css").read_text(encoding="utf-8") + (STATIC_DIR / "wip_panel.css").read_text(encoding="utf-8")
+           + (STATIC_DIR / "app.css").read_text(encoding="utf-8"))
 _FAVICON_SVG = ("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'>"
                 "<path d='M16 7V25M16 16C16 11 24 13 24 7' stroke='#889' stroke-width='3' fill='none'/>"
                 "<circle cx='16' cy='25' r='4' fill='#2c7be5'/><circle cx='16' cy='16' r='4' fill='#2c7be5'/>"

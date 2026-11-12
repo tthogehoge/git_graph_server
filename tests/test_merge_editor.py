@@ -283,7 +283,7 @@ class EditorBundleTests(unittest.TestCase):
         self.assertEqual(page.count("GGText.createTextEditor"), 2)  # 表示 (readOnly) と編集
         self.assertIn("readOnly: true", page)
         self.assertIn("/static/vendor/text_editor.js", page)
-        self.assertNotIn("<textarea", page)
+        self.assertEqual(page.count("<textarea"), viewer.WIP_PANEL_JS.count("<textarea"))  # WIP のコミットフォーム (共通部品) のほかには、textarea を使わない
         self.assertNotIn("createMergeEditor", page)
         self.assertNotIn("createTextEditor(opts)", page)  # バンドルそのものは埋め込まない (読み込ませる)
 

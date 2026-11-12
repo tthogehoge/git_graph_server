@@ -916,8 +916,7 @@ class EngineOperationTests(EngineTests):
         self.assertTrue(app.api_head({})["merging"])
         from git_graph.pages import render_diff_page
         page = render_diff_page({"path": ["tracked.txt"], "wip": ["conflict"]})
-        self.assertIn('data-cmd="am"', page)
-        self.assertIn("git am --abort", page)
+        self.assertIn('id="wipPanel"', page)  # 一覧と中断ボタンは、共通の WIP パネル (wip_panel.js) がブラウザで描く (振る舞いは tests/wip_panel_behavior.js)
         self.assertNotIn('id="cbtn"', page)
         from git_graph.engine.patch import am_patch
         with self.assertRaises(UserError):

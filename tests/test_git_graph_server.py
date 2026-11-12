@@ -1681,22 +1681,6 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertEqual(payload.call_count, 1)
         self.assertFalse(graph_module._warm_lock.locked())
 
-    def test_wip_diff_page_has_same_actions_as_wip_pane(self):
-        self.write_file("tracked.txt", "working tree change\n")
-        previous_writable = state.WRITABLE
-        state.WRITABLE = True
-        try:
-            page = viewer.render_diff_page({"path": ["tracked.txt"], "wip": ["unstaged"]})
-        finally:
-            state.WRITABLE = previous_writable
-
-        for element in ('id="rbtn"', 'id="sbtn"', 'id="dbtn"'):
-            self.assertIn(element, page)
-        self.assertIn('"/api/rm"', page)
-        self.assertIn('"/api/stash-push"', page)
-        self.assertNotIn('id="abtn"', page)
-        self.assertNotIn('data-resolve="ours"', page)
-
     def test_wip_diff_page_has_push_pull_fetch_buttons_even_without_changes(self):
         previous = (state.WRITABLE, state.WIP_ENABLED)
         self.addCleanup(setattr, state, "WRITABLE", previous[0])
@@ -1808,6 +1792,47 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
                 self.assertRegex(page, r'<a class="sbtn iconbtn page-nav" id="navGraphBtn" href="/')
                 self.assertNotRegex(page, r'<button[^>]*id="navFilesBtn"')
 
+    def test_wip_commit_form_is_one_shared_implementation_on_all_screens(self):
+        # グラフ・ファイル表示・差分は、WIP の一覧とコミットフォームに、同じ 1 つの実装 (wip_panel.js) を使う。
+        # 画面ごとに作り直すと、amend や差分マークが画面によって違ってしまうため
+        from git_graph.i18n import render_app_js
+        previous = (state.WRITABLE, state.WIP_ENABLED)
+        self.addCleanup(setattr, state, "WRITABLE", previous[0])
+        self.addCleanup(setattr, state, "WIP_ENABLED", previous[1])
+        state.WRITABLE = state.WIP_ENABLED = True
+        self.write_file("tracked.txt", "working tree change\n")
+        panel = viewer.WIP_PANEL_JS
+        self.assertIn("const WipPanel", panel)
+        pages = {
+            "graph": render_app_js(),
+            "files": viewer.render_files_page(),
+            "diff": viewer.render_diff_page({"path": ["tracked.txt"], "wip": ["unstaged"]}),
+            "diff-amend": viewer.render_diff_page({"path": ["tracked.txt"], "wip": ["amend"]}),
+        }
+        for name, page in pages.items():
+            with self.subTest(name):
+                self.assertIn(panel, page)  # 同じ実装がそのまま入っている
+                self.assertNotIn('id="cbtn"', page)  # 画面ごとの作りかけのコミットフォームは無い
+                self.assertNotIn('class="wck"', page)
+        self.assertEqual(viewer.WIP_PANEL_CSS in pages["files"], True)
+        self.assertIn(viewer.WIP_PANEL_CSS, pages["diff"])
+        for name in ("files", "diff", "diff-amend"):  # ファイル表示 / 差分は、パネルが使う文言を T に持つ
+            for key in viewer.WIP_PANEL_TEXT_KEYS:
+                self.assertIn(f'"{key}":', pages[name], f"{name}: T に {key} が無い")
+        for name in ("diff", "diff-amend"):
+            self.assertIn('id="wipPanel"', pages[name])
+            self.assertIn('mountWipPanel(document.getElementById("wipPanel"), {diff: true})', pages[name])
+        self.assertIn('id="wipPanelBox"', pages["files"])
+        self.assertIn('get("hash") === "WIP"', pages["files"])  # 作業ツリーを開いているときだけ出す
+        self.assertIn("wipPanel.render(detailView", pages["graph"])
+
+    def test_commit_and_compare_diff_pages_keep_their_own_file_list(self):
+        head = self.git("rev-parse", "HEAD").strip()
+        page = viewer.render_diff_page({"hash": [head], "path": ["tracked.txt"]})
+        self.assertNotIn('id="wipPanel"', page)
+        self.assertNotIn("WipPanel", page)  # コミットの表示にはコミットフォームは要らない
+        self.assertIn('href="/diff?', page)
+
     def test_commit_diff_page_without_a_file_lists_the_files(self):
         head = self.git("rev-parse", "HEAD").strip()
         page = viewer.render_diff_page({"hash": [head]})
@@ -1874,33 +1899,6 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertNotIn('id="sidePatchApply"', read_only)
         self.assertNotIn('id="sidePatchAm"', read_only)
 
-    def test_wip_diff_page_shows_resolve_and_abort_while_merging(self):
-        self.write_file("tracked.txt", "working tree change\n")
-        original = viewer.api_status
-
-        def merging_status(q):
-            st = original(q)
-            st["merging"] = True
-            st["conflicts"] = [{"path": "tracked.txt", "st": "U", "label": "label_conflict"}]
-            return st
-
-        previous_writable = state.WRITABLE
-        state.WRITABLE = True
-        viewer.api_status = merging_status
-        try:
-            page = viewer.render_diff_page({"path": ["tracked.txt"], "wip": ["conflict"]})
-        finally:
-            viewer.api_status = original
-            state.WRITABLE = previous_writable
-
-        self.assertIn('data-resolve="ours"', page)
-        self.assertIn('data-resolve="theirs"', page)
-        self.assertIn('data-resolve="current"', page)  # 現在の状態で解決
-        self.assertIn('id="abtn" data-cmd="merge"', page)
-        self.assertIn('id="rbtn"', page)  # git rm は途中でも使える
-        self.assertNotIn('id="sbtn"', page)  # stash / discard は途中では出さない
-        self.assertNotIn('id="dbtn"', page)
-
     def test_wip_diff_of_conflicted_file_shows_combined_diff_with_markers(self):
         self.git("checkout", "-q", "-b", "side")
         self.write_file("tracked.txt", "side\n")
@@ -1930,92 +1928,6 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertIn("-side", out)  # theirs との差分は出る
         self.assertIn("+main", out)
         self.assertNotIn("Unmerged path", out)
-
-    def render_conflict_page_with_status(self, **flags):
-        self.write_file("tracked.txt", "working tree change\n")
-        original = viewer.api_status
-
-        def op_status(q):
-            st = original(q)
-            st.update(flags)
-            st["conflicts"] = [{"path": "tracked.txt", "st": "U", "label": "label_conflict"}]
-            return st
-
-        previous_writable = state.WRITABLE
-        state.WRITABLE = True
-        viewer.api_status = op_status
-        try:
-            return viewer.render_diff_page({"path": ["tracked.txt"], "wip": ["conflict"]})
-        finally:
-            viewer.api_status = original
-            state.WRITABLE = previous_writable
-
-    def test_wip_diff_page_offers_continue_and_side_hint_while_rebasing(self):
-        page = self.render_conflict_page_with_status(rebasing=True)
-        self.assertIn('id="ctbtn"', page)  # 続行
-        self.assertIn('id="abtn"', page)
-        self.assertIn(html.escape(tr("rebase_side_hint")), page)
-        self.assertNotRegex(page, r'class="wck" data-kind="conflict"[^>]*data-path="tracked.txt" checked>')  # リベース中は、競合ファイルを既定でチェックしない
-        plain = self.render_conflict_page_with_status(merging=True)
-        self.assertNotIn('id="ctbtn"', plain)
-        self.assertNotIn(html.escape(tr("rebase_side_hint")), plain)
-
-    def test_wip_diff_page_checks_conflicts_while_cherry_picking_or_reverting(self):
-        for flag in ("cherry_picking", "reverting"):
-            page = self.render_conflict_page_with_status(**{flag: True})
-            self.assertRegex(page, r'class="wck" data-kind="conflict"[^>]*data-path="tracked.txt" checked>', flag)
-
-    def test_wip_diff_page_does_not_check_untracked_while_merging(self):
-        self.write_file("tracked.txt", "working tree change\n")
-        self.write_file("new_untracked.txt", "untracked\n")
-        original = viewer.api_status
-
-        def merging_status(q):
-            st = original(q)
-            st["merging"] = True
-            st["conflicts"] = [{"path": "tracked.txt", "st": "U", "label": "label_conflict"}]
-            return st
-
-        previous_writable = state.WRITABLE
-        state.WRITABLE = True
-        viewer.api_status = merging_status
-        try:
-            page = viewer.render_diff_page({"path": ["tracked.txt"], "wip": ["conflict"]})
-        finally:
-            viewer.api_status = original
-            state.WRITABLE = previous_writable
-
-        self.assertRegex(page, r'class="wck" data-kind="conflict"[^>]*data-path="tracked.txt" checked>')
-        self.assertRegex(page, r'class="wck" data-kind="untracked"[^>]*data-path="new_untracked.txt">')
-
-    def test_wip_diff_page_checks_staged_entry_only_by_default(self):
-        self.write_file("tracked.txt", "staged version\n")
-        self.git("add", "tracked.txt")
-        self.write_file("tracked.txt", "staged version\nunstaged line\n")
-        previous_writable = state.WRITABLE
-        state.WRITABLE = True
-        try:
-            page = viewer.render_diff_page({"path": ["tracked.txt"], "wip": ["staged"]})
-        finally:
-            state.WRITABLE = previous_writable
-
-        self.assertRegex(page, r'class="wck" data-kind="staged"[^>]*data-path="tracked.txt" checked>')
-        self.assertRegex(page, r'class="wck" data-kind="unstaged"[^>]*data-path="tracked.txt">')
-        self.assertIn("staged_paths", page)
-
-    def test_wip_diff_page_has_branch_and_discard_controls(self):
-        self.write_file("tracked.txt", "working tree change\n")
-        previous_writable = state.WRITABLE
-        state.WRITABLE = True
-        try:
-            page = viewer.render_diff_page({"path": ["tracked.txt"], "wip": ["unstaged"]})
-        finally:
-            state.WRITABLE = previous_writable
-
-        self.assertIn('id="cbranch"', page)
-        self.assertIn('id="dbtn"', page)
-        self.assertIn("branch: branch", page)
-        self.assertIn('fetch("/api/discard"', page)
 
     def test_mixed_reset_moves_head_and_leaves_changes_unstaged(self):
         self.write_file("tracked.txt", "second commit\n")
@@ -3759,7 +3671,7 @@ class EmptyRepoTests(unittest.TestCase):
                 diff = app.api_diff({"path": ["f.txt"], "wip": ["untracked"]})
                 self.assertIn("+x\n", diff["diff"])
                 page = viewer.render_diff_page({"path": ["f.txt"], "wip": ["untracked"]})
-                self.assertIn('id="cbtn"', page)
+                self.assertIn('id="wipPanel"', page)
 
                 subprocess.run(["git", "-C", tmpdir, "add", "f.txt"], check=True)
                 state.START_WIP = True

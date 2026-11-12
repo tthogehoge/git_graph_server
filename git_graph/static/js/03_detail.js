@@ -38,61 +38,10 @@ function updatePageNavForSelection(hash) {
   }).catch(() => {});
 }
 
+// 差分の URL・変更の種類のバッジ・ファイルの一覧は、WIP の一覧と同じ 3 画面共通の部品 (wip_panel.js)。
 // 差分は別ページ (/diff) で開く。ctx は {hash} (1コミット) または {from, to} (2コミット間の比較)
-function diffUrl(ctx, f) {
-  const p = Object.assign({}, ctx, {path: f.path});
-  if (f.old_path) p.old = f.old_path;
-  if (f.wip) p.wip = f.wip;  // 作業ツリーの変更 (staged / unstaged / untracked / conflict)
-  return "/diff?" + new URLSearchParams(p);
-}
-
-const ST_CLASS = {M: "stM", T: "stM", A: "stA", D: "stD", R: "stR", C: "stR", U: "stU", "?": "stN"};
-function badge(f) {  // 変更の種類 (M/A/D/R...) のバッジ。WIP の一覧で使う
-  return f.st ? '<span class="st ' + (ST_CLASS[f.st] || "stM") + '">' + esc(f.st) + "</span>" : "";
-}
-const WIP_DIR_COLLAPSE = 10;  // 1つのディレクトリの変更がこの件数以上なら、既定で畳む
-const WIP_OPEN_KEY = "git-graph-wip-open-dirs";  // /diff ページと共有する
-let wipOpenDirs = new Set();  // 開いているディレクトリ ("種別|パス")
-try { wipOpenDirs = new Set(JSON.parse(sessionStorage.getItem(WIP_OPEN_KEY) || "[]")); } catch (e) {}
-function saveWipOpenDirs() { try { sessionStorage.setItem(WIP_OPEN_KEY, JSON.stringify([...wipOpenDirs])); } catch (e) {} }
-function dirOf(path) { const i = path.lastIndexOf("/"); return i < 0 ? "" : path.slice(0, i); }
-function filesHtml(ctx, files, offset, withCheck, collapse) {
-  offset = offset || 0;
-  if (!files.length) return '<p class="hint">' + esc(t("no_changed_files")) + '</p>';
-  let add = 0, del = 0, max = 0;
-  files.forEach(f => { add += f.added || 0; del += f.deleted || 0; max = Math.max(max, (f.added || 0) + (f.deleted || 0)); });
-  const scale = max > 12 ? 12 / max : 1;
-  const dirCount = {}, dirStat = {}, dirSeen = {};
-  if (collapse) files.forEach(f => {
-    const dir = dirOf(f.path);
-    dirCount[dir] = (dirCount[dir] || 0) + 1;
-    dirStat[dir] = dirStat[dir] || [0, 0];
-    dirStat[dir][0] += f.added || 0; dirStat[dir][1] += f.deleted || 0;
-  });
-  const rows = files.map((f, k) => {
-    const a = f.added || 0, d = f.deleted || 0;
-    const dir = dirOf(f.path), folded = collapse && dirCount[dir] >= WIP_DIR_COLLAPSE;
-    const open = folded && wipOpenDirs.has(f.wip + "|" + dir);
-    let head = "";
-    if (folded && !dirSeen[dir]) {
-      dirSeen[dir] = true;
-      head = '<tr class="drow" data-dir="' + esc(dir) + '" data-kind="' + esc(f.wip) + '" title="' + esc(t("dir_toggle")) + '">' +
-        (withCheck ? '<td class="fk"><input type="checkbox" class="wipdir" data-kind="' + esc(f.wip) + '" data-dir="' + esc(dir) + '"></td>' : "") +
-        '<td class="fp" colspan="3"><span class="dtog">' + (open ? "▼" : "▶") + '</span> ' + esc(dir ? dir + "/" : t("dir_root")) +
-        ' <span class="hint">(' + esc(t("n_items", {n: dirCount[dir]})) + ') <span class="plus">+' + dirStat[dir][0] +
-        '</span> <span class="minus">-' + dirStat[dir][1] + '</span></span></td></tr>';
-    }
-    const pa = a ? Math.max(1, Math.round(a * scale)) : 0, pd = d ? Math.max(1, Math.round(d * scale)) : 0;
-    const name = f.old_path ? f.old_path + " => " + f.path : f.path;
-    return head + '<tr class="frow' + (folded && !open ? " dhide" : "") + '" data-k="' + (offset + k) + '" data-dir="' + esc(dir) + '">' + (withCheck ? wipCheckCell(f) : "") + '<td class="fp">' + badge(f) + (f.tag ? '<span class="hint">[' + esc(f.tag) + '] </span>' : "") + '<a href="' + esc(diffUrl(ctx, f)) +
-      '">' + esc(name) + '</a></td><td class="fc">' +
-      (f.label ? esc(t(f.label)) : f.added === null ? "Bin" : a + d) + '</td><td class="fb"><span class="plus">' + "+".repeat(pa) +
-      '</span><span class="minus">' + "-".repeat(pd) + "</span></td></tr>";
-  }).join("");
-  return '<div class="meta">' + files.length + (files.some(f => f.added !== undefined)
-      ? " files changed, " + add + " insertions(+), " + del + " deletions(-)" : " files") + "</div>" +
-    '<table class="files">' + rows + "</table>";
-}
+const diffUrl = WipPanel.diffUrl, badge = WipPanel.badge, dirOf = WipPanel.dirOf;
+function filesHtml(ctx, files, offset) { return WipPanel.filesTable(ctx, files, offset, {t: t}); }
 
 let curDetailHash = null;
 
