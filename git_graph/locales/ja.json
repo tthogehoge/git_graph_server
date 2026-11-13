@@ -916,5 +916,6 @@
   "diff_side_index": "インデックス (ステージ済み)",
   "diff_side_worktree": "作業ツリー",
   "diff_side_empty": "(なし)",
-  "file_diff_title": "差分: {path}"
+  "file_diff_title": "差分: {path}",
+  "vim_readonly_tip": "Vim のキーで、移動・検索・コピーをする (読み取り専用)"
 }

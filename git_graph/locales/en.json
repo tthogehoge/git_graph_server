@@ -916,5 +916,6 @@
   "diff_side_index": "Index (staged)",
   "diff_side_worktree": "Working tree",
   "diff_side_empty": "(none)",
-  "file_diff_title": "Diff: {path}"
+  "file_diff_title": "Diff: {path}",
+  "vim_readonly_tip": "Use Vim keys to move, search and copy (read-only)"
 }

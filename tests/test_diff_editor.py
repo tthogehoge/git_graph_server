@@ -203,7 +203,7 @@ class DiffEditorPageTests(unittest.TestCase):
     def test_button_and_box_are_on_a_file_diff_page_even_when_read_only(self):
         page = pages.render_diff_page({"hash": [self.head], "path": ["f.txt"]})
         for needle in ('id="dedit"', 'id="dbox"', ">Diff editor<", "function createDiffEditorView", '"diff_editor_close"', '"diff_editor_prev"',
-                       '"diff_editor_collapse"', '"editor_find"'):
+                       '"diff_editor_collapse"', '"editor_find"', '"edit_vim"', '"vim_readonly_tip"'):
             self.assertIn(needle, page)
         self.assertIn("/api/diff-sources", page)
         self.assertIn("/static/vendor/text_editor.js", page)  # エディタ本体は、ボタンを押したときに読み込む
@@ -217,6 +217,9 @@ class DiffEditorPageTests(unittest.TestCase):
         page = pages.render_files_page()
         self.assertIn("function createDiffEditorView", page)  # 共通の表示部品が、files ページにも入る
         self.assertNotIn("/*__DIFF_EDITOR_VIEW__*/", page)
+        self.assertIn('id="viewVim"', files_html)  # ファイルの表示 (読み取り専用) にも Vim モードの切り替えがある
+        self.assertIn("readOnly: true, vim: vimOn", files_html)
+        self.assertIn("vim: {get: () => vimOn, set: setVimPref}", files_html)  # 差分エディタも、表示・編集と同じ設定
         self.assertNotIn("function createDiffEditor(", page)  # エディタ本体は埋め込まない
         diff_page = pages.render_diff_page({"hash": [self.head], "path": ["f.txt"], "editor": ["1"]})
         self.assertIn('get("editor") === "1"', diff_page)  # /diff は、editor=1 でも最初から差分エディタで出す

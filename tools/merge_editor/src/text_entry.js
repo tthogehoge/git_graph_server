@@ -75,15 +75,18 @@ export function createTextEditor(opts) {
 
 // 差分エディタ (/diff の「差分エディタ」ボタン)。変更前 | 変更後 を左右に並べた読み取り専用の MergeView で、
 // 構文ハイライト・行番号・変更箇所の強調 (行と文字) と、検索 (Ctrl+F) ができる。高さは内容に合わせるので、ページ側がスクロールする。
-// opts: {parent, old, new, path, collapse, phrases}
+// opts: {parent, old, new, path, collapse, vim, phrases}
 //   old / new: 変更前 / 変更後の内容 (無い側は空文字)。path: 構文ハイライトの言語を決めるファイルのパス。
-//   collapse: 変更のない行を折りたたむか。phrases: 検索パネルなどの文言の翻訳 (createTextEditor と同じ)。
+//   collapse: 変更のない行を折りたたむか。vim: Vim モードにするか (読み取り専用なので、移動・検索・コピーのキーだけ働く。両側のペインに効く)。phrases: 検索パネルなどの文言の翻訳 (createTextEditor と同じ)。
 // 改行は LF として扱うので、改行コードだけの違いは差分に出ない (呼び出し側で、両側の改行コードを見て知らせる)。
 export function createDiffEditor(opts) {
+  const vimSlot = new Compartment();
+  const vimExtension = on => on ? vim({status: true}) : [];
   const extensions = [
-    lineNumbers(), EditorState.readOnly.of(true), highlightSelectionMatches(), search({top: true}),
+    lineNumbers(), drawSelection(), EditorState.readOnly.of(true), highlightSelectionMatches(), search({top: true}),
     EditorState.tabSize.of(4), EditorState.phrases.of(opts.phrases || {}),
     languageExtensions(opts.path || "") || [],
+    Prec.high(vimSlot.of(vimExtension(!!opts.vim))),  // Vim のキーは、ほかのキー割り当てより先に効かせる
     keymap.of([...searchKeymap, ...defaultKeymap]),
     THEME,
     EditorView.contentAttributes.of({spellcheck: "false", autocorrect: "off", autocapitalize: "off"}),
@@ -105,6 +108,7 @@ export function createDiffEditor(opts) {
       view.b.dispatch({selection: {anchor: dir > 0 ? 0 : view.b.state.doc.length}});
       return go(view.b);
     },
+    setVim: on => { for (const v of [view.a, view.b]) v.dispatch({effects: vimSlot.reconfigure(vimExtension(on))}); },
     focus: () => view.b.focus(),
     remeasure: () => { view.a.requestMeasure(); view.b.requestMeasure(); },
     destroy: () => view.destroy(),

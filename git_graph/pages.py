@@ -55,7 +55,7 @@ REMOTE_TEXT_KEYS = (
 )
 # 差分エディタ (diff_editor.js) が使う文言。検索パネルなどの文言 (editor_*) は、ファイル表示のエディタと同じ
 DIFF_EDITOR_TEXT_KEYS = (
-    "diff_editor_prev", "diff_editor_next", "diff_editor_collapse", "diff_editor", "diff_editor_close", "tip_diff_editor", "tip_diff_editor_close", "diff_editor_chunks", "diff_editor_none",
+    "diff_editor_prev", "diff_editor_next", "diff_editor_collapse", "edit_vim", "vim_readonly_tip", "diff_editor", "diff_editor_close", "tip_diff_editor", "tip_diff_editor_close", "diff_editor_chunks", "diff_editor_none",
     "diff_editor_binary", "diff_editor_unavailable", "diff_editor_eol", "diff_editor_missing", "large_file_head", "editor_load_failed",
     "editor_find", "editor_replace", "editor_next", "editor_previous", "editor_all", "editor_match_case", "editor_regexp",
     "editor_by_word", "editor_replace_one", "editor_replace_all", "editor_close", "editor_goto_line", "editor_go",

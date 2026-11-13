@@ -528,3 +528,51 @@ test("diff editor view: an older load that finishes late is dropped", async () =
   await closed;
   assert.equal(w.document.querySelectorAll(".cm-mergeViewEditor").length, 0);  // 読み込み中に閉じたら、出さない
 });
+
+test("diff editor: Vim mode on both panes, can be switched on and off, keys move the cursor", () => {
+  const w = load(TEXT_BUNDLE);
+  const ed = w.GGText.createDiffEditor({parent: w.document.getElementById("top"), old: "abc\ndef\n", new: "abc\nDEF\nghi\n", path: "x.txt", collapse: false, vim: true});
+  assert.equal(w.document.querySelectorAll(".cm-vim-panel").length, 2, "status panel in each pane");
+  const cm = w.GGText.getCM(ed.view.b);
+  w.GGText.Vim.handleKey(cm, "l", "user");  // (j は、レイアウトの無い jsdom では画面上の行の移動が正しく測れないので、l で確かめる)
+  assert.equal(ed.view.b.state.selection.main.head, 1);
+  w.GGText.Vim.handleKey(cm, "x", "user");  // 読み取り専用なので、消せない
+  w.GGText.Vim.handleKey(cm, "d", "user"); w.GGText.Vim.handleKey(cm, "d", "user");
+  assert.equal(ed.view.b.state.doc.toString(), "abc\nDEF\nghi\n");
+  ed.setVim(false);
+  assert.equal(w.document.querySelectorAll(".cm-vim-panel").length, 0);
+  ed.setVim(true);
+  assert.equal(w.document.querySelectorAll(".cm-vim-panel").length, 2);
+  ed.destroy();
+  const plain = w.GGText.createDiffEditor({parent: w.document.getElementById("result"), old: "a\n", new: "b\n", path: "x.txt", collapse: false});
+  assert.equal(w.document.querySelectorAll(".cm-vim-panel").length, 0, "off by default");
+  plain.destroy();
+});
+
+test("diff editor view: Vim checkbox follows the shared setting, switches both panes, and reports the change", async () => {
+  const saved = [];
+  const w = load(TEXT_BUNDLE);
+  w.eval(fs.readFileSync(VIEW_SCRIPT, "utf8") + "\nwindow.createDiffEditorView = createDiffEditorView;");
+  w.fetch = () => Promise.resolve({ok: true, json: () => Promise.resolve({path: "x.txt", old_path: "x.txt", old: side("a\n"), new: side("b\n")})});
+  let on = true;  // 設定が既にオンなら、最初からオンで出る
+  const view = w.createDiffEditorView({
+    box: w.document.getElementById("top"), text: k => TEXTS[k] || k, phrases: () => ({}), loadScript: () => Promise.resolve(),
+    vim: {get: () => on, set: v => { on = v; saved.push(v); }},
+  });
+  await view.load({path: "x.txt"});
+  const box = [...w.document.querySelectorAll(".de-bar input")].find(i => i.parentNode.textContent === "edit_vim");
+  assert.equal(box.checked, true);
+  assert.equal(w.document.querySelectorAll(".cm-vim-panel").length, 2);
+  assert.equal(box.parentNode.title, "vim_readonly_tip");
+  box.checked = false;
+  box.dispatchEvent(new w.Event("change"));
+  assert.deepEqual(saved, [false]);
+  assert.equal(w.document.querySelectorAll(".cm-vim-panel").length, 0);
+  const collapse = [...w.document.querySelectorAll(".de-bar input")].find(i => i.parentNode.textContent === "COLLAPSE");
+  collapse.checked = false;  // 折りたたみで作り直しても、設定は保たれる
+  box.checked = true;
+  box.dispatchEvent(new w.Event("change"));
+  collapse.dispatchEvent(new w.Event("change"));
+  assert.equal(w.document.querySelectorAll(".cm-vim-panel").length, 2);
+  view.close();
+});

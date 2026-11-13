@@ -70,6 +70,8 @@ __FAVICON__
   .edit-info.warn { color: #b35900; }
   .cm-host { min-height: 200px; box-sizing: border-box; border: 1px solid #bbb; }  /* ファイルの表示と編集のエディタ。高さは fitEditor() が本文の領域に合わせる */
   .edit-bar { display: flex; gap: 6px; margin: 6px 0; }
+  .view-bar { margin: 4px 0; }
+  .view-bar label.edit-vim { color: #444; cursor: pointer; }
   .edit-bar label.edit-vim { align-self: center; margin-left: 8px; color: #444; cursor: pointer; }
   .edit-bar button { background: #e8eefc; border: 1px solid #b8c7ee; padding: 4px 10px; border-radius: 3px; cursor: pointer; }
   .edit-bar button.primary { background: #1a7f37; border-color: #1a7f37; color: #fff; }
@@ -672,6 +674,10 @@ let fileData = null, editing = false, editDirty = false, textEditor = null;
 const VIM_KEY = "gitGraphEditorVim";
 let vimOn = false;  // Vim モードにするか。保存先 (localStorage) が使えない pywebview などでも切り替わるよう、メモリ上の値を正とする
 try { vimOn = localStorage.getItem(VIM_KEY) === "1"; } catch (e) { vimOn = false; }
+function setVimPref(on) {  // Vim モードの設定 (表示・編集・差分で共通)
+  vimOn = on;
+  try { localStorage.setItem(VIM_KEY, vimOn ? "1" : "0"); } catch (e) { /* 保存できなくても切り替わる (次回は引き継がれない) */ }
+}
 const EOL_LABEL = {crlf: "CRLF", lf: "LF", cr: "CR"};
 let diffView = null;  // 右ペインの差分エディタ (view=diff)
 function closeEditor() {
@@ -693,14 +699,20 @@ function jumpToHashLine() {  // URL の #L12 で、その行を出す
 window.addEventListener("hashchange", jumpToHashLine);
 function showCode(r) {  // ファイルの内容を、読み取り専用のエディタで出す (編集画面と同じ CodeMirror。行番号・構文ハイライト・検索 Ctrl+F)
   content.className = "";
-  content.innerHTML = (r.truncated ? '<p class="hint">' + esc(t("large_file_head")) + '</p>' : "") + '<div class="cm-host" id="viewer"></div>';
+  content.innerHTML = (r.truncated ? '<p class="hint">' + esc(t("large_file_head")) + '</p>' : "") +
+    '<div class="view-bar"><label class="edit-vim" title="' + esc(t("vim_readonly_tip")) + '"><input type="checkbox" id="viewVim"' + (vimOn ? " checked" : "") +
+    '> ' + esc(t("edit_vim")) + '</label></div><div class="cm-host" id="viewer"></div>';
   document.getElementById("main").scrollTop = 0;
   const host = document.getElementById("viewer");
+  document.getElementById("viewVim").onchange = ev => {  // Vim モード (移動・検索・コピーのキー)。編集画面と同じ設定
+    setVimPref(ev.target.checked);
+    if (textEditor) { textEditor.setVim(vimOn); textEditor.focus(); }
+  };
   fitEditor(host);
   loadEditorScript().then(() => {
     if (fileData !== r || currentView !== "" || !host.isConnected) return;  // 読み込んでいる間に、別の表示に移った
     closeEditor();
-    textEditor = GGText.createTextEditor({parent: host, text: r.content, path: r.path, readOnly: true, phrases: editorPhrases()});
+    textEditor = GGText.createTextEditor({parent: host, text: r.content, path: r.path, readOnly: true, vim: vimOn, phrases: editorPhrases()});
     title.textContent = fileTitle(r, textEditor.language);
     if (keepViewerScroll && keepViewerScroll.path === r.path) textEditor.setScrollTop(keepViewerScroll.top);
     else jumpToHashLine();
@@ -767,8 +779,7 @@ function startEdit() {
     backToContent(() => setFileMsg(e.message, false));
   });
   document.getElementById("editVim").onchange = ev => {
-    vimOn = ev.target.checked;
-    try { localStorage.setItem(VIM_KEY, vimOn ? "1" : "0"); } catch (e) { /* 保存できなくても切り替わる (次回は引き継がれない) */ }
+    setVimPref(ev.target.checked);
     if (textEditor) { textEditor.setVim(vimOn); textEditor.focus(); }
   };
   document.getElementById("editSave").onclick = saveEdit;
@@ -862,7 +873,7 @@ function loadFileDiff(path) {  // 右ペインに、このファイルの差分�
   content.textContent = "";
   const box = document.createElement("div");
   content.appendChild(box);
-  diffView = createDiffEditorView({box: box, text: t, phrases: editorPhrases, loadScript: loadEditorScript});
+  diffView = createDiffEditorView({box: box, text: t, phrases: editorPhrases, loadScript: loadEditorScript, vim: {get: () => vimOn, set: setVimPref}});
   diffView.load(params);
 }
 function loadFileLog(path) {

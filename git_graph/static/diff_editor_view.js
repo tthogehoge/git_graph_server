@@ -2,10 +2,18 @@
 // createDiffEditorView({box, text, phrases, loadScript}) は、box の中にツールバー・注意書き・変更前 / 変更後の見出し・エディタを作り、
 //   load(params): /api/diff-sources (params は /diff と同じ hash / from・to / wip / path / old) から読み込んで出す。古い読み込みは捨てる。
 //   close(): エディタを閉じて内容を捨てる。
-// 引数: box (中身を作る要素) / text(key, values) (文言) / phrases() (検索パネルなどの文言) / loadScript() (GGText を読み込む Promise)。
+// 引数: box (中身を作る要素) / text(key, values) (文言) / phrases() (検索パネルなどの文言) / loadScript() (GGText を読み込む Promise) /
+//   vim ({get(), set(on)}。Vim モードの設定。省略すると、ファイル表示・編集と同じ localStorage の設定を使う)。
 // エディタ本体 (GGText.createDiffEditor) は 1MB ほどあるので、ページには埋め込まず、最初に load するときに loadScript で読み込む。
 function createDiffEditorView(opts) {
   const box = opts.box, text = opts.text;
+  const VIM_KEY = "gitGraphEditorVim";  // files.html のエディタと同じ。どの画面で切り替えても、ほかの画面に引き継ぐ
+  let vimMemory = false;  // localStorage が使えなくても (pywebview など)、切り替えはできる
+  try { vimMemory = localStorage.getItem(VIM_KEY) === "1"; } catch (e) { vimMemory = false; }
+  const vimPref = opts.vim || {
+    get: () => vimMemory,
+    set: on => { vimMemory = on; try { localStorage.setItem(VIM_KEY, on ? "1" : "0"); } catch (e) { /* 保存できなくても切り替わる */ } },
+  };
   if (!document.getElementById("diffEditorViewCss")) {  // 見た目は、使うページ (/diff, /files) に依らず同じ
     const style = document.createElement("style");
     style.id = "diffEditorViewCss";
@@ -36,11 +44,15 @@ function createDiffEditorView(opts) {
   };
   const bar = make("div", "de-bar"), prev = make("button", "", text("diff_editor_prev")), next = make("button", "", text("diff_editor_next"));
   const count = make("span", "de-count"), collapseLabel = make("label"), collapse = make("input");
+  const vimLabel = make("label"), vimBox = make("input");
   prev.type = next.type = "button";
-  collapse.type = "checkbox";
+  collapse.type = vimBox.type = "checkbox";
   collapse.checked = true;
+  vimBox.checked = !!vimPref.get();
+  vimLabel.title = text("vim_readonly_tip");
   collapseLabel.append(collapse, document.createTextNode(text("diff_editor_collapse")));
-  bar.append(prev, next, count, collapseLabel);
+  vimLabel.append(vimBox, document.createTextNode(text("edit_vim")));
+  bar.append(prev, next, count, collapseLabel, vimLabel);
   const notes = make("div"), labels = make("div", "de-labels"), labelOld = make("span"), labelNew = make("span"), host = make("div", "de-host");
   labels.hidden = true;
   labels.append(labelOld, labelNew);
@@ -76,7 +88,7 @@ function createDiffEditorView(opts) {
       labelOld.textContent = sideName(a);
       labelNew.textContent = sideName(b);
       labels.hidden = false;
-      editor = GGText.createDiffEditor({parent: host, old: a.content, new: b.content, path: data.path, collapse: collapse.checked, phrases: opts.phrases()});
+      editor = GGText.createDiffEditor({parent: host, old: a.content, new: b.content, path: data.path, collapse: collapse.checked, vim: vimBox.checked, phrases: opts.phrases()});
       const chunks = editor.chunkCount();
       prev.disabled = next.disabled = !chunks;
       count.textContent = chunks ? text("diff_editor_chunks", {n: chunks}) : text("diff_editor_none");
@@ -86,6 +98,7 @@ function createDiffEditorView(opts) {
   prev.onclick = () => { if (editor) editor.jump(-1); };
   next.onclick = () => { if (editor) editor.jump(1); };
   collapse.onchange = () => { if (data) render(); };
+  vimBox.onchange = () => { vimPref.set(vimBox.checked); if (editor) editor.setVim(vimBox.checked); };
   return {
     load: params => {
       const mine = ++seq;
