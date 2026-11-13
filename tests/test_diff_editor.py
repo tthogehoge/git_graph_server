@@ -224,6 +224,16 @@ class DiffEditorPageTests(unittest.TestCase):
         diff_page = pages.render_diff_page({"hash": [self.head], "path": ["f.txt"], "editor": ["1"]})
         self.assertIn('get("editor") === "1"', diff_page)  # /diff は、editor=1 でも最初から差分エディタで出す
 
+    def test_the_files_page_left_pane_switches_between_the_file_list_and_the_changed_files(self):
+        page = pages.render_files_page()
+        for needle in ('id="sideTabs"', 'id="sideTreeBtn"', 'id="sideChangesBtn"', 'id="changes"', "Files</button>", "Changed files</button>"):
+            self.assertIn(needle, page)
+        files_html = pages.read_asset("files.html")
+        self.assertIn('sideTabs.hidden = isWip || !hash;', files_html)  # 作業ツリーでは、変更の一覧が WIP パネルにあるので出さない
+        self.assertIn('history.pushState({path: current, file: path, view: "diff"}', files_html)  # 変更ファイルは、右ペインの差分で開く
+        self.assertIn("gitGraphFilesSide", files_html)  # 選んだ表示は引き継ぐ
+        self.assertIn('const rows = [...activeList().querySelectorAll(".entry")];', files_html)  # ↑↓ Enter は、出している方の一覧で働く
+
     def test_no_button_when_no_file_is_selected(self):
         page = pages.render_diff_page({"hash": [self.head]})
         self.assertNotIn('id="dedit"', page)

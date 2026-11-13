@@ -917,5 +917,9 @@
   "diff_side_worktree": "Working tree",
   "diff_side_empty": "(none)",
   "file_diff_title": "Diff: {path}",
-  "vim_readonly_tip": "Use Vim keys to move, search and copy (read-only)"
+  "vim_readonly_tip": "Use Vim keys to move, search and copy (read-only)",
+  "side_tree": "Files",
+  "side_changes": "Changed files",
+  "commit_mark_D": "Deleted in this commit",
+  "binary_short": "bin"
 }

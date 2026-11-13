@@ -70,6 +70,15 @@ __FAVICON__
   .edit-info.warn { color: #b35900; }
   .cm-host { min-height: 200px; box-sizing: border-box; border: 1px solid #bbb; }  /* ファイルの表示と編集のエディタ。高さは fitEditor() が本文の領域に合わせる */
   .edit-bar { display: flex; gap: 6px; margin: 6px 0; }
+  .side-tabs { display: flex; margin: 8px 0; }
+  .side-tabs[hidden], #changes[hidden] { display: none; }
+  .side-tabs button { flex: 1; padding: 4px 6px; border: 1px solid #b8c7ee; background: #fff; color: #333; cursor: pointer; }
+  .side-tabs button:first-child { border-radius: 3px 0 0 3px; }
+  .side-tabs button:last-child { border-radius: 0 3px 3px 0; border-left: none; }
+  .side-tabs button.on { background: #e8eefc; font-weight: bold; }
+  #changes .entry > span:first-child { min-width: 0; word-break: break-all; }
+  #changes .entry .dir { color: #777; }
+  #changes .entry .size .add { color: #1a7f37; } #changes .entry .size .del { color: #cf222e; }
   .view-bar { margin: 4px 0; }
   .view-bar label.edit-vim { color: #444; cursor: pointer; }
   .edit-bar label.edit-vim { align-self: center; margin-left: 8px; color: #444; cursor: pointer; }
@@ -84,7 +93,7 @@ __FAVICON__
 <!--__MENUBAR__-->
 <div id="panes">
 <aside id="tree"><h1>{{file_view}}</h1><div class="meta" id="commit"></div><div id="smMsg" class="sm-msg"></div><div class="file-actions patch-bar"><button id="patchCreateBtn">{{patch_create}}</button><button id="patchApplyBtn" hidden title="{{tip_patch_apply}}">{{patch_apply}}</button><button id="patchAmBtn" hidden title="{{tip_patch_am}}">{{patch_am}}</button><input type="file" id="patchFile" hidden><span id="patchMsg" class="msg"></span></div>
-<details id="wipPanelBox" class="wip-box" hidden><summary>{{wip_title}}<span id="wipPanelCount"></span></summary><div id="wipPanel"></div></details><div class="file-actions patch-bar sel-bar" id="selBar" hidden><label class="selall"><input type="checkbox" id="selAll"> {{sel_all}}</label><span id="selCount" class="cnt"></span><button id="selAddBtn" disabled title="{{tip_add_selected}}">{{add_button}}</button><button id="selRmBtn" disabled title="{{tip_rm_selected}}">{{rm_button}}</button><button id="selRmCachedBtn" disabled title="{{tip_rm_cached_selected}}">{{rm_cached_button}}</button><span id="selMsg" class="msg"></span></div><div id="list"></div></aside>
+<details id="wipPanelBox" class="wip-box" hidden><summary>{{wip_title}}<span id="wipPanelCount"></span></summary><div id="wipPanel"></div></details><div class="file-actions patch-bar sel-bar" id="selBar" hidden><label class="selall"><input type="checkbox" id="selAll"> {{sel_all}}</label><span id="selCount" class="cnt"></span><button id="selAddBtn" disabled title="{{tip_add_selected}}">{{add_button}}</button><button id="selRmBtn" disabled title="{{tip_rm_selected}}">{{rm_button}}</button><button id="selRmCachedBtn" disabled title="{{tip_rm_cached_selected}}">{{rm_cached_button}}</button><span id="selMsg" class="msg"></span></div><div class="side-tabs" id="sideTabs" hidden><button id="sideTreeBtn" class="on">{{side_tree}}</button><button id="sideChangesBtn">{{side_changes}}</button></div><div id="list"></div><div id="changes" hidden></div></aside>
 <div id="sideSplitter" role="separator" aria-orientation="vertical" aria-label="{{resize_side}}" tabindex="0"></div>
 <main id="main"><h2 id="title">{{select_file}}</h2>
 <div id="dirActions" class="file-actions" hidden><button id="dirLogBtn">{{dir_log}}</button><button id="dirListBtn" hidden>{{dir_list}}</button><button id="dirGraphLogBtn" hidden>{{file_log_graph}}</button></div>
@@ -107,6 +116,7 @@ function setDocumentTitle(label) {
 }
 
 const qs = new URLSearchParams(location.search), hash = qs.get("hash"), fileViewTab = qs.get("file_view") === "1";
+const sideTabs = document.getElementById("sideTabs"), sideTreeBtn = document.getElementById("sideTreeBtn"), sideChangesBtn = document.getElementById("sideChangesBtn"), changesEl = document.getElementById("changes");
 const list = document.getElementById("list"), content = document.getElementById("content"), title = document.getElementById("title");
 const fileActions = document.getElementById("fileActions"), fileLogBtn = document.getElementById("fileLogBtn"), fileBlameBtn = document.getElementById("fileBlameBtn"), fileContentBtn = document.getElementById("fileContentBtn");
 const fileGraphLogBtn = document.getElementById("fileGraphLogBtn");
@@ -131,6 +141,7 @@ fileCopyBtn.disabled = !CAN_COPY || isWip;
 let current = "", currentFile = "", wipHead = null;
 let dirEntries = null, dirLogSeq = 0;  // dirEntries: 表示中のディレクトリの項目 (読み込み前は null), dirLogSeq: 古い応答を捨てるための通し番号
 let dirLogOn = false;  // ディレクトリの本文に、項目の一覧ではなく「このディレクトリのログ」を出しているか
+let commitFiles = [];  // このコミットで変更されたファイルの一覧 (左ペインの「変更ファイル」)
 let entryInfo = {}, commitChanges = null, commitDirs = new Set();  // entryInfo: パス → 一覧の項目 (WIP の変更の種類 xy), commitChanges: パス → コミットでの変更
 function diffParams(path) {  // このファイルの差分ページの引数。変更がなければ null
   if (isWip) {
@@ -163,13 +174,64 @@ function loadCommitChanges() {  // このコミットで変更されたファイ
   api("/api/commit", {hash: hash}).then(c => {
     commitChanges = {};
     commitDirs = new Set();
+    commitFiles = c.files;
     c.files.forEach(f => {
       commitChanges[f.path] = f;
       for (let i = f.path.indexOf("/"); i > 0; i = f.path.indexOf("/", i + 1)) commitDirs.add(f.path.slice(0, i));  // 上のディレクトリすべて
     });
     updateDiffBtn();
     refreshBadges();
-  }).catch(() => {});
+    renderChanges();
+  }).catch(e => { changesEl.innerHTML = '<p class="hint">' + esc(t("error") + e.message) + '</p>'; });
+}
+// ---- 左ペインの表示: ファイル一覧 / そのコミットの変更ファイル (コミット表示だけ。作業ツリーは、変更の一覧が左ペインの WIP パネルにある) ----
+const SIDE_KEY = "gitGraphFilesSide";
+let sideMode = "tree";  // "tree" | "changes"。保存先 (localStorage) が使えなくても切り替わるよう、メモリ上の値を正とする
+try { sideMode = localStorage.getItem(SIDE_KEY) === "changes" ? "changes" : "tree"; } catch (e) { sideMode = "tree"; }
+function activeList() { return !isWip && sideMode === "changes" ? changesEl : list; }
+function applySideMode() {
+  const changes = activeList() === changesEl;
+  list.hidden = changes;
+  changesEl.hidden = !changes;
+  sideTreeBtn.classList.toggle("on", !changes);
+  sideChangesBtn.classList.toggle("on", changes);
+  selectEntry(null);
+  syncChangesSelection();
+}
+function setSideMode(mode) {
+  sideMode = mode;
+  try { localStorage.setItem(SIDE_KEY, mode); } catch (e) { /* 保存できなくても切り替わる (次回は引き継がれない) */ }
+  applySideMode();
+}
+sideTreeBtn.onclick = () => setSideMode("tree");
+sideChangesBtn.onclick = () => setSideMode("changes");
+const CHANGE_MARK = {A: "A", C: "A", R: "R", D: "D"};  // それ以外は M
+function renderChanges() {  // 「変更ファイル」の一覧 (loadCommitChanges が読み込んだあとに出す)
+  if (isWip) return;
+  sideChangesBtn.textContent = t("side_changes") + (commitChanges ? " (" + commitFiles.length + ")" : "");
+  if (!commitChanges) { changesEl.innerHTML = '<p class="hint">' + esc(t("loading")) + '</p>'; return; }
+  if (!commitFiles.length) { changesEl.innerHTML = '<p class="hint">' + esc(t("no_changed_files")) + '</p>'; return; }
+  changesEl.innerHTML = commitFiles.map(f => {
+    const mark = CHANGE_MARK[f.status] || "M", slash = f.path.lastIndexOf("/");
+    const tip = t(COMMIT_MARK_KEY[mark] || "commit_mark_M") + (mark === "R" && f.old_path ? ": " + f.old_path : "");
+    const num = f.added === null || f.deleted === null ? t("binary_short") : '<span class="add">+' + f.added + '</span> <span class="del">−' + f.deleted + '</span>';
+    return '<div class="entry" data-type="change" data-path="' + esc(f.path) + '" title="' + esc(f.old_path ? f.old_path + " → " + f.path : f.path) + '"><span>' +
+      '<span class="st ' + ST_CLASS[mark] + '" title="' + esc(tip) + '">' + mark + '</span>' +
+      (slash < 0 ? "" : '<span class="dir">' + esc(f.path.slice(0, slash + 1)) + '</span>') + esc(f.path.slice(slash + 1)) + '</span><span class="size">' + num + '</span></div>';
+  }).join("");
+  changesEl.querySelectorAll(".entry").forEach(a => { a.onclick = () => { selectEntry(a); openChange(a.dataset.path); }; });
+  syncChangesSelection();
+}
+function syncChangesSelection() {  // いま開いているファイルが、変更ファイルの一覧にあれば選択する
+  if (activeList() !== changesEl) return;
+  selectEntry([...changesEl.querySelectorAll(".entry")].find(r => r.dataset.path === currentFile) || null);
+}
+function openChange(path) {  // 変更ファイルを、右ペインの差分エディタで開く (ファイルを開いて差分の表示にするまで、履歴は 1 つ)
+  const f = commitChanges && commitChanges[path];
+  if (!f || !leaveEdit()) return Promise.resolve();
+  if (path === currentFile && currentView === "diff") return Promise.resolve();
+  history.pushState({path: current, file: path, view: "diff"}, "", pageUrl(current, path, "diff"));
+  return loadFile(path, false).then(() => renderView("diff"));  // 消されたファイルは、内容を読めなくても差分は出せる
 }
 fileDiffBtn.onclick = () => { if (currentFile && diffParams(currentFile)) openView("diff"); };  // このファイルの差分を、右ペインの差分エディタ (変更前 | 変更後) で出す
 function logHash() { return isWip ? wipHead : hash; }  // ファイルのログの起点 (作業ツリーなら HEAD)
@@ -186,7 +248,7 @@ function pageUrl(path, file, view, dirlog) {  // 表示中のディレクトリ�
   return "?" + p;
 }
 const ST_CLASS = {M: "stM", A: "stA", D: "stD", R: "stR", U: "stU", "?": "stN"};
-const COMMIT_MARK_KEY = {A: "commit_mark_A", R: "commit_mark_R"};
+const COMMIT_MARK_KEY = {A: "commit_mark_A", R: "commit_mark_R", D: "commit_mark_D"};
 function commitBadge(e, path) {  // コミット表示での、そのコミットで変更・追加されたものの印 (ディレクトリは中に変更があるとき)
   if (!commitChanges) return "";
   let mark, tip;
@@ -243,7 +305,7 @@ function openSubmoduleFiles(path) {
     .catch(err => smMsg(err.message, false))
     .finally(() => { smOpening = false; });
 }
-function openEntry(path, type) { return type === "tree" ? openDir(path) : type === "commit" ? openSubmoduleFiles(path) : loadFile(path, true); }
+function openEntry(path, type) { return type === "change" ? openChange(path) : type === "tree" ? openDir(path) : type === "commit" ? openSubmoduleFiles(path) : loadFile(path, true); }
 
 // 左ペインのキーボード操作: ↑↓ で選択、Enter で右ペイン表示、← で親へ、→ でディレクトリに入る
 let selectedEntry = null;
@@ -275,11 +337,11 @@ document.addEventListener("keydown", ev => {
   if (ev.target && (ev.target.isContentEditable || ev.target.closest(".cm-editor"))) return;
   if (ev.target === document.getElementById("sideSplitter")) return;  // スプリッタの ←→ は幅変更に使う
   if (!ev.target.closest("#tree")) return;
-  const rows = [...list.querySelectorAll(".entry")];
+  const rows = [...activeList().querySelectorAll(".entry")];
   if (!rows.length) return;
 
   if (ev.key === "ArrowLeft") {
-    if (!current) return;
+    if (!current || activeList() !== list) return;  // 変更ファイルの一覧に、親ディレクトリは無い
     ev.preventDefault();
     openDir(parentDir(current));
     return;
@@ -610,6 +672,7 @@ function loadFile(path, push) {
   if (!leaveEdit()) return;
   if (push && (path !== currentFile || currentView)) history.pushState({path: current, file: path}, "", pageUrl(current, path));
   currentFile = path; currentView = "";
+  syncChangesSelection();
   dirLogOn = false; dirActions.hidden = true;
   setDocumentTitle(path);
   setFileMsg("", true);
@@ -947,6 +1010,9 @@ reloadBtn.onclick = () => {
   });
 };
 updateDiffBtn();  // 差分アイコンは、ファイルを開く前から押せる
+sideTabs.hidden = isWip || !hash;  // 作業ツリーの変更の一覧は、WIP パネルにある
+sideChangesBtn.textContent = t("side_changes");
+if (!isWip && hash) { changesEl.innerHTML = '<p class="hint">' + esc(t("loading")) + '</p>'; applySideMode(); }
 if (!hash) showError(new Error(t("commit_required"))); else { loadCommitChanges(); restoreFromUrl(true); }
 </script>
 <script>/*__MENUBAR_JS__*/</script></body></html>
