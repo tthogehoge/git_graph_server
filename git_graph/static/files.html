@@ -90,6 +90,7 @@ __FAVICON__
 <div id="content" class="hint">{{select_file_hint}}</div></main>
 </div>
 <script>/*__PANE_RESIZE__*/</script>
+<script>/*__DIFF_EDITOR_VIEW__*/</script>
 <script>
 /*__FILE_I18N__*/
 function t(key, values = {}) {
@@ -168,10 +169,7 @@ function loadCommitChanges() {  // このコミットで変更されたファイ
     refreshBadges();
   }).catch(() => {});
 }
-fileDiffBtn.onclick = () => {  // このファイルの差分を、差分ページの差分エディタ (変更前 | 変更後) で開く
-  const p = currentFile && diffParams(currentFile);
-  if (p) location.href = "/diff?" + new URLSearchParams({...p, editor: "1"});
-};
+fileDiffBtn.onclick = () => { if (currentFile && diffParams(currentFile)) openView("diff"); };  // このファイルの差分を、右ペインの差分エディタ (変更前 | 変更後) で出す
 function logHash() { return isWip ? wipHead : hash; }  // ファイルのログの起点 (作業ツリーなら HEAD)
 function esc(s) { return String(s).replace(/[&<>\"]/g, c => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", "\"":"&quot;"}[c])); }
 function api(path, params) { return fetch(path + "?" + new URLSearchParams(params)).then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); })); }
@@ -653,6 +651,7 @@ function renderView(view) {
     else if (fileData) setFileMsg(t(fileData.edit_reason || "edit_bad_encoding"), false);
   } else if (view === "blame") loadFileBlame(currentFile);
   else if (view === "log") loadFileLog(currentFile);
+  else if (view === "diff") loadFileDiff(currentFile);
 }
 function openView(view) {
   if (!currentFile || view === currentView) return;
@@ -674,8 +673,10 @@ const VIM_KEY = "gitGraphEditorVim";
 let vimOn = false;  // Vim モードにするか。保存先 (localStorage) が使えない pywebview などでも切り替わるよう、メモリ上の値を正とする
 try { vimOn = localStorage.getItem(VIM_KEY) === "1"; } catch (e) { vimOn = false; }
 const EOL_LABEL = {crlf: "CRLF", lf: "LF", cr: "CR"};
+let diffView = null;  // 右ペインの差分エディタ (view=diff)
 function closeEditor() {
   if (textEditor) { textEditor.destroy(); textEditor = null; }
+  if (diffView) { diffView.close(); diffView = null; }
 }
 function fileTitle(r, lang) { return r.path + (lang ? " (" + lang + ")" : "") + (r.encoding ? " [" + r.encoding + "]" : ""); }
 function fitEditor(host) {  // エディタの高さを本文の領域に合わせる (ページではなくエディタの中でスクロールさせる)
@@ -846,6 +847,24 @@ content.addEventListener("click", ev => {
   if (fileViewTab) params.set("file_view", "1");
   location.href = "/files?" + params;
 });
+function loadFileDiff(path) {  // 右ペインに、このファイルの差分を差分エディタ (変更前 | 変更後) で出す
+  closeEditor();  // 表示のエディタ
+  fileLogBtn.hidden = true;
+  fileBlameBtn.hidden = true;
+  fileContentBtn.hidden = false;
+  fileGraphLogBtn.hidden = true;
+  setDocumentTitle(t("file_diff_title", {path: path}));
+  title.textContent = t("file_diff_title", {path: path});
+  // 変更の一覧 (commitChanges) の読み込み前に URL から開かれても出せるよう、コミットは hash と path だけでも (変更前の名前は分からないが) 開く
+  const params = diffParams(path) || (isWip ? null : {hash: hash, path: path});
+  if (!params) { content.className = "hint"; content.textContent = t("no_diff"); return; }
+  content.className = "";
+  content.textContent = "";
+  const box = document.createElement("div");
+  content.appendChild(box);
+  diffView = createDiffEditorView({box: box, text: t, phrases: editorPhrases, loadScript: loadEditorScript});
+  diffView.load(params);
+}
 function loadFileLog(path) {
   closeEditor();  // 表示のエディタ
   const hash = logHash();

@@ -915,5 +915,6 @@
   "diff_side_amend_base": "Parent of the last commit {h}",
   "diff_side_index": "Index (staged)",
   "diff_side_worktree": "Working tree",
-  "diff_side_empty": "(none)"
+  "diff_side_empty": "(none)",
+  "file_diff_title": "Diff: {path}"
 }

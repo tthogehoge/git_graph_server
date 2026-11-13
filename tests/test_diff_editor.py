@@ -202,18 +202,24 @@ class DiffEditorPageTests(unittest.TestCase):
 
     def test_button_and_box_are_on_a_file_diff_page_even_when_read_only(self):
         page = pages.render_diff_page({"hash": [self.head], "path": ["f.txt"]})
-        for needle in ('id="dedit"', 'id="dbox"', 'id="dhost"', 'id="dprev"', 'id="dnext"', 'id="dcollapse"', ">Diff editor<",
-                       '"diff_editor_close"', '"editor_find"'):
+        for needle in ('id="dedit"', 'id="dbox"', ">Diff editor<", "function createDiffEditorView", '"diff_editor_close"', '"diff_editor_prev"',
+                       '"diff_editor_collapse"', '"editor_find"'):
             self.assertIn(needle, page)
         self.assertIn("/api/diff-sources", page)
         self.assertIn("/static/vendor/text_editor.js", page)  # エディタ本体は、ボタンを押したときに読み込む
-        self.assertNotIn("function createDiffEditor", page)  # ページの HTML にはエディタ (1MB) を埋め込まない
+        self.assertNotIn("function createDiffEditor(", page)  # ページの HTML にはエディタ (1MB) を埋め込まない
 
-    def test_the_files_page_diff_button_opens_the_diff_editor(self):
+    def test_the_files_page_shows_the_diff_in_the_right_pane(self):
         files_html = pages.read_asset("files.html")
-        self.assertIn('editor: "1"', files_html)  # ファイル表示の「差分」ボタンは、editor=1 を付けて /diff を開く
-        page = pages.render_diff_page({"hash": [self.head], "path": ["f.txt"], "editor": ["1"]})
-        self.assertIn('get("editor") === "1"', page)  # /diff 側は、editor=1 なら最初から差分エディタで出す
+        self.assertIn('fileDiffBtn.onclick = () => { if (currentFile && diffParams(currentFile)) openView("diff"); };', files_html)
+        self.assertIn('else if (view === "diff") loadFileDiff(currentFile);', files_html)  # view=diff は、再読み込み・戻る/進むでも復元する
+        self.assertNotIn('location.href = "/diff?" + new URLSearchParams({...p', files_html)  # 別のページへは移らない
+        page = pages.render_files_page()
+        self.assertIn("function createDiffEditorView", page)  # 共通の表示部品が、files ページにも入る
+        self.assertNotIn("/*__DIFF_EDITOR_VIEW__*/", page)
+        self.assertNotIn("function createDiffEditor(", page)  # エディタ本体は埋め込まない
+        diff_page = pages.render_diff_page({"hash": [self.head], "path": ["f.txt"], "editor": ["1"]})
+        self.assertIn('get("editor") === "1"', diff_page)  # /diff は、editor=1 でも最初から差分エディタで出す
 
     def test_no_button_when_no_file_is_selected(self):
         page = pages.render_diff_page({"hash": [self.head]})

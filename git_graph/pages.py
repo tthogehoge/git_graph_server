@@ -27,6 +27,7 @@ COPY_JS = read_asset("copy.js")
 DIFF_CSS = read_asset("diff.css")
 DIFF_KEYBOARD_JS = read_asset("diff_keyboard.js")
 DIFF_RELOAD_JS = read_asset("diff_reload.js")
+DIFF_EDITOR_VIEW_JS = read_asset("diff_editor_view.js")  # 差分エディタの表示 (/diff と /files の右ペインで共用)
 DIFF_EDITOR_JS = read_asset("diff_editor.js")  # 差分エディタ (CodeMirror の MergeView) ボタン。エディタ本体は vendor/text_editor.js (ボタンを押したときに読み込む)
 PANE_RESIZE_JS = read_asset("pane_resize.js")
 WIP_PANEL_JS = read_asset("wip_panel.js")  # 作業ツリーの変更の一覧とコミットフォーム。グラフ・ファイル表示・差分で共通
@@ -54,7 +55,7 @@ REMOTE_TEXT_KEYS = (
 )
 # 差分エディタ (diff_editor.js) が使う文言。検索パネルなどの文言 (editor_*) は、ファイル表示のエディタと同じ
 DIFF_EDITOR_TEXT_KEYS = (
-    "diff_editor", "diff_editor_close", "tip_diff_editor", "tip_diff_editor_close", "diff_editor_chunks", "diff_editor_none",
+    "diff_editor_prev", "diff_editor_next", "diff_editor_collapse", "diff_editor", "diff_editor_close", "tip_diff_editor", "tip_diff_editor_close", "diff_editor_chunks", "diff_editor_none",
     "diff_editor_binary", "diff_editor_unavailable", "diff_editor_eol", "diff_editor_missing", "large_file_head", "editor_load_failed",
     "editor_find", "editor_replace", "editor_next", "editor_previous", "editor_all", "editor_match_case", "editor_regexp",
     "editor_by_word", "editor_replace_one", "editor_replace_all", "editor_close", "editor_goto_line", "editor_go",
@@ -304,14 +305,7 @@ def render_diff_page(q):
     if path:  # ファイルを選んでいるときは、CodeMirror の差分エディタ (変更前 | 変更後) でも見られる
         editor_btn = (f'<button class="ebtn" id="dedit" title="{html.escape(tr("tip_diff_editor"), quote=True)}">'
                       f'{html.escape(tr("diff_editor"))}</button>')
-        editor_box = (f'<div id="dbox" hidden><div class="dbar">'
-                      f'<button class="ebtn" id="dprev" disabled>{html.escape(tr("diff_editor_prev"))}</button>'
-                      f'<button class="ebtn" id="dnext" disabled>{html.escape(tr("diff_editor_next"))}</button>'
-                      f'<span class="hint" id="dcount"></span>'
-                      f'<label><input type="checkbox" id="dcollapse" checked>{html.escape(tr("diff_editor_collapse"))}</label></div>'
-                      f'<div id="dnotes"></div>'
-                      f'<div class="dlabels" id="dlabels" hidden><span id="dlold"></span><span id="dlnew"></span></div>'
-                      f'<div id="dhost"></div></div>')
+        editor_box = '<div id="dbox" hidden></div>'  # 中身は diff_editor_view.js が作る
 
     ext_diff = ""
     if state.DESKTOP and state.WRITABLE:  # pywebview など: 外部の差分ツール (WinMerge など) で開くボタン
@@ -410,7 +404,7 @@ def render_diff_page(q):
 <script>{remote_js}</script>
 <script>{EXT_DIFF_JS if ext_diff else ""}</script>
 <script>{DIFF_PATCH_JS if patch_btn or patch_bar else ""}</script>
-<script>{DIFF_EDITOR_JS if editor_btn else ""}</script>
+<script>{DIFF_EDITOR_VIEW_JS + DIFF_EDITOR_JS if editor_btn else ""}</script>
 <script>{DIFF_RELOAD_JS if wip else ""}</script>
 <script>{DIFF_KEYBOARD_JS}</script>
 </body></html>
@@ -436,6 +430,7 @@ def render_files_page():
             .replace("/*__MENUBAR_CSS__*/", MENUBAR_CSS + WIP_PANEL_CSS)
             .replace("<!--__MENUBAR__-->", menubar)
             .replace("/*__PANE_RESIZE__*/", PANE_RESIZE_JS)
+            .replace("/*__DIFF_EDITOR_VIEW__*/", DIFF_EDITOR_VIEW_JS)
             .replace("/*__FILE_I18N__*/", "const I18N = " + client_translations() + ";\n"
                      + "const CAN_COPY = " + ("true" if state.WRITABLE and state.HAS_WORKTREE else "false") + ";\n"
                      + "const DESKTOP = " + ("true" if state.DESKTOP and state.WRITABLE and state.HAS_WORKTREE else "false") + ";")

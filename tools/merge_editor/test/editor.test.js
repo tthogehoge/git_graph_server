@@ -437,3 +437,94 @@ test("diff editor: collapse folds long unchanged runs; added / deleted files are
   assert.equal(eol.chunkCount(), 0, "line ending differences are reported by the page, not shown as changes");
   eol.destroy();
 });
+
+// ---- 差分エディタの表示 (git_graph/static/diff_editor_view.js: /diff と /files の右ペインで共用) ----
+const VIEW_SCRIPT = new URL("../../../git_graph/static/diff_editor_view.js", import.meta.url);
+const side = (content, extra = {}) => ({kind: "commit", ref: "abc1234", label: "abc1234", exists: true, content: content, encoding: "UTF-8", binary: false, truncated: false, eol: "lf", ...extra});
+const TEXTS = {
+  diff_editor_prev: "PREV", diff_editor_next: "NEXT", diff_editor_collapse: "COLLAPSE", diff_editor_chunks: "{n} changes", diff_editor_none: "NONE",
+  diff_editor_binary: "BINARY", diff_editor_unavailable: "UNAVAILABLE", diff_editor_eol: "EOL {old} -> {new}", diff_editor_missing: "(missing)", large_file_head: "TRUNCATED",
+};
+
+function loadView(answer) {
+  const w = load(TEXT_BUNDLE);
+  w.eval(fs.readFileSync(VIEW_SCRIPT, "utf8") + "\nwindow.createDiffEditorView = createDiffEditorView;");
+  const urls = [];
+  w.fetch = url => { urls.push(url); const r = answer(url); return Promise.resolve(r.ok === false ? {ok: false, status: 400, text: () => Promise.resolve(r.message)} : {ok: true, json: () => Promise.resolve(r)}); };
+  const view = w.createDiffEditorView({
+    box: w.document.getElementById("top"), text: (k, v = {}) => Object.entries(v).reduce((s, [n, x]) => s.replace("{" + n + "}", x), TEXTS[k] || k),
+    phrases: () => ({}), loadScript: () => Promise.resolve(),
+  });
+  return {w, view, urls};
+}
+const notes = w => [...w.document.querySelectorAll(".de-note")].map(n => n.textContent);
+
+test("diff editor view: loads /api/diff-sources, shows labels, change count and the editor", async () => {
+  const {w, view, urls} = loadView(() => ({path: "x.py", old_path: "x.py", old: side("a = 1\nb = 2\n", {label: "Parent 1111111", kind: "parent"}), new: side("a = 1\nb = 3\nc = 4\n")}));
+  await view.load({hash: "abc1234", path: "x.py"});
+  assert.equal(urls[0], "/api/diff-sources?hash=abc1234&path=x.py");
+  assert.equal(w.document.querySelectorAll(".cm-mergeViewEditor").length, 2);
+  assert.equal(w.document.querySelector(".de-count").textContent, "1 changes");  // 隣り合う変更は 1 つにまとまる
+  assert.deepEqual([...w.document.querySelectorAll(".de-labels span")].map(s => s.textContent), ["Parent 1111111", "abc1234"]);
+  assert.equal(w.document.querySelector(".de-labels").hidden, false);
+  const [prev, next] = w.document.querySelectorAll(".de-bar button");
+  assert.deepEqual([prev.textContent, next.textContent, prev.disabled], ["PREV", "NEXT", false]);
+  view.close();
+  assert.equal(w.document.querySelectorAll(".cm-mergeViewEditor").length, 0);
+  assert.equal(w.document.querySelector(".de-labels").hidden, true);
+});
+
+test("diff editor view: collapse checkbox rebuilds; no changes; missing side is marked", async () => {
+  const lines = Array.from({length: 60}, (_, i) => "line " + i).join("\n") + "\n";
+  const {w, view} = loadView(() => ({path: "x.txt", old_path: "x.txt", old: side(lines), new: side(lines.replace("line 30\n", "changed\n"))}));
+  await view.load({path: "x.txt", wip: "unstaged"});
+  assert.ok(w.document.querySelectorAll(".cm-collapsedLines").length >= 1);
+  const box = w.document.querySelector(".de-bar input");
+  box.checked = false;
+  box.dispatchEvent(new w.Event("change"));
+  assert.equal(w.document.querySelectorAll(".cm-collapsedLines").length, 0);
+  assert.equal(w.document.querySelectorAll(".cm-mergeViewEditor").length, 2);
+  const same = loadView(() => ({path: "x.txt", old_path: "x.txt", old: side("a\n"), new: side("a\n")}));
+  await same.view.load({path: "x.txt"});
+  assert.equal(same.w.document.querySelector(".de-count").textContent, "NONE");
+  assert.equal(same.w.document.querySelector(".de-bar button").disabled, true);
+  const added = loadView(() => ({path: "n.txt", old_path: "n.txt", old: side("", {exists: false, label: "(none)", kind: "empty"}), new: side("x\n")}));
+  await added.view.load({path: "n.txt"});
+  assert.deepEqual([...added.w.document.querySelectorAll(".de-labels span")].map(s => s.textContent), ["(none) (missing)", "abc1234"]);
+});
+
+test("diff editor view: binary / no file / truncated / line ending notes, and server errors", async () => {
+  const bin = loadView(() => ({path: "b", old_path: "b", old: side("", {binary: true, eol: null}), new: side("", {binary: true, eol: null})}));
+  await bin.view.load({path: "b"});
+  assert.deepEqual(notes(bin.w), ["BINARY"]);
+  assert.equal(bin.w.document.querySelectorAll(".cm-mergeViewEditor").length, 0);
+  const none = loadView(() => ({path: "s", old_path: "s", old: side("", {exists: false}), new: side("", {exists: false})}));
+  await none.view.load({path: "s"});
+  assert.deepEqual(notes(none.w), ["UNAVAILABLE"]);
+  const mixed = loadView(() => ({path: "e.txt", old_path: "e.txt", old: side("a\r\n", {eol: "crlf", truncated: true}), new: side("b\n")}));
+  await mixed.view.load({path: "e.txt"});
+  assert.deepEqual(notes(mixed.w), ["TRUNCATED", "EOL CRLF -> LF"]);
+  const bad = loadView(() => ({ok: false, message: "bad path"}));
+  await bad.view.load({path: "x"});
+  assert.deepEqual(notes(bad.w), ["bad path"]);
+  assert.equal(bad.w.document.querySelector(".de-note").className, "de-note err");
+});
+
+test("diff editor view: an older load that finishes late is dropped", async () => {
+  const gates = [];
+  const {w, view} = loadView(url => ({path: url, old_path: url, old: side("old\n"), new: side(url.includes("first") ? "FIRST\n" : "SECOND\n")}));
+  const realFetch = w.fetch;
+  w.fetch = url => new Promise(resolve => gates.push(() => resolve(realFetch(url))));  // 応答を、好きな順に返す
+  const first = view.load({path: "first"}), second = view.load({path: "second"});
+  gates[1]();
+  await second;
+  gates[0]();
+  await first;
+  assert.ok(w.document.querySelector(".cm-merge-b").textContent.includes("SECOND"));
+  assert.ok(!w.document.querySelector(".cm-merge-b").textContent.includes("FIRST"));
+  const closed = view.load({path: "third"});
+  view.close();
+  gates[2]();
+  await closed;
+  assert.equal(w.document.querySelectorAll(".cm-mergeViewEditor").length, 0);  // 読み込み中に閉じたら、出さない
+});

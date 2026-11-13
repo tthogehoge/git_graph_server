@@ -915,5 +915,6 @@
   "diff_side_amend_base": "直前のコミットの親 {h}",
   "diff_side_index": "インデックス (ステージ済み)",
   "diff_side_worktree": "作業ツリー",
-  "diff_side_empty": "(なし)"
+  "diff_side_empty": "(なし)",
+  "file_diff_title": "差分: {path}"
 }
