@@ -1,5 +1,6 @@
 // 差分ページの「差分エディタ」ボタン。いま見ているファイルの差分を、CodeMirror の差分エディタ (変更前 | 変更後) で見る。
 // 内容は /api/diff-sources (このページのクエリをそのまま渡す) から取り、エディタ (1MB ほど) はボタンを押したときに読み込む。
+// ファイル表示の「差分」ボタンは、クエリに editor=1 を付けて開くので、そのときも最初から差分エディタで出す。
 // 選んだ表示は、このタブの中で覚えておく (左のファイル一覧で別のファイルへ移っても、差分エディタのまま)。
 // 文言 T と fmt は、先に入れてあるダイアログの部品 (diff_dialog.js) のもの。
 (function () {
@@ -103,10 +104,15 @@
     text.hidden = false;
     btn.textContent = T.diff_editor;
     btn.title = T.tip_diff_editor;
+    const url = new URL(location.href);  // ファイル表示のボタンから開かれたときの editor=1 は、戻したあとの再読み込みでエディタに戻らないよう消す
+    if (url.searchParams.has("editor") && history.replaceState) {
+      url.searchParams.delete("editor");
+      history.replaceState(null, "", url.pathname + url.search + url.hash);
+    }
   }
   btn.onclick = () => { if (shown) hide(); else show(); };
   prev.onclick = () => { if (editor) editor.jump(-1); };
   next.onclick = () => { if (editor) editor.jump(1); };
   collapse.onchange = () => { if (data && shown) build(); };
-  if (isOn()) show();
+  if (isOn() || new URLSearchParams(location.search).get("editor") === "1") show();  // editor=1: ファイル表示の「差分」ボタンから
 })();

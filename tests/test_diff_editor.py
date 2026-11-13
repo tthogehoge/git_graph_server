@@ -209,6 +209,12 @@ class DiffEditorPageTests(unittest.TestCase):
         self.assertIn("/static/vendor/text_editor.js", page)  # エディタ本体は、ボタンを押したときに読み込む
         self.assertNotIn("function createDiffEditor", page)  # ページの HTML にはエディタ (1MB) を埋め込まない
 
+    def test_the_files_page_diff_button_opens_the_diff_editor(self):
+        files_html = pages.read_asset("files.html")
+        self.assertIn('editor: "1"', files_html)  # ファイル表示の「差分」ボタンは、editor=1 を付けて /diff を開く
+        page = pages.render_diff_page({"hash": [self.head], "path": ["f.txt"], "editor": ["1"]})
+        self.assertIn('get("editor") === "1"', page)  # /diff 側は、editor=1 なら最初から差分エディタで出す
+
     def test_no_button_when_no_file_is_selected(self):
         page = pages.render_diff_page({"hash": [self.head]})
         self.assertNotIn('id="dedit"', page)

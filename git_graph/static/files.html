@@ -168,9 +168,9 @@ function loadCommitChanges() {  // このコミットで変更されたファイ
     refreshBadges();
   }).catch(() => {});
 }
-fileDiffBtn.onclick = () => {
+fileDiffBtn.onclick = () => {  // このファイルの差分を、差分ページの差分エディタ (変更前 | 変更後) で開く
   const p = currentFile && diffParams(currentFile);
-  if (p) location.href = "/diff?" + new URLSearchParams(p);
+  if (p) location.href = "/diff?" + new URLSearchParams({...p, editor: "1"});
 };
 function logHash() { return isWip ? wipHead : hash; }  // ファイルのログの起点 (作業ツリーなら HEAD)
 function esc(s) { return String(s).replace(/[&<>\"]/g, c => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", "\"":"&quot;"}[c])); }
