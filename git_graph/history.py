@@ -1,7 +1,9 @@
 # ログ・ブランチ・タグ・reflog・stash 一覧・コミット詳細・比較・差分の API。
 # git からの読み取りは git_graph.query.history に任せ、ここは query 文字列を読んで
 # query を呼び、JSON を返す薄い route だけを置く。
+from .i18n import tr
 from .query import history as qh
+from .query.diff_sources import diff_sources
 from .routing import route
 
 # 互換のため再公開 (pages / テストが history.api_* や DIFF_LIMIT を参照する)
@@ -135,8 +137,41 @@ def api_diff(q):
     )
 
 
+def _side_label(side):
+    """差分エディタの片側の見出し (どのコミット / 状態のものか)。"""
+    kind, ref = side["kind"], side["ref"]
+    if kind == "a":
+        return "A " + ref
+    if kind == "b":
+        return "B " + ref
+    if kind == "commit":
+        return ref
+    if kind == "head":
+        return "HEAD"
+    labels = {"parent": "diff_side_parent", "amend_base": "diff_side_amend_base", "index": "diff_side_index",
+              "worktree": "diff_side_worktree", "empty": "diff_side_empty"}
+    return tr(labels[kind], h=ref).strip()
+
+
+@route("/api/diff-sources")
+def api_diff_sources(q):
+    """1ファイルの差分の変更前・変更後の内容 (差分エディタ用)。指定は /diff のクエリと同じ (hash / from・to / wip)。"""
+    r = diff_sources(
+        q.get("path", [""])[0],
+        old=q.get("old", [""])[0],
+        hash_=q.get("hash", [""])[0],
+        from_hash=q.get("from", [""])[0],
+        to_hash=q.get("to", [""])[0],
+        wip=q.get("wip", [""])[0],
+        between="from" in q or "to" in q,  # wip の指定があるときは、diff_sources が先に wip を見る
+    )
+    for side in (r["old"], r["new"]):
+        side["label"] = _side_label(side)
+    return r
+
+
 __all__ = [
     "DIFF_LIMIT", "api_branches", "api_branches_containing", "api_commit", "api_compare",
-    "api_diff", "api_log", "api_log_position", "api_log_total", "api_merge_base", "api_reflog", "api_stash_list", "api_tags", "paging",
+    "api_diff", "api_diff_sources", "api_log", "api_log_position", "api_log_total", "api_merge_base", "api_reflog", "api_stash_list", "api_tags", "paging",
     "search_params",
 ]

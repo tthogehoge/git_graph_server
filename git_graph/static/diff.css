@@ -33,3 +33,14 @@
   button.ebtn { font: inherit; font-size: 12px; font-weight: normal; cursor: pointer; }
   button.ebtn:disabled { opacity: .5; cursor: default; }
   #xmsg { white-space: pre-wrap; } #xmsg.err { color: #c00; }
+  .hint.err { color: #c00; white-space: pre-wrap; }
+  /* 差分エディタ (diff_editor.js): 見出しの下に、ツールバー・変更前 / 変更後の見出し・エディタを並べる */
+  #dbox [hidden] { display: none !important; }
+  #dbox .dbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 12px 0 4px; }
+  #dbox .dbar .ebtn { margin-left: 0; }
+  #dbox .dbar label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+  #dbox .dlabels { display: flex; margin-top: 8px; border: 1px solid #ddd; border-bottom: none; background: #f6f8fa; font-weight: bold; }
+  #dbox .dlabels span { flex: 1 1 0; min-width: 0; padding: 3px 8px; word-break: break-all; }
+  #dbox .dlabels span + span { border-left: 1px solid #ddd; }
+  #dhost { border: 1px solid #ddd; }
+  #dhost:empty { border: none; }

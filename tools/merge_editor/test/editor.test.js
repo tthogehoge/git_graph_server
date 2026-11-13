@@ -379,3 +379,61 @@ test("marker editor: adopt resolves the conflict at the cursor too, and conflict
   assert.equal(ed.getText(), "one\nTWO main\nthree\nFOUR side\nfive\nSIX side\n");
   ed.destroy();
 });
+
+test("diff editor: old | new side by side, read-only, changed lines marked, highlight by file name", () => {
+  const w = load(TEXT_BUNDLE);
+  const ed = w.GGText.createDiffEditor({
+    parent: w.document.getElementById("top"), old: "a = 1\nb = 2\nc = 3\n", new: "a = 1\nb = 20\nc = 3\nd = 4\n", path: "x.py", collapse: false,
+  });
+  const [left, right] = [ed.view.a, ed.view.b];
+  assert.equal(left.state.doc.toString(), "a = 1\nb = 2\nc = 3\n");
+  assert.equal(right.state.doc.toString(), "a = 1\nb = 20\nc = 3\nd = 4\n");
+  assert.equal(ed.language, "python");
+  assert.equal(left.state.readOnly && right.state.readOnly, true);
+  assert.equal(w.document.querySelectorAll(".cm-mergeViewEditor").length, 2);
+  assert.ok(w.document.querySelectorAll(".cm-merge-a .cm-changedLine").length >= 1);   // 変更前側の変更された行
+  assert.ok(w.document.querySelectorAll(".cm-merge-b .cm-changedLine").length >= 2);   // 変更後側 (変更した行と追加した行)
+  assert.equal(ed.chunkCount(), 2);                                                     // 2 行目の変更と、4 行目の追加
+  ed.destroy();
+});
+
+test("diff editor: jump moves between changes and wraps around; no changes → false", () => {
+  const w = load(TEXT_BUNDLE);
+  const old = Array.from({length: 40}, (_, i) => "line " + i).join("\n") + "\n";
+  const lines = old.split("\n");
+  lines[3] = "CHANGED 3"; lines[30] = "CHANGED 30";
+  const ed = w.GGText.createDiffEditor({parent: w.document.getElementById("top"), old: old, new: lines.join("\n"), path: "x.txt", collapse: true});
+  assert.equal(ed.chunkCount(), 2);
+  const lineOfCursor = () => ed.view.b.state.doc.lineAt(ed.view.b.state.selection.main.head).number;
+  assert.equal(ed.jump(1), true);
+  assert.equal(lineOfCursor(), 4);
+  assert.equal(ed.jump(1), true);
+  assert.equal(lineOfCursor(), 31);
+  assert.equal(ed.jump(1), true, "wraps to the first change");
+  assert.equal(lineOfCursor(), 4);
+  assert.equal(ed.jump(-1), true, "wraps to the last change");
+  assert.equal(lineOfCursor(), 31);
+  ed.destroy();
+  const same = w.GGText.createDiffEditor({parent: w.document.getElementById("result"), old: "a\n", new: "a\n", path: "x.txt", collapse: false});
+  assert.equal(same.chunkCount(), 0);
+  assert.equal(same.jump(1), false);
+  same.destroy();
+});
+
+test("diff editor: collapse folds long unchanged runs; added / deleted files are all-changed; CRLF and LF compare equal", () => {
+  const w = load(TEXT_BUNDLE);
+  const old = Array.from({length: 60}, (_, i) => "line " + i).join("\n") + "\n";
+  const changed = old.replace("line 30\n", "line thirty\n");
+  const folded = w.GGText.createDiffEditor({parent: w.document.getElementById("top"), old: old, new: changed, path: "a.txt", collapse: true});
+  assert.ok(w.document.querySelectorAll(".cm-collapsedLines").length >= 1);
+  folded.destroy();
+  const flat = w.GGText.createDiffEditor({parent: w.document.getElementById("top"), old: old, new: changed, path: "a.txt", collapse: false});
+  assert.equal(w.document.querySelectorAll(".cm-collapsedLines").length, 0);
+  flat.destroy();
+  const added = w.GGText.createDiffEditor({parent: w.document.getElementById("result"), old: "", new: "x\ny\n", path: "new.txt", collapse: false});
+  assert.equal(added.chunkCount(), 1);
+  added.destroy();
+  const eol = w.GGText.createDiffEditor({parent: w.document.getElementById("result"), old: "a\r\nb\r\n", new: "a\nb\n", path: "e.txt", collapse: false});
+  assert.equal(eol.chunkCount(), 0, "line ending differences are reported by the page, not shown as changes");
+  eol.destroy();
+});

@@ -27,6 +27,7 @@ COPY_JS = read_asset("copy.js")
 DIFF_CSS = read_asset("diff.css")
 DIFF_KEYBOARD_JS = read_asset("diff_keyboard.js")
 DIFF_RELOAD_JS = read_asset("diff_reload.js")
+DIFF_EDITOR_JS = read_asset("diff_editor.js")  # 差分エディタ (CodeMirror の MergeView) ボタン。エディタ本体は vendor/text_editor.js (ボタンを押したときに読み込む)
 PANE_RESIZE_JS = read_asset("pane_resize.js")
 WIP_PANEL_JS = read_asset("wip_panel.js")  # 作業ツリーの変更の一覧とコミットフォーム。グラフ・ファイル表示・差分で共通
 WIP_PANEL_MOUNT_JS = read_asset("wip_panel_mount.js")  # ファイル表示 / 差分ページへ置くための接続
@@ -50,6 +51,13 @@ REMOTE_TEXT_KEYS = (
     "authenticate", "prompt_push_remote", "confirm_set_upstream", "remote_unregistered",
     "co_blocked_op", "co_blocked_hint_op", "co_modified", "co_untracked_op", "co_hint_stash", "co_hint_discard",
     "co_stash_retry", "co_discard_retry",
+)
+# 差分エディタ (diff_editor.js) が使う文言。検索パネルなどの文言 (editor_*) は、ファイル表示のエディタと同じ
+DIFF_EDITOR_TEXT_KEYS = (
+    "diff_editor", "diff_editor_close", "tip_diff_editor", "tip_diff_editor_close", "diff_editor_chunks", "diff_editor_none",
+    "diff_editor_binary", "diff_editor_unavailable", "diff_editor_eol", "diff_editor_missing", "large_file_head", "editor_load_failed",
+    "editor_find", "editor_replace", "editor_next", "editor_previous", "editor_all", "editor_match_case", "editor_regexp",
+    "editor_by_word", "editor_replace_one", "editor_replace_all", "editor_close", "editor_goto_line", "editor_go",
 )
 # /diff と /files の共通メニューバー (page_menubar.js) が使う文言
 MENUBAR_TEXT_KEYS = (
@@ -292,6 +300,19 @@ def render_diff_page(q):
                      f'data-name="{html.escape(patch_name, quote=True)}" title="{html.escape(tr(tip), quote=True)}">'
                      f'{html.escape(tr("patch_create"))}</button>')
 
+    editor_btn = editor_box = ""
+    if path:  # ファイルを選んでいるときは、CodeMirror の差分エディタ (変更前 | 変更後) でも見られる
+        editor_btn = (f'<button class="ebtn" id="dedit" title="{html.escape(tr("tip_diff_editor"), quote=True)}">'
+                      f'{html.escape(tr("diff_editor"))}</button>')
+        editor_box = (f'<div id="dbox" hidden><div class="dbar">'
+                      f'<button class="ebtn" id="dprev" disabled>{html.escape(tr("diff_editor_prev"))}</button>'
+                      f'<button class="ebtn" id="dnext" disabled>{html.escape(tr("diff_editor_next"))}</button>'
+                      f'<span class="hint" id="dcount"></span>'
+                      f'<label><input type="checkbox" id="dcollapse" checked>{html.escape(tr("diff_editor_collapse"))}</label></div>'
+                      f'<div id="dnotes"></div>'
+                      f'<div class="dlabels" id="dlabels" hidden><span id="dlold"></span><span id="dlnew"></span></div>'
+                      f'<div id="dhost"></div></div>')
+
     ext_diff = ""
     if state.DESKTOP and state.WRITABLE:  # pywebview など: 外部の差分ツール (WinMerge など) で開くボタン
         ext_diff = (f'<button class="ebtn" id="xdiff" title="{html.escape(tr("tip_open_diff_tool"), quote=True)}">'
@@ -334,7 +355,8 @@ def render_diff_page(q):
     panel_box = '<div id="wipPanel"></div>' if use_panel else ""
     panel_js = (WIP_PANEL_JS + "\n" + WIP_PANEL_MOUNT_JS + '\nmountWipPanel(document.getElementById("wipPanel"), {diff: true});') if use_panel else ""
     # 文言 T と共通のダイアログ部品は、メニューバー・コミット欄・push / pull で共通なので、1度だけ入れる
-    dialog_js = menubar_dialog_js([*(WIP_PANEL_TEXT_KEYS if use_panel else ()), *(REMOTE_TEXT_KEYS if remote_bar else ())])
+    dialog_js = menubar_dialog_js([*(WIP_PANEL_TEXT_KEYS if use_panel else ()), *(REMOTE_TEXT_KEYS if remote_bar else ()),
+                                   *(DIFF_EDITOR_TEXT_KEYS if editor_btn else ())])
     remote_js = WIP_DIFF_REMOTE_JS if remote_bar else ""
     # グラフへ戻るとき、この差分のコミットを選択状態で復元する。作業ツリーの WIP は、WIP ノードを選んだ状態に戻す (HEAD にしない)
     graph_href = "/"
@@ -369,7 +391,7 @@ def render_diff_page(q):
 </div>
 <div id="sideSplitter" role="separator" aria-orientation="vertical" aria-label="{html.escape(tr("resize_side"), quote=True)}" tabindex="0"></div>
 <div id="main">
-  <h1>{html.escape(name)}{merge_link}{edit_link}{files_link}{patch_btn}{ext_diff}</h1>
+  <h1>{html.escape(name)}{merge_link}{edit_link}{files_link}{editor_btn}{patch_btn}{ext_diff}</h1>
   {'<div class="meta hint" id="pmsg"></div>' if patch_btn else ""}
   {'<div class="meta hint" id="xmsg"></div>' if ext_diff else ""}
   {info}
@@ -377,6 +399,7 @@ def render_diff_page(q):
   <div class="meta">{html.escape(d["encoding"] or "binary")}</div>
   {'<p class="hint">' + tr("large_file_diff") + '</p>' if d["truncated"] else ""}
   <div class="diff">{diff_lines_html(d["diff"]) or ("" if no_file_page and files else '<p class="hint">' + tr("no_diff") + '</p>')}</div>
+  {editor_box}
 </div>
 </div>
 <script>{COPY_JS}</script>
@@ -387,6 +410,7 @@ def render_diff_page(q):
 <script>{remote_js}</script>
 <script>{EXT_DIFF_JS if ext_diff else ""}</script>
 <script>{DIFF_PATCH_JS if patch_btn or patch_bar else ""}</script>
+<script>{DIFF_EDITOR_JS if editor_btn else ""}</script>
 <script>{DIFF_RELOAD_JS if wip else ""}</script>
 <script>{DIFF_KEYBOARD_JS}</script>
 </body></html>

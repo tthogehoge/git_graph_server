@@ -1,9 +1,10 @@
-// /files のファイルの表示 (読み取り専用) と編集に使うエディタ。ブラウザーでは window.GGText として使う (esbuild で 1 つの JS にまとめる)。
+// /files のファイルの表示 (読み取り専用) と編集、/diff の差分エディタに使うエディタ。ブラウザーでは window.GGText として使う (esbuild で 1 つの JS にまとめる)。
 // 言語ごとの構文ハイライト (languages.js) と Vim モードがあるので、マージエディタとは別のバンドルにしてある。
 import {Compartment, EditorState, Prec} from "@codemirror/state";
 import {drawSelection, EditorView, highlightActiveLine, keymap, lineNumbers} from "@codemirror/view";
 import {defaultKeymap, history, historyKeymap, indentLess, insertTab} from "@codemirror/commands";
 import {indentUnit} from "@codemirror/language";
+import {getChunks, goToNextChunk, goToPreviousChunk, MergeView} from "@codemirror/merge";
 import {highlightSelectionMatches, search, searchKeymap} from "@codemirror/search";
 import {Vim, vim} from "@replit/codemirror-vim";
 import {languageExtensions, languageName} from "./languages.js";
@@ -69,6 +70,44 @@ export function createTextEditor(opts) {
     setScrollTop: top => { view.scrollDOM.scrollTop = top; },
     focus: () => view.focus(),
     destroy: () => { textEditors.delete(view); view.destroy(); },
+  };
+}
+
+// 差分エディタ (/diff の「差分エディタ」ボタン)。変更前 | 変更後 を左右に並べた読み取り専用の MergeView で、
+// 構文ハイライト・行番号・変更箇所の強調 (行と文字) と、検索 (Ctrl+F) ができる。高さは内容に合わせるので、ページ側がスクロールする。
+// opts: {parent, old, new, path, collapse, phrases}
+//   old / new: 変更前 / 変更後の内容 (無い側は空文字)。path: 構文ハイライトの言語を決めるファイルのパス。
+//   collapse: 変更のない行を折りたたむか。phrases: 検索パネルなどの文言の翻訳 (createTextEditor と同じ)。
+// 改行は LF として扱うので、改行コードだけの違いは差分に出ない (呼び出し側で、両側の改行コードを見て知らせる)。
+export function createDiffEditor(opts) {
+  const extensions = [
+    lineNumbers(), EditorState.readOnly.of(true), highlightSelectionMatches(), search({top: true}),
+    EditorState.tabSize.of(4), EditorState.phrases.of(opts.phrases || {}),
+    languageExtensions(opts.path || "") || [],
+    keymap.of([...searchKeymap, ...defaultKeymap]),
+    THEME,
+    EditorView.contentAttributes.of({spellcheck: "false", autocorrect: "off", autocapitalize: "off"}),
+  ];
+  const view = new MergeView({
+    a: {doc: opts.old, extensions: extensions}, b: {doc: opts.new, extensions: extensions},
+    parent: opts.parent, highlightChanges: true, gutter: true,
+    collapseUnchanged: opts.collapse ? {margin: 3, minSize: 4} : undefined,
+  });
+  const chunkCount = () => { const chunks = getChunks(view.b.state); return chunks ? chunks.chunks.length : 0; };
+  return {
+    view: view,
+    language: languageName(opts.path || ""),
+    chunkCount: chunkCount,
+    jump: dir => {  // 次 (dir > 0) / 前の変更へ移動する。端まで行ったら反対側の端に戻る。変更が無ければ false
+      if (!chunkCount()) return false;
+      const go = dir > 0 ? goToNextChunk : goToPreviousChunk;
+      if (go(view.b)) return true;
+      view.b.dispatch({selection: {anchor: dir > 0 ? 0 : view.b.state.doc.length}});
+      return go(view.b);
+    },
+    focus: () => view.b.focus(),
+    remeasure: () => { view.a.requestMeasure(); view.b.requestMeasure(); },
+    destroy: () => view.destroy(),
   };
 }
 
