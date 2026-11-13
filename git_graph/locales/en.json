@@ -921,5 +921,6 @@
   "side_tree": "Files",
   "side_changes": "Changed files",
   "commit_mark_D": "Deleted in this commit",
-  "binary_short": "bin"
+  "binary_short": "bin",
+  "side_wip": "WIP changes"
 }

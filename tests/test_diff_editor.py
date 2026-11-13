@@ -229,7 +229,12 @@ class DiffEditorPageTests(unittest.TestCase):
         for needle in ('id="sideTabs"', 'id="sideTreeBtn"', 'id="sideChangesBtn"', 'id="changes"', "Files</button>", "Changed files</button>"):
             self.assertIn(needle, page)
         files_html = pages.read_asset("files.html")
-        self.assertIn('sideTabs.hidden = isWip || !hash;', files_html)  # 作業ツリーでは、変更の一覧が WIP パネルにあるので出さない
+        self.assertIn('sideTabs.hidden = !hash;', files_html)  # コミットも作業ツリーも出す (作業ツリーの「WIP の変更」は WIP パネル)
+        self.assertIn('wipBox.hidden = !changes;', files_html)
+        self.assertIn('openWipChange({path: q.get("path"), wip: q.get("wip"), old: q.get("old") || ""});', files_html)  # パネルのファイル名は、右ペインの差分で開く
+        self.assertIn('p.set("dwip", diffSel.wip);', files_html)  # staged / unstaged の別は URL に残し、再読み込みで復元する
+        self.assertIn("wipFilesChanged(files);", pages.render_files_page())  # WIP パネルが描き直すたびに、左ペインに知らせる
+        self.assertNotIn('document.getElementById("wipPanelBox").hidden = false;', pages.render_files_page())  # 出し入れは、タブ (applySideMode) が決める
         self.assertIn('history.pushState({path: current, file: path, view: "diff"}', files_html)  # 変更ファイルは、右ペインの差分で開く
         self.assertIn("gitGraphFilesSide", files_html)  # 選んだ表示は引き継ぐ
         self.assertIn('const rows = [...activeList().querySelectorAll(".entry")];', files_html)  # ↑↓ Enter は、出している方の一覧で働く

@@ -921,5 +921,6 @@
   "side_tree": "ファイル一覧",
   "side_changes": "変更ファイル",
   "commit_mark_D": "このコミットで削除",
-  "binary_short": "バイナリ"
+  "binary_short": "バイナリ",
+  "side_wip": "WIP の変更"
 }

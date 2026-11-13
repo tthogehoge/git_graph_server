@@ -414,12 +414,12 @@ def render_diff_page(q):
 def render_files_page():
     remote = bar_has_remote()
     # 作業ツリー (hash=WIP) を開いているときは、左ペインに、グラフ・差分と共通の WIP の一覧とコミットフォームを置く。
-    # ファイルを見る邪魔にならないよう、畳んでおく (コミットするときに開く)。畳んでいても、見出しに変更のあるファイルの数を出す
+    # 左ペインの「ファイル一覧 / WIP の変更」で選んだときだけ出す (files.html の applySideMode)。パネルのファイル名は、右ペインに差分を出す
     mount = ('if (new URLSearchParams(location.search).get("hash") === "WIP") {\n'
-             '  document.getElementById("wipPanelBox").hidden = false;\n'
              '  mountWipPanel(document.getElementById("wipPanel"), {onFiles: files => {\n'
              '    const n = new Set(files.map(f => f.path)).size;\n'
              '    document.getElementById("wipPanelCount").textContent = n ? " (" + n + ")" : "";\n'
+             '    wipFilesChanged(files);\n'
              '  }});\n}')
     menubar_js = "\n".join((menubar_dialog_js([*WIP_PANEL_TEXT_KEYS, *(REMOTE_TEXT_KEYS if remote else ())]), PAGE_MENUBAR_JS,
                             WIP_PANEL_JS, WIP_PANEL_MOUNT_JS, WIP_DIFF_REMOTE_JS if remote else "", mount))

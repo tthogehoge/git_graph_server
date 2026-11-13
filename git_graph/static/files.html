@@ -116,7 +116,7 @@ function setDocumentTitle(label) {
 }
 
 const qs = new URLSearchParams(location.search), hash = qs.get("hash"), fileViewTab = qs.get("file_view") === "1";
-const sideTabs = document.getElementById("sideTabs"), sideTreeBtn = document.getElementById("sideTreeBtn"), sideChangesBtn = document.getElementById("sideChangesBtn"), changesEl = document.getElementById("changes");
+const sideTabs = document.getElementById("sideTabs"), sideTreeBtn = document.getElementById("sideTreeBtn"), sideChangesBtn = document.getElementById("sideChangesBtn"), changesEl = document.getElementById("changes"), wipBox = document.getElementById("wipPanelBox");
 const list = document.getElementById("list"), content = document.getElementById("content"), title = document.getElementById("title");
 const fileActions = document.getElementById("fileActions"), fileLogBtn = document.getElementById("fileLogBtn"), fileBlameBtn = document.getElementById("fileBlameBtn"), fileContentBtn = document.getElementById("fileContentBtn");
 const fileGraphLogBtn = document.getElementById("fileGraphLogBtn");
@@ -141,15 +141,24 @@ fileCopyBtn.disabled = !CAN_COPY || isWip;
 let current = "", currentFile = "", wipHead = null;
 let dirEntries = null, dirLogSeq = 0;  // dirEntries: 表示中のディレクトリの項目 (読み込み前は null), dirLogSeq: 古い応答を捨てるための通し番号
 let dirLogOn = false;  // ディレクトリの本文に、項目の一覧ではなく「このディレクトリのログ」を出しているか
+let wipFiles = [];  // 作業ツリーの変更の一覧 (WIP パネルが決める。パス・種類 wip・変更前のパス old_path)
+let diffSel = null;  // WIP パネルから開いた差分の {path, wip, old} (同じファイルが staged と unstaged の両方にあるとき、どちらの差分かを決める)
 let commitFiles = [];  // このコミットで変更されたファイルの一覧 (左ペインの「変更ファイル」)
 let entryInfo = {}, commitChanges = null, commitDirs = new Set();  // entryInfo: パス → 一覧の項目 (WIP の変更の種類 xy), commitChanges: パス → コミットでの変更
 function diffParams(path) {  // このファイルの差分ページの引数。変更がなければ null
   if (isWip) {
+    if (diffSel && diffSel.path === path) return diffSel.old ? {path: path, wip: diffSel.wip, old: diffSel.old} : {path: path, wip: diffSel.wip};
     const xy = (entryInfo[path] || {}).xy;
-    if (!xy) return null;
-    const st = entryInfo[path].st;
-    const kind = xy === "??" ? "untracked" : st === "U" ? "conflict" : xy[1] !== " " ? "unstaged" : "staged";
-    return {path: path, wip: kind};
+    if (xy) {
+      const st = entryInfo[path].st;
+      const kind = xy === "??" ? "untracked" : st === "U" ? "conflict" : xy[1] !== " " ? "unstaged" : "staged";
+      return {path: path, wip: kind};
+    }
+    // 一覧を読み込んでいないディレクトリのファイルは、WIP パネルの一覧から探す (複数あれば、競合・未ステージ・未追跡・ステージ済み・amend の順)
+    const same = wipFiles.filter(f => f.path === path);
+    const f = ["conflict", "unstaged", "untracked", "staged", "amend"].map(k => same.find(x => x.wip === k)).find(Boolean);
+    if (!f) return null;
+    return f.old_path ? {path: path, wip: f.wip, old: f.old_path} : {path: path, wip: f.wip};
   }
   const f = commitChanges && commitChanges[path];
   if (!f) return null;
@@ -188,11 +197,17 @@ function loadCommitChanges() {  // このコミットで変更されたファイ
 const SIDE_KEY = "gitGraphFilesSide";
 let sideMode = "tree";  // "tree" | "changes"。保存先 (localStorage) が使えなくても切り替わるよう、メモリ上の値を正とする
 try { sideMode = localStorage.getItem(SIDE_KEY) === "changes" ? "changes" : "tree"; } catch (e) { sideMode = "tree"; }
-function activeList() { return !isWip && sideMode === "changes" ? changesEl : list; }
+function activeList() { return !isWip && sideMode === "changes" ? changesEl : list; }  // ↑↓ Enter の対象 (作業ツリーの変更の一覧は、WIP パネルの表)
 function applySideMode() {
-  const changes = activeList() === changesEl;
+  const changes = sideMode === "changes";
   list.hidden = changes;
-  changesEl.hidden = !changes;
+  if (isWip) {  // 作業ツリー: 「WIP の変更」は WIP パネル (変更のあるファイルの一覧とコミットフォーム)
+    wipBox.hidden = !changes;
+    if (changes) wipBox.open = true;
+  } else {
+    changesEl.hidden = !changes;
+  }
+  selBar.hidden = !CAN_EDIT || changes;  // 選択して add / rm するのは、ファイル一覧の方
   sideTreeBtn.classList.toggle("on", !changes);
   sideChangesBtn.classList.toggle("on", changes);
   selectEntry(null);
@@ -222,6 +237,37 @@ function renderChanges() {  // 「変更ファイル」の一覧 (loadCommitChan
   changesEl.querySelectorAll(".entry").forEach(a => { a.onclick = () => { selectEntry(a); openChange(a.dataset.path); }; });
   syncChangesSelection();
 }
+function wipFilesChanged(files) {  // WIP パネルの一覧が決まった (パネルを描き直すたびに呼ばれる)
+  wipFiles = files;
+  const n = new Set(files.map(f => f.path)).size;
+  sideChangesBtn.textContent = t("side_wip") + (n ? " (" + n + ")" : "");
+  updateDiffBtn();
+  markWipCurrent();
+}
+function markWipCurrent() {  // WIP パネルの表で、右ペインに差分を出しているファイルの行に印を付ける
+  if (!isWip) return;
+  const kind = currentView === "diff" ? (diffParams(currentFile) || {}).wip : null;
+  wipBox.querySelectorAll("tr.frow").forEach(tr => {
+    const a = tr.querySelector("a[href^='/diff?']");
+    const q = a ? new URL(a.href, location.href).searchParams : null;
+    tr.classList.toggle("cur", !!(q && kind && q.get("path") === currentFile && q.get("wip") === kind));
+  });
+}
+function openWipChange(sel) {  // WIP パネルの変更を、右ペインの差分エディタで開く
+  if (!leaveEdit()) return Promise.resolve();
+  if (currentFile === sel.path && currentView === "diff" && diffSel && diffSel.wip === sel.wip) return Promise.resolve();
+  diffSel = sel;
+  history.pushState({path: current, file: sel.path, view: "diff"}, "", pageUrl(current, sel.path, "diff"));
+  return loadFile(sel.path, false).then(() => renderView("diff"));
+}
+wipBox.addEventListener("click", ev => {  // パネルの表のファイル名は /diff のリンク。ふつうに押したときは、別のページへ移らず、右ペインに出す
+  const a = ev.target.closest("tr.frow a[href^='/diff?']");
+  if (!a || ev.button || ev.ctrlKey || ev.metaKey || ev.shiftKey || ev.altKey) return;
+  const q = new URL(a.href, location.href).searchParams;
+  if (!q.get("wip") || !q.get("path")) return;
+  ev.preventDefault();
+  openWipChange({path: q.get("path"), wip: q.get("wip"), old: q.get("old") || ""});
+});
 function syncChangesSelection() {  // いま開いているファイルが、変更ファイルの一覧にあれば選択する
   if (activeList() !== changesEl) return;
   selectEntry([...changesEl.querySelectorAll(".entry")].find(r => r.dataset.path === currentFile) || null);
@@ -230,10 +276,11 @@ function openChange(path) {  // 変更ファイルを、右ペインの差分エ
   const f = commitChanges && commitChanges[path];
   if (!f || !leaveEdit()) return Promise.resolve();
   if (path === currentFile && currentView === "diff") return Promise.resolve();
+  diffSel = null;
   history.pushState({path: current, file: path, view: "diff"}, "", pageUrl(current, path, "diff"));
   return loadFile(path, false).then(() => renderView("diff"));  // 消されたファイルは、内容を読めなくても差分は出せる
 }
-fileDiffBtn.onclick = () => { if (currentFile && diffParams(currentFile)) openView("diff"); };  // このファイルの差分を、右ペインの差分エディタ (変更前 | 変更後) で出す
+fileDiffBtn.onclick = () => { if (currentFile && diffParams(currentFile)) openView("diff"); };  // WIP パネルから開いた差分 (diffSel) があれば、その種類で  // このファイルの差分を、右ペインの差分エディタ (変更前 | 変更後) で出す
 function logHash() { return isWip ? wipHead : hash; }  // ファイルのログの起点 (作業ツリーなら HEAD)
 function esc(s) { return String(s).replace(/[&<>\"]/g, c => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", "\"":"&quot;"}[c])); }
 function api(path, params) { return fetch(path + "?" + new URLSearchParams(params)).then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); })); }
@@ -244,6 +291,10 @@ function pageUrl(path, file, view, dirlog) {  // 表示中のディレクトリ�
   if (file) p.set("file", file);
   if (file && view) p.set("view", view);
   else if (!file && dirlog) p.set("view", "log");
+  if (file && view === "diff" && diffSel && diffSel.path === file) {  // WIP パネルから開いた差分は、どの種類 (staged など) かも残す
+    p.set("dwip", diffSel.wip);
+    if (diffSel.old) p.set("dold", diffSel.old);
+  }
   if (fileViewTab) p.set("file_view", "1");
   return "?" + p;
 }
@@ -672,7 +723,9 @@ function loadFile(path, push) {
   if (!leaveEdit()) return;
   if (push && (path !== currentFile || currentView)) history.pushState({path: current, file: path}, "", pageUrl(current, path));
   currentFile = path; currentView = "";
+  if (diffSel && diffSel.path !== path) diffSel = null;
   syncChangesSelection();
+  markWipCurrent();
   dirLogOn = false; dirActions.hidden = true;
   setDocumentTitle(path);
   setFileMsg("", true);
@@ -717,6 +770,7 @@ function renderView(view) {
   } else if (view === "blame") loadFileBlame(currentFile);
   else if (view === "log") loadFileLog(currentFile);
   else if (view === "diff") loadFileDiff(currentFile);
+  markWipCurrent();
 }
 function openView(view) {
   if (!currentFile || view === currentView) return;
@@ -985,6 +1039,7 @@ function restoreFromUrl(first) {  // URL の path / file / view の状態を画�
       if (p.get("view") === "log") showDirLog(); else showDir();  // ファイルを開かない view=log は、ディレクトリのログ
       return;
     }
+    diffSel = view === "diff" && p.get("dwip") ? {path: file, wip: p.get("dwip"), old: p.get("dold") || ""} : null;  // WIP パネルから開いた差分の種類
     const reload = first || file !== currentFile || !view || currentView === "edit" || !fileData;
     return (reload ? loadFile(file, false) : Promise.resolve()).then(() => { if (view) renderView(view); });
   }).then(() => { const f = afterRestore; afterRestore = null; if (f) f(); });
@@ -1010,9 +1065,10 @@ reloadBtn.onclick = () => {
   });
 };
 updateDiffBtn();  // 差分アイコンは、ファイルを開く前から押せる
-sideTabs.hidden = isWip || !hash;  // 作業ツリーの変更の一覧は、WIP パネルにある
-sideChangesBtn.textContent = t("side_changes");
-if (!isWip && hash) { changesEl.innerHTML = '<p class="hint">' + esc(t("loading")) + '</p>'; applySideMode(); }
+sideTabs.hidden = !hash;  // 作業ツリーの「WIP の変更」は WIP パネル (変更ファイルの一覧とコミットフォーム)、コミットの「変更ファイル」は loadCommitChanges が出す
+sideChangesBtn.textContent = t(isWip ? "side_wip" : "side_changes");
+if (!isWip && hash) changesEl.innerHTML = '<p class="hint">' + esc(t("loading")) + '</p>';
+if (hash) applySideMode();
 if (!hash) showError(new Error(t("commit_required"))); else { loadCommitChanges(); restoreFromUrl(true); }
 </script>
 <script>/*__MENUBAR_JS__*/</script></body></html>
