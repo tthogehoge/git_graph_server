@@ -1533,7 +1533,7 @@ reloadBtn.onclick = () => {
   stageOverrides.clear();
   stageDirty = false;
   entryInfo = {};
-  Promise.resolve(restoreFromUrl(true)).finally(() => {
+  Promise.resolve(restoreFromUrl(true)).then(refreshWipCommitPanel).finally(() => {
     treeEl.scrollTop = keep.tree; mainEl.scrollTop = keep.main;
     reloadBtn.disabled = false;
   });

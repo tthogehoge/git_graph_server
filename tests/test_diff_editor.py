@@ -270,6 +270,8 @@ class DiffEditorPageTests(unittest.TestCase):
         self.assertNotIn('id="wipCommitOpen"', files_html)
         self.assertIn("return wipCommitPanel.render(document.getElementById(\"wipCommitPanel\"), {});", files_html)
         self.assertIn("}).then(refreshWipCommitPanel);", files_html)
+        reload_handler = files_html[files_html.index("reloadBtn.onclick ="):files_html.index("updateDiffBtn();  // 差分アイコン")]
+        self.assertIn("Promise.resolve(restoreFromUrl(true)).then(refreshWipCommitPanel)", reload_handler)
         self.assertIn('id="wipCommitMenuBtn"', page)
         self.assertLess(page.index('id="wipCommitMenuBtn"'), page.index('id="pushBtn"'))
         commit_menu = page[page.index('id="wipCommitMenuBtn"'):page.index("</button>", page.index('id="wipCommitMenuBtn"'))]
