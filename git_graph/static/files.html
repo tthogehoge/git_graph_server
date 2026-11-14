@@ -779,6 +779,16 @@ function selectEntry(el) {
     selectedEntry.scrollIntoView({block: "nearest"});
   }
 }
+function toggleSelectedCheck() {
+  // 選択行のチェックをスペースでトグル
+  if (!selectedEntry || !selectedEntry.isConnected) return false;
+  const c = selectedEntry.querySelector("input.ck:not(:disabled)");
+  if (!c) return false;
+  c.checked = !c.checked;
+  setStageFromBox(c, c.checked);
+  updateSelBar();
+  return true;
+}
 function focusFileActionButton() {
   // ファイルを開いたあと、右ペインの操作ボタンにフォーカスを移す
   const btn = fileActions.querySelector("button:not([hidden]):not([disabled])");
@@ -827,7 +837,7 @@ function openNavRow(el, key) {
 }
 document.addEventListener("keydown", ev => {
   if (ev.key !== "ArrowUp" && ev.key !== "ArrowDown" && ev.key !== "ArrowLeft" &&
-      ev.key !== "ArrowRight" && ev.key !== "Enter") return;
+      ev.key !== "ArrowRight" && ev.key !== "Enter" && ev.key !== " ") return;
   if (ev.altKey || ev.ctrlKey || ev.metaKey) return;
   if (ev.target.closest("#compareToolbar")) return;
   const tag = ev.target && ev.target.tagName;
@@ -837,6 +847,11 @@ document.addEventListener("keydown", ev => {
   if (!ev.target.closest("#tree")) return;
   const rows = sideNavRows();
   if (!rows.length) return;
+
+  if (ev.key === " ") {
+    if (toggleSelectedCheck()) ev.preventDefault();
+    return;
+  }
 
   if (ev.key === "ArrowLeft") {
     if (!current || activeList() !== list) return;  // 変更ファイルの一覧に、親ディレクトリは無い
