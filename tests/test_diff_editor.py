@@ -254,17 +254,23 @@ class DiffEditorPageTests(unittest.TestCase):
         self.assertIn("function wipSelectionEnabled()", files_html)
         self.assertIn("compareFrom === wipHead", files_html)
         self.assertIn("selBar.hidden = !wipSelectionEnabled();", files_html)
-        self.assertIn("const check = wipSelectionEnabled() ?", files_html)
+        self.assertIn('const check = f => \'<td class="fk"><input type="checkbox"', files_html)
+        self.assertIn('class="changeall"', files_html)
+        self.assertIn("function syncChangeGroupChecks()", files_html)
+        self.assertIn("desiredStageChecked(f.wip, f.path)", files_html)
+        self.assertIn('runSel("/api/stage", plan', files_html)
         self.assertIn("function activeSelectionBoxes()", files_html)
         self.assertIn('id="wipCommitView"', files_html)
         self.assertNotIn('id="wipCommitOpen"', files_html)
+        self.assertIn("return wipCommitPanel.render(document.getElementById(\"wipCommitPanel\"), {});", files_html)
+        self.assertIn("}).then(refreshWipCommitPanel);", files_html)
         self.assertIn('id="wipCommitMenuBtn"', page)
         self.assertLess(page.index('id="wipCommitMenuBtn"'), page.index('id="pushBtn"'))
         commit_menu = page[page.index('id="wipCommitMenuBtn"'):page.index("</button>", page.index('id="wipCommitMenuBtn"'))]
         self.assertNotIn("hidden", commit_menu)
         self.assertIn("wipCommitMenuBtn.disabled = !CAN_COPY;", files_html)
         self.assertIn('else location.href = "/files?hash=WIP&wip_commit=1";', files_html)
-        self.assertIn('mountWipPanel(document.getElementById("wipCommitPanel"), {onFiles: wipFilesChanged})', pages.render_files_page())
+        self.assertIn('wipCommitPanel = mountWipPanel(document.getElementById("wipCommitPanel"), {onFiles: wipFilesChanged})', page)
         self.assertIn('history.pushState({path: current, file: path, view: "diff"}', files_html)  # 変更ファイルは、右ペインの差分で開く
         self.assertIn("gitGraphFilesSide", files_html)  # 選んだ表示は引き継ぐ
         self.assertIn('const rows = [...activeList().querySelectorAll(".entry")];', files_html)  # ↑↓ Enter は、出している方の一覧で働く

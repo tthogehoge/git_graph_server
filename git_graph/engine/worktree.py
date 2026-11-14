@@ -176,6 +176,61 @@ def _matching(paths, names):
     return [p for p in paths if _matches(p, names)]
 
 
+@operation("stage", touches_worktree="names")
+def stage_changes(stage_paths, unstage_paths):
+    """チェック状態に合わせて変更をステージ / ステージ解除する。作業ツリーの内容は保持する。"""
+    if not state.WIP_ENABLED:
+        raise UserError("wip_disabled")
+    selections = (stage_paths, unstage_paths)
+    if any(not isinstance(paths, list) or not all(isinstance(p, str) and p and "\0" not in p for p in paths)
+           for paths in selections):
+        raise UserError("select_stage_files")
+    stage_paths = sorted(set(p.rstrip("/") for p in stage_paths))
+    unstage_paths = sorted(set(p.rstrip("/") for p in unstage_paths))
+    if not stage_paths and not unstage_paths:
+        raise UserError("select_stage_files")
+
+    s = status_lists(limit=10 ** 9)
+    conflicts = {f["path"] for f in s["conflicts"]}
+    bad_conflicts = _matching(stage_paths, conflicts)
+    if bad_conflicts:
+        raise UserError("add_conflict", files=", ".join(sorted(bad_conflicts)[:3]))
+
+    addable = {f["path"] for f in s["unstaged"] + s["untracked"]}
+    invalid_stage = [p for p in stage_paths if not _matches(p, addable)]
+    if invalid_stage:
+        raise UserError("files_unchanged", files=", ".join(invalid_stage[:3]))
+    staged = s["staged"]
+    staged_names = {name for f in staged for name in (f["path"], f.get("old_path")) if name}
+    invalid_unstage = [p for p in unstage_paths if not _matches(p, staged_names)]
+    if invalid_unstage:
+        raise UserError("files_unchanged", files=", ".join(invalid_unstage[:3]))
+
+    unstage_files = [
+        f for f in staged
+        if any(_matches(p, {f["path"]} | ({f["old_path"]} if f.get("old_path") else set()))
+               for p in unstage_paths)
+    ]
+    unstage_names = {name for f in unstage_files for name in (f["path"], f.get("old_path")) if name}
+    unstage_names = {p for p in unstage_names if not any(_matches(selector, {p}) for selector in stage_paths)}
+    stage_names = {
+        f["path"]
+        for f in s["unstaged"] + s["untracked"]
+        if any(_matches(selector, {f["path"]}) for selector in stage_paths)
+    }
+    # A staged item that is also checked in the unstaged group should end up staged at its current worktree contents.
+    unstage_names = sorted(unstage_names)
+    for i in range(0, len(unstage_names), _STEP):
+        part = unstage_names[i:i + _STEP]
+        if has_head():
+            run_git_write("reset", "-q", "--", *part, literal=True)
+        else:
+            run_git_write("rm", "--cached", "-r", "-q", "-f", "--", *part, literal=True)
+    for i in range(0, len(stage_paths), _STEP):
+        run_git_write("add", "-A", "--", *stage_paths[i:i + _STEP], literal=True)
+    return {"count": len({f["path"] for f in unstage_files} | stage_names)}
+
+
 @operation("rm", touches_worktree=True)
 def remove_files(paths, *, cached=False, force=False, recursive=False):
     """追跡中のファイルを git rm する (削除をステージする)。cached=True なら作業ツリーのファイルは残して追跡だけやめる (git rm --cached)。

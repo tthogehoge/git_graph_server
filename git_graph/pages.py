@@ -451,7 +451,7 @@ def render_files_page():
     remote = bar_has_remote()
     # 作業ツリー (hash=WIP) のコミット関連操作は、ファイル表示の右ペインに共通 WIP パネルを置く。
     mount = ('if (new URLSearchParams(location.search).get("hash") === "WIP") {\n'
-             '  mountWipPanel(document.getElementById("wipCommitPanel"), {onFiles: wipFilesChanged});\n'
+             '  wipCommitPanel = mountWipPanel(document.getElementById("wipCommitPanel"), {onFiles: wipFilesChanged});\n'
              '}')
     menubar_js = "\n".join((menubar_dialog_js([*WIP_PANEL_TEXT_KEYS, *(REMOTE_TEXT_KEYS if remote else ())]), PAGE_MENUBAR_JS,
                             WIP_PANEL_JS, WIP_PANEL_MOUNT_JS, WIP_DIFF_REMOTE_JS if remote else "", mount))

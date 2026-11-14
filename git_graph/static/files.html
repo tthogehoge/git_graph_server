@@ -93,7 +93,7 @@ __FAVICON__
 <!--__MENUBAR__-->
 <div id="panes">
 <aside id="tree"><h1>{{file_view}}</h1><div class="meta" id="commit"></div><div id="smMsg" class="sm-msg"></div><div class="file-actions patch-bar"><button id="patchCreateBtn">{{patch_create}}</button><button id="patchApplyBtn" hidden title="{{tip_patch_apply}}">{{patch_apply}}</button><button id="patchAmBtn" hidden title="{{tip_patch_am}}">{{patch_am}}</button><input type="file" id="patchFile" hidden><span id="patchMsg" class="msg"></span></div>
-<div class="side-tabs" id="sideTabs" hidden><button id="sideTreeBtn" class="on">{{side_tree}}</button><button id="sideChangesBtn">{{side_changes}}</button></div><div class="file-actions patch-bar sel-bar" id="selBar" hidden><label class="selall"><input type="checkbox" id="selAll"> {{sel_all}}</label><span id="selCount" class="cnt"></span><button id="selAddBtn" disabled title="{{tip_add_selected}}">{{add_button}}</button><button id="selRmBtn" disabled title="{{tip_rm_selected}}">{{rm_button}}</button><button id="selRmCachedBtn" disabled title="{{tip_rm_cached_selected}}">{{rm_cached_button}}</button><span id="selMsg" class="msg"></span></div><div id="list"></div><div id="changes" hidden></div></aside>
+<div class="side-tabs" id="sideTabs" hidden><button id="sideTreeBtn" class="on">{{side_tree}}</button><button id="sideChangesBtn">{{side_changes}}</button></div><div class="file-actions patch-bar sel-bar" id="selBar" hidden><label class="selall"><input type="checkbox" id="selAll"> {{sel_all}}</label><span id="selCount" class="cnt"></span><button id="selAddBtn" disabled title="{{tip_stage_selected}}">{{stage_button}}</button><button id="selRmBtn" disabled title="{{tip_rm_selected}}">{{rm_button}}</button><button id="selRmCachedBtn" disabled title="{{tip_rm_cached_selected}}">{{rm_cached_button}}</button><span id="selMsg" class="msg"></span></div><div id="list"></div><div id="changes" hidden></div></aside>
 <div id="sideSplitter" role="separator" aria-orientation="vertical" aria-label="{{resize_side}}" tabindex="0"></div>
 <main id="main"><div id="fileView"><h2 id="title">{{select_file}}</h2>
 <div id="dirActions" class="file-actions" hidden><button id="dirLogBtn">{{dir_log}}</button><button id="dirListBtn" hidden>{{dir_list}}</button><button id="dirGraphLogBtn" hidden>{{file_log_graph}}</button></div>
@@ -119,6 +119,7 @@ const qs = new URLSearchParams(location.search), hash = qs.get("hash"), fileView
 const compareFrom = qs.get("dfrom") || "", compareTo = qs.get("dto") || "";
 const sideTabs = document.getElementById("sideTabs"), sideTreeBtn = document.getElementById("sideTreeBtn"), sideChangesBtn = document.getElementById("sideChangesBtn"), changesEl = document.getElementById("changes");
 const fileViewEl = document.getElementById("fileView"), wipCommitView = document.getElementById("wipCommitView");
+let wipCommitPanel = null;
 const list = document.getElementById("list"), content = document.getElementById("content"), title = document.getElementById("title");
 const fileActions = document.getElementById("fileActions"), fileLogBtn = document.getElementById("fileLogBtn"), fileBlameBtn = document.getElementById("fileBlameBtn"), fileContentBtn = document.getElementById("fileContentBtn");
 const fileGraphLogBtn = document.getElementById("fileGraphLogBtn");
@@ -145,6 +146,7 @@ let dirEntries = null, dirLogSeq = 0;  // dirEntries: 表示中のディレク�
 let dirLogOn = false;  // ディレクトリの本文に、項目の一覧ではなく「このディレクトリのログ」を出しているか
 let wipFiles = [];  // 作業ツリーの変更の一覧 (WIP パネルが決める。パス・種類 wip・変更前のパス old_path)
 let wipStatusFiles = [];
+let stageOverrides = new Map(), stageDirty = false;
 let wipHeadFiles = [];  // HEAD または URL の比較対象コミットと作業ツリーの差分
 let wipCompareChanges = compareTo === "WIP" && compareFrom ? Object.create(null) : null, wipCompareDirs = new Set();
 let diffSel = null;  // 選択中の差分の WIP 種別または比較元
@@ -301,6 +303,16 @@ function wipFilesChanged(files, status) {  // WIP パネルの一覧と状態が
     ...(status.unstaged || []).map(f => Object.assign({wip: "unstaged"}, f)),
     ...(status.untracked || []).map(f => Object.assign({wip: "untracked"}, f)),
   ] : files;
+  if (!stageDirty) stageOverrides.clear();
+  [...stageOverrides].forEach(([key, value]) => {
+    if (!key.startsWith("tree\0")) return;
+    const path = key.slice(5);
+    const matches = wipStatusFiles.filter(f => (f.path === path || f.path.startsWith(path + "/")) && f.wip !== "conflict");
+    if (!matches.length) return;
+    matches.forEach(f => stageOverrides.set(stageKey(f.wip, f.path), value));
+    stageOverrides.delete(key);
+  });
+  syncTreeCheckBoxes();
   updateDiffBtn();
   markWipCurrent();
   if (isWip && wipHeadFiles.length) renderWipChanges();
@@ -309,18 +321,88 @@ function wipStatusForPath(path) {
   const same = wipStatusFiles.filter(f => f.path === path);
   return ["conflict", "unstaged", "untracked", "staged", "amend"].map(k => same.find(f => f.wip === k)).find(Boolean);
 }
+function stageKey(kind, path) { return kind + "\0" + path; }
+function desiredStageChecked(kind, path) {
+  const key = stageKey(kind, path);
+  if (stageOverrides.has(key)) return stageOverrides.get(key);
+  let match = null;
+  stageOverrides.forEach((value, treeKey) => {
+    if (!treeKey.startsWith("tree\0")) return;
+    const treePath = treeKey.slice(5);
+    if ((path === treePath || path.startsWith(treePath + "/")) && (!match || treePath.length > match.path.length))
+      match = {path: treePath, value: value};
+  });
+  return match ? match.value : kind === "staged";
+}
+function setStageChecked(kind, path, value) {
+  if (kind === "tree") {
+    const matches = wipStatusFiles.filter(f => (f.path === path || f.path.startsWith(path + "/")) && f.wip !== "conflict");
+    if (matches.length) {
+      matches.forEach(f => stageOverrides.set(stageKey(f.wip, f.path), value));
+      stageDirty = true;
+      return;
+    }
+  }
+  stageOverrides.set(stageKey(kind, path), value);
+  stageDirty = true;
+}
+function stageKindsForPath(path) {
+  const kinds = [...new Set(wipStatusFiles.filter(f => f.path === path).map(f => f.wip))];
+  if (kinds.length) return kinds;
+  const e = entryInfo[path] || {}, xy = e.xy || "";
+  if (xy === "??") return ["untracked"];
+  if (xy.includes("U")) return ["conflict"];
+  const result = [];
+  if (xy[0] && xy[0] !== " ") result.push("staged");
+  if (xy[1] && xy[1] !== " ") result.push("unstaged");
+  return result;
+}
+function treeCheckState(path) {
+  const treeKey = stageKey("tree", path);
+  if (stageOverrides.has(treeKey)) return {checked: stageOverrides.get(treeKey), indeterminate: false};
+  const statuses = wipStatusFiles.filter(f => f.path === path || f.path.startsWith(path + "/"));
+  const values = statuses.length
+    ? statuses.filter(f => f.wip !== "conflict").map(f => desiredStageChecked(f.wip, f.path))
+    : stageKindsForPath(path).filter(k => k !== "conflict").map(k => desiredStageChecked(k, path));
+  const checked = values.length > 0 && values.every(Boolean);
+  return {checked: checked, indeterminate: values.some(Boolean) && !checked};
+}
+function syncTreeCheckBoxes() {
+  list.querySelectorAll('input.ck[data-kind="tree"]').forEach(c => {
+    const state = treeCheckState(c.dataset.path);
+    c.checked = state.checked;
+    c.indeterminate = state.indeterminate;
+  });
+}
 function renderWipChanges() {
   sideChangesBtn.textContent = t("side_wip") + (wipHeadFiles.length ? " (" + wipHeadFiles.length + ")" : "");
   const from = wipCompareFrom();
-  const check = wipSelectionEnabled() ? f => '<td class="fk"><input type="checkbox" class="ck" data-path="' + esc(f.path) + '" aria-label="' + esc(f.path) + '"' +
-    (checked.has(f.path) ? " checked" : "") + "></td>" : null;
-  const files = wipHeadFiles.map(f => {
-    const status = wipStatusForPath(f.path);
-    const st = status && status.st || f.st || (f.status === "A" || f.status === "C" ? "A" : f.status === "D" ? "D" : f.status === "R" ? "R" : "M");
-    return Object.assign({}, f, {st: st});
-  });
-  changesEl.innerHTML = WipPanel.filesTable(from ? {from: from, wip: "compare"} : {},
-    files, 0, {t: t, check: check});
+  const ctx = from ? {from: from, wip: "compare"} : {};
+  if (wipSelectionEnabled()) {
+    const changes = new Map(wipHeadFiles.map(f => [f.path, f]));
+    const labels = {conflict: "conflict", staged: "staged", unstaged: "unstaged", untracked: "untracked"};
+    let body = "";
+    ["conflict", "staged", "unstaged", "untracked"].forEach(kind => {
+      const group = wipStatusFiles.filter(f => f.wip === kind && changes.has(f.path))
+        .map(f => Object.assign({}, changes.get(f.path), f, {wip: kind}));
+      if (!group.length) return;
+      const check = f => '<td class="fk"><input type="checkbox" class="ck" data-kind="' + esc(f.wip) + '" data-path="' + esc(f.path) +
+        '" aria-label="' + esc(f.path) + '"' + (desiredStageChecked(f.wip, f.path) ? " checked" : "") +
+        (f.wip === "conflict" ? " disabled" : "") + "></td>";
+      const all = kind === "conflict" ? "" : '<input type="checkbox" class="changeall" data-kind="' + kind +
+        '" title="' + esc(t("select_all")) + '"> ';
+      body += '<h3>' + all + esc(t(labels[kind])) + " (" + group.length + ")</h3>" +
+        WipPanel.filesTable(ctx, group, 0, {t: t, check: check});
+    });
+    changesEl.innerHTML = body || '<p class="hint">' + esc(t("no_changed_files")) + "</p>";
+  } else {
+    const files = wipHeadFiles.map(f => {
+      const status = wipStatusForPath(f.path);
+      const st = status && status.st || f.st || (f.status === "A" || f.status === "C" ? "A" : f.status === "D" ? "D" : f.status === "R" ? "R" : "M");
+      return Object.assign({}, f, {st: st});
+    });
+    changesEl.innerHTML = WipPanel.filesTable(ctx, files, 0, {t: t});
+  }
   bindSelectionChecks(changesEl);
   updateSelBar();
   updateDiffBtn();
@@ -331,9 +413,9 @@ function wipCompareFrom() {
   return compareTo === "WIP" && compareFrom ? compareFrom : wipHead;
 }
 function wipSelectionEnabled() {
-  if (!CAN_EDIT || !wipHead) return false;
-  return compareTo !== "WIP" || !compareFrom || compareFrom === wipHead ||
-    (compareFrom.length >= 7 && wipHead.startsWith(compareFrom));
+  if (!CAN_EDIT) return false;
+  return compareTo !== "WIP" || !compareFrom || (!!wipHead && (compareFrom === wipHead ||
+    (compareFrom.length >= 7 && wipHead.startsWith(compareFrom))));
 }
 function loadWipChanges() {
   if (!isWip) return Promise.resolve();
@@ -604,7 +686,9 @@ function loadTree(path, push) {
       const p = path ? path + "/" + e.name : e.name;
       entryInfo[p] = e;
       const size = e.size === null ? "" : e.size.toLocaleString() + " B";
-      const ck = wipSelectionEnabled() ? '<input type="checkbox" class="ck" data-path="' + esc(p) + '" aria-label="' + esc(p) + '"' + (checked.has(p) ? " checked" : "") + '>' : "";
+      const state = treeCheckState(p);
+      const ck = wipSelectionEnabled() ? '<input type="checkbox" class="ck" data-kind="tree" data-path="' + esc(p) + '" aria-label="' + esc(p) + '"' +
+        (state.checked ? " checked" : "") + '>' : "";
       return '<div class="entry" data-type="' + e.type + '" data-path="' + esc(p) + '"' + entryTip(e) + '>' + ck + '<span>' + entryIcon(e) + ' <span class="bd">' + statusBadge(e, p) + '</span>' + esc(e.name) + submoduleBadge(e) + '</span><span class="size">' + size + '</span></div>';
     }).join("") : '<p class="hint">' + t("empty_directory") + '</p>');
     list.querySelectorAll("[data-dir]").forEach(a => a.onclick = () => openDir(a.dataset.dir));
@@ -615,6 +699,7 @@ function loadTree(path, push) {
       };
     });
     bindSelectionChecks(list);
+    syncTreeCheckBoxes();
     // 一覧を作り直したあと、開いているファイルがあればそれを選択状態にする
     selectedEntry = null;
     if (currentFile) {
@@ -636,36 +721,86 @@ fileExtEditBtn.onclick = () => {  // OS の標準のエディタ、または設�
     .catch(e => setFileMsg(e.message, false))
     .finally(() => { fileExtEditBtn.disabled = false; });
 };
-// ---- 左ペインでチェックしたファイル・ディレクトリの git add / git rm (作業ツリーの表示だけ) ----
-// チェックはディレクトリを移っても残る (パスで覚える)。ディレクトリをチェックすると、中のすべてが対象になる
-const checked = new Set();
+// ---- 左ペインでチェックしたファイル・ディレクトリのステージ状態 (作業ツリーの表示だけ) ----
 selBar.hidden = !wipSelectionEnabled();
 function setSelMsg(text, ok) { selMsg.textContent = text; selMsg.className = "msg" + (ok ? "" : " err"); }
+function stagePlan() {
+  const stage = new Set(), unstage = new Set();
+  wipStatusFiles.forEach(f => {
+    if (f.wip === "conflict") return;
+    const checked = desiredStageChecked(f.wip, f.path);
+    if (f.wip === "staged" && !checked) unstage.add(f.path);
+    else if ((f.wip === "unstaged" || f.wip === "untracked") && checked) stage.add(f.path);
+  });
+  stageOverrides.forEach((checked, key) => {
+    const split = key.indexOf("\0"), kind = key.slice(0, split), path = key.slice(split + 1);
+    if (kind !== "tree") return;
+    const matches = wipStatusFiles.filter(f => f.path === path || f.path.startsWith(path + "/"));
+    matches.forEach(f => { stage.delete(f.path); unstage.delete(f.path); });
+    if (checked && matches.some(f => f.wip === "unstaged" || f.wip === "untracked")) stage.add(path);
+    else if (!checked && matches.some(f => f.wip === "staged")) unstage.add(path);
+  });
+  stage.forEach(path => unstage.delete(path));
+  return {stage_paths: [...stage].sort(), unstage_paths: [...unstage].sort()};
+}
+function checkedStagePaths() {
+  return [...new Set(wipStatusFiles.filter(f => f.wip !== "conflict" && desiredStageChecked(f.wip, f.path)).map(f => f.path))];
+}
+function setStageFromBox(c, checked) {
+  if (c.dataset.kind === "tree") {
+    const path = c.dataset.path, matches = wipStatusFiles.filter(f => f.path === path || f.path.startsWith(path + "/"));
+    if (matches.length) matches.forEach(f => { if (f.wip !== "conflict") setStageChecked(f.wip, f.path, checked); });
+    else setStageChecked("tree", path, checked);
+  } else setStageChecked(c.dataset.kind, c.dataset.path, checked);
+  syncTreeCheckBoxes();
+}
 function bindSelectionChecks(root) {
   root.querySelectorAll("input.ck").forEach(c => {
     c.onclick = ev => ev.stopPropagation();
-    c.onchange = () => { if (c.checked) checked.add(c.dataset.path); else checked.delete(c.dataset.path); updateSelBar(); };
+    c.onchange = () => { setStageFromBox(c, c.checked); updateSelBar(); };
+  });
+  root.querySelectorAll("input.changeall").forEach(all => {
+    all.onchange = () => {
+      root.querySelectorAll("input.ck").forEach(c => {
+        if (c.dataset.kind !== all.dataset.kind || c.disabled) return;
+        c.checked = all.checked;
+        setStageFromBox(c, all.checked);
+      });
+      updateSelBar();
+    };
+  });
+}
+function syncChangeGroupChecks() {
+  changesEl.querySelectorAll("input.changeall").forEach(all => {
+    const boxes = [...changesEl.querySelectorAll("input.ck")].filter(c => c.dataset.kind === all.dataset.kind && !c.disabled);
+    const checked = boxes.filter(c => c.checked).length;
+    all.disabled = boxes.length === 0;
+    all.checked = boxes.length > 0 && checked === boxes.length;
+    all.indeterminate = checked > 0 && checked < boxes.length;
   });
 }
 function activeSelectionBoxes() {
-  return [...(sideMode === "changes" ? changesEl : list).querySelectorAll("input.ck")];
+  return [...(sideMode === "changes" ? changesEl : list).querySelectorAll("input.ck:not(:disabled)")];
 }
 function updateSelBar() {
-  const n = checked.size, boxes = activeSelectionBoxes();
+  const plan = stagePlan(), n = new Set(plan.stage_paths.concat(plan.unstage_paths)).size, boxes = activeSelectionBoxes();
+  const rmCount = checkedStagePaths().length;
+  syncChangeGroupChecks();
   selCount.textContent = n ? t("sel_count", {n: n}) : "";
-  selAddBtn.disabled = selRmBtn.disabled = selRmCachedBtn.disabled = !n;
+  selAddBtn.disabled = !n;
+  selRmBtn.disabled = selRmCachedBtn.disabled = !rmCount;
   selAll.disabled = !boxes.length;
   selAll.checked = boxes.length > 0 && boxes.every(b => b.checked);
   selAll.indeterminate = !selAll.checked && boxes.some(b => b.checked);
 }
 selAll.onchange = () => {  // いま表示している一覧の項目をすべてチェック / 外す
   const on = selAll.checked;
-  activeSelectionBoxes().forEach(c => { c.checked = on; if (on) checked.add(c.dataset.path); else checked.delete(c.dataset.path); });
+  activeSelectionBoxes().forEach(c => { c.checked = on; setStageFromBox(c, on); });
   updateSelBar();
 };
 function isUntrackedEntry(p) {  // 未追跡のファイル / 中がすべて未追跡のディレクトリ (git rm できない)
   const e = entryInfo[p] || {};
-  return e.xy === "??" || (e.type === "tree" && e.st === "?") || wipFiles.some(f => f.path === p && f.wip === "untracked");
+  return e.xy === "??" || (e.type === "tree" && e.st === "?") || wipStatusFiles.some(f => f.path === p && f.wip === "untracked");
 }
 function runSel(url, body, onDone) {
   if (!wipSelectionEnabled()) return;
@@ -675,7 +810,7 @@ function runSel(url, body, onDone) {
   setSelMsg(t("wip_execute"), true);
   fetch(url, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)})
     .then(r => r.ok ? r.json() : r.text().then(m => { throw new Error(m || r.status); }))
-    .then(r => { checked.clear(); setSelMsg(r.message, true); return onDone(r, wasEditing); })
+    .then(r => { stageOverrides.clear(); stageDirty = false; setSelMsg(r.message, true); return onDone(r, wasEditing); })
     .catch(e => setSelMsg(e.message, false))
     .finally(updateSelBar);
 }
@@ -686,15 +821,20 @@ function reloadAfterSel(dir, fileGone, wasEditing) {  // 一覧を読み直し�
     if (!currentFile) showDir();
     else if (wasEditing) return loadFile(currentFile, false);  // 編集欄を閉じたので内容を出し直す
     else updateDiffBtn();
-  });
+  }).then(refreshWipCommitPanel);
+}
+function refreshWipCommitPanel() {
+  if (!wipCommitPanel) return;
+  return wipCommitPanel.render(document.getElementById("wipCommitPanel"), {});
 }
 selAddBtn.onclick = () => {
-  const paths = [...checked].sort();
-  if (paths.length) runSel("/api/add", {paths: paths}, (r, wasEditing) => reloadAfterSel(current, false, wasEditing));
+  const plan = stagePlan();
+  if (plan.stage_paths.length || plan.unstage_paths.length)
+    runSel("/api/stage", plan, (r, wasEditing) => reloadAfterSel(current, false, wasEditing));
 };
 function underAny(path, dirs) { return dirs.some(d => path === d || path.startsWith(d + "/")); }
 function doSelRm(cached) {  // チェックしたものを git rm / git rm --cached。変更があるものは -f で実行する (確認文で変更が失われることを伝える)
-  const paths = [...checked].sort(), n = paths.length;
+  const paths = checkedStagePaths().sort(), n = paths.length;
   if (!n) return;
   const bad = paths.filter(isUntrackedEntry);
   if (bad.length) { setSelMsg(t("rm_untracked", {files: bad.slice(0, 3).join(", ")}), false); return; }
@@ -722,7 +862,7 @@ function doRm(cached) {  // git rm / git rm --cached。変更のあるファイ�
       return loadTree(current, false).then(() => {
         if (cached) { updateDiffBtn(); setFileMsg(r.message, true); }
         else { clearFile(); showDir(); setFileMsg(r.message, true); }
-      });
+      }).then(refreshWipCommitPanel);
     })
     .catch(e => setFileMsg(e.message, false))
     .finally(() => { fileRmBtn.disabled = fileRmCachedBtn.disabled = false; });

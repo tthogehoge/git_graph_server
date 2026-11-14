@@ -1380,12 +1380,56 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertIn("1", result["message"])
         self.assertEqual(self.git("status", "--porcelain").splitlines(), ["A  fresh.txt"])
 
+    def test_stage_applies_checked_and_unchecked_state_without_changing_worktree(self):
+        self.write_file("tracked.txt", "staged version\n")
+        self.git("add", "tracked.txt")
+        self.write_file("tracked.txt", "working version\n")
+        self.write_file("fresh.txt", "fresh\n")
+
+        result = app.api_stage({"stage_paths": ["fresh.txt"], "unstage_paths": ["tracked.txt"]})
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(sorted(self.git("status", "--porcelain", "--untracked-files=all").splitlines()),
+                         [" M tracked.txt", "A  fresh.txt"])
+        self.assertEqual(self.read_file("tracked.txt"), "working version\n")
+
+    def test_stage_checked_unstaged_content_wins_over_unstage_for_same_path(self):
+        self.write_file("tracked.txt", "staged version\n")
+        self.git("add", "tracked.txt")
+        self.write_file("tracked.txt", "working version\n")
+
+        app.api_stage({"stage_paths": ["tracked.txt"], "unstage_paths": ["tracked.txt"]})
+
+        self.assertEqual(self.git("status", "--porcelain").splitlines(), ["M  tracked.txt"])
+        self.assertEqual(self.git("show", ":tracked.txt"), "working version\n")
+
+    def test_unstage_rename_restores_index_and_keeps_worktree_rename(self):
+        self.git("mv", "tracked.txt", "renamed.txt")
+        self.git("add", "renamed.txt")
+
+        app.api_stage({"stage_paths": [], "unstage_paths": ["renamed.txt"]})
+
+        self.assertEqual(self.git("status", "--porcelain", "--untracked-files=all").splitlines(),
+                         [" D tracked.txt", "?? renamed.txt"])
+
+    def test_unstage_before_first_commit_keeps_file_as_untracked(self):
+        self.git("update-ref", "-d", "HEAD")
+        self.git("read-tree", "--empty")
+        self.write_file("fresh.txt", "fresh\n")
+        self.git("add", "fresh.txt")
+
+        app.api_stage({"stage_paths": [], "unstage_paths": ["fresh.txt"]})
+
+        self.assertEqual(self.git("status", "--porcelain", "--untracked-files=all").splitlines(),
+                         ["?? fresh.txt", "?? tracked.txt"])
+        self.assertEqual(self.read_file("fresh.txt"), "fresh\n")
+
     def test_files_page_has_checkbox_add_rm_controls(self):
         page = viewer.render_files_page()
 
         for element in ('id="selBar"', 'id="selAddBtn"', 'id="selRmBtn"', 'id="selRmCachedBtn"', 'id="selAll"'):
             self.assertIn(element, page)
-        self.assertIn('"/api/add"', page)
+        self.assertIn('"/api/stage"', page)
         self.assertIn("recursive: true", page)
 
     def test_wip_patch_includes_staged_unstaged_and_untracked_without_touching_index(self):

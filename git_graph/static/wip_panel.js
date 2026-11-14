@@ -133,6 +133,16 @@ const WipPanel = (function () {
     const paths = () => { const s = new Set(); cks().forEach(el => { if (el.checked) s.add(el.dataset.path); }); return [...s]; };  // 同じファイルが ステージ済み と 未ステージ の両方に出ても1件
     const stagedPaths = () => [...new Set(cks("staged").filter(el => el.checked).map(el => el.dataset.path))];  // チェックされたステージ済みのファイル
     const workPaths = () => [...new Set(cks().filter(el => el.checked && el.dataset.kind !== "staged").map(el => el.dataset.path))];  // 作業ツリーの内容をコミットするファイル (未ステージ・未追跡・競合・amend)
+    function stagePlan() {
+      const stage = new Set(), unstage = new Set();
+      cks().forEach(el => {
+        if (el.dataset.kind === "unstaged" || el.dataset.kind === "untracked") {
+          if (el.checked) stage.add(el.dataset.path);
+        } else if (el.dataset.kind === "staged" && !el.checked) unstage.add(el.dataset.path);
+      });
+      stage.forEach(path => unstage.delete(path));
+      return {stage_paths: [...stage], unstage_paths: [...unstage]};
+    }
     function setCk(el, v) {  // このチェックボックスだけを切り替える (同じパスの別の欄は変えない)
       sel[key(el.dataset.kind, el.dataset.path)] = v;
       el.checked = v;
@@ -141,6 +151,12 @@ const WipPanel = (function () {
     function sync() {  // コミットボタンの件数と、グループの全選択チェックを更新
       const n = paths().length, b = root.querySelector("#wipCommit");
       const dis = root.querySelector("#wipDiscard");
+      const stage = root.querySelector("#wipStage"), plan = stagePlan();
+      if (stage) {
+        const count = new Set(plan.stage_paths.concat(plan.unstage_paths)).size;
+        stage.disabled = count === 0;
+        stage.textContent = t("stage_button") + " (" + count + ")";
+      }
       if (dis) { dis.disabled = n === 0; dis.textContent = t("wip_discard") + " (" + n + ")"; }
       const rm = root.querySelector("#wipRm");
       if (rm) { rm.disabled = n === 0; rm.textContent = t("wip_rm") + " (" + n + ")"; }
@@ -194,6 +210,14 @@ const WipPanel = (function () {
       // paths: 作業ツリーの内容をコミットするファイル / staged_paths: ステージ済みの内容だけをコミットするファイル (未ステージの変更は残る)
       host.post("/api/wip-commit", {paths: workPaths(), staged_paths: stagedPaths(), message: text, amend: amendOn, branch: branch})
         .then(r => { reset(true); host.afterChange(r.message); })
+        .catch(e => { say(e.message, false); sync(); });
+    }
+    function doStage() {
+      const plan = stagePlan();
+      if (!plan.stage_paths.length && !plan.unstage_paths.length) return;
+      run(root.querySelector("#wipStage"));
+      host.post("/api/stage", plan)
+        .then(r => { reset(false); host.afterChange(r.message); })
         .catch(e => { say(e.message, false); sync(); });
     }
     function doResolve(side) {  // 競合ファイルを ours / theirs / 現在の状態 で解決する (チェックしたファイルが対象)
@@ -326,7 +350,8 @@ const WipPanel = (function () {
             '<textarea id="wipMsg" placeholder="' + esc(t("wip_commit_message")) + '"></textarea>' +
             (!amendOn ? '<input type="text" id="wipBranch" placeholder="' + esc(t("wip_commit_branch_placeholder")) + '" aria-label="' + esc(t("wip_commit_branch")) + '">' : "") +
             (canAmend ? '<label class="amendrow"><input type="checkbox" id="wipAmendCk"' + (amendOn ? " checked" : "") + ">" + esc(t("amend_checkbox")) + "</label>" : "") +
-            '<div class="arow"><button class="wbtn" id="wipCommit">' + esc(t("wip_commit")) + "</button>" +
+            '<div class="arow">' + (!amendOn ? '<button class="wbtn" id="wipStage">' + esc(t("stage_button")) + "</button>" : "") +
+            '<button class="wbtn" id="wipCommit">' + esc(t("wip_commit")) + "</button>" +
             (!amendOn && !opCmd ? '<button class="wbtn" id="wipStash" title="' + esc(t("tip_wip_stash")) + '">' + esc(t("wip_stash")) + "</button>" : "") +
             (!amendOn && !opCmd ? '<button class="wbtn danger" id="wipDiscard">' + esc(t("wip_discard")) + "</button>" : "") +
             (!amendOn ? '<button class="wbtn danger" id="wipRm" title="' + esc(t("tip_wip_rm")) + '">' + esc(t("wip_rm")) + "</button>" : "") +
@@ -369,6 +394,7 @@ const WipPanel = (function () {
       el.addEventListener("click", ev => {
         const hit = id => ev.target.closest(id);
         if (hit("#wipCommit")) { doCommit(); return; }
+        if (hit("#wipStage")) { doStage(); return; }
         if (hit("#wipStash")) { doStash(); return; }
         if (hit("#wipDiscard")) { doDiscard(); return; }
         if (hit("#wipRm")) { doRm(); return; }
