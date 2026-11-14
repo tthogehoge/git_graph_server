@@ -1943,6 +1943,19 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertIn("fileLogBtn.hidden = !logHash();", body)  # 差分表示でも「このファイルのログ」を出す
         self.assertNotIn("fileLogBtn.hidden = true;", body)
 
+    def test_files_menubar_git_operations_are_wired_and_their_texts_are_provided(self):
+        import re
+        from git_graph import pages
+        script = (Path(viewer.__file__).parent / "static" / "page_menubar.js").read_text(encoding="utf-8")
+        for button in ("undoBtn", "redoBtn", "mergeBtn", "rebaseBtn", "cherryBtn", "revertBtn", "mergeIntoBtn", "cherryOntoBtn", "rebaseOntoBtn",
+                       "rebaseRangeBtn", "rebaseDescendantsBtn", "rebaseEquivalentBtn", "resetBranchBtn", "renameBranchBtn", "deleteBranchBtn",
+                       "deleteTagBtn", "deleteRemoteBranchBtn", "findEquivalentParentsBtn", "findEquivalentBranchBtn"):
+            self.assertIn('"' + button + '"', script, button)  # ファイル表示でも押せるようにしてある
+        for url in ("/api/undo", "/api/merge", "/api/rebase", "/api/cherry-pick", "/api/revert", "/api/ref-delete", "/api/branch-rename", "/api/reset-branch"):
+            self.assertIn(url, script, url)
+        used = set(re.findall(r"\bT\.([a-z_0-9]+)", script))
+        self.assertFalse(used - set(pages.MENUBAR_TEXT_KEYS), sorted(used - set(pages.MENUBAR_TEXT_KEYS)))  # 使う文言は、ページに渡す一覧に入っている
+
     def test_api_head_returns_the_head_commit(self):
         from git_graph import gitstate
         info = gitstate.head_state()

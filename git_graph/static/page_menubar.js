@@ -119,6 +119,7 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
     $("wipBtn").classList.toggle("mbhere", page === "files" ? q.get("hash") === "WIP" : bar.dataset.wip === "1");
     $("topBtn").classList.remove("mbhere");
     hashButtons.forEach(([id, label, key]) => $(id).classList.toggle("mbhere", !!here && sel[key] === here));
+    updateRefButtons().catch(() => {});
   }
 
   // この画面でできない操作は、隠さず無効にする。できるかどうかは can の関数 (無ければ常にできない) で決める
@@ -129,6 +130,216 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
   enable(bar.querySelector('[data-cact="branch"]'), () => writable); enable(bar.querySelector('[data-cact="tag"]'), () => writable);
   enable(bar.querySelector('[data-cact="checkout"]'), () => writable && worktree); enable($("resetBtn"), () => writable && worktree);
   bar.querySelectorAll("#remoteActions [data-cact]").forEach(b => enable(b, () => writable && worktree));
+
+  // ---- git 操作 (グラフ画面と同じ API・確認文。成功したら、ブランチ / HEAD の変化を表示に反映するため読み込み直す) ----
+  // 対象 = 操作の対象のコミット、A / B = 比較の 2 つのコミット。作業ツリーが要る操作は、書き込めて作業ツリーがあるときだけ使える
+  const A = () => sel.compareA, B = () => sel.compareB, short7 = h => (h || "").slice(0, 7);
+  const OP_LABEL = () => ({merge: T.merge, rebase: T.rebase, cherry: T.cherry_pick, revert: T.revert});
+  const reloadSoon = () => setTimeout(() => location.reload(), 800);
+  const clearAB = () => { sel.compareA = sel.compareB = null; save(); refresh(); };  // A / B のコミットは、操作のあとで変わることがある
+  async function opHead(needBranch, mergeKey) {  // 途中の操作 (マージ・リベースなど) があれば止める
+    const hd = await getJson("/api/head");
+    if (hd.merging) throw new Error(T[mergeKey || "op_in_progress_finish"]);
+    if (needBranch && !hd.branch) throw new Error(T.detached_rebase);
+    return hd;
+  }
+  // spec: {needBranch, mergeKey, ask(hd) → 確認文, busy, err, kind, url, body, clear (A/B を解除するか)}。競合で止まったら、作業ツリーの画面 (競合の解決) へ移る
+  async function gitOp(spec) {
+    try {
+      const hd = await opHead(spec.needBranch, spec.mergeKey);
+      if (!confirm(spec.ask(hd))) return;
+      mbSay(T[spec.busy], "progress");
+      let r = await postJson(spec.url, spec.body);
+      if (r.blocked) {  // 編集中のファイルや管理外ファイルに止められた: stash / 破棄を選ばせて再実行する
+        mbSay("");
+        const mode = await askBlockedDialog(r, OP_LABEL()[spec.kind] || spec.kind);
+        if (!mode) { mbSay(T.operation_cancelled, false); return; }
+        mbSay(T[spec.busy], "progress");
+        r = await postJson(spec.url, Object.assign({}, spec.body, {on_conflict: mode}));
+      }
+      if (spec.clear) clearAB();
+      mbSay(r.message, !r.conflict);
+      if (r.conflict) go(viewUrl("WIP")); else reloadSoon();
+    } catch (e) { mbSay(fmt(T[spec.err], {error: e.message}), false); }
+  }
+  const branchOf = (hd, key) => hd.branch ? fmt(T.what_branch, {name: hd.branch}) : T[key];
+  async function noFfDialog(title) {  // --no-ff を選ばせる。キャンセルなら null
+    const v = await openDialog(title, form => { field(form, "--no-ff", input("checkbox", "noFf"), true).title = T.tip_no_ff; }, T.merge);
+    return v ? {noFf: !!v.noFf} : null;
+  }
+  async function doMerge() {
+    const h = target(), o = h && await noFfDialog(T.merge);
+    if (!o) return;
+    gitOp({mergeKey: "merge_in_progress_resolve", busy: "merging", err: "merge_error", kind: "merge", url: "/api/merge", body: {hash: h, no_ff: o.noFf},
+           ask: hd => fmt(T.confirm_merge, {hash: short7(h), into: hd.branch ? fmt(T.what_branch, {name: hd.branch}) : "detached HEAD", noff: o.noFf ? " (--no-ff)" : ""})});
+  }
+  const doRebase = () => { const h = target(); if (h) gitOp({needBranch: true, busy: "rebasing", err: "rebase_error", kind: "rebase", url: "/api/rebase", body: {hash: h},
+    ask: hd => fmt(T.confirm_rebase, {branch: hd.branch, hash: short7(h)})}); };
+  const doCherry = () => { const h = target(); if (h) gitOp({busy: "cherry_picking", err: "cherry_pick_error", kind: "cherry", url: "/api/cherry-pick", body: {hash: h},
+    ask: hd => fmt(T.confirm_cherry_pick, {hash: short7(h), target: branchOf(hd, "target_detached_head")})}); };
+  const doRevert = () => { const h = target(); if (h) gitOp({busy: "reverting", err: "revert_error", kind: "revert", url: "/api/revert", body: {hash: h},
+    ask: hd => fmt(T.confirm_revert, {hash: short7(h), target: branchOf(hd, "target_detached_head")})}); };
+  // A → B の操作 (どれも A / B の両方が決まっているときだけ押せる)
+  const abOp = (spec) => () => {
+    const from = A(), to = B();
+    if (!from || !to) return;
+    gitOp(Object.assign({clear: true, body: {from: from, to: to}, ask: hd => fmt(T[spec.confirm], {branch: hd.branch, from: short7(from), to: short7(to)})}, spec));
+  };
+  const doRebaseRange = abOp({needBranch: true, confirm: "confirm_rebase_range", busy: "rebasing", err: "rebase_error", kind: "rebase", url: "/api/rebase-range"});
+  const doRebaseOnto = abOp({confirm: "confirm_rebase_onto", busy: "rebasing", err: "rebase_error", kind: "rebase", url: "/api/rebase-onto"});
+  const doCherryOnto = abOp({confirm: "confirm_cherry_onto", busy: "cherry_picking", err: "cherry_pick_error", kind: "cherry", url: "/api/cherry-pick-onto"});
+  const doRebaseDescendants = abOp({needBranch: true, confirm: "confirm_rebase_descendants", busy: "rebasing", err: "rebase_error", kind: "rebase", url: "/api/rebase-descendants"});
+  const doRebaseEquivalent = abOp({needBranch: true, confirm: "confirm_rebase_equivalent", busy: "rebasing", err: "rebase_error", kind: "rebase", url: "/api/rebase-equivalent"});
+  async function doMergeInto() {  // A を B へマージ
+    const from = A(), to = B(), o = from && to && await noFfDialog(T.merge_into);
+    if (!o) return;
+    gitOp({mergeKey: "merge_in_progress_resolve", busy: "merging", err: "merge_error", kind: "merge", url: "/api/merge-into", clear: true,
+           body: {from: from, to: to, no_ff: o.noFf}, ask: () => fmt(T.confirm_merge_into, {from: short7(from), to: short7(to), noff: o.noFf ? " (--no-ff)" : ""})});
+  }
+  async function findEquivalent(url, label) {  // A / B を、同じ変更を持つコミットに置き換える (結果は A / B の選択に反映する)
+    const from = A(), to = B();
+    if (!from || !to) return;
+    try {
+      mbSay(label + "…", "progress");
+      const r = await postJson(url, {from: from, to: to});
+      if (r.from && r.to) sel.compareA = r.from;
+      if (r.to) sel.compareB = r.to;
+      save(); refresh();
+      mbSay(r.message, true);
+    } catch (e) { mbSay(e.message, false); }
+  }
+  // 対象のコミットを指しているブランチ / リモート追跡ブランチ / タグ (ブランチ・タグの操作の選択肢)。操作のあとは読み込み直すので、ページごとに 1 回だけ取る
+  let labelsP = null;
+  const refsOf = async h => {
+    labelsP = labelsP || getJson("/api/ref-labels");
+    const list = (await labelsP).labels[h] || [];
+    const names = kinds => list.filter(r => kinds.includes(r.kind)).map(r => r.name).sort();
+    return {local: names(["branch", "current"]), remote: names(["remote"]), tags: names(["tag"])};
+  };
+  async function pickName(title, label, names, submit) {  // 候補から 1 つ選ばせる。キャンセルなら null
+    const v = await openDialog(title, form => { field(form, label, selectEl("name", names.map(n => [n, n]), names[0]), false); }, submit);
+    return v ? v.name : null;
+  }
+  async function doRenameBranch() {
+    const h = target(), names = h ? (await refsOf(h)).local : [];
+    if (!names.length) return;
+    const v = await openDialog(T.rename_branch, form => {
+      const old = selectEl("old", names.map(n => [n, n]), names[0]);
+      const name = input("text", "new_name"); name.value = names[0]; name.required = true;
+      old.addEventListener("change", () => { name.value = old.value; });  // 選んだブランチ名を、新しい名前の初期値にする
+      field(form, T.branch_to_rename, old, false);
+      field(form, T.new_branch_name, name, false);
+    }, T.rename);
+    if (!v) return;
+    const to = v.new_name.trim();
+    if (!to || to === v.old) { mbSay(T.branch_rename_same, false); return; }
+    mbSay(T.renaming, "progress");
+    try { const r = await postJson("/api/branch-rename", {old: v.old, new: to}); mbSay(r.message, true); reloadSoon(); }
+    catch (e) { mbSay(fmt(T.rename_failed, {error: e.message}), false); }
+  }
+  async function doDeleteRef(kind) {  // kind: branch | tag | remote-branch
+    const h = target();
+    if (!h) return;
+    const refs = await refsOf(h), cur = (await getJson("/api/head")).branch;
+    const names = kind === "tag" ? refs.tags : kind === "branch" ? refs.local.filter(n => n !== cur) : refs.remote;
+    if (!names.length) return;
+    const text = {branch: ["delete_branch", "branch_to_delete", "confirm_delete_branch"], tag: ["delete_tag", "tag_to_delete", "confirm_delete_tag"],
+                  "remote-branch": ["delete_remote_branch", "remote_branch_to_delete", "confirm_delete_remote_branch"]}[kind];
+    const name = await pickName(T[text[0]], T[text[1]], names, T.delete);
+    if (!name || !confirm(fmt(T[text[2]], {name: name}))) return;
+    const body = {kind: kind, name: name};
+    mbSay(T.deleting, "progress");
+    try {
+      let r = await postJson("/api/ref-delete", body);
+      if (r.needs_force) {  // マージされていないブランチ
+        if (!confirm(fmt(T.confirm_force_delete, {name: name}))) { mbSay(T.force_delete_cancelled, false); return; }
+        r = await postJson("/api/ref-delete", Object.assign({}, body, {force: true}));
+      }
+      if (r.auth_required) {  // リモートのブランチの削除は、認証を求められることがある
+        const auth = await openDialog(T.http_auth, form => {
+          field(form, T.auth_username, input("text", "username"), false);
+          field(form, T.auth_password, input("password", "password"), false);
+        }, T.authenticate);
+        if (!auth) { mbSay(T.push_cancelled, false); return; }
+        r = await postJson("/api/ref-delete", Object.assign({}, body, {auth: auth, auth_remote: r.auth_remote, auth_retry: true}));
+      }
+      mbSay(r.message, true);
+      reloadSoon();
+    } catch (e) { mbSay(fmt(T.delete_failed, {error: e.message}), false); }
+  }
+  async function doResetBranch() {  // A を先端に持つローカルブランチを B へ移動する
+    const from = A(), to = B();
+    if (!from || !to) return;
+    const names = (await refsOf(from)).local, cur = (await getJson("/api/head")).branch;
+    if (!names.length) { mbSay(fmt(T.reset_branch_no_branch, {hash: short7(from)}), false); return; }
+    const v = await openDialog(T.reset_branch, form => {
+      const branch = selectEl("branch", names.map(n => [n, n + (n === cur ? " (HEAD)" : "")]), names.includes(cur) ? cur : names[0]);
+      const mode = selectEl("mode", [["mixed", T.reset_opt_mixed], ["soft", T.reset_opt_soft], ["hard", T.reset_opt_hard]], "mixed");
+      field(form, T.reset_branch_select, branch, false);
+      const modeLabel = field(form, T.reset_mode, mode, false).parentElement;
+      const update = () => { modeLabel.hidden = branch.value !== cur; };  // 現在のブランチのときだけ、reset の方式を選ばせる (ほかのブランチは ref を動かすだけ)
+      branch.addEventListener("change", update);
+      update();
+    }, T.reset_submit);
+    if (!v) return;
+    const isCur = v.branch === cur;
+    const ask = isCur ? fmt(T[{hard: "confirm_reset_hard", soft: "confirm_reset_soft", mixed: "confirm_reset_mixed"}[v.mode]], {hash: short7(to)})
+                      : fmt(T.confirm_reset_branch, {branch: v.branch, hash: short7(to)});
+    if (!confirm(ask)) return;
+    mbSay(T.resetting, "progress");
+    try { const r = await postJson("/api/reset-branch", {from: from, to: to, branch: v.branch, mode: v.mode}); clearAB(); mbSay(r.message, true); reloadSoon(); }
+    catch (e) { mbSay(fmt(T.reset_error, {error: e.message}), false); }
+  }
+  // 元に戻す / やり直す (操作の履歴はサーバーにある。グラフ画面と共通)
+  async function doUndoRedo(dir) {
+    const undo = dir === "undo";
+    closeMenus();
+    try {
+      const h = await getJson("/api/undo-history"), label = undo ? h.next_undo : h.next_redo;
+      if (!(undo ? h.can_undo : h.can_redo) || !label) { mbSay(T[undo ? "undo_nothing" : "redo_nothing"], false); return; }
+      if (!confirm(fmt(T[undo ? "undo_confirm" : "redo_confirm"], {op: label}))) return;
+      const busy = T[undo ? "undo_busy" : "redo_busy"];
+      mbSay(busy, "progress");
+      let r = await postJson("/api/" + dir, {});
+      if (r.worktree_changed) {  // 操作のあとに作業ツリーが変わっていたら、上書きしてよいか確認する
+        mbSay("");
+        if (!confirm(fmt(T.undo_worktree_force, {msg: r.message}))) return;
+        mbSay(busy, "progress");
+        r = await postJson("/api/" + dir, {force: true});
+      }
+      mbSay(r.message, true);
+      reloadSoon();
+    } catch (e) { mbSay(fmt(T.undo_failed, {error: e.message}), false); }
+  }
+  async function updateUndoButtons() {  // 戻す先 / やり直す先が無いときは無効にする
+    if (!writable) return;
+    const h = await getJson("/api/undo-history"), undo = $("undoBtn"), redo = $("redoBtn");
+    undo.disabled = !h.can_undo; undo.title = h.can_undo ? fmt(T.tip_undo_op, {op: h.next_undo}) : T.tip_undo;
+    redo.disabled = !h.can_redo; redo.title = h.can_redo ? fmt(T.tip_redo_op, {op: h.next_redo}) : T.tip_redo;
+  }
+  async function updateRefButtons() {  // 対象のコミットに、操作できるブランチ / タグがあるときだけ押せる
+    const h = target(), ids = ["renameBranchBtn", "deleteBranchBtn", "deleteRemoteBranchBtn", "deleteTagBtn"];
+    if (!writable || !h) return;
+    const [refs, hd] = await Promise.all([refsOf(h), getJson("/api/head")]);
+    $("renameBranchBtn").disabled = !refs.local.length;
+    $("deleteBranchBtn").disabled = !refs.local.some(n => n !== hd.branch);
+    $("deleteRemoteBranchBtn").disabled = !refs.remote.length;
+    $("deleteTagBtn").disabled = !refs.tags.length;
+  }
+  const on = (id, fn) => $(id).addEventListener("click", () => Promise.resolve(fn()).catch(fail));
+  on("mergeBtn", doMerge); on("rebaseBtn", doRebase); on("cherryBtn", doCherry); on("revertBtn", doRevert);
+  on("mergeIntoBtn", doMergeInto); on("cherryOntoBtn", doCherryOnto); on("rebaseOntoBtn", doRebaseOnto); on("resetBranchBtn", doResetBranch);
+  on("rebaseRangeBtn", doRebaseRange); on("rebaseDescendantsBtn", doRebaseDescendants); on("rebaseEquivalentBtn", doRebaseEquivalent);
+  on("findEquivalentParentsBtn", () => findEquivalent("/api/find-equivalent-parents", T.find_equivalent_parents));
+  on("findEquivalentBranchBtn", () => findEquivalent("/api/find-equivalent-branch", T.find_equivalent_branch));
+  on("renameBranchBtn", doRenameBranch); on("deleteBranchBtn", () => doDeleteRef("branch")); on("deleteTagBtn", () => doDeleteRef("tag"));
+  on("deleteRemoteBranchBtn", () => doDeleteRef("remote-branch"));
+  on("undoBtn", () => doUndoRedo("undo")); on("redoBtn", () => doUndoRedo("redo"));
+  ["renameBranchBtn", "deleteBranchBtn", "deleteRemoteBranchBtn", "deleteTagBtn", "undoBtn", "redoBtn"].forEach(id => { $(id).disabled = true; });  // 状態が分かるまでは押せない
+  const worktreeOps = ["mergeBtn", "rebaseBtn", "cherryBtn", "revertBtn", "mergeIntoBtn", "cherryOntoBtn", "rebaseOntoBtn", "rebaseRangeBtn", "rebaseDescendantsBtn", "rebaseEquivalentBtn"];
+  worktreeOps.forEach(id => enable($(id), () => writable && worktree));
+  ["resetBranchBtn", "renameBranchBtn", "deleteBranchBtn", "deleteRemoteBranchBtn", "deleteTagBtn", "undoBtn", "redoBtn"].forEach(id => enable($(id), () => writable));
+  enable($("findEquivalentParentsBtn")); enable($("findEquivalentBranchBtn"));
   function applyUnavailable() {
     const skip = new Set(["actionTarget", "cmpA", "cmpB", "cmpActToggle", "abActToggle", "otherMenuBtn", "reload", "rld", "reloadBtn", "navGraphBtn", "navFilesBtn", "clearCmpBtn"]);
     bar.querySelectorAll("button").forEach(b => {
@@ -140,9 +351,9 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
       b.title = T.mb_unavailable;
     });
   }
-  // 元に戻す / やり直す (グラフ画面の操作の履歴を使う) は、この画面ではまだ使えない
   applyUnavailable();
   refresh();
+  updateUndoButtons().catch(() => {});
 
   // ---- メニューの開閉 (操作 / AB操作 / その他) ----
   const menus = [["cmpActToggle", "cmpActions"], ["abActToggle", "abActions"], ["otherMenuBtn", "otherActions"]];

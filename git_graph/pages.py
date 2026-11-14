@@ -73,6 +73,20 @@ MENUBAR_TEXT_KEYS = (
     "confirm_checkout_detached", "checkout_cancelled",
     "reset", "reset_mode", "reset_opt_mixed", "reset_opt_soft", "reset_opt_hard", "reset_submit", "confirm_reset_hard",
     "confirm_reset_soft", "confirm_reset_mixed", "resetting", "reset_error",
+    # git 操作 (merge / rebase / cherry-pick / revert / A→B の操作 / ブランチ・タグの名前変更と削除 / 元に戻す・やり直す)
+    "auth_password", "auth_username", "authenticate", "branch_rename_same", "branch_to_delete", "branch_to_rename",
+    "cherry_pick", "cherry_pick_error", "cherry_picking", "confirm_cherry_onto", "confirm_cherry_pick",
+    "confirm_delete_branch", "confirm_delete_remote_branch", "confirm_delete_tag", "confirm_force_delete",
+    "confirm_merge", "confirm_merge_into", "confirm_rebase", "confirm_rebase_descendants",
+    "confirm_rebase_equivalent", "confirm_rebase_onto", "confirm_rebase_range", "confirm_reset_branch",
+    "confirm_revert", "delete", "delete_branch", "delete_failed", "delete_remote_branch", "delete_tag", "deleting",
+    "detached_rebase", "find_equivalent_branch", "find_equivalent_parents", "force_delete_cancelled", "http_auth",
+    "merge", "merge_error", "merge_in_progress_resolve", "merge_into", "merging", "op_in_progress_finish",
+    "push_cancelled", "rebase", "rebase_error", "rebasing", "redo_busy", "redo_confirm", "redo_nothing",
+    "remote_branch_to_delete", "rename", "rename_branch", "rename_failed", "renaming", "reset_branch",
+    "reset_branch_no_branch", "reset_branch_select", "revert", "revert_error", "reverting", "tag_to_delete",
+    "target_detached_head", "tip_no_ff", "tip_redo", "tip_redo_op", "tip_undo", "tip_undo_op", "undo_busy",
+    "undo_confirm", "undo_failed", "undo_nothing", "undo_worktree_force", "what_branch",
 )
 # ヘッダーのアイコンボタン。files.html / index.html にも同じ絵を直接書いてある
 _SVG = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">{p}</svg>'
