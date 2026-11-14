@@ -461,26 +461,35 @@ function markWipCurrent() {  // WIP の変更一覧で、右ペインに差分�
   });
 }
 function openWipChange(sel) {  // WIP の変更を、右ペインの差分エディタで開く
-  if (!leaveEdit()) return Promise.resolve();
+  const key = [sel.path, sel.wip || "", sel.from || "", sel.to || "", sel.old || ""].join("\0");
   if (currentFile === sel.path && currentView === "diff" && diffSel && diffSel.wip === sel.wip &&
-      diffSel.from === sel.from && diffSel.to === sel.to) return Promise.resolve();
+      diffSel.from === sel.from && diffSel.to === sel.to && diffSel.old === sel.old) {
+    showFilePane();
+    return Promise.resolve();
+  }
+  if (pendingWipOpen && pendingWipOpen.key === key) {
+    showFilePane();
+    return pendingWipOpen.promise;
+  }
+  if (!leaveEdit()) return Promise.resolve();
   diffSel = sel;
   showFilePane();
   history.pushState({path: current, file: sel.path, view: "diff"}, "", pageUrl(current, sel.path, "diff"));
-  return loadFile(sel.path, false).then(() => renderView("diff"));
+  const pending = {key: key, promise: null};
+  pending.promise = loadFile(sel.path, false).then(() => renderView("diff")).finally(() => {
+    if (pendingWipOpen === pending) pendingWipOpen = null;
+  });
+  pendingWipOpen = pending;
+  return pending.promise;
 }
+let pendingWipOpen = null;
 changesEl.addEventListener("click", ev => {
   if (!isWip || ev.button || ev.ctrlKey || ev.metaKey || ev.shiftKey || ev.altKey) return;
   const row = ev.target.closest("tr.frow");
   if (!row) return;
-  const a = ev.target.closest("a[href^='/files?']");
-  if (!a && ev.target.closest("input")) return;
-  if (!a) {
-    const f = wipHeadFiles[+row.dataset.k];
-    const from = wipCompareFrom();
-    if (f) openWipChange(Object.assign(from ? {from: from, to: "WIP", wip: "compare"} : {}, f));
-    return;
-  }
+  if (ev.target.closest("input")) return;
+  const a = ev.target.closest("a[href^='/files?']") || row.querySelector("a[href^='/files?']");
+  if (!a) return;
   const q = new URL(a.href, location.href).searchParams;
   const path = q.get("file");
   if (!path) return;
@@ -1373,7 +1382,8 @@ reloadBtn.onclick = () => {
   const treeEl = document.getElementById("tree"), mainEl = document.getElementById("main");
   const keep = {tree: treeEl.scrollTop, main: mainEl.scrollTop};
   reloadBtn.disabled = true;
-  checked.clear();
+  stageOverrides.clear();
+  stageDirty = false;
   entryInfo = {};
   Promise.resolve(restoreFromUrl(true)).finally(() => {
     treeEl.scrollTop = keep.tree; mainEl.scrollTop = keep.main;

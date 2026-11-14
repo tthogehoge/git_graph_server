@@ -253,6 +253,12 @@ class DiffEditorPageTests(unittest.TestCase):
         self.assertIn("return Object.assign({}, f, {st: st});", files_html)
         self.assertIn("function wipSelectionEnabled()", files_html)
         self.assertIn("compareFrom === wipHead", files_html)
+        open_wip_change = files_html[files_html.index("function openWipChange"):files_html.index("let pendingWipOpen")]
+        self.assertLess(open_wip_change.index("if (currentFile === sel.path"), open_wip_change.index("if (!leaveEdit())"))
+        self.assertIn("if (pendingWipOpen && pendingWipOpen.key === key)", files_html)
+        self.assertIn("showFilePane();\n    return Promise.resolve();", files_html)
+        self.assertIn('row.querySelector("a[href^=\'/files?\']")', files_html)
+        self.assertNotIn("wipHeadFiles[+row.dataset.k]", files_html)
         self.assertIn("selBar.hidden = !wipSelectionEnabled();", files_html)
         self.assertIn('const check = f => \'<td class="fk"><input type="checkbox"', files_html)
         self.assertIn('class="changeall"', files_html)
