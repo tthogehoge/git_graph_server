@@ -7,7 +7,7 @@
 //     post(url, body)           POST して JSON を返す Promise
 //     dialog(title, fieldsHtml, submitLabel)   入力ダイアログ。入力値のオブジェクト、取りやめなら null を返す Promise
 //     canWrite()                書き込めるか (読み取り専用のときはチェック欄とフォームを出さない)
-//     afterChange(message, {stash})   操作が成功したあと (グラフは再描画、ほかの画面はページを読み込み直す)
+//     afterChange(message, {stash, hash})   操作が成功したあと (hash はコミット時、グラフは再描画、ほかの画面は読み直す)
 //     onFiles(files, status)    一覧が決まったとき (省略可)
 //     amendOverride()           amend の状態を画面の都合で決めるとき true / false を返す (省略可。差分ページは URL の wip=amend)
 //     current(f)                いま開いているファイルの行か (省略可。差分ページで強調する)
@@ -209,7 +209,7 @@ const WipPanel = (function () {
       run(root.querySelector("#wipCommit"));
       // paths: 作業ツリーの内容をコミットするファイル / staged_paths: ステージ済みの内容だけをコミットするファイル (未ステージの変更は残る)
       host.post("/api/wip-commit", {paths: workPaths(), staged_paths: stagedPaths(), message: text, amend: amendOn, branch: branch})
-        .then(r => { reset(true); host.afterChange(r.message); })
+        .then(r => { reset(true); host.afterChange(r.message, {hash: r.hash}); })
         .catch(e => { say(e.message, false); sync(); });
     }
     function doStage() {

@@ -1206,6 +1206,7 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         })
 
         self.assertTrue(result["ok"])
+        self.assertEqual(result["hash"], self.git("rev-parse", "HEAD").strip())
         self.assertEqual(self.git("log", "-1", "--format=%s").strip(), "commit selected file")
         self.assertEqual(self.git("show", "HEAD:selected.txt"), "selected content\n")
         self.assertEqual(self.git("show", "HEAD:tracked.txt"), "initial\n")
@@ -1882,6 +1883,8 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertIn('id="wipCommitPanel"', pages["files"])
         self.assertIn('id="wipCommitView"', pages["files"])
         self.assertIn('mountWipPanel(document.getElementById("wipCommitPanel"), {onFiles: wipFilesChanged})', pages["files"])
+        self.assertIn('params.set("dfrom", change.hash)', viewer.WIP_PANEL_MOUNT_JS)
+        self.assertIn('params.get("dto") === "WIP"', viewer.WIP_PANEL_MOUNT_JS)
         self.assertIn('get("hash") === "WIP"', pages["files"])  # 作業ツリーを開いているときだけ出す
         self.assertIn("wipPanel.render(detailView", pages["graph"])
 

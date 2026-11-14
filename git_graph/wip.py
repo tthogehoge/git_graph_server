@@ -33,7 +33,7 @@ def api_wip_commit(body):
         message = tr("wip_amended_dropped", hash=r["hash"][:7], n=r["count"], dropped=r["dropped"])
     else:
         message = tr("wip_amended", hash=r["hash"][:7], n=r["count"])
-    return {"ok": True, "message": message}
+    return {"ok": True, "message": message, "hash": r["hash"]}
 
 
 __all__ = [

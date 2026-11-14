@@ -13,14 +13,14 @@ async function scenario(name, status, opts) {
   const w = dom.window;
   w.eval(source + "; window.WipPanel = WipPanel;");
   w.confirm = () => true;
-  const calls = [], posts = [];
+  const calls = [], posts = [], changes = [];
   const host = {
     t: (k, p) => k + (p ? JSON.stringify(p) : ""),
     get: (url, params) => { calls.push(params); return Promise.resolve(typeof status === "function" ? status(params) : status); },
-    post: (url, body) => { posts.push([url, body]); return Promise.resolve({message: "done"}); },
+    post: (url, body) => { posts.push([url, body]); return Promise.resolve({message: "done", hash: "commit-hash"}); },
     dialog: () => Promise.resolve(null),
     canWrite: () => opts.canWrite !== false,
-    afterChange: () => {},
+    afterChange: (...args) => { changes.push(args); },
   };
   const panel = w.WipPanel.create(host);
   const root = w.document.getElementById("root");
@@ -47,6 +47,7 @@ const base = {head: "abc1234", head_message: "prev", staged: [], unstaged: [], u
   const post = s.posts.find(p => p[0] === "/api/wip-commit");
   check(post && post[1].message === "msg" && post[1].branch === "topic" && JSON.stringify(post[1].staged_paths) === '["tracked.txt"]' && post[1].paths.length === 0 && post[1].amend === false,
         "plain: commit payload " + JSON.stringify(post));
+  check(s.changes.length === 1 && s.changes[0][1].hash === "commit-hash", "plain: commit hash is passed to afterChange");
 
   // amend: 切り替えると amend の一覧を取り、メッセージを直前のものにする
   s = await scenario("amend", p => p && p.amend ? Object.assign({}, base, {amend_files: [file("a.txt", {in_head: true})]}) : Object.assign({}, base, {staged: [file("tracked.txt")]}));

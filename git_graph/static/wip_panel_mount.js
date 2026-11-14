@@ -15,8 +15,16 @@ function mountWipPanel(root, opts) {
     dialog: (title, fieldsHtml, submitLabel) => openDialog(title, form => { form.insertAdjacentHTML("beforeend", fieldsHtml); }, submitLabel),
     canWrite: () => !!bar && bar.dataset.writable === "1" && bar.dataset.worktree === "1",
     say: (text, ok) => mbSay(text, ok),
-    afterChange: message => {  // 作業ツリーの状態が変わったので、表示 (一覧・差分・ファイル) をページごと読み込み直す
+    afterChange: (message, change) => {  // 作業ツリーの状態が変わったので、表示 (一覧・差分・ファイル) をページごと読み込み直す
       panel.say(message, true);
+      if (!opts.diff && opts.onFiles && change && change.hash) {
+        const params = new URLSearchParams(location.search);
+        if (params.get("hash") === "WIP" && params.get("dto") === "WIP" && params.has("dfrom")) {
+          params.set("dfrom", change.hash);
+          params.delete("dold");
+          history.replaceState(history.state, "", location.pathname + "?" + params + location.hash);
+        }
+      }
       setTimeout(() => location.reload(), 800);
     },
     onFiles: opts.onFiles,
