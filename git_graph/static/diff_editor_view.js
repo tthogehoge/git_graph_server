@@ -32,6 +32,9 @@ function createDiffEditorView(opts) {
       ".de-labels span + span { border-left: 1px solid #ddd; }",
       ".de-host { border: 1px solid #ddd; }",
       ".de-host:empty { border: none; }",
+      /* 左右それぞれで横スクロール可能にし、位置は createDiffEditor 側で同期する */
+      ".de-host .cm-mergeViewEditor { min-width: 0; overflow-x: auto; overflow-y: hidden; }",
+      ".de-host .cm-mergeView .cm-scroller { overflow-x: auto !important; }",
     ].join("\n");
     document.head.appendChild(style);
   }

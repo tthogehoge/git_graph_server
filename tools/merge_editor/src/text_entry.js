@@ -73,6 +73,28 @@ export function createTextEditor(opts) {
   };
 }
 
+
+// 左右の横スクロール位置を揃える (縦は MergeView / ページ側が担当)。戻り値は解除用。
+function linkHorizontalScroll(views) {
+  const doms = views.map(v => v && v.scrollDOM).filter(Boolean);
+  if (doms.length < 2) return () => {};
+  let syncing = false;
+  const handlers = [];
+  for (const src of doms) {
+    const onScroll = () => {
+      if (syncing) return;
+      syncing = true;
+      for (const dst of doms) {
+        if (dst !== src && dst.scrollLeft !== src.scrollLeft) dst.scrollLeft = src.scrollLeft;
+      }
+      requestAnimationFrame(() => { syncing = false; });
+    };
+    src.addEventListener("scroll", onScroll, {passive: true});
+    handlers.push([src, onScroll]);
+  }
+  return () => { for (const [el, fn] of handlers) el.removeEventListener("scroll", fn); };
+}
+
 // 差分エディタ (/diff の「差分エディタ」ボタン)。変更前 | 変更後 を左右に並べた読み取り専用の MergeView で、
 // 構文ハイライト・行番号・変更箇所の強調 (行と文字) と、検索 (Ctrl+F) ができる。高さは内容に合わせるので、ページ側がスクロールする。
 // opts: {parent, old, new, path, collapse, vim, phrases}
@@ -113,6 +135,7 @@ export function createDiffEditor(opts) {
     collapseUnchanged: opts.collapse ? {margin: 3, minSize: 4} : undefined,
   });
   const chunkCount = () => { const chunks = getChunks(view.b.state); return chunks ? chunks.chunks.length : 0; };
+  const unlinkHScroll = linkHorizontalScroll([view.a, view.b]);
   return {
     view: view,
     language: languageName(opts.path || ""),
@@ -128,7 +151,7 @@ export function createDiffEditor(opts) {
     setVim: on => { for (const v of [view.a, view.b]) v.dispatch({effects: vimSlot.reconfigure(vimExtension(on))}); },
     focus: () => view.b.focus(),
     remeasure: () => { view.a.requestMeasure(); view.b.requestMeasure(); },
-    destroy: () => view.destroy(),
+    destroy: () => { unlinkHScroll(); view.destroy(); },
   };
 }
 
