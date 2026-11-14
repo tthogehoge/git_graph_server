@@ -10,6 +10,7 @@ __FAVICON__
   #main { flex: 1; min-width: 0; overflow: auto; padding: 14px 18px; box-sizing: border-box; }
   h1 { font-size: 15px; margin: 0 0 8px; word-break: break-all; }
   h2 { font-size: 14px; margin: 0 0 8px; }
+  h2 .crumb { margin: 0; }
   .meta, .hint { color: #666; margin: 3px 0; }
   .crumb { margin: 8px 0; word-break: break-all; }
   .crumb a, .entry { color: #06c; text-decoration: none; cursor: pointer; }
@@ -1129,6 +1130,22 @@ function setDirActions() {  // ディレクトリを表示しているときの�
   dirListBtn.hidden = !dirLogOn;
   dirGraphLogBtn.hidden = !dirLogOn || !canLog || !current;  // ルートは、グラフ画面のファイルログの対象にならない
 }
+
+function pathCrumbHtml(path) {
+  const parts = path ? path.split("/") : [];
+  let html = '<span class="crumb"><a data-dir="">📁 ' + t("root") + '</a>';
+  parts.forEach((p, i) => {
+    const d = parts.slice(0, i + 1).join("/");
+    html += ' / <a data-dir="' + esc(d) + '">' + esc(p) + '</a>';
+  });
+  return html + '</span>';
+}
+function bindPathCrumb(el) {
+  el.querySelectorAll("a[data-dir]").forEach(a => {
+    a.onclick = (ev) => { ev.preventDefault(); openDir(a.dataset.dir); };
+  });
+}
+
 function showDir() {  // ファイルを開いていないとき、ディレクトリ内の一覧を各項目の最終コミットつきで本文に出す
   showFilePane();
   closeEditor();
@@ -1137,7 +1154,8 @@ function showDir() {  // ファイルを開いていないとき、ディレク�
   setDirActions();
   const seq = ++dirLogSeq, path = current, entries = dirEntries;
   setDocumentTitle(path || t("root"));
-  title.textContent = "📁 " + (path || t("root"));
+  title.innerHTML = pathCrumbHtml(path);
+  bindPathCrumb(title);
   if (!entries.length) { content.className = "hint"; content.textContent = t("empty_directory"); return; }
   content.className = "";
   content.innerHTML = '<table class="file-log dir-log"><thead><tr><th class="dir-name">' + esc(t("dir_log_name")) + '</th><th class="hash">' + esc(t("dir_log_commit")) +
@@ -1163,7 +1181,9 @@ function showDirLog() {  // ファイルを開いていないとき、このデ�
   dirLogOn = true;
   setDirActions();
   setDocumentTitle(t("file_history_title", {path: label}));
-  title.textContent = "📁 " + t("file_history_title", {path: label});
+  const histSuffix = t("file_history_title", {path: ""}).replace("{path}", "").trim();
+  title.innerHTML = pathCrumbHtml(path) + (histSuffix ? " " + esc(histSuffix) : "");
+  bindPathCrumb(title);
   content.className = "hint";
   content.textContent = t("loading");
   document.getElementById("main").scrollTop = 0;
