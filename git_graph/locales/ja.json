@@ -101,7 +101,7 @@
   "select_file": "ファイルを選択してください",
   "select_file_hint": "左の一覧からファイルをクリックしてください。",
   "file_log": "このファイルのログ",
-  "file_blame": "このファイルの blame",
+  "file_blame": "blame",
   "file_blame_title": "{path} の blame",
   "n_lines": "{n} 行",
   "file_content": "ファイル内容",

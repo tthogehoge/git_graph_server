@@ -101,7 +101,7 @@
   "select_file": "Select a file",
   "select_file_hint": "Click a file in the list on the left.",
   "file_log": "File log",
-  "file_blame": "Blame this file",
+  "file_blame": "Blame",
   "file_blame_title": "Blame: {path}",
   "n_lines": "{n} lines",
   "file_content": "File content",

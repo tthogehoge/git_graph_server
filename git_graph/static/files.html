@@ -1571,7 +1571,8 @@ function loadFileDiff(path) {  // 右ペインに、このファイルの差分�
   fileContentBtn.hidden = false;
   fileLogBtn.hidden = !logHash();  // 差分からも、このファイルのログへ移れる (作業ツリーに HEAD が無いときは、ログが無い)
   fileLogBtn.disabled = !logHash();
-  fileBlameBtn.hidden = true;
+  fileBlameBtn.hidden = false;  // 差分表示中もこのファイルの blame へ移れる
+  fileBlameBtn.disabled = (fileData && fileData.binary) || (isWip && !wipHead);
   fileGraphLogBtn.hidden = true;
   setDocumentTitle(t("file_diff_title", {path: path}));
   title.textContent = t("file_diff_title", {path: path});
