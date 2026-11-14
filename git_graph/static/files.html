@@ -1459,7 +1459,8 @@ content.addEventListener("click", ev => {
 });
 function loadFileDiff(path) {  // 右ペインに、このファイルの差分を差分エディタ (変更前 | 変更後) で出す
   closeEditor();  // 表示のエディタ
-  fileLogBtn.hidden = true;
+  fileLogBtn.hidden = !logHash();  // 差分からも、このファイルのログへ移れる (作業ツリーに HEAD が無いときは、ログが無い)
+  fileLogBtn.disabled = !logHash();
   fileBlameBtn.hidden = true;
   fileContentBtn.hidden = false;
   fileGraphLogBtn.hidden = true;

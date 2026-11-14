@@ -1936,6 +1936,13 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertIn('id="compareWipBtn"', page)
         self.assertIn("window.mbSetTarget(row.dataset.hash)", page)  # ログ / blame の行のクリックで、メニューの対象を更新する
 
+    def test_files_page_diff_view_keeps_the_file_log_button(self):
+        page = viewer.render_files_page()
+        start = page.index("function loadFileDiff(path)")
+        body = page[start:page.index("function loadFileLog(path)", start)]
+        self.assertIn("fileLogBtn.hidden = !logHash();", body)  # 差分表示でも「このファイルのログ」を出す
+        self.assertNotIn("fileLogBtn.hidden = true;", body)
+
     def test_api_head_returns_the_head_commit(self):
         from git_graph import gitstate
         info = gitstate.head_state()
