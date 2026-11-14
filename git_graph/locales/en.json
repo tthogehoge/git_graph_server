@@ -682,6 +682,7 @@
   "file_edit_title": "Edit {path}",
   "file_download": "Download",
   "patch_create": "Create patch",
+  "patch_create_wip": "Create patch (WIP)",
   "patch_apply": "Apply patch (apply)",
   "patch_am": "Apply patch (am)",
   "tip_patch_create_wip": "Download the working-tree changes (including staged, unstaged and untracked files) as a patch from HEAD",

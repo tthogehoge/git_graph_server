@@ -1663,14 +1663,32 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             qf.blob_for_worktree(commit, "missing.txt")
 
-    def test_files_page_has_patch_buttons(self):
+    def test_files_page_has_commit_patch_button_and_wip_patch_menu_items(self):
         page = viewer.render_files_page()
 
-        self.assertIn('id="patchCreateBtn"', page)
-        self.assertIn('id="patchApplyBtn"', page)
-        self.assertIn('id="patchAmBtn"', page)
+        self.assertIn('id="patchCreateBtn"', page)  # コミットのパッチ作成 (左ペイン)
+        for removed in ('id="patchApplyBtn"', 'id="patchAmBtn"', 'id="patchFile"'):
+            self.assertNotIn(removed, page)  # WIP のパッチ作成・適用は「その他」メニューへ移した
+        other = page[page.index('id="otherActions"'):]
+        other = other[:other.index("</div>")]
+        for item in ('id="wipPatchCreateBtn"', 'id="wipPatchApplyBtn"', 'id="wipPatchAmBtn"'):
+            self.assertIn(item, other)
+        self.assertEqual(page.count("const PatchOps = "), 1)  # 共通部品は 1 度だけ入る
         self.assertIn("/api/patch-am", page)
         self.assertIn("/api/patch-apply", page)
+
+    def test_graph_page_patch_menu_items_share_patch_ops_with_the_files_page(self):
+        from git_graph.i18n import render_main_page, render_app_js
+        index = render_main_page()
+        other = index[index.index('id="otherActions"'):]
+        other = other[:other.index("</div>")]
+        for item in ('id="wipPatchCreateBtn"', 'id="wipPatchApplyBtn"', 'id="wipPatchAmBtn"'):
+            self.assertIn(item, other)
+        js = render_app_js()
+        self.assertEqual(js.count("const PatchOps = "), 1)
+        self.assertNotIn("wipPatchBarHtml", js)  # 右ペインの WIP にはもう置かない
+        self.assertNotIn("function downloadPatch", js)
+        self.assertNotIn("function pickPatchFile", js)
 
     def test_start_page_is_first_wip_file_in_the_unified_file_view_and_only_once(self):
         from git_graph import server

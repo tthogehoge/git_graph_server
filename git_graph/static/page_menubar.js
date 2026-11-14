@@ -335,11 +335,20 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
   on("renameBranchBtn", doRenameBranch); on("deleteBranchBtn", () => doDeleteRef("branch")); on("deleteTagBtn", () => doDeleteRef("tag"));
   on("deleteRemoteBranchBtn", () => doDeleteRef("remote-branch"));
   on("undoBtn", () => doUndoRedo("undo")); on("redoBtn", () => doUndoRedo("redo"));
+  // 作業ツリー (WIP) のパッチ作成 / 適用 (apply・am)。グラフ画面と共通の patch_ops.js。適用のあとは、変わった作業ツリー / ブランチを表示に反映する
+  PatchOps.bind({
+    t: (key, values) => fmt(T[key], values),
+    post: postJson,
+    say: mbSay,
+    before: () => typeof leaveEdit !== "function" || leaveEdit(),  // ファイル表示で編集中なら、変更を捨ててよいか確認する
+    applied: () => reloadSoon(),
+  });
   ["renameBranchBtn", "deleteBranchBtn", "deleteRemoteBranchBtn", "deleteTagBtn", "undoBtn", "redoBtn"].forEach(id => { $(id).disabled = true; });  // 状態が分かるまでは押せない
   const worktreeOps = ["mergeBtn", "rebaseBtn", "cherryBtn", "revertBtn", "mergeIntoBtn", "cherryOntoBtn", "rebaseOntoBtn", "rebaseRangeBtn", "rebaseDescendantsBtn", "rebaseEquivalentBtn"];
   worktreeOps.forEach(id => enable($(id), () => writable && worktree));
   ["resetBranchBtn", "renameBranchBtn", "deleteBranchBtn", "deleteRemoteBranchBtn", "deleteTagBtn", "undoBtn", "redoBtn"].forEach(id => enable($(id), () => writable));
   enable($("findEquivalentParentsBtn")); enable($("findEquivalentBranchBtn"));
+  enable($("wipPatchCreateBtn"), () => worktree); enable($("wipPatchApplyBtn"), () => writable && worktree); enable($("wipPatchAmBtn"), () => writable && worktree);
   function applyUnavailable() {
     const skip = new Set(["actionTarget", "cmpA", "cmpB", "cmpActToggle", "abActToggle", "otherMenuBtn", "reload", "rld", "reloadBtn", "navGraphBtn", "navFilesBtn", "clearCmpBtn"]);
     bar.querySelectorAll("button").forEach(b => {

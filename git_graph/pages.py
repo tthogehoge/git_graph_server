@@ -39,6 +39,7 @@ WIP_DIFF_REMOTE_JS = read_asset("wip_diff_remote.js")
 DIFF_DIALOG_JS = read_asset("diff_dialog.js")
 MENUBAR_CSS = read_asset("menubar.css")
 PAGE_MENUBAR_JS = read_asset("page_menubar.js")
+PATCH_OPS_JS = read_asset("patch_ops.js")  # パッチの作成・適用 (グラフ画面とファイル表示で共通)
 MERGE_JS = read_asset("merge.js")
 MERGE_EDITOR_JS = read_asset("vendor/merge_editor.js")  # CodeMirror 6 をまとめたもの (tools/merge_editor でビルド)
 TEXT_EDITOR_JS = read_asset("vendor/text_editor.js")  # ファイル編集のエディタ (CodeMirror 6 + 言語 + Vim)。こちらも tools/merge_editor でビルド
@@ -87,6 +88,8 @@ MENUBAR_TEXT_KEYS = (
     "reset_branch_no_branch", "reset_branch_select", "revert", "revert_error", "reverting", "tag_to_delete",
     "target_detached_head", "tip_no_ff", "tip_redo", "tip_redo_op", "tip_undo", "tip_undo_op", "undo_busy",
     "undo_confirm", "undo_failed", "undo_nothing", "undo_worktree_force", "what_branch",
+    # 「その他」メニューのパッチ作成・適用 (patch_ops.js)
+    "confirm_patch_apply", "confirm_patch_am", "wip_execute",
 )
 # ヘッダーのアイコンボタン。files.html / index.html にも同じ絵を直接書いてある
 _SVG = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">{p}</svg>'
@@ -449,6 +452,7 @@ def render_diff_page(q):
 <script>{COPY_JS}</script>
 <script>{PANE_RESIZE_JS}</script>
 <script>{dialog_js}</script>
+<script>{PATCH_OPS_JS}</script>
 <script>{PAGE_MENUBAR_JS}</script>
 <script>{panel_js}</script>
 <script>{remote_js}</script>
@@ -467,7 +471,7 @@ def render_files_page():
     mount = ('if (new URLSearchParams(location.search).get("hash") === "WIP") {\n'
              '  wipCommitPanel = mountWipPanel(document.getElementById("wipCommitPanel"), {onFiles: wipFilesChanged});\n'
              '}')
-    menubar_js = "\n".join((menubar_dialog_js([*WIP_PANEL_TEXT_KEYS, *(REMOTE_TEXT_KEYS if remote else ())]), PAGE_MENUBAR_JS,
+    menubar_js = "\n".join((menubar_dialog_js([*WIP_PANEL_TEXT_KEYS, *(REMOTE_TEXT_KEYS if remote else ())]), PATCH_OPS_JS, PAGE_MENUBAR_JS,
                             WIP_PANEL_JS, WIP_PANEL_MOUNT_JS, WIP_DIFF_REMOTE_JS if remote else "", mount))
     # グラフへ戻るリンクと差分ボタンは、ページの JS が表示中のコミット / ファイルに合わせて付け替える
     menubar = menubar_html("files", reload_id="reloadBtn")

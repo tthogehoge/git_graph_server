@@ -22,21 +22,18 @@ wipCommitMenuBtn.addEventListener("click", () => {
   if (!detailView.querySelector(".wip-panel")) showWip(false);
 });
 
-function wipPatchBarHtml(canWrite) {  // パッチ作成 (読み取りだけなので常時) と、書き込みが有効なときの適用 (git apply / git am)
-  return '<div class="wippatch"><button class="wbtn" id="wipPatchCreate" title="' + esc(t("tip_patch_create_wip")) + '">' + esc(t("patch_create")) + '</button>' +
-    (canWrite ? '<button class="wbtn" id="wipPatchApply" title="' + esc(t("tip_patch_apply")) + '">' + esc(t("patch_apply")) + '</button>' +
-      '<button class="wbtn" id="wipPatchAm" title="' + esc(t("tip_patch_am")) + '">' + esc(t("patch_am")) + '</button>' : "") + '</div>';
-}
-detailView.addEventListener("click", ev => {
-  const b = ev.target.closest("#wipPatchCreate, #wipPatchApply, #wipPatchAm");
-  if (!b) return;
-  if (b.id === "wipPatchCreate") { downloadPatch({hash: "WIP"}, "wip.patch", wipSay); return; }
-  pickPatchFile(b.id === "wipPatchAm" ? "am" : "apply", wipSay, r => {
-    wipPanel.reset(false);
-    showWip(true, r.message);
+// 「その他」メニューのパッチ作成 / 適用 (apply・am)。ファイル表示と共通の patch_ops.js が動かす
+PatchOps.bind({
+  t: t,
+  post: post,
+  say: (text, state) => setGraphStatus(text, state === "progress" ? "progress" : state ? "success" : "error"),
+  applied: r => {  // 作業ツリーやブランチが変わるので、グラフと、開いている WIP の表示を読み直す
     refreshGraph().catch(() => {});
-  });
+    if (detailView.querySelector(".wip-panel")) { wipPanel.reset(false); showWip(true, r.message); }
+  },
 });
+document.getElementById("wipPatchCreateBtn").disabled = !WIP_ENABLED;  // 作成は読み取りだけなので、書き込みが無効でも使える
+document.getElementById("wipPatchApplyBtn").disabled = document.getElementById("wipPatchAmBtn").disabled = !DATA.writable || !WIP_ENABLED;
 function showWip(fromHistory, okMsg) {
   document.body.classList.remove("compare-logs-mode");
   if (!fromHistory) pushScreen({screen: "wip"});
@@ -60,8 +57,7 @@ function showWip(fromHistory, okMsg) {
     top: (s, files) => btns + "<h2>" + t("wip_title") +
       ' <a class="detail-files" href="/files?hash=WIP" title="' + esc(t("tip_wip_files")) + '">' + esc(t("files")) + "</a>" +
       (files.length ? ' <a class="detail-files" href="' + esc(diffUrl({}, files[0])) + '">' + esc(t("file_diff")) + "</a>" : "") + "</h2>",
-    mid: s => '<div class="meta">HEAD: ' + (s.head ? chips(s.head) + esc(s.head.slice(0, 7)) : t("no_commits_yet")) + "</div>" +
-      (wipPanel.amend() ? "" : wipPatchBarHtml(!!DATA.writable)),
+    mid: s => '<div class="meta">HEAD: ' + (s.head ? chips(s.head) + esc(s.head.slice(0, 7)) : t("no_commits_yet")) + "</div>",
     error: e => btns + '<p class="hint">' + esc(t("error")) + esc(e.message) + "</p>",
   });
 }

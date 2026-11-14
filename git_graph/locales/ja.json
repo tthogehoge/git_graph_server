@@ -682,6 +682,7 @@
   "file_edit_title": "{path} を編集",
   "file_download": "ダウンロード",
   "patch_create": "パッチ作成",
+  "patch_create_wip": "パッチ作成 (WIP)",
   "patch_apply": "パッチ適用 (apply)",
   "patch_am": "パッチ適用 (am)",
   "tip_patch_create_wip": "作業ツリーの変更 (ステージ済み・未ステージ・未追跡のファイルを含む) を、HEAD からのパッチとしてダウンロードします",

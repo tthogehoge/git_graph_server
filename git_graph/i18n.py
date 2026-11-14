@@ -24,8 +24,9 @@ MERGE_PAGE = (STATIC_DIR / "merge.html").read_text(encoding="utf-8")
 MENUBAR_TEMPLATE = (STATIC_DIR / "menubar.html").read_text(encoding="utf-8")  # 全画面共通のメニューバー (pages.menubar_html が使う)
 # ブラウザ側の JavaScript は static/js/ の部品 (番号順) を連結して、/static/app.js として配る。
 # 部品の境界を示すコメントを挟むので、ブラウザーのエラーに出る行番号から元のファイルを探せる。
-# 3 画面共通の WIP の一覧とコミットフォーム (wip_panel.js) を先頭に置く
-APP_JS = "/* ---- wip_panel.js ---- */\n" + (STATIC_DIR / "wip_panel.js").read_text(encoding="utf-8") + "".join(
+# 画面共通の WIP の一覧とコミットフォーム (wip_panel.js) と、パッチの作成・適用 (patch_ops.js) を先頭に置く
+APP_JS = "/* ---- wip_panel.js ---- */\n" + (STATIC_DIR / "wip_panel.js").read_text(encoding="utf-8") + \
+    "/* ---- patch_ops.js ---- */\n" + (STATIC_DIR / "patch_ops.js").read_text(encoding="utf-8") + "".join(
     f"/* ---- js/{path.name} ---- */\n" + path.read_text(encoding="utf-8")
     for path in sorted((STATIC_DIR / "js").glob("*.js")))
 # 共通のメニューバーの CSS (menubar.css) を先頭に連結する。ファイル表示 / 差分ページは menubar.css だけを埋め込む
