@@ -111,7 +111,7 @@ __FAVICON__
 <div id="sideSplitter" role="separator" aria-orientation="vertical" aria-label="{{resize_side}}" tabindex="0"></div>
 <main id="main"><div id="fileView"><h2 id="title">{{select_file}}</h2>
 <div id="dirActions" class="file-actions" hidden><button id="dirLogBtn">{{dir_log}}</button><button id="dirListBtn" hidden>{{dir_list}}</button><button id="dirGraphLogBtn" hidden>{{file_log_graph}}</button></div>
-<div id="fileActions" class="file-actions" hidden><button id="fileLogBtn">{{file_log}}</button><button id="fileBlameBtn">{{file_blame}}</button><button id="fileDiffBtn">{{file_diff}}</button><button id="fileExtDiffBtn" title="{{tip_open_diff_tool}}" hidden>{{open_diff_tool}}</button><button id="fileEditBtn">{{file_edit}}</button><button id="fileContentBtn" hidden>{{file_content}}</button><button id="fileGraphLogBtn" hidden>{{file_log_graph}}</button><button id="fileCopyBtn">{{copy_to_work}}</button><button id="fileDownloadBtn">{{file_download}}</button><button id="fileExtEditBtn" title="{{tip_open_editor}}">{{open_editor}}</button><button id="fileRmBtn" title="{{tip_rm_file}}">{{rm_button}}</button><button id="fileRmCachedBtn" title="{{tip_rm_cached_file}}">{{rm_cached_button}}</button><span id="fileMsg" class="msg"></span></div>
+<div id="fileActions" class="file-actions" hidden><button id="fileLogBtn">{{file_log}}</button><button id="fileBlameBtn">{{file_blame}}</button><button id="fileDiffBtn">{{file_diff}}</button><button id="fileExtDiffBtn" title="{{tip_open_diff_tool}}" hidden>{{open_diff_tool}}</button><button id="fileMergeBtn" title="{{tip_merge_editor}}" hidden>{{merge_editor}}</button><button id="fileEditBtn">{{file_edit}}</button><button id="fileContentBtn" hidden>{{file_content}}</button><button id="fileGraphLogBtn" hidden>{{file_log_graph}}</button><button id="fileCopyBtn">{{copy_to_work}}</button><button id="fileDownloadBtn">{{file_download}}</button><button id="fileExtEditBtn" title="{{tip_open_editor}}">{{open_editor}}</button><button id="fileRmBtn" title="{{tip_rm_file}}">{{rm_button}}</button><button id="fileRmCachedBtn" title="{{tip_rm_cached_file}}">{{rm_cached_button}}</button><span id="fileMsg" class="msg"></span></div>
 <div id="content" class="hint">{{select_file_hint}}</div></div><section id="wipCommitView" hidden><h2>{{wip_title}} <button type="button" class="sbtn" id="wipCommitBack">{{back_history}}</button></h2><div id="wipCommitPanel"></div></section></main>
 </div>
 <script>/*__PANE_RESIZE__*/</script>
@@ -143,7 +143,7 @@ const fileDownloadBtn = document.getElementById("fileDownloadBtn"), fileExtEditB
 const fileRmBtn = document.getElementById("fileRmBtn"), fileRmCachedBtn = document.getElementById("fileRmCachedBtn");
 const fileCopyBtn = document.getElementById("fileCopyBtn"), fileMsg = document.getElementById("fileMsg");
 const fileDiffBtn = document.getElementById("fileDiffBtn"), fileEditBtn = document.getElementById("fileEditBtn");
-const fileExtDiffBtn = document.getElementById("fileExtDiffBtn");
+const fileExtDiffBtn = document.getElementById("fileExtDiffBtn"), fileMergeBtn = document.getElementById("fileMergeBtn");
 const patchCreateBtn = document.getElementById("patchCreateBtn"), patchApplyBtn = document.getElementById("patchApplyBtn");
 const patchAmBtn = document.getElementById("patchAmBtn"), patchFile = document.getElementById("patchFile"), patchMsg = document.getElementById("patchMsg");
 const selBar = document.getElementById("selBar"), selAll = document.getElementById("selAll"), selCount = document.getElementById("selCount"), selMsg = document.getElementById("selMsg");
@@ -306,10 +306,21 @@ function updateRmBtns() {  // git rm できるのは、作業ツリー表示の�
   const tracked = !!currentFile && (entryInfo[currentFile] || {}).xy !== "??";
   fileRmBtn.disabled = fileRmCachedBtn.disabled = !(CAN_EDIT && tracked);
 }
+function isConflictFile(path) {  // 競合中のファイルか (差分選択 or WIP の競合一覧)
+  if (!path) return false;
+  if (diffSel && diffSel.path === path && diffSel.wip === "conflict") return true;
+  return wipStatusFiles.some(f => f.path === path && f.wip === "conflict");
+}
+function updateMergeBtn() {  // 競合ファイルはマージエディタで解決できる
+  const show = CAN_EDIT && isConflictFile(currentFile);
+  fileMergeBtn.hidden = !show;
+  fileMergeBtn.disabled = !show;
+}
 function updateDiffBtn() {
   const p = currentFile && diffParams(currentFile);
   fileDiffBtn.disabled = !p;
   fileExtDiffBtn.hidden = !DESKTOP || currentView !== "diff" || !p;
+  updateMergeBtn();
   updateRmBtns();
 }
 function showFilePane() {
@@ -649,6 +660,10 @@ fileExtDiffBtn.onclick = () => {
     .then(r => setFileMsg(r.message, true))
     .catch(e => setFileMsg(e.message, false))
     .finally(() => { fileExtDiffBtn.disabled = false; });
+};
+fileMergeBtn.onclick = () => {  // 競合ファイルをマージエディタで開く
+  if (!currentFile || !isConflictFile(currentFile)) return;
+  location.href = "/merge?" + new URLSearchParams({path: currentFile});
 };
 function logHash() { return isWip ? wipHead : hash; }  // ファイルのログの起点 (作業ツリーなら HEAD)
 function esc(s) { return String(s).replace(/[&<>\"]/g, c => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", "\"":"&quot;"}[c])); }
@@ -1336,7 +1351,7 @@ function startEdit() {
   closeEditor();  // 表示のエディタ
   editing = true; editDirty = false;
   setFileMsg("", true);
-  [fileLogBtn, fileBlameBtn, fileDiffBtn, fileExtDiffBtn, fileEditBtn, fileContentBtn, fileGraphLogBtn, fileCopyBtn, fileDownloadBtn, fileExtEditBtn, fileRmBtn, fileRmCachedBtn].forEach(b => { b.hidden = true; });
+  [fileLogBtn, fileBlameBtn, fileDiffBtn, fileExtDiffBtn, fileMergeBtn, fileEditBtn, fileContentBtn, fileGraphLogBtn, fileCopyBtn, fileDownloadBtn, fileExtEditBtn, fileRmBtn, fileRmCachedBtn].forEach(b => { b.hidden = true; });
   const eol = EOL_LABEL[fileData.eol] || t("edit_eol_none");
   title.textContent = t("file_edit_title", {path: currentFile});
   content.className = "";
