@@ -70,6 +70,12 @@ def api_submodules(q):
     return qh.submodules()
 
 
+@route("/api/ref-labels")
+def api_ref_labels(q):
+    """コミット → ブランチ / タグ / HEAD の名前の一覧 (ファイル表示のログ・blame・コミット情報で、グラフと同じ表示にする)。"""
+    return qh.ref_labels()
+
+
 @route("/api/tags")
 def api_tags(q):
     """タグの一覧 (新しい順)。注釈付きタグは指しているコミットを使う。"""
@@ -172,6 +178,6 @@ def api_diff_sources(q):
 
 __all__ = [
     "DIFF_LIMIT", "api_branches", "api_branches_containing", "api_commit", "api_compare",
-    "api_diff", "api_diff_sources", "api_log", "api_log_position", "api_log_total", "api_merge_base", "api_reflog", "api_stash_list", "api_tags", "paging",
+    "api_diff", "api_diff_sources", "api_log", "api_log_position", "api_log_total", "api_merge_base", "api_ref_labels", "api_reflog", "api_stash_list", "api_tags", "paging",
     "search_params",
 ]

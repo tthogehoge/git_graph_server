@@ -99,6 +99,7 @@ __FAVICON__
   .edit-bar button.primary { background: #1a7f37; border-color: #1a7f37; color: #fff; }
   .edit-bar button:disabled { opacity: .5; cursor: default; }
   .file-actions button:disabled { opacity: .5; cursor: default; }
+  .chip { display: inline-block; padding: 0 6px; border-radius: 3px; margin: 0 4px 2px 0; font-weight: bold; color: #222; }  /* ブランチ / タグ (グラフ画面と同じ) */
   .wip-box { margin: 8px 0; } .wip-box > summary { cursor: pointer; font-weight: bold; margin-bottom: 4px; }
 /*__MENUBAR_CSS__*/
 </style></head>
@@ -159,9 +160,9 @@ function formatDate(date) {
 function firstLine(msg) {
   return (msg || "").split("\n", 1)[0];
 }
-function commitLinkHtml(hashVal) {
+function commitLinkHtml(hashVal) {  // ハッシュのリンク + そのコミットのブランチ / タグ
   const short = (hashVal || "").slice(0, 7);
-  return '<a class="commit-graph" href="/?commit_hash=' + encodeURIComponent(hashVal) + '" title="' + esc(hashVal) + '">' + esc(short) + '</a>';
+  return '<a class="commit-graph" href="/?commit_hash=' + encodeURIComponent(hashVal) + '" title="' + esc(hashVal) + '">' + esc(short) + '</a>' + (refChips(hashVal) ? ' ' + refChips(hashVal) : "");
 }
 function renderCommitHeader(meta) {
   if (!commitEl) return;
@@ -652,6 +653,17 @@ fileExtDiffBtn.onclick = () => {
 function logHash() { return isWip ? wipHead : hash; }  // ファイルのログの起点 (作業ツリーなら HEAD)
 function esc(s) { return String(s).replace(/[&<>\"]/g, c => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", "\"":"&quot;"}[c])); }
 function api(path, params) { return fetch(path + "?" + new URLSearchParams(params)).then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); })); }
+// ---- ブランチ / タグ / HEAD の表示 (グラフ画面と同じ名前・色)。コミット → 名前の一覧は、ページを開いたときに 1 回読む ----
+var REF_COLORS = {branch: "#b7e4a7", current: "#b7e4a7", remote: "#a7c8f0", tag: "#ffe9a0", head: "#f4a7a7", stash: "#d9c7f2"};
+var refLabels = {};  // コミット → [{name, kind}] (var: 読み込み前に refChips が呼ばれても落ちないようにする)
+function refChips(h) {
+  return ((refLabels || {})[h] || []).map(r => {
+    const cur = r.kind === "current";
+    return '<span class="chip" style="background:' + (REF_COLORS[r.kind] || "#ddd") + '"' + (cur ? ' title="' + esc(t("current_branch")) + '"' : "") + '>' + (cur ? "★ " : "") + esc(r.name) + "</span>";
+  }).join("");
+}
+const refsReady = api("/api/ref-labels", {}).then(r => { refLabels = r.labels || {}; }).catch(() => { refLabels = {}; });  // 取れなくても、名前が出ないだけで他の表示は動く
+refsReady.then(() => { if (currentCommitMeta) renderCommitHeader(currentCommitMeta); });  // 左上のコミット情報にも、読み込み後に名前を出す
 function showError(e) { list.innerHTML = '<p class="hint">' + t("error") + esc(e.message) + '</p>'; }
 function pageUrl(path, file, view, dirlog) {  // 表示中のディレクトリ・ファイル・表示 (edit / blame / log) を URL に残す (戻る/進む・再読み込みで復元する)。dirlog: ファイルを開かずに、ディレクトリのログを出している
   const p = new URLSearchParams({hash: hash});
@@ -1083,6 +1095,10 @@ function clearFile() {  // ファイルを選ぶ前の表示に戻す
   content.className = "hint";
   content.textContent = t("select_file_hint");
 }
+function fileLogRow(c) {  // ログの 1 行: ハッシュ・日付・作者・(ブランチ / タグ +) 件名
+  return '<tr class="file-log-row" data-hash="' + esc(c[0]) + '"><td class="hash"><a class="commit-graph" href="/?commit_hash=' + encodeURIComponent(c[0]) + '">' + esc(c[1]) + '</a>' +
+    '</td><td class="date">' + esc(c[3]) + '</td><td class="author">' + esc(c[2]) + '</td><td>' + refChips(c[0]) + esc(c[4]) + '</td></tr>';
+}
 function dirLogCells(c) {  // 最終コミットのセル (ハッシュ・件名・日付)。c が無ければ空 (まだ読み込み中 / 履歴に見つからない)
   if (!c) return '<td class="hash"></td><td class="dir-msg"></td><td class="date"></td>';
   return '<td class="hash"><a class="commit-graph" href="/?commit_hash=' + encodeURIComponent(c[0]) + '">' + esc(c[1]) + '</a></td><td class="dir-msg" title="' + esc(c[4]) + '">' +
@@ -1136,10 +1152,9 @@ function showDirLog() {  // ファイルを開いていないとき、このデ�
   content.className = "hint";
   content.textContent = t("loading");
   document.getElementById("main").scrollTop = 0;
-  api("/api/log", {rev: rev, path: path}).then(r => {
+  Promise.all([api("/api/log", {rev: rev, path: path}), refsReady]).then(([r]) => {
     if (seq !== dirLogSeq || currentFile || !dirLogOn) return;  // 別のディレクトリ / ファイルに移った
-    const rows = r.commits.map(c => '<tr class="file-log-row" data-hash="' + esc(c[0]) + '"><td class="hash"><a class="commit-graph" href="/?commit_hash=' + encodeURIComponent(c[0]) + '">' + esc(c[1]) + '</a>' +
-      '</td><td class="date">' + esc(c[3]) + '</td><td class="author">' + esc(c[2]) + '</td><td>' + esc(c[4]) + '</td></tr>').join("");
+    const rows = r.commits.map(fileLogRow).join("");
     content.className = "";
     content.innerHTML = '<div class="meta">' + esc(t("n_commits", {n: r.total})) + '</div>' +
       (rows ? '<table class="file-log"><tbody>' + rows + '</tbody></table>' : '<p class="hint">' + esc(t("no_history")) + '</p>') +
@@ -1381,7 +1396,7 @@ function loadFileBlame(path) {
   title.textContent = t("file_blame_title", {path: path});
   content.className = "";
   content.textContent = t("loading");
-  api("/api/blame", {hash: hash, path: path}).then(r => {
+  Promise.all([api("/api/blame", {hash: hash, path: path}), refsReady]).then(([r]) => {
     content.innerHTML = '<div class="meta">' + esc(t("n_lines", {n: r.lines.length})) + '</div><div class="blame">' +
       r.lines.map(line => {
         const nc = /^0+$/.test(line.hash);
@@ -1389,7 +1404,7 @@ function loadFileBlame(path) {
           ? '<span class="blame-hash"></span><span class="blame-author">' + esc(t("not_committed_yet")) + '</span><span class="blame-date"></span><span class="blame-subject"></span>'
           : '<span class="blame-hash"><a class="blame-commit commit-graph" href="/?commit_hash=' + encodeURIComponent(line.hash) + '">' +
             esc(line.hash.slice(0, 7)) + '</a></span><span class="blame-author">' + esc(line.author) +
-            '</span><span class="blame-date">' + esc(line.date) + '</span><span class="blame-subject"><span title="' + esc(line.subject || "") + '">' + esc(line.subject || "") + '</span></span>';
+            '</span><span class="blame-date">' + esc(line.date) + '</span><span class="blame-subject">' + refChips(line.hash) + '<span title="' + esc(line.subject || "") + '">' + esc(line.subject || "") + '</span></span>';
         return '<div class="blame-line" data-hash="' + (nc ? "" : esc(line.hash)) + '"><span class="blame-no">' + line.line +
           '</span>' + meta + '<span class="blame-code">' + esc(line.content) + '</span></div>';
       }).join("") + '</div>';
@@ -1456,9 +1471,8 @@ function loadFileLog(path) {
   title.textContent = t("file_history_title", {path: path});
   content.className = "hint";
   content.textContent = t("loading");
-  api("/api/log", {rev: hash, path: path}).then(r => {
-    const rows = r.commits.map(c => '<tr class="file-log-row" data-hash="' + esc(c[0]) + '"><td class="hash"><a class="commit-graph" href="/?commit_hash=' + encodeURIComponent(c[0]) + '">' + esc(c[1]) + '</a>' +
-      '</td><td class="date">' + esc(c[3]) + '</td><td class="author">' + esc(c[2]) + '</td><td>' + esc(c[4]) + '</td></tr>').join("");
+  Promise.all([api("/api/log", {rev: hash, path: path}), refsReady]).then(([r]) => {
+    const rows = r.commits.map(fileLogRow).join("");
     content.className = "";
     content.innerHTML = '<div class="meta">' + esc(t("n_commits", {n: r.total})) + '</div>' +
       (rows ? '<table class="file-log"><tbody>' + rows + '</tbody></table>' : '<p class="hint">' + t("no_history") + '</p>');

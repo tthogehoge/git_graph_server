@@ -3671,6 +3671,57 @@ class BranchListSortTests(unittest.TestCase):
         self.assertEqual(names, ["newer", "origin/fresh", "alpha", "main", "origin/old"], names)
 
 
+class RefLabelsTests(unittest.TestCase):
+    """ファイル表示のログ・blame・コミット情報に出す、コミット → ブランチ / タグ / HEAD の一覧。"""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
+        self.repo = self.temp_dir.name
+        previous_repo = state.REPO
+        previous_opts = state.OPTS
+        self.addCleanup(lambda: (setattr(state, "REPO", previous_repo), setattr(state, "OPTS", previous_opts)))
+        state.REPO = self.repo
+        state.OPTS = SimpleNamespace(no_remotes=False, no_tags=False)
+        self.git("init", "-q", "-b", "main")
+        self.git("config", "user.name", "Test User")
+        self.git("config", "user.email", "test@example.com")
+        self.commit("a.txt", "first")
+        self.first = self.git("rev-parse", "HEAD")
+        self.git("tag", "v1.0")
+        self.git("tag", "-a", "-m", "annotated", "v1.1")  # 注釈付きタグは、指しているコミットに付く
+        self.git("branch", "feature")
+        self.commit("b.txt", "second")
+        self.second = self.git("rev-parse", "HEAD")
+        self.git("update-ref", "refs/remotes/origin/main", self.second)
+        from git_graph import libgit
+        libgit.reset_cache()
+
+    def git(self, *args):
+        return subprocess.check_output(["git", "-C", self.repo, *args], text=True, encoding="utf-8").strip()
+
+    def commit(self, name, message):
+        with open(os.path.join(self.repo, name), "w", encoding="utf-8") as f:
+            f.write(message + "\n")
+        self.git("add", name)
+        self.git("commit", "-q", "-m", message)
+
+    def pairs(self, h):
+        return [(r["name"], r["kind"]) for r in qh.ref_labels()["labels"].get(h, [])]
+
+    def test_branches_tags_remotes_and_head_by_commit(self):
+        self.assertEqual(self.pairs(self.second), [("main", "current"), ("origin/main", "remote"), ("HEAD", "head")])
+        self.assertEqual(self.pairs(self.first), [("feature", "branch"), ("v1.0", "tag"), ("v1.1", "tag")])
+
+    def test_no_tags_and_no_remotes_are_respected(self):
+        state.OPTS = SimpleNamespace(no_remotes=True, no_tags=True)
+        self.assertEqual(self.pairs(self.second), [("main", "current"), ("HEAD", "head")])
+        self.assertEqual(self.pairs(self.first), [("feature", "branch")])
+
+    def test_route_is_registered(self):
+        self.assertIs(app.ROUTES[("GET", "/api/ref-labels")], app.api_ref_labels)
+
+
 class EmptyRepoTests(unittest.TestCase):
     def test_empty_repo_shows_wip_and_allows_commit(self):
         with tempfile.TemporaryDirectory() as tmpdir:

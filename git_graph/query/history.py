@@ -444,6 +444,54 @@ def branches_containing(hash_):
     return {"branches": branches_out}
 
 
+def ref_labels():
+    """コミット → そこを指すブランチ / リモート追跡ブランチ / タグ / HEAD の一覧を返す ({hash: [{name, kind}]})。
+    名前と種類 (current / branch / remote / tag / head) はグラフのノードと同じ。--no-remotes / --no-tags も守る。
+    ファイル表示のログ・blame・コミット情報に、グラフ画面と同じ表示を出すために使う。"""
+    no_remotes = getattr(state.OPTS, "no_remotes", False)
+    no_tags = getattr(state.OPTS, "no_tags", False)
+    infos = []  # [(refname, commit, is_head)]
+    if libgit.available():
+        head, current = libgit.head_commit_and_branch()
+        for ref, target, peeled, is_head in libgit.list_ref_infos(("refs/heads/", "refs/remotes/", "refs/tags/")):
+            infos.append((ref, peeled or target, is_head))
+    else:
+        try:
+            current = git("symbolic-ref", "--short", "-q", "HEAD").strip()
+        except subprocess.CalledProcessError:
+            current = ""
+        try:
+            head = git("rev-parse", "--verify", "--quiet", "HEAD^{commit}").strip()
+        except subprocess.CalledProcessError:
+            head = ""
+        fmt = "%(objectname)%09%(refname)%09%(*objectname)%09%(HEAD)"
+        for line in git("for-each-ref", "--format=" + fmt, "refs/heads", "refs/remotes", "refs/tags").splitlines():
+            obj, ref, peeled, head_mark = (line.split("\t") + [""])[:4]
+            infos.append((ref, peeled or obj, head_mark == "*"))
+    order = {"current": 0, "branch": 0, "remote": 1, "tag": 2, "head": 3}
+    labels = {}
+    for ref, target, is_head in infos:
+        if ref.startswith("refs/heads/"):
+            name = ref[len("refs/heads/"):]
+            kind = "current" if (is_head or name == current) else "branch"
+        elif ref.startswith("refs/remotes/"):
+            if no_remotes or ref.endswith("/HEAD"):
+                continue
+            name, kind = ref[len("refs/remotes/"):], "remote"
+        elif ref.startswith("refs/tags/"):
+            if no_tags:
+                continue
+            name, kind = ref[len("refs/tags/"):], "tag"
+        else:
+            continue
+        labels.setdefault(target, []).append({"name": name, "kind": kind})
+    if head:
+        labels.setdefault(head, []).append({"name": "HEAD", "kind": "head"})
+    for refs in labels.values():  # 種類順 (ブランチ → リモート → タグ → HEAD)、同じ種類は名前順
+        refs.sort(key=lambda r: (order[r["kind"]], r["name"].casefold(), r["name"]))
+    return {"labels": labels}
+
+
 def tags():
     """タグの一覧 (新しい順)。注釈付きタグは指しているコミットを使う。"""
     if libgit.available():
@@ -718,5 +766,5 @@ def submodules():
 
 __all__ = [
     "DIFF_LIMIT", "REV_RE", "branches", "branches_containing", "commit", "compare", "diff",
-    "log", "log_position", "merge_base", "topo_list", "topo_total_status", "paging", "reflog", "rev_args", "search_plan", "stash_list", "submodules", "tags",
+    "log", "log_position", "merge_base", "topo_list", "topo_total_status", "paging", "ref_labels", "reflog", "rev_args", "search_plan", "stash_list", "submodules", "tags",
 ]
