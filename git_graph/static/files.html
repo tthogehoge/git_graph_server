@@ -105,7 +105,7 @@ __FAVICON__
 <body>
 <!--__MENUBAR__-->
 <div id="panes">
-<aside id="tree"><h1>{{file_view}}</h1><div class="meta" id="commit"></div><div id="smMsg" class="sm-msg"></div><div class="file-actions patch-bar"><button id="patchCreateBtn">{{patch_create}}</button><button id="patchApplyBtn" hidden title="{{tip_patch_apply}}">{{patch_apply}}</button><button id="patchAmBtn" hidden title="{{tip_patch_am}}">{{patch_am}}</button><input type="file" id="patchFile" hidden><span id="patchMsg" class="msg"></span></div>
+<aside id="tree"><div class="meta" id="commit"></div><div id="smMsg" class="sm-msg"></div><div class="file-actions patch-bar"><button id="patchCreateBtn">{{patch_create}}</button><button id="patchApplyBtn" hidden title="{{tip_patch_apply}}">{{patch_apply}}</button><button id="patchAmBtn" hidden title="{{tip_patch_am}}">{{patch_am}}</button><input type="file" id="patchFile" hidden><span id="patchMsg" class="msg"></span></div>
 <div class="side-tabs" id="sideTabs" hidden><button id="sideTreeBtn" class="on">{{side_tree}}</button><button id="sideChangesBtn">{{side_changes}}</button></div><div class="sel-bar" id="selBar" hidden><div class="file-actions patch-bar sel-bar-btns"><button id="selAddBtn" disabled title="{{tip_stage_selected}}">{{stage_button}}</button><button id="selRmBtn" disabled title="{{tip_rm_selected}}">{{rm_button}}</button><button id="selRmCachedBtn" disabled title="{{tip_rm_cached_selected}}">{{rm_cached_button}}</button><span id="selMsg" class="msg"></span></div><div class="sel-bar-check"><label class="selall"><input type="checkbox" id="selAll"> {{sel_all}}</label><span id="selCount" class="cnt"></span></div></div><div id="list"></div><div id="changes" hidden></div></aside>
 <div id="sideSplitter" role="separator" aria-orientation="vertical" aria-label="{{resize_side}}" tabindex="0"></div>
 <main id="main"><div id="fileView"><h2 id="title">{{select_file}}</h2>
@@ -371,6 +371,10 @@ let sideMode = "tree";  // "tree" | "changes"。保存先 (localStorage) が使�
 try { sideMode = localStorage.getItem(SIDE_KEY) === "changes" ? "changes" : "tree"; } catch (e) { sideMode = "tree"; }
 if (compareFrom && compareTo) sideMode = "changes";
 function activeList() { return sideMode === "changes" ? changesEl : list; }  // ↑↓ Enter の対象
+function syncTreeSelection() {
+  if (activeList() !== list) return;
+  selectEntry([...list.querySelectorAll(".entry")].find(r => r.dataset.path === currentFile) || null);
+}
 function applySideMode() {
   const changes = sideMode === "changes";
   list.hidden = changes;
@@ -380,7 +384,8 @@ function applySideMode() {
   sideChangesBtn.classList.toggle("on", changes);
   selectEntry(null);
   updateSelBar();
-  syncChangesSelection();
+  if (changes) syncChangesSelection();
+  else syncTreeSelection();
 }
 function setSideMode(mode) {
   sideMode = mode;
@@ -486,7 +491,7 @@ function syncTreeCheckBoxes() {
   });
 }
 function renderWipChanges() {
-  sideChangesBtn.textContent = t("side_wip") + (wipHeadFiles.length ? " (" + wipHeadFiles.length + ")" : "");
+  sideChangesBtn.textContent = t("side_changes") + (wipHeadFiles.length ? " (" + wipHeadFiles.length + ")" : "");
   const from = wipCompareFrom();
   const ctx = from ? {from: from, wip: "compare"} : {};
   if (wipSelectionEnabled()) {
@@ -591,7 +596,9 @@ function openWipChange(sel) {  // WIP の変更を、右ペインの差分エデ
   if (!leaveEdit()) return Promise.resolve();
   diffSel = sel;
   showFilePane();
-  history.pushState({path: current, file: sel.path, view: "diff"}, "", pageUrl(current, sel.path, "diff"));
+  const dir = parentDir(sel.path);
+  if (dir !== current) loadTree(dir, false);
+  history.pushState({path: dir, file: sel.path, view: "diff"}, "", pageUrl(dir, sel.path, "diff"));
   const pending = {key: key, promise: null};
   pending.promise = loadFile(sel.path, false).then(() => renderView("diff")).finally(() => {
     if (pendingWipOpen === pending) pendingWipOpen = null;
@@ -626,7 +633,9 @@ function openChange(path) {  // 変更ファイルを、右ペインの差分エ
   if (path === currentFile && currentView === "diff") return Promise.resolve();
   diffSel = compareFrom && compareTo ? {path: path, from: compareFrom, to: compareTo, old: f.old_path || ""} : null;
   showFilePane();
-  history.pushState({path: current, file: path, view: "diff"}, "", pageUrl(current, path, "diff"));
+  const dir = parentDir(path);
+  if (dir !== current) loadTree(dir, false);
+  history.pushState({path: dir, file: path, view: "diff"}, "", pageUrl(dir, path, "diff"));
   return loadFile(path, false).then(() => renderView("diff"));  // 消されたファイルは、内容を読めなくても差分は出せる
 }
 fileDiffBtn.onclick = () => { if (currentFile && diffParams(currentFile)) openView("diff"); };  // このファイルの差分を右ペインに表示
@@ -1516,7 +1525,7 @@ reloadBtn.onclick = () => {
 };
 updateDiffBtn();  // 差分アイコンは、ファイルを開く前から押せる
 sideTabs.hidden = !hash;
-sideChangesBtn.textContent = t(isWip ? "side_wip" : "side_changes");
+sideChangesBtn.textContent = t("side_changes");
 if (hash) changesEl.innerHTML = '<p class="hint">' + esc(t("loading")) + '</p>';
 if (hash) applySideMode();
 if (!hash) showError(new Error(t("commit_required"))); else { loadCommitChanges(); restoreFromUrl(true); }
