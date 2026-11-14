@@ -255,6 +255,8 @@ class DiffEditorPageTests(unittest.TestCase):
         self.assertIn("compareFrom === wipHead", files_html)
         open_wip_change = files_html[files_html.index("function openWipChange"):files_html.index("let pendingWipOpen")]
         self.assertLess(open_wip_change.index("if (currentFile === sel.path"), open_wip_change.index("if (!leaveEdit())"))
+        open_change = files_html[files_html.index("function openChange"):files_html.index("fileDiffBtn.onclick")]
+        self.assertLess(open_change.index('if (path === currentFile && currentView === "diff")'), open_change.index("if (!leaveEdit())"))
         self.assertIn("if (pendingWipOpen && pendingWipOpen.key === key)", files_html)
         self.assertIn("showFilePane();\n    return Promise.resolve();", files_html)
         self.assertIn('row.querySelector("a[href^=\'/files?\']")', files_html)

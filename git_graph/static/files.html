@@ -642,8 +642,9 @@ function syncChangesSelection() {  // いま開いているファイルが、変
 }
 function openChange(path) {  // 変更ファイルを、右ペインの差分エディタで開く (ファイルを開いて差分の表示にするまで、履歴は 1 つ)
   const f = commitChanges && commitChanges[path];
-  if (!f || !leaveEdit()) return Promise.resolve();
-  if (path === currentFile && currentView === "diff") return Promise.resolve();
+  if (!f) return Promise.resolve();
+  if (path === currentFile && currentView === "diff") return Promise.resolve();  // 同じファイルなら leaveEdit しない (差分エディタを破棄しない)
+  if (!leaveEdit()) return Promise.resolve();
   diffSel = compareFrom && compareTo ? {path: path, from: compareFrom, to: compareTo, old: f.old_path || ""} : null;
   showFilePane();
   const dir = parentDir(path);
