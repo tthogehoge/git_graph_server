@@ -1926,6 +1926,16 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertIn("async function doReset()", page)
         self.assertIn('id="resetBtn"', page)
 
+    def test_files_menubar_compares_the_target_with_wip_and_log_clicks_set_the_target(self):
+        static = Path(viewer.__file__).parent / "static"
+        script = (static / "page_menubar.js").read_text(encoding="utf-8")
+        self.assertIn('enable($("compareWipBtn")', script)  # 操作メニューの「WIPとの比較」は、ファイル表示でも押せる
+        self.assertIn('hash: "WIP", dfrom: h, dto: "WIP"', script)  # 対象のコミットから作業ツリーまでの差分を、ファイル表示で出す
+        self.assertIn("window.mbSetTarget", script)
+        page = viewer.render_files_page()
+        self.assertIn('id="compareWipBtn"', page)
+        self.assertIn("window.mbSetTarget(row.dataset.hash)", page)  # ログ / blame の行のクリックで、メニューの対象を更新する
+
     def test_api_head_returns_the_head_commit(self):
         from git_graph import gitstate
         info = gitstate.head_state()

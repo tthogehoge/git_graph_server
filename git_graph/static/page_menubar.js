@@ -78,6 +78,18 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
     });
     $("unset" + slot + "Btn").addEventListener("click", () => { sel[key] = null; save(); closeMenus(); refresh(); });
   }
+  $("compareWipBtn").addEventListener("click", () => {  // 操作の対象のコミットと、作業ツリー (WIP) の間の差分
+    const h = target();
+    if (!h) return;
+    closeMenus();
+    go("/files?" + new URLSearchParams({hash: "WIP", dfrom: h, dto: "WIP"}));
+  });
+  // ページ側 (ファイル表示のログ / blame の行のクリックなど) から、操作の対象を変える。開いたあとのページで、メニューの対象にも反映される
+  window.mbSetTarget = h => {
+    if (!HASH.test(h || "")) return;
+    sel.actionHash = h;
+    save(); refresh();
+  };
   $("compareBtn").addEventListener("click", () => {  // A と B の間の差分
     const p = new URLSearchParams({hash: sel.compareB, dfrom: sel.compareA, dto: sel.compareB});
     go("/files?" + p);
@@ -110,7 +122,7 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
   }
 
   // この画面でできない操作は、隠さず無効にする。できるかどうかは can の関数 (無ければ常にできない) で決める
-  enable($("setABtn")); enable($("setBBtn")); enable($("unsetABtn")); enable($("unsetBBtn")); enable($("compareBtn"));
+  enable($("compareWipBtn"), () => worktree); enable($("setABtn")); enable($("setBBtn")); enable($("unsetABtn")); enable($("unsetBBtn")); enable($("compareBtn"));
   enable($("quitBtn")); enable($("keyboardHelpBtn")); enable($("clearCmpBtn")); enable($("swapAbBtn")); enable($("backBtn"));
   enable($("wipBtn"), () => worktree); enable($("topBtn"));
   enable($("wipCommitMenuBtn"), () => writable && worktree);

@@ -1426,6 +1426,7 @@ content.addEventListener("click", ev => {
   }
   const row = ev.target.closest("tr.file-log-row, .blame-line");
   if (!row || !row.dataset.hash) return;
+  if (window.mbSetTarget) window.mbSetTarget(row.dataset.hash);  // ログ / blame の行をクリックしたコミットを、メニューの「対象」にする
   if (!currentFile) {  // ディレクトリのログの項目: そのコミットでのディレクトリを開く
     if (!dirLogOn) return;
     const dirParams = new URLSearchParams({hash: row.dataset.hash});
