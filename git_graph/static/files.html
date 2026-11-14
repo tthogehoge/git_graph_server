@@ -32,6 +32,10 @@ __FAVICON__
   .file-actions button:hover { background: #d6e2fb; }
   .file-actions .msg { margin-left: 8px; color: #0a7b35; white-space: pre-wrap; }
   .file-actions .msg.err { color: #c00; }
+  .sel-bar { margin: 4px 0; }
+  .sel-bar[hidden] { display: none; }
+  .sel-bar-btns { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 4px; }
+  .sel-bar-check { display: flex; align-items: center; gap: 6px; }
   .sel-bar label.selall { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
   .sel-bar .cnt { color: #666; }
   .entry input.ck { flex: none; margin: 0; align-self: center; cursor: pointer; }
@@ -93,7 +97,7 @@ __FAVICON__
 <!--__MENUBAR__-->
 <div id="panes">
 <aside id="tree"><h1>{{file_view}}</h1><div class="meta" id="commit"></div><div id="smMsg" class="sm-msg"></div><div class="file-actions patch-bar"><button id="patchCreateBtn">{{patch_create}}</button><button id="patchApplyBtn" hidden title="{{tip_patch_apply}}">{{patch_apply}}</button><button id="patchAmBtn" hidden title="{{tip_patch_am}}">{{patch_am}}</button><input type="file" id="patchFile" hidden><span id="patchMsg" class="msg"></span></div>
-<div class="side-tabs" id="sideTabs" hidden><button id="sideTreeBtn" class="on">{{side_tree}}</button><button id="sideChangesBtn">{{side_changes}}</button></div><div class="file-actions patch-bar sel-bar" id="selBar" hidden><label class="selall"><input type="checkbox" id="selAll"> {{sel_all}}</label><span id="selCount" class="cnt"></span><button id="selAddBtn" disabled title="{{tip_stage_selected}}">{{stage_button}}</button><button id="selRmBtn" disabled title="{{tip_rm_selected}}">{{rm_button}}</button><button id="selRmCachedBtn" disabled title="{{tip_rm_cached_selected}}">{{rm_cached_button}}</button><span id="selMsg" class="msg"></span></div><div id="list"></div><div id="changes" hidden></div></aside>
+<div class="side-tabs" id="sideTabs" hidden><button id="sideTreeBtn" class="on">{{side_tree}}</button><button id="sideChangesBtn">{{side_changes}}</button></div><div class="sel-bar" id="selBar" hidden><div class="file-actions patch-bar sel-bar-btns"><button id="selAddBtn" disabled title="{{tip_stage_selected}}">{{stage_button}}</button><button id="selRmBtn" disabled title="{{tip_rm_selected}}">{{rm_button}}</button><button id="selRmCachedBtn" disabled title="{{tip_rm_cached_selected}}">{{rm_cached_button}}</button><span id="selMsg" class="msg"></span></div><div class="sel-bar-check"><label class="selall"><input type="checkbox" id="selAll"> {{sel_all}}</label><span id="selCount" class="cnt"></span></div></div><div id="list"></div><div id="changes" hidden></div></aside>
 <div id="sideSplitter" role="separator" aria-orientation="vertical" aria-label="{{resize_side}}" tabindex="0"></div>
 <main id="main"><div id="fileView"><h2 id="title">{{select_file}}</h2>
 <div id="dirActions" class="file-actions" hidden><button id="dirLogBtn">{{dir_log}}</button><button id="dirListBtn" hidden>{{dir_list}}</button><button id="dirGraphLogBtn" hidden>{{file_log_graph}}</button></div>
