@@ -32,6 +32,15 @@ __FAVICON__
   .file-actions button:hover { background: #d6e2fb; }
   .file-actions .msg { margin-left: 8px; color: #0a7b35; white-space: pre-wrap; }
   .file-actions .msg.err { color: #c00; }
+  .tag { display: inline-block; min-width: 1.3em; text-align: center; font-weight: bold; color: #fff; border-radius: 2px; padding: 0 4px; margin-right: 4px; font-family: system-ui, sans-serif; font-size: 11px; }
+  .tagA { background: #06c; } .tagB { background: #e8590c; }
+  .commit-header { margin: 4px 0 8px; font-size: 12px; line-height: 1.4; }
+  .commit-subject { font-weight: bold; color: #222; word-break: break-word; margin-bottom: 2px; }
+  .commit-sub { color: #666; word-break: break-word; font-size: 11px; }
+  .commit-sub a.commit-graph, .compare-row a.commit-graph { font-family: monospace; font-weight: bold; color: #06c; text-decoration: none; }
+  .commit-sub a.commit-graph:hover, .compare-row a.commit-graph:hover { text-decoration: underline; }
+  .compare-row { margin: 4px 0; word-break: break-word; font-size: 12px; }
+  .compare-row .commit-subject { display: inline; font-weight: normal; color: #222; }
   .sel-bar { margin: 4px 0; }
   .sel-bar[hidden] { display: none; }
   .sel-bar-btns { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 4px; }
@@ -138,6 +147,99 @@ const patchCreateBtn = document.getElementById("patchCreateBtn"), patchApplyBtn 
 const patchAmBtn = document.getElementById("patchAmBtn"), patchFile = document.getElementById("patchFile"), patchMsg = document.getElementById("patchMsg");
 const selBar = document.getElementById("selBar"), selAll = document.getElementById("selAll"), selCount = document.getElementById("selCount"), selMsg = document.getElementById("selMsg");
 const selAddBtn = document.getElementById("selAddBtn"), selRmBtn = document.getElementById("selRmBtn"), selRmCachedBtn = document.getElementById("selRmCachedBtn");
+const commitEl = document.getElementById("commit");
+let currentCommitMeta = null;
+
+function formatAuthor(author) {
+  return (author || "").replace(/\s*<.*>$/, "");
+}
+function formatDate(date) {
+  return (date || "").slice(0, 16);
+}
+function firstLine(msg) {
+  return (msg || "").split("\n", 1)[0];
+}
+function commitLinkHtml(hashVal) {
+  const short = (hashVal || "").slice(0, 7);
+  return '<a class="commit-graph" href="/?commit_hash=' + encodeURIComponent(hashVal) + '" title="' + esc(hashVal) + '">' + esc(short) + '</a>';
+}
+function renderCommitHeader(meta) {
+  if (!commitEl) return;
+  if (!meta) {
+    commitEl.textContent = isWip
+      ? t("working_tree_files") + (wipHead ? " (HEAD " + wipHead.slice(0, 7) + ")" : "")
+      : (hash ? hash.slice(0, 7) : "");
+    return;
+  }
+  if (meta.type === "compare") {
+    const a = meta.from, b = meta.to;
+    let html = '<div class="commit-header compare-header">';
+    if (a) {
+      const subA = firstLine(a.message);
+      html += '<div class="compare-row">' +
+        '<span class="tag tagA">A</span>' +
+        commitLinkHtml(a.hash) + ' ' +
+        '<span class="commit-subject" title="' + esc(a.message || "") + '">' + esc(subA) + '</span>' +
+        '<div class="commit-sub meta">' + esc(formatAuthor(a.author)) + (a.date ? ' / ' + esc(formatDate(a.date)) : '') + '</div>' +
+      '</div>';
+    }
+    if (b) {
+      if (b.hash === "WIP") {
+        html += '<div class="compare-row">' +
+          '<span class="tag tagB">B</span>' +
+          '<strong>' + esc(t("working_tree_files")) + '</strong> <span class="hint">(WIP)</span>' +
+        '</div>';
+      } else {
+        const subB = firstLine(b.message);
+        html += '<div class="compare-row">' +
+          '<span class="tag tagB">B</span>' +
+          commitLinkHtml(b.hash) + ' ' +
+          '<span class="commit-subject" title="' + esc(b.message || "") + '">' + esc(subB) + '</span>' +
+          '<div class="commit-sub meta">' + esc(formatAuthor(b.author)) + (b.date ? ' / ' + esc(formatDate(b.date)) : '') + '</div>' +
+        '</div>';
+      }
+    }
+    html += '</div>';
+    commitEl.innerHTML = html;
+  } else if (meta.type === "wip") {
+    const h = meta.head;
+    let html = '<div class="commit-header">' +
+      '<div class="commit-subject"><strong>' + esc(t("working_tree_files")) + '</strong> <span class="hint">(WIP)</span></div>';
+    if (h && h.hash) {
+      const sub = firstLine(h.message);
+      html += '<div class="commit-sub meta">' +
+        'HEAD: ' + commitLinkHtml(h.hash) + ' ' +
+        '<span class="commit-subject" title="' + esc(h.message || "") + '">' + esc(sub) + '</span>' +
+        (h.author ? ' <span class="hint">(' + esc(formatAuthor(h.author)) + (h.date ? ' / ' + esc(formatDate(h.date)) : '') + ')</span>' : '') +
+      '</div>';
+    }
+    html += '</div>';
+    commitEl.innerHTML = html;
+  } else if (meta.type === "commit" && meta.commit) {
+    const c = meta.commit;
+    const sub = firstLine(c.message);
+    commitEl.innerHTML = '<div class="commit-header">' +
+      '<div class="commit-subject" title="' + esc(c.message || "") + '">' + esc(sub) + '</div>' +
+      '<div class="commit-sub meta">' +
+        commitLinkHtml(c.hash) + ' ' +
+        '<span class="commit-author" title="' + esc(c.author || "") + '">' + esc(formatAuthor(c.author)) + '</span> ' +
+        '<span class="commit-date">' + esc(formatDate(c.date)) + '</span>' +
+      '</div></div>';
+  }
+}
+function updateCommitHeader(meta) {
+  currentCommitMeta = meta;
+  renderCommitHeader(meta);
+}
+if (commitEl) {
+  commitEl.addEventListener("click", ev => {
+    const link = ev.target.closest("a.commit-graph");
+    if (link && window.opener && !window.opener.closed) {
+      ev.preventDefault();
+      window.opener.postMessage({type: "git-graph-commit", hash: new URL(link.href, location.href).searchParams.get("commit_hash")}, location.origin);
+    }
+  });
+}
 const CAN_EDIT = CAN_COPY && hash === "WIP";  // 作業ツリーのファイルだけ編集できる (書き込みが有効なとき)
 const isWip = hash === "WIP";  // 作業ツリーのファイルを表示する
 (function () {  // グラフへ戻るとき、このコミットの選択を復元する
@@ -246,6 +348,11 @@ function loadCommitChanges() {  // このコミットで変更されたファイ
     ? api("/api/compare", {from: compareFrom, to: compareTo})
     : api("/api/commit", {hash: hash});
   load.then(c => {
+    if (compareFrom && compareTo) {
+      updateCommitHeader({type: "compare", from: c.from, to: c.to});
+    } else {
+      updateCommitHeader({type: "commit", commit: c});
+    }
     commitChanges = {};
     commitDirs = new Set();
     commitFiles = c.files;
@@ -425,6 +532,7 @@ function loadWipChanges() {
   if (!isWip) return Promise.resolve();
   const seq = ++wipChangesSeq, head = wipCompareFrom();
   if (!head) {
+    updateCommitHeader({type: "wip", head: null});
     return api("/api/status", {}).then(s => {
       if (seq !== wipChangesSeq) return;
       wipHeadFiles = [];
@@ -439,6 +547,11 @@ function loadWipChanges() {
   }
   return api("/api/compare", {from: head, to: "WIP"}).then(r => {
     if (seq !== wipChangesSeq) return;
+    if (compareTo === "WIP" && compareFrom) {
+      updateCommitHeader({type: "compare", from: r.from, to: {hash: "WIP"}});
+    } else {
+      updateCommitHeader({type: "wip", head: r.from});
+    }
     wipHeadFiles = r.files.map(f => Object.assign({wip: "compare"}, f));
     if (wipCompareChanges !== null) {
       wipCompareChanges = Object.create(null);
@@ -689,8 +802,15 @@ function loadTree(path, push) {
   return api("/api/tree", {hash: hash, path: path}).then(r => {
     dirEntries = r.entries;
     if (isWip) { wipHead = r.head || null; selBar.hidden = !wipSelectionEnabled(); loadWipChanges(); }
-    document.getElementById("commit").textContent = isWip
-      ? t("working_tree_files") + (r.head ? " (HEAD " + r.head.slice(0, 7) + ")" : "") : r.hash.slice(0, 7);
+    if (currentCommitMeta) {
+      renderCommitHeader(currentCommitMeta);
+    } else if (compareFrom && compareTo) {
+      const toLabel = compareTo === "WIP" ? t("working_tree_files") + " (WIP)" : compareTo.slice(0, 7);
+      commitEl.textContent = "A: " + compareFrom.slice(0, 7) + " → B: " + toLabel;
+    } else {
+      commitEl.textContent = isWip
+        ? t("working_tree_files") + (r.head ? " (HEAD " + r.head.slice(0, 7) + ")" : "") : r.hash.slice(0, 7);
+    }
     const parts = path ? path.split("/") : [];
     let crumb = '<div class="crumb"><a data-dir="">📁 ' + t("root") + '</a>';
     parts.forEach((p, i) => { const d = parts.slice(0, i + 1).join("/"); crumb += ' / <a data-dir="' + esc(d) + '">' + esc(p) + '</a>'; });
