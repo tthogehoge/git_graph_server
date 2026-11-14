@@ -1839,14 +1839,14 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         boot = (Path(app.__file__).parent / "git_graph" / "static" / "js" / "09_boot.js").read_text(encoding="utf-8")
         self.assertIn('qs.get("select_wip")', boot)
 
-    def test_diff_page_can_always_go_to_files_and_graph(self):
-        # ファイル表示 / グラフへは、開いているファイルの有無や種類にかかわらず、いつでも遷移できる (無効なボタンにしない)
+    def test_diff_page_marks_files_current_and_keeps_graph_navigation_available(self):
+        # 差分ページはファイル表示として扱い、グラフへはいつでも遷移できる
         head = self.git("rev-parse", "HEAD").strip()
         queries = [{"hash": [head]}, {"hash": [head], "path": ["tracked.txt"]}, {"wip": ["unstaged"]}, {"wip": ["staged"]}]
         for q in queries:
             with self.subTest(q):
                 page = viewer.render_diff_page(q)
-                self.assertRegex(page, r'<a class="sbtn iconbtn page-nav" id="navFilesBtn" href="/files\?hash=')
+                self.assertRegex(page, r'<span class="iconbtn current page-nav" id="navFilesBtn"')
                 self.assertRegex(page, r'<a class="sbtn iconbtn page-nav" id="navGraphBtn" href="/')
                 self.assertNotRegex(page, r'<button[^>]*id="navFilesBtn"')
 

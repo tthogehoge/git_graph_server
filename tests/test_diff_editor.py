@@ -277,7 +277,7 @@ class DiffEditorPageTests(unittest.TestCase):
         self.assertIn("wipCommitMenuBtn.disabled = !CAN_COPY;", files_html)
         self.assertIn('else location.href = "/files?hash=WIP&wip_commit=1";', files_html)
         self.assertIn('wipCommitPanel = mountWipPanel(document.getElementById("wipCommitPanel"), {onFiles: wipFilesChanged})', page)
-        self.assertIn('history.pushState({path: current, file: path, view: "diff"}', files_html)  # 変更ファイルは、右ペインの差分で開く
+        self.assertIn('history.pushState({path: dir, file: path, view: "diff"}', files_html)  # 変更ファイルは、右ペインの差分で開く
         self.assertIn("gitGraphFilesSide", files_html)  # 選んだ表示は引き継ぐ
         self.assertIn('const rows = [...activeList().querySelectorAll(".entry")];', files_html)  # ↑↓ Enter は、出している方の一覧で働く
 

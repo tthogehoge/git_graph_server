@@ -50,6 +50,12 @@ class AuthHandler(http.server.SimpleHTTPRequestHandler):
 
 class HttpAuthTestBase(unittest.TestCase):
     def setUp(self):
+        # Bare repo の準備時にも、ユーザーの safe.bareRepository 設定に左右されないようにする。
+        env = mock.patch.dict(os.environ, {
+            "GIT_CONFIG_COUNT": "0", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
+        })
+        env.start()
+        self.addCleanup(env.stop)
         self.temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp_dir.cleanup)
         root = self.temp_dir.name
@@ -92,10 +98,6 @@ class HttpAuthTestBase(unittest.TestCase):
         state.REPO, state.UI_LANG, state.WIP_ENABLED, state.HAS_WORKTREE, state.WRITABLE = self.repo, "en", True, True, True
         gitrun.HTTP_AUTH_CACHE.clear()
         self.addCleanup(gitrun.HTTP_AUTH_CACHE.clear)
-        # 認証情報ヘルパーなど、この環境の設定に左右されないようにする (askpass だけで認証する)
-        env = mock.patch.dict(os.environ, {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"})
-        env.start()
-        self.addCleanup(env.stop)
 
     @staticmethod
     def git(repo, *args):
