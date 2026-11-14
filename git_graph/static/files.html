@@ -144,6 +144,7 @@ let current = "", currentFile = "", wipHead = null;
 let dirEntries = null, dirLogSeq = 0;  // dirEntries: 表示中のディレクトリの項目 (読み込み前は null), dirLogSeq: 古い応答を捨てるための通し番号
 let dirLogOn = false;  // ディレクトリの本文に、項目の一覧ではなく「このディレクトリのログ」を出しているか
 let wipFiles = [];  // 作業ツリーの変更の一覧 (WIP パネルが決める。パス・種類 wip・変更前のパス old_path)
+let wipStatusFiles = [];
 let wipHeadFiles = [];  // HEAD または URL の比較対象コミットと作業ツリーの差分
 let wipCompareChanges = compareTo === "WIP" && compareFrom ? Object.create(null) : null, wipCompareDirs = new Set();
 let diffSel = null;  // 選択中の差分の WIP 種別または比較元
@@ -261,10 +262,11 @@ function applySideMode() {
   const changes = sideMode === "changes";
   list.hidden = changes;
   changesEl.hidden = !changes;
-  selBar.hidden = !CAN_EDIT || changes;  // 選択して add / rm するのは、ファイル一覧の方
+  selBar.hidden = !wipSelectionEnabled();
   sideTreeBtn.classList.toggle("on", !changes);
   sideChangesBtn.classList.toggle("on", changes);
   selectEntry(null);
+  updateSelBar();
   syncChangesSelection();
 }
 function setSideMode(mode) {
@@ -291,22 +293,47 @@ function renderChanges() {  // コミット (または比較) の変更ファイ
   changesEl.querySelectorAll(".entry").forEach(a => { a.onclick = () => { selectEntry(a); openChange(a.dataset.path); }; });
   syncChangesSelection();
 }
-function wipFilesChanged(files) {  // WIP パネルの一覧が決まった (パネルを描き直すたびに呼ばれる)
+function wipFilesChanged(files, status) {  // WIP パネルの一覧と状態が決まった (パネルを描き直すたびに呼ばれる)
   wipFiles = files;
+  wipStatusFiles = status ? [
+    ...(status.conflicts || []).map(f => Object.assign({wip: "conflict"}, f)),
+    ...(status.staged || []).map(f => Object.assign({wip: "staged"}, f)),
+    ...(status.unstaged || []).map(f => Object.assign({wip: "unstaged"}, f)),
+    ...(status.untracked || []).map(f => Object.assign({wip: "untracked"}, f)),
+  ] : files;
   updateDiffBtn();
   markWipCurrent();
+  if (isWip && wipHeadFiles.length) renderWipChanges();
+}
+function wipStatusForPath(path) {
+  const same = wipStatusFiles.filter(f => f.path === path);
+  return ["conflict", "unstaged", "untracked", "staged", "amend"].map(k => same.find(f => f.wip === k)).find(Boolean);
 }
 function renderWipChanges() {
   sideChangesBtn.textContent = t("side_wip") + (wipHeadFiles.length ? " (" + wipHeadFiles.length + ")" : "");
   const from = wipCompareFrom();
+  const check = wipSelectionEnabled() ? f => '<td class="fk"><input type="checkbox" class="ck" data-path="' + esc(f.path) + '" aria-label="' + esc(f.path) + '"' +
+    (checked.has(f.path) ? " checked" : "") + "></td>" : null;
+  const files = wipHeadFiles.map(f => {
+    const status = wipStatusForPath(f.path);
+    const st = status && status.st || f.st || (f.status === "A" || f.status === "C" ? "A" : f.status === "D" ? "D" : f.status === "R" ? "R" : "M");
+    return Object.assign({}, f, {st: st});
+  });
   changesEl.innerHTML = WipPanel.filesTable(from ? {from: from, wip: "compare"} : {},
-    wipHeadFiles, 0, {t: t});
+    files, 0, {t: t, check: check});
+  bindSelectionChecks(changesEl);
+  updateSelBar();
   updateDiffBtn();
   markWipCurrent();
 }
 let wipChangesSeq = 0;
 function wipCompareFrom() {
   return compareTo === "WIP" && compareFrom ? compareFrom : wipHead;
+}
+function wipSelectionEnabled() {
+  if (!CAN_EDIT || !wipHead) return false;
+  return compareTo !== "WIP" || !compareFrom || compareFrom === wipHead ||
+    (compareFrom.length >= 7 && wipHead.startsWith(compareFrom));
 }
 function loadWipChanges() {
   if (!isWip) return Promise.resolve();
@@ -566,7 +593,7 @@ function loadTree(path, push) {
   if (push) history.pushState({path: path, file: currentFile, view: currentView}, "", pageUrl(path, currentFile, currentView));
   return api("/api/tree", {hash: hash, path: path}).then(r => {
     dirEntries = r.entries;
-    if (isWip) { wipHead = r.head || null; loadWipChanges(); }
+    if (isWip) { wipHead = r.head || null; selBar.hidden = !wipSelectionEnabled(); loadWipChanges(); }
     document.getElementById("commit").textContent = isWip
       ? t("working_tree_files") + (r.head ? " (HEAD " + r.head.slice(0, 7) + ")" : "") : r.hash.slice(0, 7);
     const parts = path ? path.split("/") : [];
@@ -577,7 +604,7 @@ function loadTree(path, push) {
       const p = path ? path + "/" + e.name : e.name;
       entryInfo[p] = e;
       const size = e.size === null ? "" : e.size.toLocaleString() + " B";
-      const ck = CAN_EDIT ? '<input type="checkbox" class="ck" data-path="' + esc(p) + '" aria-label="' + esc(p) + '"' + (checked.has(p) ? " checked" : "") + '>' : "";
+      const ck = wipSelectionEnabled() ? '<input type="checkbox" class="ck" data-path="' + esc(p) + '" aria-label="' + esc(p) + '"' + (checked.has(p) ? " checked" : "") + '>' : "";
       return '<div class="entry" data-type="' + e.type + '" data-path="' + esc(p) + '"' + entryTip(e) + '>' + ck + '<span>' + entryIcon(e) + ' <span class="bd">' + statusBadge(e, p) + '</span>' + esc(e.name) + submoduleBadge(e) + '</span><span class="size">' + size + '</span></div>';
     }).join("") : '<p class="hint">' + t("empty_directory") + '</p>');
     list.querySelectorAll("[data-dir]").forEach(a => a.onclick = () => openDir(a.dataset.dir));
@@ -587,10 +614,7 @@ function loadTree(path, push) {
         openEntry(a.dataset.path, a.dataset.type);
       };
     });
-    list.querySelectorAll("input.ck").forEach(c => {
-      c.onclick = ev => ev.stopPropagation();  // チェックでファイルを開かない
-      c.onchange = () => { if (c.checked) checked.add(c.dataset.path); else checked.delete(c.dataset.path); updateSelBar(); };
-    });
+    bindSelectionChecks(list);
     // 一覧を作り直したあと、開いているファイルがあればそれを選択状態にする
     selectedEntry = null;
     if (currentFile) {
@@ -615,27 +639,36 @@ fileExtEditBtn.onclick = () => {  // OS の標準のエディタ、または設�
 // ---- 左ペインでチェックしたファイル・ディレクトリの git add / git rm (作業ツリーの表示だけ) ----
 // チェックはディレクトリを移っても残る (パスで覚える)。ディレクトリをチェックすると、中のすべてが対象になる
 const checked = new Set();
-selBar.hidden = !CAN_EDIT;
+selBar.hidden = !wipSelectionEnabled();
 function setSelMsg(text, ok) { selMsg.textContent = text; selMsg.className = "msg" + (ok ? "" : " err"); }
+function bindSelectionChecks(root) {
+  root.querySelectorAll("input.ck").forEach(c => {
+    c.onclick = ev => ev.stopPropagation();
+    c.onchange = () => { if (c.checked) checked.add(c.dataset.path); else checked.delete(c.dataset.path); updateSelBar(); };
+  });
+}
+function activeSelectionBoxes() {
+  return [...(sideMode === "changes" ? changesEl : list).querySelectorAll("input.ck")];
+}
 function updateSelBar() {
-  const n = checked.size, boxes = [...list.querySelectorAll("input.ck")];
+  const n = checked.size, boxes = activeSelectionBoxes();
   selCount.textContent = n ? t("sel_count", {n: n}) : "";
   selAddBtn.disabled = selRmBtn.disabled = selRmCachedBtn.disabled = !n;
   selAll.disabled = !boxes.length;
   selAll.checked = boxes.length > 0 && boxes.every(b => b.checked);
   selAll.indeterminate = !selAll.checked && boxes.some(b => b.checked);
 }
-selAll.onchange = () => {  // いま表示しているディレクトリの項目をすべてチェック / 外す
+selAll.onchange = () => {  // いま表示している一覧の項目をすべてチェック / 外す
   const on = selAll.checked;
-  list.querySelectorAll("input.ck").forEach(c => { c.checked = on; if (on) checked.add(c.dataset.path); else checked.delete(c.dataset.path); });
+  activeSelectionBoxes().forEach(c => { c.checked = on; if (on) checked.add(c.dataset.path); else checked.delete(c.dataset.path); });
   updateSelBar();
 };
 function isUntrackedEntry(p) {  // 未追跡のファイル / 中がすべて未追跡のディレクトリ (git rm できない)
   const e = entryInfo[p] || {};
-  return e.xy === "??" || (e.type === "tree" && e.st === "?");
+  return e.xy === "??" || (e.type === "tree" && e.st === "?") || wipFiles.some(f => f.path === p && f.wip === "untracked");
 }
 function runSel(url, body, onDone) {
-  if (!CAN_EDIT) return;
+  if (!wipSelectionEnabled()) return;
   const wasEditing = editing;
   if (!leaveEdit()) return;
   selAddBtn.disabled = selRmBtn.disabled = selRmCachedBtn.disabled = true;
@@ -665,7 +698,7 @@ function doSelRm(cached) {  // チェックしたものを git rm / git rm --cac
   if (!n) return;
   const bad = paths.filter(isUntrackedEntry);
   if (bad.length) { setSelMsg(t("rm_untracked", {files: bad.slice(0, 3).join(", ")}), false); return; }
-  const changed = paths.some(p => { const e = entryInfo[p] || {}; return !!(e.xy || e.st); });
+  const changed = paths.some(p => { const e = entryInfo[p] || {}; return !!(e.xy || e.st) || wipFiles.some(f => f.path === p); });
   if (!confirm(t(cached ? "confirm_rm_cached_selected" : changed ? "confirm_rm_selected_changed" : "confirm_rm_selected", {n: n}))) return;
   runSel("/api/rm", {paths: paths, cached: cached, force: changed, recursive: true}, (r, wasEditing) => {
     let dir = current;  // 表示中のディレクトリごと削除したときは、残っている親に移る
