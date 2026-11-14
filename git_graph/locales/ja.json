@@ -893,6 +893,8 @@
   "editor_go": "移動",
   "edit_vim": "Vim モード",
   "edit_vim_tip": "Vim のキー操作で編集します。:w で保存、:q でやめる、:q! で変更を捨ててやめます",
+  "edit_wrap": "行を折り返す",
+  "edit_wrap_tip": "長い行を折り返して表示します",
   "merge_mode_markers": "競合マーカー方式",
   "merge_mode_base": "ベース編集方式",
   "tip_merge_mode_markers": "競合マーカーの入った結果を、競合ごとのボタンで解決します (競合しない変更は自動でマージ済みです)",

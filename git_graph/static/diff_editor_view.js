@@ -45,17 +45,24 @@ function createDiffEditorView(opts) {
     if (label !== undefined) el.textContent = label;
     return el;
   };
+  const WRAP_KEY = "gitGraphEditorWrap";  // files.html の表示・編集と同じ
+  let wrapOn = true;
+  try { const w = localStorage.getItem(WRAP_KEY); if (w === "0") wrapOn = false; else if (w === "1") wrapOn = true; } catch (e) { wrapOn = true; }
   const bar = make("div", "de-bar"), prev = make("button", "", text("diff_editor_prev")), next = make("button", "", text("diff_editor_next"));
   const count = make("span", "de-count"), collapseLabel = make("label"), collapse = make("input");
+  const wrapLabel = make("label"), wrapBox = make("input");
   const vimLabel = make("label"), vimBox = make("input");
   prev.type = next.type = "button";
-  collapse.type = vimBox.type = "checkbox";
+  collapse.type = wrapBox.type = vimBox.type = "checkbox";
   collapse.checked = true;
+  wrapBox.checked = wrapOn;
   vimBox.checked = !!vimPref.get();
+  wrapLabel.title = text("edit_wrap_tip");
   vimLabel.title = text("vim_readonly_tip");
   collapseLabel.append(collapse, document.createTextNode(text("diff_editor_collapse")));
+  wrapLabel.append(wrapBox, document.createTextNode(text("edit_wrap")));
   vimLabel.append(vimBox, document.createTextNode(text("edit_vim")));
-  bar.append(prev, next, count, collapseLabel, vimLabel);
+  bar.append(prev, next, count, collapseLabel, wrapLabel, vimLabel);
   const notes = make("div"), labels = make("div", "de-labels"), labelOld = make("span"), labelNew = make("span"), host = make("div", "de-host");
   labels.hidden = true;
   labels.append(labelOld, labelNew);
@@ -94,7 +101,7 @@ function createDiffEditorView(opts) {
       labels.hidden = false;
       editor = GGText.createDiffEditor({
         parent: host, old: a.content, new: b.content, path: data.path,
-        collapse: collapse.checked, vim: vimBox.checked, phrases: opts.phrases(),
+        collapse: collapse.checked, wrap: wrapBox.checked, vim: vimBox.checked, phrases: opts.phrases(),
         editable: !!editMode, onChange: editOnChange, onSave: editOnSave,
       });
       const chunks = editor.chunkCount();
@@ -106,6 +113,11 @@ function createDiffEditorView(opts) {
   prev.onclick = () => { if (editor) editor.jump(-1); };
   next.onclick = () => { if (editor) editor.jump(1); };
   collapse.onchange = () => { if (data) render(); };
+  wrapBox.onchange = () => {
+    wrapOn = wrapBox.checked;
+    try { localStorage.setItem(WRAP_KEY, wrapOn ? "1" : "0"); } catch (e) { /* 保存できなくても切り替わる */ }
+    if (editor && editor.setWrap) editor.setWrap(wrapOn);
+  };
   vimBox.onchange = () => { vimPref.set(vimBox.checked); if (editor) editor.setVim(vimBox.checked); };
   return {
     load: params => {
