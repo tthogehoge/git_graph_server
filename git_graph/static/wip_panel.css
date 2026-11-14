@@ -21,6 +21,7 @@
   .wipbox .arow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 6px; }
   .wipbox .amendrow { display: block; margin: 0 0 6px; cursor: pointer; }
   .wipbox .amendrow input { margin: 0 6px 0 0; vertical-align: middle; }
+  .wipactions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0 8px; }
   .wipres, .wipop { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0 8px; }
   .wipop { padding: 6px 8px; background: #fff4e5; border: 1px solid #f0c987; border-radius: 4px; }
   .plus { color: #1a7f37; } .minus { color: #cf222e; }

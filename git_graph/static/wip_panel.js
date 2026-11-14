@@ -345,20 +345,24 @@ const WipPanel = (function () {
         files = list;
         if (host.onFiles) host.onFiles(files, s);
         const hint = amendOn ? t("amend_hint") : t("wip_hint");
+        const actionsBar = canCommit && !amendOn && (files.length || amendOn)
+          ? '<div class="wipactions">' +
+            (!opCmd ? '<button class="wbtn" id="wipStage">' + esc(t("stage_button")) + "</button>" : "") +
+            (!opCmd ? '<button class="wbtn" id="wipStash" title="' + esc(t("tip_wip_stash")) + '">' + esc(t("wip_stash")) + "</button>" : "") +
+            (!opCmd ? '<button class="wbtn danger" id="wipDiscard">' + esc(t("wip_discard")) + "</button>" : "") +
+            '<button class="wbtn danger" id="wipRm" title="' + esc(t("tip_wip_rm")) + '">' + esc(t("wip_rm")) + "</button>" +
+            '</div>' : "";
         const box = canCommit && !s.applying && (files.length || amendOn)
           ? '<div class="wipbox">' +
             '<textarea id="wipMsg" placeholder="' + esc(t("wip_commit_message")) + '"></textarea>' +
             (!amendOn ? '<input type="text" id="wipBranch" placeholder="' + esc(t("wip_commit_branch_placeholder")) + '" aria-label="' + esc(t("wip_commit_branch")) + '">' : "") +
             (canAmend ? '<label class="amendrow"><input type="checkbox" id="wipAmendCk"' + (amendOn ? " checked" : "") + ">" + esc(t("amend_checkbox")) + "</label>" : "") +
-            '<div class="arow">' + (!amendOn ? '<button class="wbtn" id="wipStage">' + esc(t("stage_button")) + "</button>" : "") +
+            '<div class="arow">' +
             '<button class="wbtn" id="wipCommit">' + esc(t("wip_commit")) + "</button>" +
-            (!amendOn && !opCmd ? '<button class="wbtn" id="wipStash" title="' + esc(t("tip_wip_stash")) + '">' + esc(t("wip_stash")) + "</button>" : "") +
-            (!amendOn && !opCmd ? '<button class="wbtn danger" id="wipDiscard">' + esc(t("wip_discard")) + "</button>" : "") +
-            (!amendOn ? '<button class="wbtn danger" id="wipRm" title="' + esc(t("tip_wip_rm")) + '">' + esc(t("wip_rm")) + "</button>" : "") +
             '<span class="hint">' + esc(hint) + "</span></div>" +
             '<div class="amsg" id="wipMsgOut"></div></div>' : "";
         root.innerHTML = (o && o.top ? o.top(s, files) : "") + opBannerHtml(opCmd, canCommit) + (o && o.mid ? o.mid(s, files) : "") +
-          '<div class="wip-panel">' + (body || '<p class="hint">' + esc(t("no_changes")) + "</p>") + box +
+          '<div class="wip-panel">' + actionsBar + (body || '<p class="hint">' + esc(t("no_changes")) + "</p>") + box +
           (s.truncated ? '<p class="hint">' + esc(t("truncated_files")) + "</p>" : "") + "</div>";
         const ta = root.querySelector("#wipMsg");
         if (ta) ta.value = msg;
