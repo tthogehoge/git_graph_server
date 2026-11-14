@@ -58,6 +58,7 @@ function createDiffEditorView(opts) {
   labels.append(labelOld, labelNew);
   box.append(bar, notes, labels, host);
   let editor = null, data = null, seq = 0;
+  let editMode = false, editOnChange = null, editOnSave = null;
 
   function setNotes(lines, isError) {
     notes.textContent = "";
@@ -88,7 +89,11 @@ function createDiffEditorView(opts) {
       labelOld.textContent = sideName(a);
       labelNew.textContent = sideName(b);
       labels.hidden = false;
-      editor = GGText.createDiffEditor({parent: host, old: a.content, new: b.content, path: data.path, collapse: collapse.checked, vim: vimBox.checked, phrases: opts.phrases()});
+      editor = GGText.createDiffEditor({
+        parent: host, old: a.content, new: b.content, path: data.path,
+        collapse: collapse.checked, vim: vimBox.checked, phrases: opts.phrases(),
+        editable: !!editMode, onChange: editOnChange, onSave: editOnSave,
+      });
       const chunks = editor.chunkCount();
       prev.disabled = next.disabled = !chunks;
       count.textContent = chunks ? text("diff_editor_chunks", {n: chunks}) : text("diff_editor_none");
@@ -103,6 +108,7 @@ function createDiffEditorView(opts) {
     load: params => {
       const mine = ++seq;
       data = null;
+      editMode = false; editOnChange = null; editOnSave = null;
       clear();
       setNotes([], false);
       const url = "/api/diff-sources?" + (params instanceof URLSearchParams ? params : new URLSearchParams(params));
@@ -113,6 +119,17 @@ function createDiffEditorView(opts) {
         render();
       }).catch(e => { if (mine === seq) setNotes([e.message], true); });
     },
-    close: () => { seq++; data = null; clear(); setNotes([], false); },
+    // 変更後側を編集可能にする (差分表示からの編集)。data が無いと何もしない。
+    setEditable: (on, handlers) => {
+      handlers = handlers || {};
+      editMode = !!on;
+      editOnChange = on ? (handlers.onChange || null) : null;
+      editOnSave = on ? (handlers.onSave || null) : null;
+      if (data) render();
+      if (on && editor) editor.focus();
+    },
+    getText: () => (editor && editor.getText ? editor.getText() : null),
+    isEditable: () => editMode,
+    close: () => { seq++; data = null; editMode = false; editOnChange = null; editOnSave = null; clear(); setNotes([], false); },
   };
 }

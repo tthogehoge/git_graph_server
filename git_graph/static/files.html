@@ -1428,7 +1428,30 @@ function showCode(r) {  // ファイルの内容を、読み取り専用のエ�
 }
 function leaveEdit() {  // 編集中なら、変更を捨ててよいか確認して編集をやめる
   if (editing && editDirty && !confirm(t("edit_discard_confirm"))) return false;
+  const keepDiff = editing && currentView === "diff" && diffView;  // 差分エディタ上の編集は、差分表示を残す
   editing = editDirty = false;
+  const bar = content.querySelector(".edit-bar-diff");
+  if (bar) bar.remove();
+  if (keepDiff) {
+    if (diffView.isEditable && diffView.isEditable()) diffView.setEditable(false);
+    // 差分表示のボタン配置に戻す
+    fileDiffBtn.hidden = true;
+    fileContentBtn.hidden = false;
+    fileEditBtn.hidden = false;
+    fileExtEditBtn.hidden = false;
+    fileExtEditBtn.disabled = !(DESKTOP && isWip);
+    fileLogBtn.hidden = !logHash();
+    fileLogBtn.disabled = !logHash();
+    fileBlameBtn.hidden = false;
+    fileBlameBtn.disabled = (fileData && fileData.binary) || (isWip && !wipHead);
+    fileGraphLogBtn.hidden = true;
+    fileDownloadBtn.hidden = false;
+    fileCopyBtn.disabled = !CAN_COPY || isWip;
+    updateDiffBtn();
+    updateRmBtns();
+    if (fileData) title.textContent = t("file_diff_title", {path: currentFile});
+    return true;
+  }
   closeEditor();
   return true;
 }
@@ -1507,7 +1530,74 @@ function saveEdit() {
     })
     .catch(e => { btn.disabled = false; setFileMsg(e.message, false); fileActions.hidden = false; });
 }
-fileEditBtn.onclick = () => openView("edit");
+fileEditBtn.onclick = () => {
+  // 差分表示中は、変更後側を差分エディタのまま編集する (内容表示の単独編集へは移らない)
+  if (currentView === "diff" && isWip && CAN_EDIT) startDiffEdit();
+  else openView("edit");
+};
+function startDiffEdit() {
+  if (!currentFile || currentView !== "diff" || !diffView) return openView("edit");
+  const begin = () => {
+    if (!fileData) return;
+    if (fileData.binary || !fileData.editable) {
+      setFileMsg(t(fileData.edit_reason || "edit_bad_encoding"), false);
+      return;
+    }
+    editing = true; editDirty = false;
+    setFileMsg("", true);
+    [fileLogBtn, fileBlameBtn, fileDiffBtn, fileExtDiffBtn, fileMergeBtn, fileEditBtn, fileContentBtn, fileGraphLogBtn, fileCopyBtn, fileDownloadBtn, fileExtEditBtn, fileRmBtn, fileRmCachedBtn].forEach(b => { b.hidden = true; });
+    title.textContent = t("file_edit_title", {path: currentFile});
+    let bar = content.querySelector(".edit-bar-diff");
+    if (!bar) {
+      bar = document.createElement("div");
+      bar.className = "edit-bar edit-bar-diff";
+      bar.innerHTML = '<button class="primary" id="diffEditSave">' + esc(t("edit_save")) + '</button>' +
+        '<button id="diffEditCancel">' + esc(t("edit_cancel")) + '</button>';
+      content.insertBefore(bar, content.firstChild);
+      document.getElementById("diffEditSave").onclick = () => saveDiffEdit();
+      document.getElementById("diffEditCancel").onclick = () => { leaveEdit(); };
+    }
+    diffView.setEditable(true, {
+      onChange: () => { editDirty = true; },
+      onSave: () => saveDiffEdit(),
+    });
+  };
+  if (fileData) begin();
+  else api("/api/file", {hash: hash, path: currentFile}).then(r => {
+    fileData = r;
+    begin();
+  }).catch(e => setFileMsg(e.message, false));
+}
+function saveDiffEdit() {
+  if (!editing || !diffView || !fileData) return;
+  const text = diffView.getText();
+  if (text === null) return;
+  const btn = document.getElementById("diffEditSave");
+  if (btn) btn.disabled = true;
+  const path = currentFile;
+  fetch("/api/file-save", {method: "POST", headers: {"Content-Type": "application/json"},
+                           body: JSON.stringify({path: path, content: text, sha: fileData.sha})})
+    .then(r => r.ok ? r.json() : r.text().then(m => { throw new Error(m || r.status); }))
+    .then(r => {
+      editing = editDirty = false;
+      fileData = null;
+      const bar = content.querySelector(".edit-bar-diff");
+      if (bar) bar.remove();
+      if (diffView) diffView.close();
+      diffView = null;
+      setFileMsg(r.message, true);
+      // 保存後は差分を読み直す
+      loadTree(current, false).then(() => {
+        updateDiffBtn();
+        loadFileDiff(path);
+      });
+    })
+    .catch(e => {
+      if (btn) btn.disabled = false;
+      setFileMsg(e.message, false);
+    });
+}
+
 function loadFileBlame(path) {
   closeEditor();  // 表示のエディタ
   fileDiffBtn.hidden = true;

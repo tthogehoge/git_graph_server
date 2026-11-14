@@ -80,19 +80,35 @@ export function createTextEditor(opts) {
 //   collapse: 変更のない行を折りたたむか。vim: Vim モードにするか (読み取り専用なので、移動・検索・コピーのキーだけ働く。両側のペインに効く)。phrases: 検索パネルなどの文言の翻訳 (createTextEditor と同じ)。
 // 改行は LF として扱うので、改行コードだけの違いは差分に出ない (呼び出し側で、両側の改行コードを見て知らせる)。
 export function createDiffEditor(opts) {
+  // opts.editable: true なら変更後 (b) だけ編集できる (ファイル差分からの編集)。変更前 (a) は常に読み取り専用。
+  const editable = !!opts.editable;
   const vimSlot = new Compartment();
   const vimExtension = on => on ? vim({status: true}) : [];
-  const extensions = [
-    lineNumbers(), drawSelection(), EditorState.readOnly.of(true), highlightSelectionMatches(), search({top: true}),
+  const shared = [
+    lineNumbers(), drawSelection(), highlightSelectionMatches(), search({top: true}),
     EditorState.tabSize.of(4), EditorState.phrases.of(opts.phrases || {}),
     languageExtensions(opts.path || "") || [],
     Prec.high(vimSlot.of(vimExtension(!!opts.vim))),  // Vim のキーは、ほかのキー割り当てより先に効かせる
-    keymap.of([...searchKeymap, ...defaultKeymap]),
     THEME,
     EditorView.contentAttributes.of({spellcheck: "false", autocorrect: "off", autocapitalize: "off"}),
   ];
+  const aExt = [
+    ...shared, EditorState.readOnly.of(true),
+    keymap.of([...searchKeymap, ...defaultKeymap]),
+  ];
+  const bExt = editable ? [
+    ...shared, history(), highlightActiveLine(), EditorState.readOnly.of(false),
+    keymap.of([
+      {key: "Mod-s", preventDefault: true, run: () => { if (opts.onSave) opts.onSave(); return true; }},
+      ...searchKeymap, ...historyKeymap, ...defaultKeymap,
+    ]),
+    EditorView.updateListener.of(update => { if (update.docChanged && opts.onChange) opts.onChange(); }),
+  ] : [
+    ...shared, EditorState.readOnly.of(true),
+    keymap.of([...searchKeymap, ...defaultKeymap]),
+  ];
   const view = new MergeView({
-    a: {doc: opts.old, extensions: extensions}, b: {doc: opts.new, extensions: extensions},
+    a: {doc: opts.old, extensions: aExt}, b: {doc: opts.new, extensions: bExt},
     parent: opts.parent, highlightChanges: true, gutter: true,
     collapseUnchanged: opts.collapse ? {margin: 3, minSize: 4} : undefined,
   });
@@ -108,6 +124,7 @@ export function createDiffEditor(opts) {
       view.b.dispatch({selection: {anchor: dir > 0 ? 0 : view.b.state.doc.length}});
       return go(view.b);
     },
+    getText: () => view.b.state.doc.toString(),  // 変更後側の本文 (editable 時の保存用)
     setVim: on => { for (const v of [view.a, view.b]) v.dispatch({effects: vimSlot.reconfigure(vimExtension(on))}); },
     focus: () => view.b.focus(),
     remeasure: () => { view.a.requestMeasure(); view.b.requestMeasure(); },
