@@ -161,7 +161,7 @@ function resolveAllIn(view, choice) {
 //   onChange(conflictCount): 結果の内容が変わるたび (最初の 1 回を含む) に呼ぶ。
 export function createMergeEditor(opts) {
   const labels = opts.labels || {};
-  const readOnly = [EditorState.readOnly.of(true), lineNumbers(), THEME];
+  const readOnly = [EditorState.readOnly.of(true), lineNumbers(), THEME, EditorView.lineWrapping];
   const topView = new MergeView({
     a: {doc: opts.ours, extensions: readOnly},
     b: {doc: opts.theirs, extensions: readOnly},
@@ -182,7 +182,7 @@ export function createMergeEditor(opts) {
     state: EditorState.create({
       doc: opts.text,
       extensions: [lineNumbers(), history(), drawSelection(), highlightActiveLine(), keymap.of([...defaultKeymap, ...historyKeymap]),
-                   THEME, VIEW_SIZE, field,
+                   THEME, VIEW_SIZE, EditorView.lineWrapping, field,
                    EditorView.updateListener.of(update => { if (update.docChanged) notify(); })],
     }),
   });
@@ -217,14 +217,14 @@ const chunkCount = view => { const chunks = getChunks(view.state); return chunks
 // 矢印を赤くして、競合全体を ours / theirs で解決する (1 つの競合が複数の差分に分かれるので、先頭の矢印だけを出す)。
 export function createBaseMergeEditor(opts) {
   const labels = opts.labels || {};
-  const side = [EditorState.readOnly.of(true), lineNumbers(), THEME];
+  const side = [EditorState.readOnly.of(true), lineNumbers(), THEME, EditorView.lineWrapping];
   const field = conflictField(labels, false, null);
   let baseA = null, baseB = null, lastFocused = null;
   const arrows = [];  // 矢印ボタンの整理 (tidy) を、ペアごとに持つ
   const tidyAll = () => requestAnimationFrame(() => requestAnimationFrame(() => arrows.forEach(a => a.tidy())));  // ライブラリが矢印を測り直した後
   const notify = () => { if (opts.onChange && baseA) opts.onChange(conflictsOf(baseA, field).length); };
   const resultExtensions = (self, peer, withHistory) => [
-    lineNumbers(), drawSelection(), highlightActiveLine(), THEME, field, withHistory ? history() : [],
+    lineNumbers(), drawSelection(), highlightActiveLine(), THEME, EditorView.lineWrapping, field, withHistory ? history() : [],
     keymap.of([
       // 履歴は baseA だけが持つ。baseB で Ctrl+Z / Ctrl+Y を押したときも、baseA の履歴を戻す
       ...(withHistory ? historyKeymap : [
