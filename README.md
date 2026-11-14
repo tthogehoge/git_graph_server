@@ -93,6 +93,8 @@ When writing is enabled, check submodules in the list to update them. **Update s
 
 The content in the file view (`/files`) is shown in a read-only CodeMirror 6: line numbers, syntax highlighting, search (click the editor, then Ctrl+F), and jumping to a line with `#L12` in the URL. Syntax highlighting covers Python, JavaScript / TypeScript, Java, C / C++, Go, Rust, Ruby, SQL, shell, JSON, CSS, HTML / XML, Markdown and YAML. It does not depend on any external site, so it looks the same offline.
 
+Diffs are also unified in the right pane of the file view. The left pane's **WIP changes** tab shows the diff from HEAD to the working tree; **Commit** opens the shared commit form in the right pane. Legacy `/diff` URLs redirect to the corresponding file view.
+
 When writing is enabled, the **Edit** button in the file view of the working tree (WIP) edits the file in the same editor and saves it, with undo/redo, find and replace (Ctrl+F), go to line (Ctrl+G) and Ctrl+S to save. The line endings, character encoding and BOM of the original file are restored when saving.
 
 Tick **Vim mode** in the edit bar to edit with Vim keys (`:w` saves, `:q` quits, `:q!` discards changes and quits). The setting is remembered in the browser. The editor (about 1 MB) is loaded when a file's content is first shown, so a directory listing alone does not load it.
@@ -110,7 +112,7 @@ LANG=en_US.UTF-8 python git_graph_server.py
 
 ## External editor / diff tool (pywebview)
 
-When started through `git_graph_webview.py` (which passes `--desktop`), the file view of the working tree (WIP) gets an **External editor** button and the diff page gets an **External diff tool** button. Copy `git_graph_server.json.sample` to `git_graph_server.json` (next to `git_graph_server.py`, or pass `--config FILE`) and write the apps to use. Each command is a list (no shell is used):
+When started through `git_graph_webview.py` (which passes `--desktop`), the file view of the working tree (WIP) gets an **External editor** button and the diff view gets an **External diff tool** button. Copy `git_graph_server.json.sample` to `git_graph_server.json` (next to `git_graph_server.py`, or pass `--config FILE`) and write the apps to use. Each command is a list (no shell is used):
 
 - `editor`: `{path}` is replaced with the file. If omitted, the OS default editor is used (Windows "edit" association or Notepad, `open -t` on macOS, `xdg-open` on Linux).
 - `diff_tool`: `{left}` / `{right}` are the old / new files, `{left_title}` / `{right_title}` are labels. Content from commits or the index is written to read-only temporary files; the working-tree file is passed as is, so you can edit and save it in the tool. A single string (just the executable) means `[exe, "{left}", "{right}"]`.
@@ -127,7 +129,7 @@ These buttons work only with `--desktop` on a loopback address with writing enab
 | `--no-remotes` / `--no-tags` | Hide remotes / tags |
 | `--include-tips` | Include terminal commits without a branch or tag |
 | `--no-wip` | Hide the WIP node for uncommitted changes |
-| `--start {wip,graph}` | First page: `wip` (default) opens the file diff of uncommitted changes while the graph is built in the background; without any commits, it still opens the WIP file-diff page. `graph` opens the graph |
+| `--start {wip,graph}` | First page: `wip` (default) opens the diff of uncommitted changes in the file view while the graph is built in the background; without any commits, it still opens the WIP file view. `graph` opens the graph |
 | `--start-path PATH` | Redirect the first access to `/` to a path on this server (e.g. `/files?hash=...`), once. Only paths starting with `/` are accepted (no redirect to other sites). Used internally to open a submodule in another window |
 | `--no-count` | Do not check for collapsed commits (dashed/solid lines) |
 | `--cluster-min-nodes N` | Group nodes into year/month/day clusters (click to expand) when there are more than N (0 = never, default 1000) |

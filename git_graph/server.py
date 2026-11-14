@@ -44,7 +44,7 @@ from .external import DEFAULT_CONFIG_PATH, load_config
 from .launcher import api_submodule_open  # noqa: F401
 from .submodules import api_submodule_add, api_submodule_fetch, api_submodule_update  # noqa: F401
 from . import engine, tmpdir
-from .pages import diff_url, render_diff_page, render_files_page, render_merge_page, TEXT_EDITOR_JS, wip_files
+from .pages import diff_page_url, diff_url, render_files_page, render_merge_page, TEXT_EDITOR_JS, wip_files
 from .wip import api_status, api_wip_commit  # noqa: F401
 
 
@@ -107,8 +107,7 @@ DEFAULT_BODY_LIMIT = 100000
 
 def start_page_url():
     """最初に開く WIP 画面。一度きりで、2回目以降の / はグラフを出す。
-    グラフの作成は時間がかかるので、変更がある場合は WIP のファイル差分ページを先に出す。
-    コミットが無いリポジトリでも、WIP のファイル差分ページを開く。"""
+    グラフの作成は時間がかかるので、変更がある場合はファイル表示を先に出す。"""
     if state.START_PATH:  # 指定された画面を、一度だけ先に出す (WIP の画面は出さない)
         path, state.START_PATH, state.START_WIP = state.START_PATH, "", False
         return path
@@ -121,7 +120,7 @@ def start_page_url():
         return None
     if files:
         return diff_url({}, files[0])
-    return "/diff?wip=unstaged"  # 変更がなくてもグラフではなく WIP 画面を開く
+    return "/files?hash=WIP"  # 変更がなくてもグラフではなくファイル表示を開く
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -185,7 +184,11 @@ class Handler(BaseHTTPRequestHandler):
             elif u.path == "/patch":
                 self._send_download(*patch_download(q))
             elif u.path == "/diff":
-                self._send(200, "text/html", render_diff_page(q))
+                self.send_response(302)
+                self.send_header("Location", diff_page_url(q))
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
             elif u.path == "/merge":
                 self._send(200, "text/html", render_merge_page(q))
             else:

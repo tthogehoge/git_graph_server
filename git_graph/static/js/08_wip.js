@@ -13,9 +13,14 @@ const wipPanel = WipPanel.create({
     refreshGraph().catch(() => {});
     if (opts && opts.stash) loadStashes();
   },
-  onFiles: files => { curCtx = {}; curFiles = files; updatePageNav("WIP", files); },
+  onFiles: files => { curCtx = {}; curFiles = files; updatePageNav("WIP"); },
 });
 const wipSay = (text, ok) => wipPanel.say(text, ok);
+const wipCommitMenuBtn = document.getElementById("wipCommitMenuBtn");
+wipCommitMenuBtn.disabled = !DATA.writable || !WIP_ENABLED;
+wipCommitMenuBtn.addEventListener("click", () => {
+  if (!detailView.querySelector(".wip-panel")) showWip(false);
+});
 
 function wipPatchBarHtml(canWrite) {  // パッチ作成 (読み取りだけなので常時) と、書き込みが有効なときの適用 (git apply / git am)
   return '<div class="wippatch"><button class="wbtn" id="wipPatchCreate" title="' + esc(t("tip_patch_create_wip")) + '">' + esc(t("patch_create")) + '</button>' +
@@ -36,7 +41,7 @@ function showWip(fromHistory, okMsg) {
   document.body.classList.remove("compare-logs-mode");
   if (!fromHistory) pushScreen({screen: "wip"});
   setDocumentTitle(t("wip_title"));
-  updatePageNav("WIP", null);  // 変更ファイルを取る前でも、ファイル / 差分ボタンは WIP を開く (前に選んでいたコミットのままにしない)
+  updatePageNav("WIP");  // 変更ファイルを取る前でも、ファイルボタンは WIP を開く (前に選んでいたコミットのままにしない)
   const backIcon = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">' +
     '<path d="M13 8H3M7.5 3.5 3 8l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" ' +
     'stroke-linecap="round" stroke-linejoin="round"/></svg>';

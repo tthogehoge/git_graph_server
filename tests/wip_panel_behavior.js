@@ -91,7 +91,8 @@ const base = {head: "abc1234", head_message: "prev", staged: [], unstaged: [], u
   const w = new JSDOM("", {runScripts: "outside-only"}).window;
   w.eval(source + "; window.WipPanel = WipPanel;");
   const html = w.WipPanel.filesTable({hash: "abc"}, [file("d/x.txt", {old_path: "d/y.txt", st: "R"})], 0, {t: k => k});
-  check(html.includes("d/y.txt =&gt; d/x.txt") && html.includes("stR") && html.includes("hash=abc") && html.includes("path=d%2Fx.txt"), "filesTable: rename, badge, url");
+  check(html.includes("d/y.txt =&gt; d/x.txt") && html.includes("stR") && html.includes("hash=abc") &&
+        html.includes("file=d%2Fx.txt") && html.includes("view=diff"), "filesTable: rename, badge, file-view URL");
 
   if (failures.length) { console.error(failures.join("\n")); process.exit(1); }
   console.log("OK");

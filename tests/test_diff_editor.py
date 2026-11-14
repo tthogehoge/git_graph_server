@@ -224,17 +224,39 @@ class DiffEditorPageTests(unittest.TestCase):
         diff_page = pages.render_diff_page({"hash": [self.head], "path": ["f.txt"], "editor": ["1"]})
         self.assertIn('get("editor") === "1"', diff_page)  # /diff は、editor=1 でも最初から差分エディタで出す
 
+    def test_legacy_diff_urls_map_to_file_view_queries(self):
+        self.assertEqual(
+            pages.diff_page_url({"hash": [self.head], "path": ["f.txt"]}),
+            f"/files?hash={self.head}&path=&file=f.txt&view=diff",
+        )
+        self.assertEqual(
+            pages.diff_page_url({"from": [self.head], "wip": ["compare"], "path": ["f.txt"]}),
+            f"/files?hash=WIP&path=&file=f.txt&view=diff&dfrom={self.head}&dto=WIP",
+        )
+
     def test_the_files_page_left_pane_switches_between_the_file_list_and_the_changed_files(self):
         page = pages.render_files_page()
         for needle in ('id="sideTabs"', 'id="sideTreeBtn"', 'id="sideChangesBtn"', 'id="changes"', "Files</button>", "Changed files</button>"):
             self.assertIn(needle, page)
         files_html = pages.read_asset("files.html")
-        self.assertIn('sideTabs.hidden = !hash;', files_html)  # コミットも作業ツリーも出す (作業ツリーの「WIP の変更」は WIP パネル)
-        self.assertIn('wipBox.hidden = !changes;', files_html)
-        self.assertIn('openWipChange({path: q.get("path"), wip: q.get("wip"), old: q.get("old") || ""});', files_html)  # パネルのファイル名は、右ペインの差分で開く
-        self.assertIn('p.set("dwip", diffSel.wip);', files_html)  # staged / unstaged の別は URL に残し、再読み込みで復元する
-        self.assertIn("wipFilesChanged(files);", pages.render_files_page())  # WIP パネルが描き直すたびに、左ペインに知らせる
-        self.assertNotIn('document.getElementById("wipPanelBox").hidden = false;', pages.render_files_page())  # 出し入れは、タブ (applySideMode) が決める
+        self.assertIn('sideTabs.hidden = !hash;', files_html)  # コミットも作業ツリーも出す
+        self.assertIn('changesEl.hidden = !changes;', files_html)
+        self.assertIn('openWipChange(from && to', files_html)  # WIP の比較差分は、右ペインで開く
+        self.assertIn('p.set("dwip", diffSel.wip);', files_html)  # 差分の種類は URL に残し、再読み込みで復元する
+        self.assertIn("loadWipChanges();", files_html)  # WIP タブの比較一覧を読み込む
+        self.assertIn('return compareTo === "WIP" && compareFrom ? compareFrom : wipHead;', files_html)
+        self.assertIn("const seq = ++wipChangesSeq, head = wipCompareFrom();", files_html)
+        self.assertIn("wipCompareChanges[f.path] = f;", files_html)
+        self.assertIn("changeBadge(e, path, wipCompareChanges, wipCompareDirs, COMPARE_MARK_KEY", files_html)
+        self.assertIn('id="wipCommitView"', files_html)
+        self.assertNotIn('id="wipCommitOpen"', files_html)
+        self.assertIn('id="wipCommitMenuBtn"', page)
+        self.assertLess(page.index('id="wipCommitMenuBtn"'), page.index('id="pushBtn"'))
+        commit_menu = page[page.index('id="wipCommitMenuBtn"'):page.index("</button>", page.index('id="wipCommitMenuBtn"'))]
+        self.assertNotIn("hidden", commit_menu)
+        self.assertIn("wipCommitMenuBtn.disabled = !CAN_COPY;", files_html)
+        self.assertIn('else location.href = "/files?hash=WIP&wip_commit=1";', files_html)
+        self.assertIn('mountWipPanel(document.getElementById("wipCommitPanel"), {onFiles: wipFilesChanged})', pages.render_files_page())
         self.assertIn('history.pushState({path: current, file: path, view: "diff"}', files_html)  # 変更ファイルは、右ペインの差分で開く
         self.assertIn("gitGraphFilesSide", files_html)  # 選んだ表示は引き継ぐ
         self.assertIn('const rows = [...activeList().querySelectorAll(".entry")];', files_html)  # ↑↓ Enter は、出している方の一覧で働く

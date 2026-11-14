@@ -1,4 +1,4 @@
-// ファイル表示 / 差分ページの、共通メニューバー (static/menubar.html。グラフ画面と同じ部品) の動作。
+// ファイル表示の共通メニューバー (static/menubar.html。グラフ画面と同じ部品) の動作。
 // グラフ画面では js/ の部品が同じ部品を動かすので、ここは data-page がグラフ以外のときだけ働く。
 // 方針: その画面でできる操作はその場で行い、できない操作は隠さず無効にする (理由は title に出す)。
 // push / pull / fetch は wip_diff_remote.js。ダイアログの部品 (openDialog など) は diff_dialog.js、文言は T。
@@ -12,7 +12,7 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
   const bar = document.getElementById("compareToolbar");
   if (!bar || bar.dataset.page === "graph") return;
   const $ = id => document.getElementById(id);
-  const page = bar.dataset.page;  // "files" | "diff"
+  const page = bar.dataset.page;  // "files" (legacy "diff" URLs redirect here)
   const q = new URLSearchParams(location.search);
   const HASH = /^[0-9a-f]{7,40}$/;
   // いま表示しているコミット (作業ツリーなどは空)。差分はサーバーが data-commit に入れ、ファイル表示は URL の hash
@@ -39,10 +39,16 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
       if (q.get("file_view")) p.set("file_view", "1");
       return "/files?" + p;
     }
-    if (hash === "WIP") { p.set("wip", "unstaged"); return "/diff?" + p; }
     p.set("hash", hash);
     if (q.get("path")) p.set("path", q.get("path"));
-    return "/diff?" + p;
+    if (page === "diff" && q.get("path")) {
+      p.set("file", q.get("path")); p.set("view", "diff");
+      if (q.get("wip")) p.set("dwip", q.get("wip"));
+      if (q.get("old")) p.set("dold", q.get("old"));
+      if (q.get("from")) p.set("dfrom", q.get("from"));
+      if (q.get("to")) p.set("dto", q.get("to"));
+    }
+    return "/files?" + p;
   }
   async function headCommit() {
     const r = await getJson("/api/head");
@@ -73,9 +79,8 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
     $("unset" + slot + "Btn").addEventListener("click", () => { sel[key] = null; save(); closeMenus(); refresh(); });
   }
   $("compareBtn").addEventListener("click", () => {  // A と B の間の差分
-    const p = new URLSearchParams({from: sel.compareA, to: sel.compareB});
-    if (q.get("path")) p.set("path", q.get("path"));
-    go("/diff?" + p);
+    const p = new URLSearchParams({hash: sel.compareB, dfrom: sel.compareA, dto: sel.compareB});
+    go("/files?" + p);
   });
 
   // ---- 状態に合わせて、表示と有効 / 無効を決める ----
@@ -108,11 +113,12 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
   enable($("setABtn")); enable($("setBBtn")); enable($("unsetABtn")); enable($("unsetBBtn")); enable($("compareBtn"));
   enable($("quitBtn")); enable($("keyboardHelpBtn")); enable($("clearCmpBtn")); enable($("swapAbBtn")); enable($("backBtn"));
   enable($("wipBtn"), () => worktree); enable($("topBtn"));
+  enable($("wipCommitMenuBtn"), () => writable && worktree);
   enable(bar.querySelector('[data-cact="branch"]'), () => writable); enable(bar.querySelector('[data-cact="tag"]'), () => writable);
   enable(bar.querySelector('[data-cact="checkout"]'), () => writable && worktree); enable($("resetBtn"), () => writable && worktree);
   bar.querySelectorAll("#remoteActions [data-cact]").forEach(b => enable(b, () => writable && worktree));
   function applyUnavailable() {
-    const skip = new Set(["actionTarget", "cmpA", "cmpB", "cmpActToggle", "abActToggle", "otherMenuBtn", "reload", "rld", "reloadBtn", "navGraphBtn", "navFilesBtn", "navDiffBtn", "clearCmpBtn"]);
+    const skip = new Set(["actionTarget", "cmpA", "cmpB", "cmpActToggle", "abActToggle", "otherMenuBtn", "reload", "rld", "reloadBtn", "navGraphBtn", "navFilesBtn", "clearCmpBtn"]);
     bar.querySelectorAll("button").forEach(b => {
       if (skip.has(b.id)) return;
       const id = b.id || (b.dataset.cact && "cact:" + b.dataset.cact);

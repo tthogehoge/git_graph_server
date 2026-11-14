@@ -1,45 +1,23 @@
 
-let pageNavFetch = 0;  // 選択のたびに増やす。古い /api/commit の応答は無視する
-function pageNavIsStash(hash) {
-  return !!hash && (!!stashByHash[hash] || (typeof stashNameOf === "function" && !!stashNameOf(hash)));
-}
-function updatePageNav(hash, files) {
-  // 左上のファイル / 差分アイコンは、いつでも押せる。選択中のコミットを開き、何も選んでいないときは HEAD (まだコミットが無ければ作業ツリー) を開く。
-  // 差分は、変更ファイルが分かっていればその先頭のファイルを、分からなければファイルを選ばない一覧を開く (/diff はファイル未選択でも開ける)
+function updatePageNav(hash) {
+  // 左上のファイルアイコンは、選択中のコミットを開く。何も選んでいないときは HEAD (まだコミットが無ければ作業ツリー) を開く。
   const filesBtn = document.getElementById("navFilesBtn");
-  const diffBtn = document.getElementById("navDiffBtn");
-  if (!filesBtn || !diffBtn) return;
+  if (!filesBtn) return;
   const open = build => {
     if (hash) { location.href = build(hash); return; }
     fetch("/api/head").then(r => r.ok ? r.json() : r.text().then(m => { throw new Error(m || r.status); }))
       .then(r => { location.href = build(r.head || "WIP"); })
       .catch(e => setGraphStatus(e.message, "error"));
   };
-  const diffUrlFor = h => {
-    const f = files && files.length ? files[0] : null;
-    if (h === "WIP") return "/diff?" + new URLSearchParams(f ? {hash: h, path: f.path, wip: f.wip || "unstaged"} : {wip: "unstaged"});
-    const p = {hash: h};
-    if (f) { p.path = f.path; if (f.old_path) p.old = f.old_path; if (f.wip) p.wip = f.wip; }
-    return "/diff?" + new URLSearchParams(p);
-  };
   filesBtn.disabled = false;
   filesBtn.onclick = () => open(h => "/files?hash=" + encodeURIComponent(h));
-  diffBtn.disabled = false;
-  diffBtn.onclick = () => open(diffUrlFor);
 }
 function updatePageNavForSelection(hash) {
-  // 1回目のクリック (詳細を開く前) でもファイルを有効にし、差分は変更一覧を取ってから有効にする
-  updatePageNav(hash, null);
-  if (!hash || pageNavIsStash(hash)) return;  // スタッシュは変更ファイルを取らない (差分ボタンはファイルを選ばない一覧を開く)
-  const seq = ++pageNavFetch;
-  api("/api/commit", {hash: hash}).then(c => {
-    if (seq !== pageNavFetch || actionHash !== hash) return;
-    updatePageNav(hash, c.files || []);
-  }).catch(() => {});
+  updatePageNav(hash);
 }
 
 // 差分の URL・変更の種類のバッジ・ファイルの一覧は、WIP の一覧と同じ 3 画面共通の部品 (wip_panel.js)。
-// 差分は別ページ (/diff) で開く。ctx は {hash} (1コミット) または {from, to} (2コミット間の比較)
+// 差分はファイル表示の右ペインで開く。ctx は {hash} (1コミット) または {from, to} (比較)
 const diffUrl = WipPanel.diffUrl, badge = WipPanel.badge, dirOf = WipPanel.dirOf;
 function filesHtml(ctx, files, offset) { return WipPanel.filesTable(ctx, files, offset, {t: t}); }
 
@@ -422,7 +400,7 @@ function showDetail(h, fromHistory) {
     if (loadingTimer) clearTimeout(loadingTimer);
     curCtx = {hash: c.hash}; curFiles = c.files; curDetailHash = c.hash;
     if (!detailNavCursor) detailNavCursor = c.hash;
-    updatePageNav(c.hash, c.files);
+    updatePageNav(c.hash);
     const parents = c.parents.map(p => esc(p.slice(0, 7))).join(", ") || t("none");
     detailView.innerHTML = detailNavButtonsHtml(c.hash, c.parents) +
       "<h2>" + t("commit_label") + " " + esc(c.hash.slice(0, 7)) + "</h2>" +

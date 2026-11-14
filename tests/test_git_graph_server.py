@@ -857,6 +857,18 @@ class WorkingTreeFilesTests(unittest.TestCase):
         self.assertEqual(cm.exception.code, 400)
         cm.exception.close()
 
+    def test_legacy_diff_route_redirects_into_the_file_view(self):
+        server = app.QuietServer(("127.0.0.1", 0), app.Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        base = f"http://127.0.0.1:{server.server_address[1]}"
+        with urlopen(base + "/diff?wip=unstaged&path=README.md") as response:
+            self.assertTrue(response.geturl().startswith(base + "/files?"))
+            page = response.read().decode("utf-8")
+            self.assertIn('id="wipCommitView"', page)
+
     def test_post_git_command_failure_returns_http_500(self):
         previous = (state.WRITABLE, state.OPTS)
         state.WRITABLE, state.OPTS = True, SimpleNamespace(host="127.0.0.1")
@@ -1615,14 +1627,14 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertIn("/api/patch-am", page)
         self.assertIn("/api/patch-apply", page)
 
-    def test_start_page_is_first_wip_file_diff_and_only_once(self):
+    def test_start_page_is_first_wip_file_in_the_unified_file_view_and_only_once(self):
         from git_graph import server
         previous = (state.START_WIP, state.WRITABLE)
         self.addCleanup(lambda: (setattr(state, "START_WIP", previous[0]), setattr(state, "WRITABLE", previous[1])))
         state.START_WIP = state.WRITABLE = True
         self.write_file("tracked.txt", "changed\n")
 
-        self.assertEqual(server.start_page_url(), "/diff?path=tracked.txt&wip=unstaged")
+        self.assertEqual(server.start_page_url(), "/files?hash=WIP&path=&file=tracked.txt&view=diff&dwip=unstaged")
         self.assertIsNone(server.start_page_url())  # 一度だけ。2回目以降の / (topボタンなど) はグラフ
 
         state.START_WIP = True
@@ -1631,7 +1643,7 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         state.WRITABLE = True
         self.git("checkout", "--", "tracked.txt")
         state.START_WIP = True
-        self.assertEqual(server.start_page_url(), "/diff?wip=unstaged")
+        self.assertEqual(server.start_page_url(), "/files?hash=WIP")
         page = viewer.render_diff_page({"wip": ["unstaged"]})
         self.assertIn(f"<h1>{tr('no_changes')}", page)
         self.assertIn(f">{tr('no_diff')}<", page)
@@ -1659,7 +1671,8 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
             self.assertEqual(response.status, 200)
         with self.assertRaises(HTTPError) as cm:
             opener.open(base + "/")
-        self.assertEqual((cm.exception.code, cm.exception.headers["Location"]), (302, "/diff?path=tracked.txt&wip=unstaged"))
+        self.assertEqual((cm.exception.code, cm.exception.headers["Location"]),
+                         (302, "/files?hash=WIP&path=&file=tracked.txt&view=diff&dwip=unstaged"))
         cm.exception.close()
         with opener.open(base + "/") as response:  # 2回目はグラフの画面
             self.assertEqual(response.status, 200)
@@ -1792,7 +1805,7 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
                 self.assertRegex(page, r'<a class="sbtn iconbtn page-nav" id="navGraphBtn" href="/')
                 self.assertNotRegex(page, r'<button[^>]*id="navFilesBtn"')
 
-    def test_wip_commit_form_is_one_shared_implementation_on_all_screens(self):
+    def test_wip_commit_form_is_shared_between_graph_and_file_view(self):
         # グラフ・ファイル表示・差分は、WIP の一覧とコミットフォームに、同じ 1 つの実装 (wip_panel.js) を使う。
         # 画面ごとに作り直すと、amend や差分マークが画面によって違ってしまうため
         from git_graph.i18n import render_app_js
@@ -1822,9 +1835,9 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         for name in ("diff", "diff-amend"):
             self.assertIn('id="wipPanel"', pages[name])
             self.assertIn('mountWipPanel(document.getElementById("wipPanel"), {diff: true})', pages[name])
-        self.assertIn('id="wipPanelBox"', pages["files"])
-        self.assertRegex(pages["files"], r'<details id="wipPanelBox" class="wip-box" hidden><summary>')  # ファイル表示では畳んでおく (open を付けない)
-        self.assertIn('id="wipPanelCount"', pages["files"])  # 畳んでいても、変更のあるファイルの数が見出しに出る
+        self.assertIn('id="wipCommitPanel"', pages["files"])
+        self.assertIn('id="wipCommitView"', pages["files"])
+        self.assertIn('mountWipPanel(document.getElementById("wipCommitPanel"), {onFiles: wipFilesChanged})', pages["files"])
         self.assertIn('get("hash") === "WIP"', pages["files"])  # 作業ツリーを開いているときだけ出す
         self.assertIn("wipPanel.render(detailView", pages["graph"])
 
@@ -1833,7 +1846,7 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         page = viewer.render_diff_page({"hash": [head], "path": ["tracked.txt"]})
         self.assertNotIn('id="wipPanel"', page)
         self.assertNotIn("WipPanel", page)  # コミットの表示にはコミットフォームは要らない
-        self.assertIn('href="/diff?', page)
+        self.assertIn('href="/files?', page)
 
     def test_commit_diff_page_without_a_file_lists_the_files(self):
         head = self.git("rev-parse", "HEAD").strip()
@@ -3513,12 +3526,13 @@ class ExternalAppsTests(unittest.TestCase):
 
     def test_navigation_icon_buttons_and_quit_in_other_menu(self):
         diff = viewer.render_diff_page({"hash": [self.second], "path": ["a.txt"]})
-        self.assertIn('class="iconbtn current page-nav"', diff)  # 差分ページは差分アイコンを強調
+        self.assertIn('class="iconbtn current page-nav" id="navFilesBtn"', diff)  # 差分表示もファイル表示に統一
+        self.assertNotIn('id="navDiffBtn"', diff)
         self.assertIn('id="backBtn"', diff)
         self.assertIn(f'href="/?select_hash={self.second}"', diff)  # グラフへ (戻ったとき選択コミットを復元する)
         files = viewer.render_files_page()
         self.assertIn('class="sbtn iconbtn page-nav" id="navGraphBtn" href="/"', files)  # グラフへ (選択コミットの復元は JS が href を書き換える)
-        self.assertIn('id="navDiffBtn"', files)
+        self.assertNotIn('id="navDiffBtn"', files)
         self.assertIn('id="backBtn"', files)
         from git_graph.i18n import render_main_page
         index = render_main_page()
@@ -3530,7 +3544,7 @@ class ExternalAppsTests(unittest.TestCase):
         self.assertLess(index.index('id="reload"'), index.index('id="undoBtn"'))  # 更新 → undo
         self.assertLess(index.index('id="undoBtn"'), index.index('id="redoBtn"'))  # undo → redo
         self.assertIn('id="navFilesBtn"', index)
-        self.assertIn('id="navDiffBtn"', index)
+        self.assertNotIn('id="navDiffBtn"', index)
         self.assertEqual(index.count('id="quitBtn"'), 1)
 
     def test_main_page_menubar_layout(self):
@@ -3651,8 +3665,8 @@ class EmptyRepoTests(unittest.TestCase):
                     old_repo, old_wip, old_opts, old_writable, old_worktree
                 )
 
-    def test_start_wip_without_head_opens_wip_diff_page(self):
-        """コミットが無くても --start wip はファイル差分ページを開き、初回コミットできる。"""
+    def test_start_wip_without_head_opens_unified_file_view(self):
+        """コミットが無くても --start wip はファイル表示を開き、初回コミットできる。"""
         from git_graph import server
         with tempfile.TemporaryDirectory() as tmpdir:
             subprocess.run(["git", "init", "-q", tmpdir], check=True)
@@ -3663,13 +3677,13 @@ class EmptyRepoTests(unittest.TestCase):
                 state.WRITABLE = True
                 state.HAS_WORKTREE = True
                 state.START_WIP = True
-                self.assertEqual(server.start_page_url(), "/diff?wip=unstaged")
+                self.assertEqual(server.start_page_url(), "/files?hash=WIP")
                 empty_page = viewer.render_diff_page({"wip": ["unstaged"]})
                 self.assertIn(tr("no_changes"), empty_page)
                 state.START_WIP = True
                 with open(os.path.join(tmpdir, "f.txt"), "w") as f:
                     f.write("x\n")
-                self.assertEqual(server.start_page_url(), "/diff?path=f.txt&wip=untracked")
+                self.assertEqual(server.start_page_url(), "/files?hash=WIP&path=&file=f.txt&view=diff&dwip=untracked")
                 diff = app.api_diff({"path": ["f.txt"], "wip": ["untracked"]})
                 self.assertIn("+x\n", diff["diff"])
                 page = viewer.render_diff_page({"path": ["f.txt"], "wip": ["untracked"]})
@@ -3677,7 +3691,7 @@ class EmptyRepoTests(unittest.TestCase):
 
                 subprocess.run(["git", "-C", tmpdir, "add", "f.txt"], check=True)
                 state.START_WIP = True
-                self.assertEqual(server.start_page_url(), "/diff?path=f.txt&wip=staged")
+                self.assertEqual(server.start_page_url(), "/files?hash=WIP&path=&file=f.txt&view=diff&dwip=staged")
                 staged_diff = app.api_diff({"path": ["f.txt"], "wip": ["staged"]})
                 self.assertIn("+x\n", staged_diff["diff"])
             finally:

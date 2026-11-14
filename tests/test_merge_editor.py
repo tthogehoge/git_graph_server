@@ -213,7 +213,7 @@ class MergeEditorTests(unittest.TestCase):
         self.assertIn("createMergeEditor", page)
         self.assertIn('const MERGE_PATH = "f.txt";', page)
         self.assertIn("const I18N =", page)
-        self.assertIn('href="/diff?wip=conflict&amp;path=f.txt"', page)  # 差分ページへ戻るリンク
+        self.assertIn('href="/files?hash=WIP&amp;path=&amp;file=f.txt&amp;view=diff&amp;dwip=conflict"', page)
         for placeholder in ("/*__MERGE", "__PATH__", "__BACK__", "__PROJECT__", "__FAVICON__", "{{"):
             self.assertNotIn(placeholder, page, placeholder)
         self.assertEqual(page.count("</script>"), page.count("<script>"))  # 埋め込んだ JS の中に </script> が混ざっていない

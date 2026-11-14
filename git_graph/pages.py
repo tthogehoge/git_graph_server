@@ -1,4 +1,4 @@
-# HTML ページ (/diff 差分ページと /files ファイル表示ページ) の組み立て。
+# HTML ページ (/files ファイル表示ページと /merge マージエディタ) の組み立て。
 import html
 import json
 import os
@@ -78,11 +78,10 @@ MENUBAR_TEXT_KEYS = (
 _SVG = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">{p}</svg>'
 _ICON_GRAPH = _SVG.format(p='<path d="M2 8 8 2.5 14 8M3.8 7v6.5h3V10h2.4v3.5h3V7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>')
 _ICON_FILES = _SVG.format(p='<path d="M4 2.5h5.5L12 5v8.5H4zM9.5 2.5V5H12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>')
-_ICON_DIFF = _SVG.format(p='<path d="M2.5 3h4v10h-4zM9.5 3h4v10h-4zM7.2 5.5v5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>')
 
 
-def page_nav_html(current, files_href=None, diff_href=None, graph_href="/"):
-    """グラフ / ファイル / 差分の切り替え。current は 'graph'|'files'|'diff'。
+def page_nav_html(current, files_href=None, graph_href="/"):
+    """グラフ / ファイル表示の切り替え。current は 'graph'|'files'|'diff'。
     href が無い項目は無効ボタン。今のページは .current で強調する。
     graph_href に select_hash を付けると、グラフに戻ったときに選択を復元する。"""
     def item(kind, href, label_key, svg):
@@ -96,22 +95,23 @@ def page_nav_html(current, files_href=None, diff_href=None, graph_href="/"):
                     f'{svg}</a>')
         return (f'<button type="button" class="sbtn iconbtn page-nav" {ident} disabled title="{label}" aria-label="{label}">'
                 f'{svg}</button>')
+    if current == "diff":
+        current = "files"
     return (item("graph", graph_href, "nav_graph", _ICON_GRAPH)
-            + item("files", files_href, "nav_files", _ICON_FILES)
-            + item("diff", diff_href, "nav_diff", _ICON_DIFF))
+            + item("files", files_href, "nav_files", _ICON_FILES))
 
 
 EXT_DIFF_JS = read_asset("ext_diff.js")
 DIFF_PATCH_JS = read_asset("diff_patch.js")
 
 
-def menubar_html(page, *, files_href=None, diff_href=None, graph_href="/", reload_id="reload", reload_enabled=False,
+def menubar_html(page, *, files_href=None, graph_href="/", reload_id="reload", reload_enabled=False,
                  commit="", wip=False):
-    """全画面 (グラフ / ファイル表示 / 差分) 共通のメニューバー。static/menubar.html を 1 つの定義として使い、
+    """全画面 (グラフ / ファイル表示) 共通のメニューバー。static/menubar.html を 1 つの定義として使い、
     ページごとに変わるのは、ページ切り替えのリンク・再読み込みボタンの id と有効 / 無効・data 属性だけ。
     その画面でできない操作は、page_menubar.js (グラフ以外の画面) が無効にする。
     commit: 表示中のコミット (作業ツリーなどは空)。wip: 作業ツリーの変更を表示している。"""
-    out = fill_template(MENUBAR_TEMPLATE).replace("<!--__NAV__-->", page_nav_html(page, files_href, diff_href, graph_href))
+    out = fill_template(MENUBAR_TEMPLATE).replace("<!--__NAV__-->", page_nav_html(page, files_href, graph_href))
     reload_old = '<button id="reload" class="sbtn iconbtn" disabled'
     assert reload_old in out
     out = out.replace(reload_old, f'<button id="{reload_id}" class="sbtn iconbtn"' + ("" if reload_enabled else " disabled"), 1)
@@ -189,12 +189,48 @@ def localized_wip_title(kind):
 
 
 def diff_url(ctx, f):
-    params = dict(ctx, path=f["path"])
-    if f.get("wip"):
-        params["wip"] = f["wip"]
+    ctx = ctx or {}
+    params = {
+        "hash": ctx.get("hash") or ctx.get("to") or "WIP",
+        "path": dir_of(f["path"]),
+        "file": f["path"],
+        "view": "diff",
+    }
+    if ctx.get("from"):
+        params["dfrom"] = ctx["from"]
+    if ctx.get("to"):
+        params["dto"] = ctx["to"]
+    elif ctx.get("wip") == "compare":
+        params["dto"] = "WIP"
+    if f.get("wip") and ctx.get("wip") != "compare":
+        params["dwip"] = f["wip"]
     if f.get("old_path"):
-        params["old"] = f["old_path"]
-    return "/diff?" + urlencode(params)
+        params["dold"] = f["old_path"]
+    return "/files?" + urlencode(params)
+
+
+def diff_page_url(q):
+    """Convert a legacy /diff URL to the equivalent file-display URL."""
+    path = q.get("path", [""])[0]
+    wip = q.get("wip", [""])[0]
+    if not path:
+        target = WIP_HASH if wip or q.get("to", [""])[0] == WIP_HASH else (
+            q.get("to", [""])[0] or q.get("hash", [""])[0] or WIP_HASH)
+        return "/files?" + urlencode({"hash": target})
+    if wip == "compare":
+        ctx = {"from": q.get("from", [""])[0], "wip": "compare"}
+    elif wip:
+        ctx = {}
+    elif "from" in q:
+        ctx = {"from": q.get("from", [""])[0], "to": q.get("to", [WIP_HASH])[0]}
+    else:
+        ctx = {"hash": q.get("hash", [""])[0]}
+    f = {"path": path}
+    if wip and wip != "compare":
+        f["wip"] = wip
+    if q.get("old", [""])[0]:
+        f["old_path"] = q["old"][0]
+    return diff_url(ctx, f)
 
 
 def commit_line_html(label, c):
@@ -413,14 +449,10 @@ def render_diff_page(q):
 
 def render_files_page():
     remote = bar_has_remote()
-    # 作業ツリー (hash=WIP) を開いているときは、左ペインに、グラフ・差分と共通の WIP の一覧とコミットフォームを置く。
-    # 左ペインの「ファイル一覧 / WIP の変更」で選んだときだけ出す (files.html の applySideMode)。パネルのファイル名は、右ペインに差分を出す
+    # 作業ツリー (hash=WIP) のコミット関連操作は、ファイル表示の右ペインに共通 WIP パネルを置く。
     mount = ('if (new URLSearchParams(location.search).get("hash") === "WIP") {\n'
-             '  mountWipPanel(document.getElementById("wipPanel"), {onFiles: files => {\n'
-             '    const n = new Set(files.map(f => f.path)).size;\n'
-             '    document.getElementById("wipPanelCount").textContent = n ? " (" + n + ")" : "";\n'
-             '    wipFilesChanged(files);\n'
-             '  }});\n}')
+             '  mountWipPanel(document.getElementById("wipCommitPanel"), {onFiles: wipFilesChanged});\n'
+             '}')
     menubar_js = "\n".join((menubar_dialog_js([*WIP_PANEL_TEXT_KEYS, *(REMOTE_TEXT_KEYS if remote else ())]), PAGE_MENUBAR_JS,
                             WIP_PANEL_JS, WIP_PANEL_MOUNT_JS, WIP_DIFF_REMOTE_JS if remote else "", mount))
     # グラフへ戻るリンクと差分ボタンは、ページの JS が表示中のコミット / ファイルに合わせて付け替える
@@ -440,7 +472,7 @@ def render_files_page():
 def render_merge_page(q):
     """競合しているファイルのマージエディタ (/merge?path=...)。内容は /api/merge-sources で読み込む。"""
     path = validate_file_path(q.get("path", [""])[0], allow_empty=False)
-    back = "/diff?" + urlencode({"wip": "conflict", "path": path})
+    back = diff_url({}, {"path": path, "wip": "conflict"})
     values = {"PATH": html.escape(path), "BACK": html.escape(back)}
     page = re.sub(r"__(PATH|BACK)__", lambda m: values[m.group(1)],  # 1 回の置換で済ませる (パスの中に __BACK__ があっても置き換えない)
                   with_project(fill_template(MERGE_PAGE)).replace('<html lang="ja">', f'<html lang="{state.UI_LANG}">'))

@@ -23,12 +23,16 @@ const WipPanel = (function () {
   const esc = s => String(s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
   const dirOf = path => { const i = path.lastIndexOf("/"); return i < 0 ? "" : path.slice(0, i); };
   const badge = f => f.st ? '<span class="st ' + (ST_CLASS[f.st] || "stM") + '">' + esc(f.st) + "</span>" : "";
-  // 差分は別ページ (/diff) で開く。ctx は {hash} (1コミット) または {from, to} (2コミット間の比較)
+  // 差分はファイル表示の右ペインで開く。ctx は {hash} (1コミット) または {from, to} (比較)
   function diffUrl(ctx, f) {
-    const p = Object.assign({}, ctx, {path: f.path});
-    if (f.old_path) p.old = f.old_path;
-    if (f.wip) p.wip = f.wip;  // 作業ツリーの変更 (staged / unstaged / untracked / conflict / amend)
-    return "/diff?" + new URLSearchParams(p);
+    ctx = ctx || {};
+    const p = {hash: ctx.hash || ctx.to || "WIP", path: dirOf(f.path), file: f.path, view: "diff"};
+    if (ctx.from) p.dfrom = ctx.from;
+    if (ctx.to) p.dto = ctx.to;
+    else if (ctx.wip === "compare") p.dto = "WIP";
+    if (f.wip && ctx.wip !== "compare") p.dwip = f.wip;
+    if (f.old_path) p.dold = f.old_path;
+    return "/files?" + new URLSearchParams(p);
   }
   let openDirs = new Set();  // 開いているディレクトリ ("種別|パス")
   try { openDirs = new Set(JSON.parse(sessionStorage.getItem(OPEN_KEY) || "[]")); } catch (e) { /* 読めなければ全部畳んだまま */ }

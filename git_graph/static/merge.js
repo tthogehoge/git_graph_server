@@ -101,7 +101,7 @@ function save(resolve) {
       if (!resolve) { say(t("merge_saved"), true); return null; }
       return post("/api/resolve", {paths: [MERGE_PATH], side: "current"}).then(() => {
         say(t("merge_resolved"), true);
-        location.href = "/diff?wip=unstaged";  // 残りの競合は、WIP 画面の一覧に出る
+        location.href = "/files?hash=WIP";  // 残りの競合は、ファイル表示の WIP 一覧に出る
       });
     })
     .catch(e => say(e.message, false))
