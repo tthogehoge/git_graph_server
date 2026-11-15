@@ -538,6 +538,9 @@ function renderWipChanges() {
   updateSelBar();
   updateDiffBtn();
   markWipCurrent();
+  // 再描画で要素が消えるので選択を付け直す（同一パスが複数グループにある場合も先頭の1つだけ）
+  selectedEntry = null;
+  if (sideMode === "changes") syncChangesSelection();
 }
 let wipChangesSeq = 0;
 function wipCompareFrom() {
@@ -633,6 +636,7 @@ changesEl.addEventListener("click", ev => {
   const path = q.get("file");
   if (!path) return;
   ev.preventDefault();
+  selectEntry(row);  // クリックした行を選択状態にする（open の途中で再描画されても付く）
   const from = q.get("dfrom"), to = q.get("dto");
   openWipChange(from && to
     ? {path: path, from: from, to: to, wip: "compare", old: q.get("dold") || ""}
@@ -773,7 +777,8 @@ function openEntry(path, type) { return type === "change" ? openChange(path) : t
 // ファイル一覧は .entry、変更ファイル (コミット) も .entry、WIP 変更は table.files の tr.frow
 let selectedEntry = null;
 function selectEntry(el) {
-  if (selectedEntry) selectedEntry.classList.remove("selected");
+  // 再描画や同一パスの複数行（staged/unstaged）などで複数に .selected が付くのを防ぐ
+  document.querySelectorAll("#list .entry.selected, #changes .entry.selected, #changes tr.frow.selected").forEach(e => e.classList.remove("selected"));
   selectedEntry = el || null;
   if (selectedEntry) {
     selectedEntry.classList.add("selected");
