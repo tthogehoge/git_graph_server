@@ -461,7 +461,11 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
   });
   document.addEventListener("click", ev => { if (!ev.target.closest(".menu-wrap")) closeMenus(); });
   document.addEventListener("keydown", ev => { if (ev.key === "Escape") closeMenus(); });
-  bar.querySelectorAll(".dropdown .abtn").forEach(b => b.addEventListener("click", () => closeMenus()));
+  bar.querySelectorAll(".dropdown .abtn").forEach(b => b.addEventListener("click", () => {
+    // パッチ適用は patch_ops が stopImmediatePropagation する。ここでも閉じないよう除外する
+    if (b.id === "wipPatchApplyBtn" || b.id === "wipPatchAmBtn") return;
+    closeMenus();
+  }));
 
   // ---- ブランチ・タグの作成 (操作の対象のコミットに対して) ----
   async function targetCommit() {

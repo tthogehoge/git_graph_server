@@ -268,6 +268,8 @@ document.getElementById("compareToolbar").addEventListener("click", ev => {
   }
 });
 document.getElementById("compareToolbar").addEventListener("click", ev => {  // メニューの項目を選んだら閉じる
+  // パッチ適用はファイル選択を開く。ここで閉じるとダイアログがキャンセルされる (patch_ops が選択/キャンセル後に閉じる)
+  if (ev.target.closest("#wipPatchApplyBtn, #wipPatchAmBtn")) return;
   if (ev.target.closest(".dropdown .abtn:not([data-set-cmp])")) closeMenus();  // 無効なボタンはクリック自体が発火しない
 });
 const toolbar = document.getElementById("compareToolbar");
