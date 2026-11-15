@@ -1689,6 +1689,11 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertNotIn("wipPatchBarHtml", js)  # 右ペインの WIP にはもう置かない
         self.assertNotIn("function downloadPatch", js)
         self.assertNotIn("function pickPatchFile", js)
+        # writable はグラフを読み込んで初めて分かるので、起動時だけでなく setGraphData でも有効・無効を更新する
+        self.assertIn("function updatePatchMenu()", js)
+        body = js[js.index("function setGraphData(r) {"):]
+        body = body[:body.index("\n}\n")]
+        self.assertIn("updatePatchMenu();", body)
 
     def test_start_page_is_first_wip_file_in_the_unified_file_view_and_only_once(self):
         from git_graph import server

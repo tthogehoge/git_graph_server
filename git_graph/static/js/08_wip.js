@@ -32,8 +32,12 @@ PatchOps.bind({
     if (detailView.querySelector(".wip-panel")) { wipPanel.reset(false); showWip(true, r.message); }
   },
 });
-document.getElementById("wipPatchCreateBtn").disabled = !WIP_ENABLED;  // 作成は読み取りだけなので、書き込みが無効でも使える
-document.getElementById("wipPatchApplyBtn").disabled = document.getElementById("wipPatchAmBtn").disabled = !DATA.writable || !WIP_ENABLED;
+// 作成は読み取りだけなので書き込みが無効でも使える。適用は書き込めるときだけ。DATA.writable はグラフを読み込んで初めて入るので、setGraphData からも呼ぶ
+function updatePatchMenu() {
+  document.getElementById("wipPatchCreateBtn").disabled = !WIP_ENABLED;
+  document.getElementById("wipPatchApplyBtn").disabled = document.getElementById("wipPatchAmBtn").disabled = !DATA.writable || !WIP_ENABLED;
+}
+updatePatchMenu();
 function showWip(fromHistory, okMsg) {
   document.body.classList.remove("compare-logs-mode");
   if (!fromHistory) pushScreen({screen: "wip"});

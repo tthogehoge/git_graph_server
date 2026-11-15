@@ -243,6 +243,7 @@ function setGraphData(r) {
   DATA = {nodes: r.nodes, edges: r.edges, writable: r.writable, merge: r.merge,
           clusters: r.clusters, clusterOf: r.clusterOf, open: r.open};
   openClusters = r.open || [];  // サーバーが数を絞った後の、開いているクラスター
+  updatePatchMenu();  // 書き込めるかどうか (writable) が分かったので、「その他」のパッチ適用の有効・無効を更新する
   revealTargets.delete("cmpA");
   revealTargets.delete("cmpB");
   locateCache.clear();
