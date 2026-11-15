@@ -116,6 +116,7 @@ __FAVICON__
 <div id="fileActions" class="file-actions" hidden><button id="fileCommitLogBtn">{{log}}</button><button id="fileLogBtn">{{file_log}}</button><button id="fileBlameBtn">{{file_blame}}</button><button id="fileDiffBtn">{{file_diff}}</button><button id="fileContentBtn" hidden>{{file_content}}</button><button id="fileEditBtn">{{file_edit}}</button><button id="fileMergeBtn" title="{{tip_merge_editor}}" hidden>{{merge_editor}}</button><button id="fileExtEditBtn" title="{{tip_open_editor}}">{{open_editor}}</button><button id="fileExtDiffBtn" title="{{tip_open_diff_tool}}" hidden>{{open_diff_tool}}</button><button id="fileGraphLogBtn" hidden>{{file_log_graph}}</button><button id="fileCopyBtn">{{copy_to_work}}</button><button id="fileDownloadBtn">{{file_download}}</button><button id="fileRmBtn" title="{{tip_rm_file}}">{{rm_button}}</button><button id="fileRmCachedBtn" title="{{tip_rm_cached_file}}">{{rm_cached_button}}</button><span id="fileMsg" class="msg"></span></div>
 <div id="content" class="hint">{{select_file_hint}}</div></div><section id="wipCommitView" hidden><h2>{{wip_title}} <button type="button" class="sbtn" id="wipCommitBack">{{back_history}}</button></h2><div id="wipCommitPanel"></div></section></main>
 </div>
+<script>/*__LOG_SELECT__*/</script>
 <script>/*__PANE_RESIZE__*/</script>
 <script>/*__DIFF_EDITOR_VIEW__*/</script>
 <script>
@@ -1145,10 +1146,12 @@ function clearFile() {  // ファイルを選ぶ前の表示に戻す
   content.className = "hint";
   content.textContent = t("select_file_hint");
 }
-function fileLogRow(c) {  // ログの 1 行: ハッシュ・日付・作者・(ブランチ / タグ +) 件名
-  return '<tr class="file-log-row" data-hash="' + esc(c[0]) + '"><td class="hash"><a class="commit-graph" href="/?commit_hash=' + encodeURIComponent(c[0]) + '">' + esc(c[1]) + '</a>' +
+function fileLogRow(c) {  // ログの 1 行: ハッシュ・日付・作者・(ブランチ / タグ +) 件名。操作の対象 / A / B の行は強調する (グラフのログと同じ。log_select.js)
+  const marks = LogSel.kinds(c[0], LogSel.load());
+  return '<tr class="file-log-row' + (marks ? ' ' + marks : '') + '" data-hash="' + esc(c[0]) + '"><td class="hash"><a class="commit-graph" href="/?commit_hash=' + encodeURIComponent(c[0]) + '">' + esc(c[1]) + '</a>' +
     '</td><td class="date">' + esc(c[3]) + '</td><td class="author">' + esc(c[2]) + '</td><td>' + refChips(c[0]) + esc(c[4]) + '</td></tr>';
 }
+LogSel.onChange(sel => LogSel.markRows(content, sel));  // メニューで対象 / A / B を変えたら、表示中のログの強調も付け直す
 function dirLogCells(c) {  // 最終コミットのセル (ハッシュ・件名・日付)。c が無ければ空 (まだ読み込み中 / 履歴に見つからない)
   if (!c) return '<td class="hash"></td><td class="dir-msg"></td><td class="date"></td>';
   return '<td class="hash"><a class="commit-graph" href="/?commit_hash=' + encodeURIComponent(c[0]) + '">' + esc(c[1]) + '</a></td><td class="dir-msg" title="' + esc(c[4]) + '">' +

@@ -411,7 +411,7 @@ class GitApiIntegrationTests(unittest.TestCase):
         self.assertIn('id="fileGraphLogBtn" hidden', page)
         self.assertIn("fileLogBtn.onclick = () => { if (currentFile) openView(\"log\"); };", page)
         self.assertIn('api("/api/log", {rev: hash, path: path})', page)
-        self.assertIn('class="file-log-row" data-hash="\' + esc(c[0])', page)
+        self.assertIn('<tr class="file-log-row\' + (marks ? \' \' + marks : \'\') + \'" data-hash="\' + esc(c[0])', page)  # 対象 / A / B の行には、強調のクラスが付く
         self.assertIn('class="commit-graph" href="/?commit_hash=', page)
         self.assertIn('new URLSearchParams({hash: row.dataset.hash, file: currentFile})', page)
         self.assertIn('const dir = slash < 0 ? "" : currentFile.slice(0, slash);', page)
@@ -1831,6 +1831,37 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertIn('data-page="graph"', pages["graph"])
         self.assertNotIn("sideRemote", pages["diff-wip"])  # push / pull は左ペインではなくメニューバーにある
         self.assertIn('id="navGraphBtn"', pages["files"])  # ファイル表示の JS が付け替えるボタンが、メニューバーの中にある
+
+    def test_selection_highlight_is_shared_by_the_graph_and_the_files_log(self):
+        # 対象 / A / B の保存形式と、ログの行の強調のスタイルは、グラフ・メニューバー・ファイル表示のログで 1 つだけ持つ (log_select.js / log_select.css)
+        from git_graph import i18n
+        app_js, app_css = i18n.render_app_js(), i18n.APP_CSS
+        self.assertLess(app_js.index("const LogSel = "), app_js.index("js/01_core.js"))  # グラフの部品より先に定義する
+        self.assertEqual(app_js.count('"git_graph_ui_sel"'), 1)  # 保存のキーは LogSel だけが持つ
+        self.assertNotIn("UI_SEL_KEY", app_js)
+        self.assertIn("LogSel.save({compareA: compareAHash, compareB: compareBHash, actionHash: actionHash})", app_js)
+        # 強調のスタイル: グラフ (table.log) とファイル表示 (table.file-log) の両方に、対象 / A / B の同じ見た目が効く
+        self.assertNotIn("__LOG_SELECT_CSS__", app_css)
+        for graph_rule, files_rule in (("table.log tr.actionTarget td", "table.file-log tr.actionTarget td"),
+                                       ("table.log tr.clickable.cmpA td", "table.file-log tr.cmpA td"),
+                                       ("table.log tr.clickable.cmpB td", "table.file-log tr.cmpB td"),
+                                       ("table.log tr.actionTarget.cmpA td", "table.file-log tr.actionTarget.cmpA td")):
+            self.assertIn(graph_rule + ", " + files_rule, app_css)
+        self.assertLess(app_css.index("table.file-log tr.cmpA td"), app_css.index(".compare-log-col table.log tr.log-common td"))  # 差し込む位置は、元のルールの位置 (log-common の背景が A / B より優先される順序を変えない)
+        files = viewer.render_files_page()
+        self.assertEqual(files.count("const LogSel = "), 1)
+        self.assertEqual(files.count('"git_graph_ui_sel"'), 1)  # メニューバー (page_menubar.js) も、キーを自前で持たない
+        self.assertLess(files.index("const LogSel = "), files.index("function fileLogRow("))
+        self.assertLess(files.index("const LogSel = "), files.index("const sel = LogSel.load() || {};"))
+        self.assertIn("const save = () => LogSel.save(sel);", files)
+        self.assertIn("LogSel.kinds(c[0], LogSel.load())", files)  # 描画時に、対象 / A / B の行へクラスを付ける
+        self.assertIn("LogSel.onChange(sel => LogSel.markRows(content, sel));", files)  # メニューでの変更に追従する
+        for rule in ("table.file-log tr.cmpA td", "table.file-log tr.cmpB td", "table.file-log tr.actionTarget td"):
+            self.assertIn(rule, files)
+        diff = viewer.render_diff_page({"wip": ["unstaged"]})  # page_menubar.js を使う、もう 1 つのページ
+        self.assertEqual(diff.count("const LogSel = "), 1)
+        self.assertEqual(diff.count('"git_graph_ui_sel"'), 1)
+        self.assertLess(diff.index("const LogSel = "), diff.index("const sel = LogSel.load() || {};"))
 
     def test_menubar_marks_unavailable_actions_by_capability_flags(self):
         # できない操作は隠さず無効にする。書き込み・作業ツリーが使えないことは、メニューバーの data 属性で JS に伝える

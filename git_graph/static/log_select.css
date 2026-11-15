@@ -1,0 +1,10 @@
+/* 操作の対象 (赤) / A (青) / B (橙) の行の強調。グラフのログ (table.log) とファイル表示のログ (table.file-log) で共通。
+   グラフでは、app.css にある LOG_SELECT_CSS の目印の位置に差し込む (ほかのルールとの優先順位を変えないため)。 */
+table.log tr.actionTarget td, table.file-log tr.actionTarget td { background: #ffe4e1; }
+table.log tr.clickable.cmpA td, table.file-log tr.cmpA td { background: #cfe3ff; }
+table.log tr.clickable.cmpB td, table.file-log tr.cmpB td { background: #ffedd5; }
+table.log tr.cmpA td, table.file-log tr.cmpA td { box-shadow: inset 0 2px #06c, inset 0 -2px #06c; }
+table.log tr.cmpB td, table.file-log tr.cmpB td { box-shadow: inset 0 2px #e8590c, inset 0 -2px #e8590c; }
+table.log tr.actionTarget td, table.file-log tr.actionTarget td { box-shadow: inset 0 2px #d22, inset 0 -2px #d22; }
+table.log tr.actionTarget.cmpA td, table.file-log tr.actionTarget.cmpA td { box-shadow: inset 0 2px #06c, inset 0 -2px #06c; }
+table.log tr.actionTarget.cmpB td, table.file-log tr.actionTarget.cmpB td { box-shadow: inset 0 2px #e8590c, inset 0 -2px #e8590c; }

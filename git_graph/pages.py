@@ -39,6 +39,8 @@ WIP_DIFF_REMOTE_JS = read_asset("wip_diff_remote.js")
 DIFF_DIALOG_JS = read_asset("diff_dialog.js")
 MENUBAR_CSS = read_asset("menubar.css")
 PAGE_MENUBAR_JS = read_asset("page_menubar.js")
+LOG_SELECT_JS = read_asset("log_select.js")  # 対象 / A / B の選択の保存形式 (LogSel)。メニューバーとファイル表示のログが使う (グラフは i18n.py が連結)
+LOG_SELECT_CSS = read_asset("log_select.css")  # ログの行 (対象 / A / B) の強調。ファイル表示のログ用 (グラフは app.css に差し込む)
 PATCH_OPS_JS = read_asset("patch_ops.js")  # パッチの作成・適用 (グラフ画面とファイル表示で共通)
 MERGE_JS = read_asset("merge.js")
 MERGE_EDITOR_JS = read_asset("vendor/merge_editor.js")  # CodeMirror 6 をまとめたもの (tools/merge_editor でビルド)
@@ -453,6 +455,7 @@ def render_diff_page(q):
 <script>{PANE_RESIZE_JS}</script>
 <script>{dialog_js}</script>
 <script>{PATCH_OPS_JS}</script>
+<script>{LOG_SELECT_JS}</script>
 <script>{PAGE_MENUBAR_JS}</script>
 <script>{panel_js}</script>
 <script>{remote_js}</script>
@@ -477,9 +480,10 @@ def render_files_page():
     menubar = menubar_html("files", reload_id="reloadBtn")
     return with_project(fill_template(FILES_PAGE)
             .replace('<html lang="ja">', f'<html lang="{state.UI_LANG}">')
-            .replace("/*__MENUBAR_CSS__*/", MENUBAR_CSS + WIP_PANEL_CSS)
+            .replace("/*__MENUBAR_CSS__*/", MENUBAR_CSS + WIP_PANEL_CSS + LOG_SELECT_CSS)
             .replace("<!--__MENUBAR__-->", menubar)
             .replace("/*__PANE_RESIZE__*/", PANE_RESIZE_JS)
+            .replace("/*__LOG_SELECT__*/", LOG_SELECT_JS)
             .replace("/*__DIFF_EDITOR_VIEW__*/", DIFF_EDITOR_VIEW_JS)
             .replace("/*__FILE_I18N__*/", "const I18N = " + client_translations() + ";\n"
                      + "const CAN_COPY = " + ("true" if state.WRITABLE and state.HAS_WORKTREE else "false") + ";\n"

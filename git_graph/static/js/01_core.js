@@ -73,25 +73,10 @@ let curView = "list", selected = null, selectedKey = null, token = 0, observer =
 let curCtx = null, curFiles = [];
 let compareAHash = null, compareBHash = null;
 let actionHash = null;  // マージ / リベースなどの操作対象
-const UI_SEL_KEY = "git_graph_ui_sel";  // ファイル/差分ページから戻ったときに選択を復元する
-function persistUiSel() {
-  try {
-    sessionStorage.setItem(UI_SEL_KEY, JSON.stringify({
-      compareA: compareAHash || null,
-      compareB: compareBHash || null,
-      actionHash: actionHash || null,
-    }));
-  } catch (e) { /* sessionStorage が使えなくても動作には影響しない */ }
-}
-function loadPersistedUiSel() {
-  try {
-    const o = JSON.parse(sessionStorage.getItem(UI_SEL_KEY) || "null");
-    return o && typeof o === "object" ? o : null;
-  } catch (e) { return null; }
-}
-function clearPersistedUiSel() {
-  try { sessionStorage.removeItem(UI_SEL_KEY); } catch (e) {}
-}
+// 選択の保存 (ファイル/差分ページから戻ったときに選択を復元する)。保存形式は log_select.js (ファイル表示のログの強調と共通)
+function persistUiSel() { LogSel.save({compareA: compareAHash, compareB: compareBHash, actionHash: actionHash}); }
+function loadPersistedUiSel() { return LogSel.load(); }
+function clearPersistedUiSel() { LogSel.clear(); }
 let currentBranch = null;
 let currentBranchLoaded = false;
 const nodeEl = {};  // ハッシュ -> グラフ上のノード要素

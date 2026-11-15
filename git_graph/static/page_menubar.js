@@ -22,12 +22,10 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
   const getJson = url => fetch(url).then(r => r.ok ? r.json() : r.text().then(m => { throw new Error(m || r.status); }));
   const fail = e => mbSay(e.message, false);
 
-  // 選択 (対象 / A / B)。グラフ画面と同じ sessionStorage に残すので、グラフへ戻っても引き継がれる
-  const KEY = "git_graph_ui_sel";
-  const load = () => { try { const o = JSON.parse(sessionStorage.getItem(KEY) || "null"); return o && typeof o === "object" ? o : {}; } catch (e) { return {}; } };
-  const sel = load();
+  // 選択 (対象 / A / B)。グラフ画面と同じ sessionStorage に残すので、グラフへ戻っても引き継がれる (保存形式は log_select.js)
+  const sel = LogSel.load() || {};
   for (const k of ["compareA", "compareB", "actionHash"]) if (!HASH.test(sel[k] || "")) sel[k] = null;
-  const save = () => { try { sessionStorage.setItem(KEY, JSON.stringify({compareA: sel.compareA, compareB: sel.compareB, actionHash: sel.actionHash})); } catch (e) { /* 保存できなくても動作には影響しない */ } };
+  const save = () => LogSel.save(sel);  // ファイル表示のログの強調も、これで付け直される
   const target = () => sel.actionHash || here;  // 操作の対象: グラフで選んだコミット、無ければ表示中のコミット
 
   // 指定したコミットを、いまと同じ種類のページで開く。開いているディレクトリ / ファイルはそのまま引き継ぐ (無ければページ側が案内する)
