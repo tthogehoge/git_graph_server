@@ -1966,6 +1966,36 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertIn("fileLogBtn.hidden = !logHash();", body)  # 差分表示でも「このファイルのログ」を出す
         self.assertNotIn("fileLogBtn.hidden = true;", body)
 
+    def test_files_page_has_a_plain_commit_log_button_at_the_left_that_shows_the_log_in_the_right_pane(self):
+        import re
+        page = viewer.render_files_page()
+        files = re.search(r'<div id="fileActions"[^>]*>(.*?)</div>', page, re.S).group(1)
+        order = re.findall(r'<button id="(\w+)"', files)
+        self.assertEqual(order[:5], ["fileCommitLogBtn", "fileLogBtn", "fileBlameBtn", "fileDiffBtn", "fileContentBtn"])  # ログ → このファイルのログ → blame → 今まで通り
+        self.assertEqual(order.count("fileLogBtn"), 1)
+        self.assertEqual(order.count("fileBlameBtn"), 1)
+        dirs = re.search(r'<div id="dirActions"[^>]*>(.*?)</div>', page, re.S).group(1)
+        self.assertEqual(re.findall(r'<button id="(\w+)"', dirs)[:2], ["dirCommitLogBtn", "dirLogBtn"])  # ディレクトリも左端がログ
+        # グラフ画面へは移らず、右ペインに出す (ファイルは view=clog、ディレクトリは dirlog の一種)
+        self.assertIn('fileCommitLogBtn.onclick = () => { if (currentFile) openView("clog"); };', page)
+        self.assertIn("dirCommitLogBtn.onclick = openCommitLogView;", page)
+        self.assertIn('else if (view === "clog") loadFileCommitLog();', page)
+        self.assertIn('else if (v === "clog") showDirLog(true);', page)
+        self.assertIn('p.set("view", dirlog === "clog" ? "clog" : "log")', page)
+        start = page.index("function loadCommitLog(alive)")
+        body = page[start:page.index("fileCommitLogBtn.onclick", start)]
+        self.assertIn('api("/api/log", {rev: rev, path: "", skip: shown})', body)  # パスで絞らない。続きは skip で読む
+        self.assertIn("r.has_more", body)
+        self.assertNotIn("location.href", body)
+        self.assertEqual(page.count("fileCommitLogBtn.hidden = !logHash();"), 6)  # 内容 / 内容に戻る / 差分 / 差分編集を抜けた後 / blame / ファイルのログ
+        self.assertIn("fileCommitLogBtn.hidden = true;", page[page.index("function loadFileCommitLog()"):start])  # 表示中のログのボタンは出さない
+        self.assertIn("dirCommitLogBtn.hidden = commitLogOn || !canLog;", page)
+        start = page.index("function startEdit()")
+        self.assertIn("[fileCommitLogBtn, fileLogBtn,", page[start:page.index("function saveEdit()", start)])  # 編集中は他のボタンと同じく隠す
+        for key in ("log", "commit_log_title", "log_load_more"):
+            for lang in ("en", "ja"):
+                self.assertIn('"%s":' % key, (Path(viewer.__file__).parent / "locales" / (lang + ".json")).read_text(encoding="utf-8"))
+
     def test_files_menubar_git_operations_are_wired_and_their_texts_are_provided(self):
         import re
         from git_graph import pages

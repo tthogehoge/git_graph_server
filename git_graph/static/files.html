@@ -112,8 +112,8 @@ __FAVICON__
 <div class="side-tabs" id="sideTabs" hidden><button id="sideTreeBtn" class="on">{{side_tree}}</button><button id="sideChangesBtn">{{side_changes}}</button></div><div class="sel-bar" id="selBar" hidden><div class="file-actions patch-bar sel-bar-btns"><button id="selAddBtn" disabled title="{{tip_stage_selected}}">{{stage_button}}</button><button id="selRmBtn" disabled title="{{tip_rm_selected}}">{{rm_button}}</button><button id="selRmCachedBtn" disabled title="{{tip_rm_cached_selected}}">{{rm_cached_button}}</button><span id="selMsg" class="msg"></span></div><div class="sel-bar-check"><label class="selall"><input type="checkbox" id="selAll"> {{sel_all}}</label><span id="selCount" class="cnt"></span></div></div><div id="list"></div><div id="changes" hidden></div></aside>
 <div id="sideSplitter" role="separator" aria-orientation="vertical" aria-label="{{resize_side}}" tabindex="0"></div>
 <main id="main"><div id="fileView"><h2 id="title">{{select_file}}</h2>
-<div id="dirActions" class="file-actions" hidden><button id="dirLogBtn">{{dir_log}}</button><button id="dirListBtn" hidden>{{dir_list}}</button><button id="dirGraphLogBtn" hidden>{{file_log_graph}}</button></div>
-<div id="fileActions" class="file-actions" hidden><button id="fileDiffBtn">{{file_diff}}</button><button id="fileContentBtn" hidden>{{file_content}}</button><button id="fileEditBtn">{{file_edit}}</button><button id="fileMergeBtn" title="{{tip_merge_editor}}" hidden>{{merge_editor}}</button><button id="fileExtEditBtn" title="{{tip_open_editor}}">{{open_editor}}</button><button id="fileExtDiffBtn" title="{{tip_open_diff_tool}}" hidden>{{open_diff_tool}}</button><button id="fileLogBtn">{{file_log}}</button><button id="fileBlameBtn">{{file_blame}}</button><button id="fileGraphLogBtn" hidden>{{file_log_graph}}</button><button id="fileCopyBtn">{{copy_to_work}}</button><button id="fileDownloadBtn">{{file_download}}</button><button id="fileRmBtn" title="{{tip_rm_file}}">{{rm_button}}</button><button id="fileRmCachedBtn" title="{{tip_rm_cached_file}}">{{rm_cached_button}}</button><span id="fileMsg" class="msg"></span></div>
+<div id="dirActions" class="file-actions" hidden><button id="dirCommitLogBtn">{{log}}</button><button id="dirLogBtn">{{dir_log}}</button><button id="dirListBtn" hidden>{{dir_list}}</button><button id="dirGraphLogBtn" hidden>{{file_log_graph}}</button></div>
+<div id="fileActions" class="file-actions" hidden><button id="fileCommitLogBtn">{{log}}</button><button id="fileLogBtn">{{file_log}}</button><button id="fileBlameBtn">{{file_blame}}</button><button id="fileDiffBtn">{{file_diff}}</button><button id="fileContentBtn" hidden>{{file_content}}</button><button id="fileEditBtn">{{file_edit}}</button><button id="fileMergeBtn" title="{{tip_merge_editor}}" hidden>{{merge_editor}}</button><button id="fileExtEditBtn" title="{{tip_open_editor}}">{{open_editor}}</button><button id="fileExtDiffBtn" title="{{tip_open_diff_tool}}" hidden>{{open_diff_tool}}</button><button id="fileGraphLogBtn" hidden>{{file_log_graph}}</button><button id="fileCopyBtn">{{copy_to_work}}</button><button id="fileDownloadBtn">{{file_download}}</button><button id="fileRmBtn" title="{{tip_rm_file}}">{{rm_button}}</button><button id="fileRmCachedBtn" title="{{tip_rm_cached_file}}">{{rm_cached_button}}</button><span id="fileMsg" class="msg"></span></div>
 <div id="content" class="hint">{{select_file_hint}}</div></div><section id="wipCommitView" hidden><h2>{{wip_title}} <button type="button" class="sbtn" id="wipCommitBack">{{back_history}}</button></h2><div id="wipCommitPanel"></div></section></main>
 </div>
 <script>/*__PANE_RESIZE__*/</script>
@@ -139,7 +139,8 @@ let wipCommitPanel = null;
 const list = document.getElementById("list"), content = document.getElementById("content"), title = document.getElementById("title");
 const fileActions = document.getElementById("fileActions"), fileLogBtn = document.getElementById("fileLogBtn"), fileBlameBtn = document.getElementById("fileBlameBtn"), fileContentBtn = document.getElementById("fileContentBtn");
 const fileGraphLogBtn = document.getElementById("fileGraphLogBtn");
-const dirActions = document.getElementById("dirActions"), dirLogBtn = document.getElementById("dirLogBtn");
+const dirActions = document.getElementById("dirActions"), dirLogBtn = document.getElementById("dirLogBtn"), dirCommitLogBtn = document.getElementById("dirCommitLogBtn");
+const fileCommitLogBtn = document.getElementById("fileCommitLogBtn");
 const dirListBtn = document.getElementById("dirListBtn"), dirGraphLogBtn = document.getElementById("dirGraphLogBtn");
 const fileDownloadBtn = document.getElementById("fileDownloadBtn"), fileExtEditBtn = document.getElementById("fileExtEditBtn");
 const fileRmBtn = document.getElementById("fileRmBtn"), fileRmCachedBtn = document.getElementById("fileRmCachedBtn");
@@ -251,7 +252,8 @@ const isWip = hash === "WIP";  // 作業ツリーのファイルを表示する
 fileCopyBtn.disabled = !CAN_COPY || isWip;
 let current = "", currentFile = "", wipHead = null;
 let dirEntries = null, dirLogSeq = 0;  // dirEntries: 表示中のディレクトリの項目 (読み込み前は null), dirLogSeq: 古い応答を捨てるための通し番号
-let dirLogOn = false;  // ディレクトリの本文に、項目の一覧ではなく「このディレクトリのログ」を出しているか
+let dirLogOn = false;  // ディレクトリの本文に、項目の一覧ではなく「このディレクトリのログ」(または通常のコミットログ) を出しているか
+let commitLogOn = false;  // dirLogOn のうち、パスで絞らない通常のコミットログ
 let wipFiles = [];  // 作業ツリーの変更の一覧 (WIP パネルが決める。パス・種類 wip・変更前のパス old_path)
 let wipStatusFiles = [];
 let stageOverrides = new Map(), stageDirty = false;
@@ -691,7 +693,7 @@ function pageUrl(path, file, view, dirlog) {  // 表示中のディレクトリ�
   if (path) p.set("path", path);
   if (file) p.set("file", file);
   if (file && view) p.set("view", view);
-  else if (!file && dirlog) p.set("view", "log");
+  else if (!file && dirlog) p.set("view", dirlog === "clog" ? "clog" : "log");  // clog: パスで絞らない通常のコミットログ
   if (file && view === "diff" && diffSel && diffSel.path === file) {
     if (diffSel.from && diffSel.to) { p.set("dfrom", diffSel.from); p.set("dto", diffSel.to); }
     if (diffSel.wip) p.set("dwip", diffSel.wip);
@@ -1144,9 +1146,10 @@ function dirNameCell(e, path) {
 function setDirActions() {  // ディレクトリを表示しているときの操作ボタン (項目の一覧 ↔ このディレクトリのログ)
   dirActions.hidden = !!currentFile;
   const canLog = !!logHash();
-  dirLogBtn.hidden = dirLogOn || !canLog;
+  dirCommitLogBtn.hidden = commitLogOn || !canLog;  // 通常のコミットログ (パスで絞らない)。ディレクトリのログからも切り替えられる
+  dirLogBtn.hidden = (dirLogOn && !commitLogOn) || !canLog;
   dirListBtn.hidden = !dirLogOn;
-  dirGraphLogBtn.hidden = !dirLogOn || !canLog || !current;  // ルートは、グラフ画面のファイルログの対象にならない
+  dirGraphLogBtn.hidden = !dirLogOn || commitLogOn || !canLog || !current;  // ルートは、グラフ画面のファイルログの対象にならない
 }
 
 function pathCrumbHtml(path) {
@@ -1168,7 +1171,7 @@ function showDir() {  // ファイルを開いていないとき、ディレク�
   showFilePane();
   closeEditor();
   if (dirEntries === null || currentFile) return;
-  dirLogOn = false;
+  dirLogOn = commitLogOn = false;
   setDirActions();
   const seq = ++dirLogSeq, path = current, entries = dirEntries;
   setDocumentTitle(path || t("root"));
@@ -1191,13 +1194,19 @@ function showDir() {  // ファイルを開いていないとき、ディレク�
     if (!r.complete) document.getElementById("dirLogNote").innerHTML = '<p class="hint">' + esc(t("dir_log_incomplete")) + '</p>';
   }).catch(e => { if (seq === dirLogSeq && !currentFile) { content.className = "hint"; content.textContent = t("error") + e.message; } });
 }
-function showDirLog() {  // ファイルを開いていないとき、このディレクトリの git log を本文に出す
+function showDirLog(all) {  // ファイルを開いていないとき、このディレクトリの git log を本文に出す (all: パスで絞らない通常のコミットログ)
   closeEditor();
   const rev = logHash();
   if (currentFile || !rev) { showDir(); return; }  // 作業ツリーに HEAD が無いときは、ログが無い
   const seq = ++dirLogSeq, path = current, label = path || t("root");
-  dirLogOn = true;
+  dirLogOn = true; commitLogOn = !!all;
   setDirActions();
+  if (all) {
+    setDocumentTitle(t("commit_log_title", {rev: rev.slice(0, 7)}));
+    title.textContent = t("commit_log_title", {rev: rev.slice(0, 7)});
+    loadCommitLog(() => seq === dirLogSeq && !currentFile && dirLogOn && commitLogOn);
+    return;
+  }
   setDocumentTitle(t("file_history_title", {path: label}));
   const histSuffix = t("file_history_title", {path: ""}).replace("{path}", "").trim();
   title.innerHTML = pathCrumbHtml(path) + (histSuffix ? " " + esc(histSuffix) : "");
@@ -1206,19 +1215,22 @@ function showDirLog() {  // ファイルを開いていないとき、このデ�
   content.textContent = t("loading");
   document.getElementById("main").scrollTop = 0;
   Promise.all([api("/api/log", {rev: rev, path: path}), refsReady]).then(([r]) => {
-    if (seq !== dirLogSeq || currentFile || !dirLogOn) return;  // 別のディレクトリ / ファイルに移った
+    if (seq !== dirLogSeq || currentFile || !dirLogOn || commitLogOn) return;  // 別のディレクトリ / ファイル / ログに移った
     const rows = r.commits.map(fileLogRow).join("");
     content.className = "";
     content.innerHTML = '<div class="meta">' + esc(t("n_commits", {n: r.total})) + '</div>' +
       (rows ? '<table class="file-log"><tbody>' + rows + '</tbody></table>' : '<p class="hint">' + esc(t("no_history")) + '</p>') +
       (r.has_more ? '<p class="hint">' + esc(t("dir_log_more", {n: r.commits.length})) + '</p>' : "");
-  }).catch(e => { if (seq === dirLogSeq && !currentFile && dirLogOn) { content.className = "hint"; content.textContent = t("error") + e.message; } });
+  }).catch(e => { if (seq === dirLogSeq && !currentFile && dirLogOn && !commitLogOn) { content.className = "hint"; content.textContent = t("error") + e.message; } });
 }
-function openDirLog() {  // 「このディレクトリのログ」: 履歴に積んで出す (ブラウザーの戻るで一覧に戻れる)
-  if (currentFile || dirLogOn || !logHash()) return;
-  history.pushState({path: current, dirlog: true, viaPush: true}, "", pageUrl(current, "", "", true));
-  showDirLog();
+function openDirLogView(all) {  // 「このディレクトリのログ」「ログ」: 履歴に積んで出す (ブラウザーの戻るで一覧に戻れる)。ログ同士の切り替えは履歴を積み増さない
+  if (currentFile || !logHash() || (dirLogOn && !!all === commitLogOn)) return;
+  const state = {path: current, dirlog: true, viaPush: true}, url = pageUrl(current, "", "", all ? "clog" : true);
+  if (dirLogOn) history.replaceState(state, "", url); else history.pushState(state, "", url);
+  showDirLog(all);
 }
+function openDirLog() { openDirLogView(false); }
+function openCommitLogView() { openDirLogView(true); }
 function backToDirList() {  // ディレクトリの一覧に戻る。前の履歴が同じディレクトリのログ表示なら、そこへ戻る
   if (history.state && history.state.viaPush && history.state.dirlog) { history.back(); return; }
   history.replaceState({path: current}, "", pageUrl(current, ""));
@@ -1244,7 +1256,7 @@ function loadFile(path, push) {
   if (diffSel && diffSel.path !== path) diffSel = null;
   syncChangesSelection();
   markWipCurrent();
-  dirLogOn = false; dirActions.hidden = true;
+  dirLogOn = commitLogOn = false; dirActions.hidden = true;
   setDocumentTitle(path);
   setFileMsg("", true);
   fileActions.hidden = false;
@@ -1255,6 +1267,7 @@ function loadFile(path, push) {
   fileExtEditBtn.hidden = false;
   fileExtEditBtn.disabled = !(DESKTOP && isWip);  // pywebview などでは、作業ツリーのファイルを外部エディタで開ける
   fileLogBtn.hidden = !logHash();
+  fileCommitLogBtn.hidden = !logHash();
   fileLogBtn.disabled = !logHash();
   fileBlameBtn.hidden = false;
   fileBlameBtn.disabled = isWip && !wipHead;
@@ -1289,6 +1302,7 @@ function renderView(view) {
     else if (fileData) setFileMsg(t(fileData.edit_reason || "edit_bad_encoding"), false);
   } else if (view === "blame") loadFileBlame(currentFile);
   else if (view === "log") loadFileLog(currentFile);
+  else if (view === "clog") loadFileCommitLog();
   else if (view === "diff") loadFileDiff(currentFile);
   else showFileContentView();  // ファイル内容 (履歴に積んで戻れる)
   markWipCurrent();
@@ -1301,6 +1315,7 @@ function showFileContentView() {  // 差分 / ログ / blame から内容表示�
   fileExtEditBtn.hidden = false;
   fileExtEditBtn.disabled = !(DESKTOP && isWip);
   fileLogBtn.hidden = !logHash();
+  fileCommitLogBtn.hidden = !logHash();
   fileLogBtn.disabled = !logHash();
   fileBlameBtn.hidden = false;
   fileBlameBtn.disabled = (fileData && fileData.binary) || (isWip && !wipHead);
@@ -1415,6 +1430,7 @@ function leaveEdit() {  // 編集中なら、変更を捨ててよいか確認�
     fileExtEditBtn.hidden = false;
     fileExtEditBtn.disabled = !(DESKTOP && isWip);
     fileLogBtn.hidden = !logHash();
+    fileCommitLogBtn.hidden = !logHash();
     fileLogBtn.disabled = !logHash();
     fileBlameBtn.hidden = false;
     fileBlameBtn.disabled = (fileData && fileData.binary) || (isWip && !wipHead);
@@ -1455,7 +1471,7 @@ function startEdit() {
   closeEditor();  // 表示のエディタ
   editing = true; editDirty = false;
   setFileMsg("", true);
-  [fileLogBtn, fileBlameBtn, fileDiffBtn, fileExtDiffBtn, fileMergeBtn, fileEditBtn, fileContentBtn, fileGraphLogBtn, fileCopyBtn, fileDownloadBtn, fileExtEditBtn, fileRmBtn, fileRmCachedBtn].forEach(b => { b.hidden = true; });
+  [fileCommitLogBtn, fileLogBtn, fileBlameBtn, fileDiffBtn, fileExtDiffBtn, fileMergeBtn, fileEditBtn, fileContentBtn, fileGraphLogBtn, fileCopyBtn, fileDownloadBtn, fileExtEditBtn, fileRmBtn, fileRmCachedBtn].forEach(b => { b.hidden = true; });
   const eol = EOL_LABEL[fileData.eol] || t("edit_eol_none");
   title.textContent = t("file_edit_title", {path: currentFile});
   content.className = "";
@@ -1524,7 +1540,7 @@ function startDiffEdit() {
     }
     editing = true; editDirty = false;
     setFileMsg("", true);
-    [fileLogBtn, fileBlameBtn, fileDiffBtn, fileExtDiffBtn, fileMergeBtn, fileEditBtn, fileContentBtn, fileGraphLogBtn, fileCopyBtn, fileDownloadBtn, fileExtEditBtn, fileRmBtn, fileRmCachedBtn].forEach(b => { b.hidden = true; });
+    [fileCommitLogBtn, fileLogBtn, fileBlameBtn, fileDiffBtn, fileExtDiffBtn, fileMergeBtn, fileEditBtn, fileContentBtn, fileGraphLogBtn, fileCopyBtn, fileDownloadBtn, fileExtEditBtn, fileRmBtn, fileRmCachedBtn].forEach(b => { b.hidden = true; });
     title.textContent = t("file_edit_title", {path: currentFile});
     let bar = content.querySelector(".edit-bar-diff");
     if (!bar) {
@@ -1581,6 +1597,7 @@ function loadFileBlame(path) {
   closeEditor();  // 表示のエディタ
   fileDiffBtn.hidden = true;
   fileContentBtn.hidden = false;
+  fileCommitLogBtn.hidden = !logHash();
   fileLogBtn.hidden = true;
   fileBlameBtn.hidden = true;
   fileGraphLogBtn.hidden = true;
@@ -1639,6 +1656,7 @@ function loadFileDiff(path) {  // 右ペインに、このファイルの差分�
   fileDiffBtn.hidden = true;  // 差分表示中は内容ボタンだけ (差分ボタンは出さない)
   fileContentBtn.hidden = false;
   fileLogBtn.hidden = !logHash();  // 差分からも、このファイルのログへ移れる (作業ツリーに HEAD が無いときは、ログが無い)
+  fileCommitLogBtn.hidden = !logHash();
   fileLogBtn.disabled = !logHash();
   fileBlameBtn.hidden = false;  // 差分表示中もこのファイルの blame へ移れる
   fileBlameBtn.disabled = (fileData && fileData.binary) || (isWip && !wipHead);
@@ -1661,6 +1679,7 @@ function loadFileLog(path) {
   if (!hash) return;
   fileDiffBtn.hidden = true;
   fileContentBtn.hidden = false;
+  fileCommitLogBtn.hidden = !logHash();
   fileLogBtn.hidden = true;
   fileBlameBtn.hidden = true;
   fileGraphLogBtn.hidden = false;
@@ -1675,6 +1694,59 @@ function loadFileLog(path) {
       (rows ? '<table class="file-log"><tbody>' + rows + '</tbody></table>' : '<p class="hint">' + t("no_history") + '</p>');
   }).catch(e => { content.className = "hint"; content.textContent = t("error") + e.message; });
 }
+function loadFileCommitLog() {  // 右ペインに、通常のコミットログ (パスで絞らない。この時点までの全コミット) を出す
+  closeEditor();  // 表示のエディタ
+  const rev = logHash(), path = currentFile;
+  if (!rev) return;
+  fileDiffBtn.hidden = true;
+  fileContentBtn.hidden = false;
+  fileCommitLogBtn.hidden = true;  // 表示中のログのボタンは出さない (ほかの表示と同じ)
+  fileLogBtn.hidden = false;
+  fileLogBtn.disabled = false;
+  fileBlameBtn.hidden = false;
+  fileBlameBtn.disabled = (fileData && fileData.binary) || (isWip && !wipHead);
+  fileGraphLogBtn.hidden = true;
+  setDocumentTitle(t("commit_log_title", {rev: rev.slice(0, 7)}));
+  title.textContent = t("commit_log_title", {rev: rev.slice(0, 7)});
+  loadCommitLog(() => currentFile === path && currentView === "clog");
+}
+function loadCommitLog(alive) {  // 通常のコミットログを本文に出す。500 件ずつ読み、続きは「さらに読み込む」で足す。alive: 別の表示に移っていたら false (古い応答を捨てる)
+  const rev = logHash();
+  if (!rev) return;
+  content.className = "hint";
+  content.textContent = t("loading");
+  document.getElementById("main").scrollTop = 0;
+  let shown = 0, total = 0, tbody = null;
+  const next = () => {
+    const btn = content.querySelector(".log-more button");
+    if (btn) btn.disabled = true;
+    Promise.all([api("/api/log", {rev: rev, path: "", skip: shown}), refsReady]).then(([r]) => {
+      if (!alive()) return;
+      const rows = r.commits.map(fileLogRow).join("");
+      if (!shown) {  // 先頭のページ: 件数 (total は先頭のページだけに付く) と表を作る
+        total = r.total;
+        content.className = "";
+        content.innerHTML = '<div class="meta">' + esc(t("n_commits", {n: total})) + '</div>' +
+          (rows ? '<table class="file-log"><tbody>' + rows + '</tbody></table>' : '<p class="hint">' + esc(t("no_history")) + '</p>') +
+          '<div class="file-actions log-more"></div>';
+        tbody = content.querySelector("table.file-log tbody");
+      } else if (tbody) tbody.insertAdjacentHTML("beforeend", rows);
+      shown += r.commits.length;
+      const more = content.querySelector(".log-more");
+      if (!more) return;
+      more.innerHTML = r.has_more ? '<button type="button">' + esc(t("log_load_more", {n: shown, total: total})) + '</button>' : "";
+      if (r.has_more) more.firstChild.onclick = next;
+    }).catch(e => {
+      if (!alive()) return;
+      const more = shown ? content.querySelector(".log-more") : null;
+      if (more) more.innerHTML = '<span class="msg err">' + esc(t("error") + e.message) + '</span>';
+      else { content.className = "hint"; content.textContent = t("error") + e.message; }
+    });
+  };
+  next();
+}
+fileCommitLogBtn.onclick = () => { if (currentFile) openView("clog"); };  // 通常のコミットログは右ペインに出す (履歴に積むので、戻るで元の表示へ戻れる)
+dirCommitLogBtn.onclick = openCommitLogView;
 fileLogBtn.onclick = () => { if (currentFile) openView("log"); };
 fileBlameBtn.onclick = () => openView("blame");
 fileContentBtn.onclick = () => { if (currentFile) openView(""); };  // 履歴に積むので戻るで差分などへ戻れる
@@ -1698,7 +1770,8 @@ function restoreFromUrl(first) {  // URL の path / file / view の状態を画�
   return tree.then(() => {
     if (!file) {
       if (currentFile) clearFile();
-      if (p.get("view") === "log") showDirLog(); else showDir();  // ファイルを開かない view=log は、ディレクトリのログ
+      const v = p.get("view");  // ファイルを開かない view=log は、ディレクトリのログ。view=clog は、通常のコミットログ
+      if (v === "log") showDirLog(); else if (v === "clog") showDirLog(true); else showDir();
       return;
     }
     const from = p.get("dfrom"), to = p.get("dto"), dwip = p.get("dwip");
