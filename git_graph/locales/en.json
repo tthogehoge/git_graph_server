@@ -72,7 +72,6 @@
   "branch_log": "Show branch log",
   "commit_label": "Commit",
   "back_history": "← Back to history",
-  "back_top": "Back to top",
   "nav_graph": "Graph",
   "nav_files": "Files",
   "commit_newer": "Newer",
@@ -754,11 +753,9 @@
   "add_done": "git add done for {n} item(s)",
   "stage_done": "Staging state updated for {n} item(s)",
   "add_conflict": "Conflicted files must be resolved with the conflict-resolution actions in WIP ({files})",
-  "add_button": "git add",
   "stage_button": "Stage",
   "sel_all": "Select all",
   "sel_count": "{n} selected",
-  "tip_add_selected": "Run git add on the checked files and directories (stage). A directory stages every change and new file inside it",
   "tip_stage_selected": "Apply the checked staged/unstaged state; checked changes are staged and unchecked staged changes are unstaged",
   "tip_rm_selected": "Run git rm on the checked files and directories (delete from the working tree and stage the deletion)",
   "tip_rm_cached_selected": "Stop tracking the checked items only (the working-tree files are kept and become untracked)",
@@ -936,6 +933,5 @@
   "side_tree": "Files",
   "side_changes": "Changed files",
   "commit_mark_D": "Deleted in this commit",
-  "binary_short": "bin",
-  "side_wip": "WIP changes"
+  "binary_short": "bin"
 }

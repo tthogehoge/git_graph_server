@@ -72,7 +72,6 @@
   "branch_log": "ブランチのログを表示",
   "commit_label": "コミット",
   "back_history": "← 履歴一覧に戻る",
-  "back_top": "トップへ戻る",
   "nav_graph": "グラフ",
   "nav_files": "ファイル",
   "commit_newer": "新しい",
@@ -754,11 +753,9 @@
   "add_done": "{n} 個を git add しました",
   "stage_done": "{n} 個のステージ状態を更新しました",
   "add_conflict": "競合しているファイルは、WIP の競合解決の操作で解決してください ({files})",
-  "add_button": "git add",
   "stage_button": "ステージ",
   "sel_all": "すべて選択",
   "sel_count": "{n} 個を選択中",
-  "tip_add_selected": "チェックしたファイル・ディレクトリを git add します (ステージ)。ディレクトリは中の変更と新規ファイルをすべてステージします",
   "tip_stage_selected": "チェック状態を適用します。チェックした変更をステージし、チェックを外したステージ済み変更をステージ解除します",
   "tip_rm_selected": "チェックしたファイル・ディレクトリを git rm します (作業ツリーから削除して、削除をステージ)",
   "tip_rm_cached_selected": "チェックしたものの追跡だけをやめます (作業ツリーのファイルは残り、未追跡になります)",
@@ -936,6 +933,5 @@
   "side_tree": "ファイル一覧",
   "side_changes": "変更ファイル",
   "commit_mark_D": "このコミットで削除",
-  "binary_short": "バイナリ",
-  "side_wip": "WIP の変更"
+  "binary_short": "バイナリ"
 }
