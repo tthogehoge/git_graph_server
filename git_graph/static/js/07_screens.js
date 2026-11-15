@@ -100,6 +100,8 @@ listView.addEventListener("contextmenu", ev => {  // ログ一覧の右クリッ
   if (!tr || ev.target.closest("a, input, select, textarea")) return;
   ev.preventDefault();
   const h = tr.dataset.h;
+  if (curRow) curRow.classList.remove("cur");
+  curRow = tr; tr.classList.add("cur");  // 左クリックと同じく、キーボード操作の現在行もそろえる
   if (compareAHash && compareBHash && (h === compareAHash || h === compareBHash)) {  // A/B の行は AB操作メニュー (グラフのノードと同じ)
     cmpActOpen = false; abActOpen = true; setOtherMenu(false); abMenuHash = h;
     syncGraphSelection(h);
