@@ -378,8 +378,16 @@ toolbar.addEventListener("keydown", ev => {
   ev.preventDefault();
   buttons[next].focus();
 });
-document.addEventListener("click", ev => {  // メニューの外をクリックしたら閉じる
-  if (ev.target.closest(".menu-wrap") || ev.target.closest("svg g.node, svg g.edge") || ev.target.closest("#panel")) return;  // 右ペインのクリックでは閉じない  // ノードのクリックは onNodeClick が、線のクリックはその click ハンドラが扱う (ここで何もないところ扱いにすると、選んだ直後に選択が解除されて線が赤くならない)
+document.addEventListener("click", ev => {  // メニューが開いているときは外側クリックで閉じるだけ (下の選択・操作はしない)
+  if (!anyMenuOpen()) return;
+  if (ev.target.closest(".menu-wrap")) return;  // メニュー項目のクリックは通す
+  if (ev.target.closest("#cmpActToggle, #abActToggle, #otherMenuBtn")) return;  // トグルは既存処理に任せる
+  closeMenus();
+  ev.stopPropagation();
+  ev.preventDefault();
+}, true);
+document.addEventListener("click", ev => {  // メニューが閉じているとき: グラフの何もないところなどで閉じる / 選択解除
+  if (ev.target.closest(".menu-wrap") || ev.target.closest("svg g.node, svg g.edge") || ev.target.closest("#panel")) return;  // ノードのクリックは onNodeClick が、線のクリックはその click ハンドラが扱う (ここで何もないところ扱いにすると、選んだ直後に選択が解除されて線が赤くならない)
   if (ev.target.closest("#graph") && !ev.target.closest("button, a, input, select, label")) { closeMenusOrClearSelection(); return; }  // グラフの何もないところをクリック: メニューを閉じる。メニューが無ければ選択を解除する
   closeMenus();
 });
