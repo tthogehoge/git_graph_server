@@ -4,7 +4,7 @@
 
 ## 開発環境
 
-対応環境は Linux です。実行時に必要なものは Python 3、[pygit2](https://www.pygit2.org/)（`pip install pygit2`）、Git、Graphviz の `dot` です。読み取りのホットパス（グラフモデル・blob・commit 解決など）は pygit2 を使い、書き込みや複雑な porcelain は Git CLI にフォールバックします。Graphviz はコミットグラフのレイアウトと描画に使われます。
+対応環境は Linux です。実行時に必要なものは Python 3、[pygit2](https://www.pygit2.org/)（`pip install pygit2`）、Git、Graphviz の `dot` です。読み取りのホットパス（グラフモデル・blob・commit 解決など）は pygit2 を使い、書き込みや複雑な porcelain は Git CLI にフォールバックします。Graphviz はコミットグラフのレイアウトと描画に使われます。静的検査には [ruff](https://docs.astral.sh/ruff/) を使います（`pip install ruff`。設定は `ruff.toml`）。
 
 開発対象のソースツリーと、画面に表示する Git リポジトリは分けて指定できます。引数なしで起動するとカレントディレクトリが表示対象です。開発中は専用のテスト用リポジトリを第1引数で指定すると、作業ツリーへの誤操作を避けられます。
 
@@ -36,7 +36,7 @@ python3 git_graph_server.py --check-i18n
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -v
 ```
 
-Graphviz がインストールされていない環境では、Graphviz に依存するテストはスキップされます。翻訳キーの不足・不一致も確認してください。
+Graphviz がインストールされていない環境では、Graphviz に依存するテストはスキップされます。同様に、node と jsdom が入っていない環境では WIP パネルの振る舞いテスト (`tests/wip_panel_behavior.js`。リポジトリのルートで `npm i jsdom` をすると走ります) もスキップされるので、スキップに気づいたらその旨を確認してください。翻訳キーの不足・不一致も確認してください。
 
 ```sh
 python3 git_graph_server.py --check-i18n
@@ -50,7 +50,7 @@ python3 git_graph_server.py --check-i18n
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.test_git_graph_server.InputValidationTests -v
 ```
 
-最後に全テストと翻訳検査を実行します。`test.sh` がある環境では同スクリプトも利用できますが、標準の実行コマンドは上記です。
+最後に全テスト・翻訳検査・静的検査を実行します。`test.sh` がある環境では同スクリプトも利用できますが、標準の実行コマンドは上記です。
 
 ## 構成
 
@@ -180,11 +180,12 @@ npm run build   # 2 つの JS を作り直す
 
 ## 変更後の確認
 
-変更内容に応じて、関連するテストを実行してください。Git の読み取り・書き込み API を変更した場合は、一時 Git リポジトリを用いたテストで、成功時の結果とエラー時の状態の両方を確認します。翻訳またはテンプレートを変更した場合は翻訳検査を実行します。
+変更内容に応じて、関連するテストを実行してください。Git の読み取り・書き込み API を変更した場合は、一時 Git リポジトリを用いたテストで、成功時の結果とエラー時の状態の両方を確認します。翻訳またはテンプレートを変更した場合は翻訳検査を実行します。Python コードを変更した場合は静的検査の `ruff check .` も解消します (`E731` / `E741` は `ruff.toml` で除外、`git_graph_server.py` は互換エクスポートのために例外の対象です)。
 
 ```sh
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -v
 python3 git_graph_server.py --check-i18n
+ruff check .
 ```
 
 UI/API を変更した場合は、テストに加えて専用のテスト用リポジトリでアプリを起動し、ブラウザー上の表示と操作、開発者ツールのコンソールやネットワークエラーも確認してください。グラフ生成を変更した場合は、直線的な履歴だけでなく、分岐・merge・タグ・remote ref を含む履歴も確認します。最後に `git diff --check` を実行し、変更差分に不要な空白や意図しないファイルが含まれていないことを確認してください。

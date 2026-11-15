@@ -270,7 +270,6 @@ class GitstateReadParityTests(unittest.TestCase):
         gs._git_dir_cache = (None, None)
 
     def test_stash_conflict_state_needs_a_marker_and_an_unresolved_conflict(self):
-        from git_graph import gitstate as gs
         self.assertFalse(libgit.has_conflicts())
         run(self.repo, "checkout", "-qb", "side")
         with open(os.path.join(self.repo, "a.txt"), "w") as f:

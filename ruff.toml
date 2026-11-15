@@ -1,0 +1,10 @@
+# 静的検査 (ruff) の設定。pyflakes (F) と、構文エラー・明らかな誤り (E4 / E7 / E9) だけを見る。
+# E731 (lambda の代入) と E741 (変数名 `l`) は既存コードの作法なので見ない。
+# `git_graph_server.py` の star import は各モジュールの互換エクスポート (意図的なもの。DEVELOPMENT.md 参照) なので対象外。
+
+[lint]
+select = ["E4", "E7", "E9", "F"]
+ignore = ["E731", "E741"]
+
+[lint.per-file-ignores]
+"git_graph_server.py" = ["F401", "F403", "F405"]

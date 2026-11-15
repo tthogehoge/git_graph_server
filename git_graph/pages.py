@@ -10,7 +10,6 @@ from .i18n import (
     client_translations, FAVICON_LINK, FILES_PAGE, fill_template, MENUBAR_TEMPLATE, MERGE_PAGE, read_asset, tr, UserError,
     with_project,
 )
-from .external import configured
 from .wip import api_status
 from .files import validate_file_path, WIP_HASH, worktree_target
 from .query.files import file_exists_at

@@ -5,7 +5,6 @@ import tempfile
 import unittest
 
 from git_graph import app_state as state
-from git_graph import history
 from git_graph import pages
 from git_graph.i18n import UserError
 from git_graph.routing import ROUTES

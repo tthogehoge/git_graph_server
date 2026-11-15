@@ -2387,7 +2387,7 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertEqual(self.git("rev-parse", "target").strip(), target)
 
     def test_rebase_onto_checks_out_a_branch_and_rebases_onto_b(self):
-        base = self.head
+        base = self.head  # noqa: F841  # 履歴図の起点 (コメント用の名前)
         self.git("checkout", "-q", "-b", "topic")
         self.write_file("topic.txt", "topic change\n")
         self.git("add", "topic.txt")
@@ -2625,7 +2625,7 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertIn(tr("rebase_tags_moved", n=2), result["message"])
 
     def test_rebase_equivalent_moves_tags_of_replayed_commits(self):
-        base = self.head
+        base = self.head  # noqa: F841  # 履歴図の起点 (コメント用の名前)
         # A (topic): base -> E -> P1 -> P2、B (main): base -> E' (E と同じ変更) -> M2
         self.git("checkout", "-q", "-b", "topic")
         self.commit_file("e.txt", "equivalent\n", "E")
@@ -2647,7 +2647,7 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertEqual(self.git("show", "p1tag:p1.txt"), "p1\n")
 
     def test_rebase_equivalent_moves_tags_on_commits_without_branches(self):
-        base = self.head
+        base = self.head  # noqa: F841  # 履歴図の起点 (コメント用の名前)
         self.git("checkout", "-q", "-b", "topic")
         equivalent = self.commit_file("e.txt", "equivalent\n", "E")
         self.commit_file("p1.txt", "p1\n", "P1")
@@ -2724,7 +2724,7 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
 
         self.assertTrue(result["ok"])
         self.assertEqual(self.read_file("tracked.txt"), "initial\n")
-        self.assertEqual(self.git("log", "-1", "--format=%s").strip(), f"Revert \"change tracked file\"")
+        self.assertEqual(self.git("log", "-1", "--format=%s").strip(), "Revert \"change tracked file\"")
         self.assertEqual(self.git("rev-parse", "HEAD^").strip(), changed)
         self.assertEqual(self.git("status", "--porcelain"), "")
 

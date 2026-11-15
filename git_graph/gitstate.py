@@ -4,9 +4,9 @@ import os
 import re
 import subprocess
 from . import app_state as state
+from .gitrun import git, git_bytes, HASH_RE, resolve_commit
 
 CONFLICT_CODES = {"DD", "AU", "UD", "UA", "DU", "AA", "UU"}
-from .gitrun import git, git_bytes, HASH_RE, resolve_commit
 
 # git-dir の解決結果を REPO ごとにキャッシュし、MERGE_HEAD などの存在確認を
 # プロセス起動なしのファイルチェックにする (Windows で効く)。

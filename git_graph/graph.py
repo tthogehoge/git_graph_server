@@ -2,13 +2,11 @@ import copy
 import html
 import re
 import subprocess
-import sys
 import threading
 import time
 import unicodedata
-from collections import Counter, defaultdict
+from collections import defaultdict
 from . import app_state as state
-from .gitrun import git
 from .gitstate import status_lists
 from .i18n import tr
 from .query.graph import (
