@@ -646,9 +646,14 @@ function syncChangesSelection() {  // いま開いているファイルが、変
   if (activeList() !== changesEl) return;
   const byEntry = [...changesEl.querySelectorAll(".entry")].find(r => r.dataset.path === currentFile);
   if (byEntry) { selectEntry(byEntry); return; }
-  // WIP の tr.frow
-  const byFrow = [...changesEl.querySelectorAll("tr.frow")].find(r => pathOfNavRow(r) === currentFile);
-  selectEntry(byFrow || null);
+  // WIP の tr.frow（同一パスが staged/unstaged など複数あるときは diffSel の wip を優先）
+  const rows = [...changesEl.querySelectorAll("tr.frow")].filter(r => pathOfNavRow(r) === currentFile);
+  let byFrow = rows[0] || null;
+  if (rows.length > 1 && diffSel && diffSel.path === currentFile && diffSel.wip) {
+    const match = rows.find(r => (r.dataset.kind || "") === diffSel.wip);
+    if (match) byFrow = match;
+  }
+  selectEntry(byFrow);
 }
 function openChange(path) {  // 変更ファイルを、右ペインの差分エディタで開く (ファイルを開いて差分の表示にするまで、履歴は 1 つ)
   const f = commitChanges && commitChanges[path];
@@ -932,11 +937,15 @@ function loadTree(path, push) {
     });
     bindSelectionChecks(list);
     syncTreeCheckBoxes();
-    // 一覧を作り直したあと、開いているファイルがあればそれを選択状態にする
-    selectedEntry = null;
-    if (currentFile) {
-      const cur = [...list.querySelectorAll(".entry")].find(e => e.dataset.path === currentFile);
-      if (cur) selectEntry(cur);
+    // 一覧を作り直したあと、tree モードのときだけ選択を復元する。
+    // changes モードで loadTree が走ると（別ディレクトリの変更を開いたときなど）
+    // ここで selectEntry すると変更一覧の .selected が消えてしまうため。
+    if (sideMode === "tree") {
+      selectedEntry = null;
+      if (currentFile) {
+        const cur = [...list.querySelectorAll(".entry")].find(e => e.dataset.path === currentFile);
+        if (cur) selectEntry(cur);
+      }
     }
     updateSelBar();
   }).catch(showError);
