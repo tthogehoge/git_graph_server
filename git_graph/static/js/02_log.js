@@ -194,43 +194,12 @@ function logKey(titleHtml, rev, topHtml, src, targetHash, search) {
 }
 
 // ---- ログの検索 (ハッシュ前方一致 / 件名・本文 / 作者 / コミッター / 期間 / 範囲)。見出しの検索ボタンを押したときだけ入力欄を出す ----
-const LOG_SEARCH_FIELDS = ["hash", "grep", "author", "committer", "since", "until"];
+// 条件の正規化・API への渡し方・入力欄・ボタンの動きは、ファイル表示のログと共通 (commit_log.js)
 let logCtx = null;  // いま表示しているログの引数 (検索し直すときに showLog へ渡す)
-function normSearch(o) {  // 入力が全部空なら null。キーの順は固定 (画面を戻すとき logKey で比べるため)
-  const s = {};
-  LOG_SEARCH_FIELDS.forEach(k => { s[k] = String((o && o[k]) || "").trim(); });
-  if (!LOG_SEARCH_FIELDS.some(k => s[k])) return null;
-  s.scope = o.scope === "all" ? "all" : "rev";
-  return s;
-}
-function searchParams(search) {  // /api/log に付ける検索の条件 (空の欄は付けない)
-  const p = {};
-  if (!search) return p;
-  LOG_SEARCH_FIELDS.forEach(k => { if (search[k]) p[k] = search[k]; });
-  if (search.scope === "all") p.scope = "all";
-  return p;
-}
-function logSearchHtml(search) {
-  const s = search || {}, v = k => esc(s[k] || "");
-  const field = (k, label, ph) => '<label>' + esc(t(label)) + '<input type="text" data-k="' + k + '" value="' + v(k) + '"' +
-    (ph ? ' placeholder="' + esc(t(ph)) + '"' : "") + ' autocomplete="off" spellcheck="false"></label>';
-  return '<div class="log-search" id="logSearch"' + (search ? "" : " hidden") + ">" +
-    field("hash", "search_hash") + field("grep", "search_text", "search_text_ph") +
-    field("author", "search_author") + field("committer", "search_committer") +
-    '<label>' + esc(t("search_period")) + '<span class="log-search-period"><input type="date" data-k="since" value="' + v("since") + '"> ~ ' +
-    '<input type="date" data-k="until" value="' + v("until") + '"></span></label>' +
-    '<label>' + esc(t("search_scope")) + '<select data-k="scope"><option value="rev">' + esc(t("search_scope_rev")) + '</option>' +
-    '<option value="all"' + (s.scope === "all" ? " selected" : "") + ">" + esc(t("search_scope_all")) + '</option></select></label>' +
-    '<div class="log-search-btns"><button class="sbtn" id="logSearchGo">' + esc(t("search_go")) + '</button>' +
-    '<button class="sbtn" id="logSearchClear">' + esc(t("clear")) + '</button></div></div>';
-}
-function readLogSearch() {
-  const box = listView.querySelector("#logSearch"), o = {};
-  if (!box) return null;
-  box.querySelectorAll("[data-k]").forEach(el => { o[el.dataset.k] = el.value; });
-  o.hash = (o.hash || "").toLowerCase();
-  return normSearch(o);
-}
+function normSearch(o) { return CommitLog.normSearch(o); }
+function searchParams(search) { return CommitLog.searchParams(search); }
+function logSearchHtml(search) { return CommitLog.searchHtml(search); }
+function readLogSearch() { return CommitLog.readSearch(listView); }
 function applyLogSearch(search) {  // 検索し直す: 履歴は増やさず、同じログを検索条件つきで読み直す
   const c = logCtx;
   if (!c) return;
@@ -240,25 +209,9 @@ function applyLogSearch(search) {  // 検索し直す: 履歴は増やさず、�
   const btn = listView.querySelector(".log-search-btn");
   if (btn) btn.focus();
 }
-listView.addEventListener("click", ev => {
-  if (ev.target.closest(".log-search-btn")) {
-    const box = listView.querySelector("#logSearch");
-    if (!box) return;
-    if (ev.target.closest(".log-search-btn").classList.contains("on")) { applyLogSearch(null); return; }  // 検索中に押したら、検索をやめて閉じる
-    box.hidden = !box.hidden;
-    if (logGraphCur) logGraphCur.sync();  // 行が下へずれる / 戻るので、選択中の線 (ログ全体にかぶせた svg) を描き直す
-    if (!box.hidden) box.querySelector("input").focus();
-  } else if (ev.target.closest("#logSearchGo")) {
-    applyLogSearch(readLogSearch());
-  } else if (ev.target.closest("#logSearchClear")) {
-    applyLogSearch(null);
-  }
-});
-listView.addEventListener("keydown", ev => {
-  if (ev.key === "Enter" && ev.target.closest && ev.target.closest("#logSearch") && ev.target.tagName !== "BUTTON") {
-    ev.preventDefault();
-    applyLogSearch(readLogSearch());
-  }
+CommitLog.bindSearch(listView, {
+  apply: applyLogSearch,
+  toggled: () => { if (logGraphCur) logGraphCur.sync(); },  // 行が下へずれる / 戻るので、選択中の線 (ログ全体にかぶせた svg) を描き直す
 });
 
 const TARGET_BEFORE = 100;  // 対象のコミットへ飛ぶとき、対象より前 (上) のこの件数から読み始める
@@ -284,7 +237,7 @@ function showLog(titleHtml, rev, topHtml, fromHistory, restoreScroll, src, targe
   const rows = listView.querySelector("#rows"), count = listView.querySelector("#count"),
         sentinel = listView.querySelector("#sentinel"), earlier = listView.querySelector("#earlier");
   rows.dataset.key = logKey(titleHtml, rev, topHtml, src, targetHash, search);  // 詳細から戻るとき、同じログならそのまま見せる
-  let skip = 0, done = false, loading = false, total = null, winStart = 0;  // winStart: 読み始めた位置 (対象へ飛ぶときは先頭ではない)
+  let winStart = 0;  // 読み始めた位置 (対象へ飛ぶときは先頭ではない)
   // /api/log の一覧 (コミット履歴) だけマージグラフを付ける (stash / reflog / ブランチ一覧などは付けない)。検索結果は途中のコミットが抜けるので付けない
   const graphRow = ((!src || src.path === "/api/log") && !search) ? logGraph() : null;
   logGraphCur = graphRow;
@@ -295,46 +248,41 @@ function showLog(titleHtml, rev, topHtml, fromHistory, restoreScroll, src, targe
     if (box && !restoreScroll) box.querySelector("input").focus({preventScroll: true});
   }
 
-  async function more() {
-    if (loading || done || my !== token) return;
-    loading = true;
-    try {
+  // 続きの読み込み (CHUNK 件ずつ。末尾が見えたら読む) はファイル表示のログと共通 (commit_log.js)。ここで違うのは、行の描画 (マージグラフ / stash / サブモジュール) と、件数の表示
+  const pg = CommitLog.createPager({
+    root: listView, sentinel: sentinel,
+    alive: () => my === token,
+    load: skip => {
       const graphParam = graphRow ? {graph: 1} : {};
-      const r = src ? await api(src.path, Object.assign({}, src.params, graphParam, searchP, {skip: skip, limit: CHUNK}))
-                    : await api("/api/log", Object.assign({rev: rev, skip: skip, limit: CHUNK}, graphParam, searchP));
-      if (my !== token) return;
+      return src ? api(src.path, Object.assign({}, src.params, graphParam, searchP, {skip: skip, limit: CHUNK}))
+                 : api("/api/log", Object.assign({rev: rev, skip: skip, limit: CHUNK}, graphParam, searchP));
+    },
+    onPage: r => {
       rows.insertAdjacentHTML("beforeend", r.commits.map((c, i) => (src && src.path === "/api/submodules")
         ? submoduleRowHtml(c, r.submodules[i]) : rowHtml(c, "", graphRow ? graphRow(c) : "")).join(""));
       updateCmpClasses();
-      skip += r.commits.length;
       if (fromHistory && restoreScroll) {
         listView.scrollTop = Math.max(0, Math.min(restoreScroll, listView.scrollHeight - listView.clientHeight));
       }
-      done = !r.has_more;
-      if (r.total !== undefined) total = r.total;
-      count.textContent = total === null
-        ? (done ? t(search ? "search_hits" : "n_changes", {n: skip}) : t("n_loaded_unknown_total", {n: skip}))
-        : (done ? t(search ? "search_hits" : "n_changes", {n: total}) : t("n_loaded", {skip: skip, total: total}));
-      sentinel.textContent = done ? (skip === 0 ? t("none") : "") : t("loading");
-      if (total === null && graphRow && !src && !search && !totalPollScheduled) {
+      count.textContent = CommitLog.countText(search, pg.done, pg.skip, pg.total);
+      sentinel.textContent = pg.done ? (pg.skip === 0 ? t("none") : "") : t("loading");
+      if (pg.total === null && graphRow && !src && !search && !totalPollScheduled) {
         totalPollScheduled = true;
         pollTotal();
       }
-    } catch (e) {
-      sentinel.textContent = t("error") + e.message; done = true;
-    } finally {
-      loading = false;
-    }
-  }
+    },
+    onError: e => { sentinel.textContent = t("error") + e.message; },
+  });
+  const more = () => pg.more();
 
   async function pollTotal() {
-    if (my !== token || total !== null) return;
+    if (my !== token || pg.total !== null) return;
     try {
       const result = await api("/api/log-total", {rev: rev});
       if (my !== token) return;
       if (result.total !== null) {
-        total = result.total;
-        count.textContent = done ? t("n_changes", {n: total}) : t("n_loaded", {skip: skip, total: total});
+        pg.total = result.total;
+        count.textContent = pg.done ? t("n_changes", {n: pg.total}) : t("n_loaded", {skip: pg.skip, total: pg.total});
       } else if (result.pending) {
         setTimeout(pollTotal, 1000);
       }
@@ -357,19 +305,7 @@ function showLog(titleHtml, rev, topHtml, fromHistory, restoreScroll, src, targe
     };
     earlier.appendChild(btn);
   }
-  // 続きを読み込む: 末尾が見えたら CHUNK 件ずつ
-  function watch() {
-    if ("IntersectionObserver" in window) {
-      const recheck = () => {
-        if (!done && observer && my === token) { observer.unobserve(sentinel); observer.observe(sentinel); }
-      };
-      observer = new IntersectionObserver(es => { if (es[0].isIntersecting) more().then(recheck); },
-                                          {root: listView, rootMargin: "600px"});
-      observer.observe(sentinel);
-    } else {
-      (async () => { while (!done && my === token) await more(); })();
-    }
-  }
+  function watch() { observer = pg.watch(); }  // 続きを読み込む: 末尾が見えたら CHUNK 件ずつ (別の画面へ移るときは、observer.disconnect() で止める)
 
   if (targetHash) {
     (async () => {
@@ -379,8 +315,8 @@ function showLog(titleHtml, rev, topHtml, fromHistory, restoreScroll, src, targe
         const pos = await api("/api/log-position", {rev: rev, hash: targetHash});
         if (my !== token) return;
         if (pos.index >= 0) {
-          skip = winStart = win && win.start !== undefined ? win.start : Math.max(0, pos.index - TARGET_BEFORE);
-          total = pos.total;
+          pg.skip = winStart = win && win.start !== undefined ? win.start : Math.max(0, pos.index - TARGET_BEFORE);
+          pg.total = pos.total;
         } else {
           missing = true;  // このログに無い: 探して全部読むことはせず、先頭だけを見せる
         }
@@ -388,10 +324,10 @@ function showLog(titleHtml, rev, topHtml, fromHistory, restoreScroll, src, targe
         if (my !== token) return;  // 位置が分からなければ、先頭から読む
       }
       showEarlier();
-      if (missing) { await more(); if (my === token && !done) watch(); return; }
+      if (missing) { await more(); if (my === token && !pg.done) watch(); return; }
       const find = h => h ? listView.querySelector('tr[data-h="' + h + '"]') : null;
       const goal = (win && win.focus) || targetHash;
-      while (!done && !missing && my === token) {
+      while (!pg.done && !missing && my === token) {
         await more();
         if (my !== token) return;
         if (find(goal)) break;
@@ -399,7 +335,7 @@ function showLog(titleHtml, rev, topHtml, fromHistory, restoreScroll, src, targe
       const target = find(targetHash), focus = find(goal);
       if (target) target.classList.add("cur");
       if (focus) focus.scrollIntoView({block: goal === targetHash ? "center" : "start"});
-      if (!done) watch();
+      if (!pg.done) watch();
     })();
   } else {
     watch();

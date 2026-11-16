@@ -1,4 +1,4 @@
-/* コミットのログの表 (table.log) の見た目・ブランチ / タグの札 (.chip)・ハッシュのコピー記号 (.copy)・ドラッグ&ドロップ中の表示。
+/* コミットのログの表 (table.log) の見た目・ブランチ / タグの札 (.chip)・ハッシュのコピー記号 (.copy)・ログの検索欄・ドラッグ&ドロップ中の表示。
    グラフのログ画面とファイル表示のログで共通。グラフでは、app.css にある COMMIT_LOG_CSS の目印の位置に差し込む (ほかのルールとの優先順位を変えないため)。
    ログを入れる要素を container (container: loglist / inline-size) にすると、幅が広いときは件名と作者 / 日付が 1 行に並ぶ。 */
 .chip { display: inline-block; padding: 0 6px; border-radius: 3px; margin: 0 4px 2px 0; font-weight: bold; }
@@ -18,6 +18,15 @@ table.log .meta { font-size: 12px; color: #888; margin: 0; }
   table.log .log-subj { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   table.log .log-main > .meta { flex: none; white-space: nowrap; }
 }
+.log-search-btn { vertical-align: middle; margin-left: 6px !important; font-size: 13px; }
+.log-search-btn.on { background: #b9d3f0; }
+.log-search { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 6px 10px; margin: 0 0 8px; padding: 6px 8px; background: #f6f6f6; border: 1px solid #ddd; border-radius: 4px; }
+.log-search[hidden] { display: none; }
+.log-search label { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 12px; color: #555; }
+.log-search input, .log-search select { box-sizing: border-box; width: 100%; min-width: 0; padding: 3px 6px; border: 1px solid #bbb; border-radius: 3px; font: inherit; color: #000; background: #fff; }
+.log-search-period { display: flex; align-items: center; gap: 4px; }
+.log-search-btns { grid-column: 1 / -1; display: flex; gap: 6px; }
+.log-search-btns .sbtn { margin: 0; }
 body.node-dragging { cursor: grabbing; user-select: none; -webkit-user-select: none; }
 tr.drag-src { opacity: .55; }
 tr.drop-target { outline: 2px solid #e67e00; outline-offset: -2px; }

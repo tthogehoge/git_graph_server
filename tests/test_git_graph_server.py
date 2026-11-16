@@ -410,7 +410,8 @@ class GitApiIntegrationTests(unittest.TestCase):
 
         self.assertIn('id="fileGraphLogBtn" hidden', page)
         self.assertIn("fileLogBtn.onclick = () => { if (currentFile) openView(\"log\"); };", page)
-        self.assertIn('api("/api/log", {rev: hash, path: path})', page)
+        self.assertIn('showLogList(path, () => currentFile === path && currentView === "log");', page)  # このファイルのログ (パスで絞る)
+        self.assertIn('api("/api/log", Object.assign({rev: rev, path: path, skip: skip, limit: CommitLog.CHUNK}, searchP))', page)  # 続きは skip で読む。検索の条件を付けられる
         self.assertIn("CommitLog.rowHtml(c, {extraClass: LogSel.kinds(c[0], LogSel.load()), chips: refChips(c[0]), graphLink: true})", page)  # グラフのログと同じ行。対象 / A / B の行には、強調のクラスが付く
         self.assertIn('class="commit-graph" href="/?commit_hash=', page)
         self.assertIn('new URLSearchParams({hash: rowHash, file: currentFile})', page)
@@ -1888,7 +1889,7 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertEqual(files.count("const CommitLog = "), 1)
         self.assertLess(files.index("const CommitLog = "), files.index("function fileLogRow("))
         self.assertIn("CommitLog.rowHtml(c, {extraClass: LogSel.kinds(c[0], LogSel.load()), chips: refChips(c[0]), graphLink: true})", files)
-        self.assertEqual(files.count("CommitLog.tableHtml(rows)"), 3)  # コミットログ / ファイルのログ / ディレクトリのログが、同じ表
+        self.assertEqual(files.count("CommitLog.tableHtml("), 1)  # コミットログ / ファイルのログ / ディレクトリのログは、同じ表 (showLogList)
         self.assertIn("function refChips(h) { return CommitLog.chipsHtml((refLabels || {})[h], \"\"); }", files)
         self.assertEqual(files.count('{branch: "#b7e4a7"'), 1)  # ファイル表示にも、色の定義を別に持たない (CommitLog の 1 か所だけ)
         self.assertIn("function copyText(", files)  # 行のコピー記号 (.copy) の処理
@@ -1902,6 +1903,38 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertIn("window.mbSetAB = (a, b) => {", files)
         diff = viewer.render_diff_page({"wip": ["unstaged"]})
         self.assertIn("window.mbSetAB = (a, b) => {", diff)  # page_menubar.js は、差分ページにも同じものを埋め込む
+
+    def test_log_infinite_scroll_and_search_are_shared_by_the_graph_and_the_files_log(self):
+        # ログの続きの読み込み (無限スクロール)・件数の表示・検索 (条件・入力欄・ボタン) は、グラフのログ画面とファイル表示のログで 1 つだけ持つ (commit_log.js)
+        from git_graph import i18n
+        app_js, app_css = i18n.render_app_js(), i18n.APP_CSS
+        self.assertEqual(app_js.count("function createPager("), 1)
+        self.assertEqual(app_js.count("const SEARCH_FIELDS = "), 1)
+        graph_part = app_js[app_js.index("/* ---- js/01_core.js ---- */"):]
+        log_screen = graph_part[graph_part.index("function showLog("):graph_part.index("function showTargetLog(")]
+        self.assertIn("CommitLog.createPager({", log_screen)
+        self.assertIn("count.textContent = CommitLog.countText(search, pg.done, pg.skip, pg.total);", log_screen)
+        self.assertNotIn("new IntersectionObserver(", log_screen)  # 見張りは共通のエンジンが置く
+        self.assertNotIn("LOG_SEARCH_FIELDS", graph_part)
+        self.assertIn("CommitLog.bindSearch(listView, {", graph_part)
+        self.assertIn("const CHUNK = CommitLog.CHUNK;", graph_part)
+        self.assertEqual(app_css.count(".log-search {"), 1)  # 検索欄のスタイルも 1 か所
+        files = viewer.render_files_page()
+        self.assertEqual(files.count("function createPager("), 1)
+        self.assertEqual(files.count("const SEARCH_FIELDS = "), 1)
+        self.assertIn("CommitLog.bindSearch(content, {", files)
+        self.assertIn(".log-search {", files)
+        for call in ('showLogList(path, () => currentFile === path && currentView === "log");',  # このファイルのログ
+                     'showLogList("", () => currentFile === path && currentView === "clog");',  # ファイルを開いた状態のコミットログ
+                     'showLogList(path, () => seq === dirLogSeq && !currentFile && dirLogOn && !commitLogOn);',  # このディレクトリのログ
+                     'showLogList("", () => seq === dirLogSeq && !currentFile && dirLogOn && commitLogOn);'):  # ディレクトリ側のコミットログ
+            self.assertIn(call, files)
+        self.assertNotIn("loadCommitLog", files)  # 「さらに読み込む」ボタンの実装は無い
+        self.assertNotIn("log-more", files)
+        locales = Path(viewer.__file__).parent / "locales"
+        for key in ("dir_log_more", "log_load_more"):  # 無限スクロールになって、使われなくなった文言
+            for lang in ("en", "ja"):
+                self.assertNotIn('"%s":' % key, (locales / (lang + ".json")).read_text(encoding="utf-8"))
 
     def test_menubar_marks_unavailable_actions_by_capability_flags(self):
         # できない操作は隠さず無効にする。書き込み・作業ツリーが使えないことは、メニューバーの data 属性で JS に伝える
@@ -2053,17 +2086,18 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertIn('else if (view === "clog") loadFileCommitLog();', page)
         self.assertIn('else if (v === "clog") showDirLog(true);', page)
         self.assertIn('p.set("view", dirlog === "clog" ? "clog" : "log")', page)
-        start = page.index("function loadCommitLog(alive)")
-        body = page[start:page.index("fileCommitLogBtn.onclick", start)]
-        self.assertIn('api("/api/log", {rev: rev, path: "", skip: shown})', body)  # パスで絞らない。続きは skip で読む
-        self.assertIn("r.has_more", body)
+        start = page.index("function showLogList(path, alive, search)")
+        body = page[start:page.index("CommitLog.bindSearch(content", start)]
+        self.assertIn('showLogList("", () => currentFile === path && currentView === "clog");', page)  # パスで絞らない (path が空)
+        self.assertIn('api("/api/log", Object.assign({rev: rev, path: path, skip: skip, limit: CommitLog.CHUNK}, searchP))', body)  # 続きは skip で読む
+        self.assertIn("CommitLog.createPager({", body)
         self.assertNotIn("location.href", body)
         self.assertEqual(page.count("fileCommitLogBtn.hidden = !logHash();"), 6)  # 内容 / 内容に戻る / 差分 / 差分編集を抜けた後 / blame / ファイルのログ
         self.assertIn("fileCommitLogBtn.hidden = true;", page[page.index("function loadFileCommitLog()"):start])  # 表示中のログのボタンは出さない
         self.assertIn("dirCommitLogBtn.hidden = commitLogOn || !canLog;", page)
         start = page.index("function startEdit()")
         self.assertIn("[fileCommitLogBtn, fileLogBtn,", page[start:page.index("function saveEdit()", start)])  # 編集中は他のボタンと同じく隠す
-        for key in ("log", "commit_log_title", "log_load_more"):
+        for key in ("log", "commit_log_title"):
             for lang in ("en", "ja"):
                 self.assertIn('"%s":' % key, (Path(viewer.__file__).parent / "locales" / (lang + ".json")).read_text(encoding="utf-8"))
 

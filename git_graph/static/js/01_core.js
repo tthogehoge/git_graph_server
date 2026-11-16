@@ -66,7 +66,7 @@ function graphUrl() {
   return "/api/graph" + (params.length ? "?" + params.join("&") : "");
 }
 const COLORS = CommitLog.COLORS;  // ブランチ / タグの色 (ファイル表示のログと共通。commit_log.js)
-const CHUNK = 500;
+const CHUNK = CommitLog.CHUNK;
 const listView = document.getElementById("listView"), detailView = document.getElementById("detailView");
 const views = {list: listView, detail: detailView}, savedScroll = {list: 0, detail: 0};
 let curView = "list", selected = null, selectedKey = null, token = 0, observer = null, curRow = null;

@@ -50,6 +50,7 @@ __FAVICON__
   .sel-bar label.selall { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
   .sel-bar .cnt { color: #666; }
   .entry input.ck { flex: none; margin: 0; align-self: center; cursor: pointer; }
+  .log-head { display: flex; align-items: center; gap: 6px; margin: 4px 0; }  /* ログの件数と検索ボタン */
   table.log a.commit-graph { color: inherit; text-decoration: none; }  /* ハッシュは、グラフ画面で開くリンク */
   table.log a.commit-graph:hover { text-decoration: underline; }
   table.dir-log { table-layout: fixed; width: 100%; border-collapse: collapse; margin-top: 8px; }
@@ -1217,24 +1218,14 @@ function showDirLog(all) {  // ファイルを開いていないとき、この�
   if (all) {
     setDocumentTitle(t("commit_log_title", {rev: rev.slice(0, 7)}));
     title.textContent = t("commit_log_title", {rev: rev.slice(0, 7)});
-    loadCommitLog(() => seq === dirLogSeq && !currentFile && dirLogOn && commitLogOn);
+    showLogList("", () => seq === dirLogSeq && !currentFile && dirLogOn && commitLogOn);
     return;
   }
   setDocumentTitle(t("file_history_title", {path: label}));
   const histSuffix = t("file_history_title", {path: ""}).replace("{path}", "").trim();
   title.innerHTML = pathCrumbHtml(path) + (histSuffix ? " " + esc(histSuffix) : "");
   bindPathCrumb(title);
-  content.className = "hint";
-  content.textContent = t("loading");
-  document.getElementById("main").scrollTop = 0;
-  Promise.all([api("/api/log", {rev: rev, path: path}), refsReady]).then(([r]) => {
-    if (seq !== dirLogSeq || currentFile || !dirLogOn || commitLogOn) return;  // 別のディレクトリ / ファイル / ログに移った
-    const rows = r.commits.map(fileLogRow).join("");
-    content.className = "";
-    content.innerHTML = '<div class="meta">' + esc(t("n_commits", {n: r.total})) + '</div>' +
-      (rows ? CommitLog.tableHtml(rows) : '<p class="hint">' + esc(t("no_history")) + '</p>') +
-      (r.has_more ? '<p class="hint">' + esc(t("dir_log_more", {n: r.commits.length})) + '</p>' : "");
-  }).catch(e => { if (seq === dirLogSeq && !currentFile && dirLogOn && !commitLogOn) { content.className = "hint"; content.textContent = t("error") + e.message; } });
+  showLogList(path, () => seq === dirLogSeq && !currentFile && dirLogOn && !commitLogOn);
 }
 function openDirLogView(all) {  // 「このディレクトリのログ」「ログ」: 履歴に積んで出す (ブラウザーの戻るで一覧に戻れる)。ログ同士の切り替えは履歴を積み増さない
   if (currentFile || !logHash() || (dirLogOn && !!all === commitLogOn)) return;
@@ -1712,14 +1703,7 @@ function loadFileLog(path) {
   fileGraphLogBtn.hidden = false;
   setDocumentTitle(t("file_history_title", {path: path}));
   title.textContent = t("file_history_title", {path: path});
-  content.className = "hint";
-  content.textContent = t("loading");
-  Promise.all([api("/api/log", {rev: hash, path: path}), refsReady]).then(([r]) => {
-    const rows = r.commits.map(fileLogRow).join("");
-    content.className = "";
-    content.innerHTML = '<div class="meta">' + esc(t("n_commits", {n: r.total})) + '</div>' +
-      (rows ? CommitLog.tableHtml(rows) : '<p class="hint">' + t("no_history") + '</p>');
-  }).catch(e => { content.className = "hint"; content.textContent = t("error") + e.message; });
+  showLogList(path, () => currentFile === path && currentView === "log");
 }
 function loadFileCommitLog() {  // 右ペインに、通常のコミットログ (パスで絞らない。この時点までの全コミット) を出す
   closeEditor();  // 表示のエディタ
@@ -1735,43 +1719,38 @@ function loadFileCommitLog() {  // 右ペインに、通常のコミットログ
   fileGraphLogBtn.hidden = true;
   setDocumentTitle(t("commit_log_title", {rev: rev.slice(0, 7)}));
   title.textContent = t("commit_log_title", {rev: rev.slice(0, 7)});
-  loadCommitLog(() => currentFile === path && currentView === "clog");
+  showLogList("", () => currentFile === path && currentView === "clog");
 }
-function loadCommitLog(alive) {  // 通常のコミットログを本文に出す。500 件ずつ読み、続きは「さらに読み込む」で足す。alive: 別の表示に移っていたら false (古い応答を捨てる)
+let logCtx = null, logPager = null;  // logCtx: 表示中のログ (検索し直すときに使う)、logPager: 続きの読み込み
+function showLogList(path, alive, search) {  // 右ペインに git log を出す (path: 空ならパスで絞らない通常のコミットログ)。alive: 別の表示に移っていたら false (古い応答を捨てる)
+  // 続きの読み込み (無限スクロール) と検索は、グラフ画面のログと共通 (commit_log.js)
   const rev = logHash();
   if (!rev) return;
-  content.className = "hint";
-  content.textContent = t("loading");
+  if (logPager) logPager.stop();
+  search = CommitLog.normSearch(search);
+  logCtx = {path: path, alive: alive};
+  content.className = "";
+  content.innerHTML = '<div class="log-head"><span class="meta" id="logCount">' + esc(t("loading")) + '</span>' +
+    '<button class="sbtn iconbtn log-search-btn' + (search ? " on" : "") + '" title="' + esc(t("search_open")) + '">🔍</button></div>' +
+    CommitLog.searchHtml(search) + CommitLog.tableHtml("") + '<div id="logSentinel" class="hint"></div>';
   document.getElementById("main").scrollTop = 0;
-  let shown = 0, total = 0, tbody = null;
-  const next = () => {
-    const btn = content.querySelector(".log-more button");
-    if (btn) btn.disabled = true;
-    Promise.all([api("/api/log", {rev: rev, path: "", skip: shown}), refsReady]).then(([r]) => {
-      if (!alive()) return;
-      const rows = r.commits.map(fileLogRow).join("");
-      if (!shown) {  // 先頭のページ: 件数 (total は先頭のページだけに付く) と表を作る
-        total = r.total;
-        content.className = "";
-        content.innerHTML = '<div class="meta">' + esc(t("n_commits", {n: total})) + '</div>' +
-          (rows ? CommitLog.tableHtml(rows) : '<p class="hint">' + esc(t("no_history")) + '</p>') +
-          '<div class="file-actions log-more"></div>';
-        tbody = content.querySelector("table.log tbody");
-      } else if (tbody) tbody.insertAdjacentHTML("beforeend", rows);
-      shown += r.commits.length;
-      const more = content.querySelector(".log-more");
-      if (!more) return;
-      more.innerHTML = r.has_more ? '<button type="button">' + esc(t("log_load_more", {n: shown, total: total})) + '</button>' : "";
-      if (r.has_more) more.firstChild.onclick = next;
-    }).catch(e => {
-      if (!alive()) return;
-      const more = shown ? content.querySelector(".log-more") : null;
-      if (more) more.innerHTML = '<span class="msg err">' + esc(t("error") + e.message) + '</span>';
-      else { content.className = "hint"; content.textContent = t("error") + e.message; }
-    });
-  };
-  next();
+  const rows = content.querySelector("table.log tbody"), count = content.querySelector("#logCount"), sentinel = content.querySelector("#logSentinel");
+  const searchP = CommitLog.searchParams(search);
+  if (search) content.querySelector("#logSearch input").focus({preventScroll: true});
+  const pg = logPager = CommitLog.createPager({
+    root: document.getElementById("main"), sentinel: sentinel,
+    alive: () => logPager === pg && alive(),
+    load: skip => Promise.all([api("/api/log", Object.assign({rev: rev, path: path, skip: skip, limit: CommitLog.CHUNK}, searchP)), refsReady]).then(([r]) => r),
+    onPage: r => {
+      rows.insertAdjacentHTML("beforeend", r.commits.map(c => fileLogRow(c)).join(""));
+      count.textContent = CommitLog.countText(search, pg.done, pg.skip, pg.total);
+      sentinel.textContent = pg.done ? (pg.skip === 0 ? t("none") : "") : t("loading");
+    },
+    onError: e => { sentinel.textContent = t("error") + e.message; },
+  });
+  pg.watch();
 }
+CommitLog.bindSearch(content, {apply: search => { if (logCtx) showLogList(logCtx.path, logCtx.alive, search); }});
 fileCommitLogBtn.onclick = () => { if (currentFile) openView("clog"); };  // 通常のコミットログは右ペインに出す (履歴に積むので、戻るで元の表示へ戻れる)
 dirCommitLogBtn.onclick = openCommitLogView;
 fileLogBtn.onclick = () => { if (currentFile) openView("log"); };
