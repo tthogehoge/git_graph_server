@@ -943,7 +943,11 @@ function loadTree(path, push) {
       }
     }
     updateSelBar();
-  }).catch(showError);
+  }).catch(e => {
+    // 対象ファイルの親ディレクトリがこのコミットに無いとき (ログから古いコミットを選んだ場合など) はルートを表示する
+    if (path) return loadTree("", false);
+    showError(e);
+  });
 }
 fileDownloadBtn.onclick = () => {  // Content-Disposition: attachment なので、画面は移動せず保存される
   if (currentFile) location.href = "/download?" + new URLSearchParams({hash: hash, path: currentFile});
