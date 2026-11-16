@@ -398,7 +398,7 @@ class GitApiIntegrationTests(unittest.TestCase):
         self.assertIn(".blame-subject", page)
         self.assertIn('class="blame-commit commit-graph"', page)
         self.assertIn('class="blame-line" data-hash="', page)
-        self.assertIn('ev.target.closest("tr.file-log-row, .blame-line")', page)
+        self.assertIn('ev.target.closest("tr.clickable, .blame-line")', page)
         self.assertIn('ev.target.closest("a.commit-graph")', page)
         self.assertIn('type: "git-graph-commit"', page)
         self.assertIn('showTargetLog(ev.data.hash)', app.render_app_js())
@@ -411,9 +411,9 @@ class GitApiIntegrationTests(unittest.TestCase):
         self.assertIn('id="fileGraphLogBtn" hidden', page)
         self.assertIn("fileLogBtn.onclick = () => { if (currentFile) openView(\"log\"); };", page)
         self.assertIn('api("/api/log", {rev: hash, path: path})', page)
-        self.assertIn('<tr class="file-log-row\' + (marks ? \' \' + marks : \'\') + \'" data-hash="\' + esc(c[0])', page)  # 対象 / A / B の行には、強調のクラスが付く
+        self.assertIn("CommitLog.rowHtml(c, {extraClass: LogSel.kinds(c[0], LogSel.load()), chips: refChips(c[0]), graphLink: true})", page)  # グラフのログと同じ行。対象 / A / B の行には、強調のクラスが付く
         self.assertIn('class="commit-graph" href="/?commit_hash=', page)
-        self.assertIn('new URLSearchParams({hash: row.dataset.hash, file: currentFile})', page)
+        self.assertIn('new URLSearchParams({hash: rowHash, file: currentFile})', page)
         self.assertIn('const dir = slash < 0 ? "" : currentFile.slice(0, slash);', page)
         self.assertIn('location.href = "/files?" + params', page)
         self.assertIn('location.href = "/?file_log_hash="', page)
@@ -1836,18 +1836,16 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         # 対象 / A / B の保存形式と、ログの行の強調のスタイルは、グラフ・メニューバー・ファイル表示のログで 1 つだけ持つ (log_select.js / log_select.css)
         from git_graph import i18n
         app_js, app_css = i18n.render_app_js(), i18n.APP_CSS
-        self.assertLess(app_js.index("const LogSel = "), app_js.index("js/01_core.js"))  # グラフの部品より先に定義する
+        self.assertLess(app_js.index("const LogSel = "), app_js.index("/* ---- js/01_core.js ---- */"))  # グラフの部品より先に定義する
         self.assertEqual(app_js.count('"git_graph_ui_sel"'), 1)  # 保存のキーは LogSel だけが持つ
         self.assertNotIn("UI_SEL_KEY", app_js)
         self.assertIn("LogSel.save({compareA: compareAHash, compareB: compareBHash, actionHash: actionHash})", app_js)
-        # 強調のスタイル: グラフ (table.log) とファイル表示 (table.file-log) の両方に、対象 / A / B の同じ見た目が効く
+        # 強調のスタイル: グラフのログ画面とファイル表示のログは、どちらも table.log の行なので、同じルールが効く
         self.assertNotIn("__LOG_SELECT_CSS__", app_css)
-        for graph_rule, files_rule in (("table.log tr.actionTarget td", "table.file-log tr.actionTarget td"),
-                                       ("table.log tr.clickable.cmpA td", "table.file-log tr.cmpA td"),
-                                       ("table.log tr.clickable.cmpB td", "table.file-log tr.cmpB td"),
-                                       ("table.log tr.actionTarget.cmpA td", "table.file-log tr.actionTarget.cmpA td")):
-            self.assertIn(graph_rule + ", " + files_rule, app_css)
-        self.assertLess(app_css.index("table.file-log tr.cmpA td"), app_css.index(".compare-log-col table.log tr.log-common td"))  # 差し込む位置は、元のルールの位置 (log-common の背景が A / B より優先される順序を変えない)
+        for rule in ("table.log tr.actionTarget td", "table.log tr.clickable.cmpA td", "table.log tr.clickable.cmpB td", "table.log tr.actionTarget.cmpA td"):
+            self.assertIn(rule, app_css)
+        self.assertNotIn("file-log", app_css)
+        self.assertLess(app_css.index("table.log tr.clickable.cmpA td"), app_css.index(".compare-log-col table.log tr.log-common td"))  # 差し込む位置は、元のルールの位置 (log-common の背景が A / B より優先される順序を変えない)
         files = viewer.render_files_page()
         self.assertEqual(files.count("const LogSel = "), 1)
         self.assertEqual(files.count('"git_graph_ui_sel"'), 1)  # メニューバー (page_menubar.js) も、キーを自前で持たない
@@ -1856,12 +1854,54 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertIn("const save = () => LogSel.save(sel);", files)
         self.assertIn("LogSel.kinds(c[0], LogSel.load())", files)  # 描画時に、対象 / A / B の行へクラスを付ける
         self.assertIn("LogSel.onChange(sel => LogSel.markRows(content, sel));", files)  # メニューでの変更に追従する
-        for rule in ("table.file-log tr.cmpA td", "table.file-log tr.cmpB td", "table.file-log tr.actionTarget td"):
+        for rule in ("table.log tr.cmpA td", "table.log tr.cmpB td", "table.log tr.actionTarget td"):
             self.assertIn(rule, files)
+        self.assertNotIn("file-log", files)
         diff = viewer.render_diff_page({"wip": ["unstaged"]})  # page_menubar.js を使う、もう 1 つのページ
         self.assertEqual(diff.count("const LogSel = "), 1)
         self.assertEqual(diff.count('"git_graph_ui_sel"'), 1)
         self.assertLess(diff.index("const LogSel = "), diff.index("const sel = LogSel.load() || {};"))
+
+    def test_commit_log_rows_chips_and_drag_and_drop_are_shared_by_the_graph_and_the_files_log(self):
+        # ログの行・ブランチ / タグの札・コミットのドラッグ&ドロップは、グラフのログ画面とファイル表示のログで 1 つだけ持つ (commit_log.js / commit_log.css)
+        from git_graph import i18n
+        app_js, app_css = i18n.render_app_js(), i18n.APP_CSS
+        core, screens = "/* ---- js/01_core.js ---- */", "/* ---- js/07_screens.js ---- */"
+        self.assertLess(app_js.index("const LogSel = "), app_js.index("const CommitLog = "))
+        self.assertLess(app_js.index("const CommitLog = "), app_js.index(core))  # グラフの部品より先に定義する
+        for call in ("CommitLog.rowHtml(c, {extraClass: extraClass, graphTd: graphTd, chips: chips(c[0])})",  # グラフの行の描画
+                     "CommitLog.chipsHtml(n.refs, currentBranch)", "CommitLog.copyLink(h)", "const COLORS = CommitLog.COLORS;"):
+            self.assertIn(call, app_js[app_js.index(core):app_js.index(screens)])
+        self.assertIn("CommitLog.createDrag({", app_js[app_js.index(screens):])
+        graph_part = app_js[app_js.index(core):]
+        for gone in ("let nodeDrag", "function endNodeDrag", "DRAG_THRESHOLD", "const COLORS = {"):  # ドラッグの動きと色は、グラフ側に別の実装を持たない
+            self.assertNotIn(gone, graph_part)
+        self.assertEqual(app_js.count('{branch: "#b7e4a7"'), 1)  # ブランチ / タグの色の定義は 1 か所
+        self.assertEqual(app_js.count("function createDrag("), 1)
+        # スタイル: 表・札・コピー記号・ドラッグ中の表示は、共通のファイルから app.css の元の位置に差し込む
+        self.assertNotIn("__COMMIT_LOG_CSS__", app_css)
+        self.assertEqual(app_css.count("#dragTip {"), 1)
+        self.assertEqual(app_css.count(".chip { display: inline-block"), 1)
+        self.assertEqual(app_css.count("table.log td.h { width: 1%"), 1)
+        self.assertLess(app_css.index("table.log td.h { width: 1%"), app_css.index(".compare-log-col table.log td.h"))  # 比較ログの幅の指定が、共通の指定より後 (優先される順序)
+        files = viewer.render_files_page()
+        self.assertEqual(files.count("const CommitLog = "), 1)
+        self.assertLess(files.index("const CommitLog = "), files.index("function fileLogRow("))
+        self.assertIn("CommitLog.rowHtml(c, {extraClass: LogSel.kinds(c[0], LogSel.load()), chips: refChips(c[0]), graphLink: true})", files)
+        self.assertEqual(files.count("CommitLog.tableHtml(rows)"), 3)  # コミットログ / ファイルのログ / ディレクトリのログが、同じ表
+        self.assertIn("function refChips(h) { return CommitLog.chipsHtml((refLabels || {})[h], \"\"); }", files)
+        self.assertEqual(files.count('{branch: "#b7e4a7"'), 1)  # ファイル表示にも、色の定義を別に持たない (CommitLog の 1 か所だけ)
+        self.assertIn("function copyText(", files)  # 行のコピー記号 (.copy) の処理
+        for rule in ("table.log td.h { width: 1%", ".log-host { container: loglist / inline-size; }", "#dragTip {", "tr.drop-target {"):
+            self.assertIn(rule, files)
+        self.assertIn("table.dir-log td { border-bottom: 1px solid #e3e3e3;", files)  # ディレクトリ一覧は、自分の表のスタイルを持つ
+        # ドラッグ&ドロップ: 動きは共通。落としたときに、メニューバーの AB操作メニューを開く
+        self.assertIn("CommitLog.createDrag({", files)
+        self.assertIn("onDrop: (from, hit) => { if (window.mbSetAB) window.mbSetAB(from, hit.hash); },", files)
+        self.assertIn('content.addEventListener("pointerdown", ev => {', files)
+        self.assertIn("window.mbSetAB = (a, b) => {", files)
+        diff = viewer.render_diff_page({"wip": ["unstaged"]})
+        self.assertIn("window.mbSetAB = (a, b) => {", diff)  # page_menubar.js は、差分ページにも同じものを埋め込む
 
     def test_menubar_marks_unavailable_actions_by_capability_flags(self):
         # できない操作は隠さず無効にする。書き込み・作業ツリーが使えないことは、メニューバーの data 属性で JS に伝える
@@ -1988,7 +2028,7 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertIn("window.mbSetTarget", script)
         page = viewer.render_files_page()
         self.assertIn('id="compareWipBtn"', page)
-        self.assertIn("window.mbSetTarget(row.dataset.hash)", page)  # ログ / blame の行のクリックで、メニューの対象を更新する
+        self.assertIn("window.mbSetTarget(rowHash)", page)  # ログ / blame の行のクリックで、メニューの対象を更新する
 
     def test_files_page_diff_view_keeps_the_file_log_button(self):
         page = viewer.render_files_page()

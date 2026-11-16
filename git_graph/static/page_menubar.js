@@ -88,6 +88,15 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
     sel.actionHash = h;
     save(); refresh();
   };
+  // ページ側 (ファイル表示のログの行のドラッグ&ドロップ) から、A と B を決めて AB操作メニューを開く
+  window.mbSetAB = (a, b) => {
+    if (!HASH.test(a || "") || !HASH.test(b || "")) return;
+    sel.compareA = a; sel.compareB = b;
+    save(); refresh();
+    closeMenus();
+    $("abActions").hidden = false;
+    $("abActToggle").setAttribute("aria-expanded", "true");
+  };
   $("compareBtn").addEventListener("click", () => {  // A と B の間の差分
     const p = new URLSearchParams({hash: sel.compareB, dfrom: sel.compareA, dto: sel.compareB});
     go("/files?" + p);

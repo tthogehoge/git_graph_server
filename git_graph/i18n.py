@@ -26,14 +26,16 @@ MENUBAR_TEMPLATE = (STATIC_DIR / "menubar.html").read_text(encoding="utf-8")  # 
 # 部品の境界を示すコメントを挟むので、ブラウザーのエラーに出る行番号から元のファイルを探せる。
 # 画面共通の WIP の一覧とコミットフォーム (wip_panel.js) と、パッチの作成・適用 (patch_ops.js) を先頭に置く
 APP_JS = "/* ---- log_select.js ---- */\n" + (STATIC_DIR / "log_select.js").read_text(encoding="utf-8") + \
+    "/* ---- commit_log.js ---- */\n" + (STATIC_DIR / "commit_log.js").read_text(encoding="utf-8") + \
     "/* ---- wip_panel.js ---- */\n" + (STATIC_DIR / "wip_panel.js").read_text(encoding="utf-8") + \
     "/* ---- patch_ops.js ---- */\n" + (STATIC_DIR / "patch_ops.js").read_text(encoding="utf-8") + "".join(
     f"/* ---- js/{path.name} ---- */\n" + path.read_text(encoding="utf-8")
     for path in sorted((STATIC_DIR / "js").glob("*.js")))
 # 共通のメニューバーの CSS (menubar.css) を先頭に連結する。ファイル表示 / 差分ページは menubar.css だけを埋め込む
 APP_CSS = ((STATIC_DIR / "menubar.css").read_text(encoding="utf-8") + (STATIC_DIR / "wip_panel.css").read_text(encoding="utf-8")
-           + (STATIC_DIR / "app.css").read_text(encoding="utf-8").replace(  # ログの行の強調 (log_select.css) は、app.css の目印の位置へ
-               "/*__LOG_SELECT_CSS__*/", (STATIC_DIR / "log_select.css").read_text(encoding="utf-8")))
+           + (STATIC_DIR / "app.css").read_text(encoding="utf-8").replace(  # ログの行の強調 (log_select.css) とログの表 (commit_log.css) は、app.css の目印の位置へ
+               "/*__LOG_SELECT_CSS__*/", (STATIC_DIR / "log_select.css").read_text(encoding="utf-8")).replace(
+               "/*__COMMIT_LOG_CSS__*/", (STATIC_DIR / "commit_log.css").read_text(encoding="utf-8")))
 _FAVICON_SVG = ("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'>"
                 "<path d='M16 7V25M16 16C16 11 24 13 24 7' stroke='#889' stroke-width='3' fill='none'/>"
                 "<circle cx='16' cy='25' r='4' fill='#2c7be5'/><circle cx='16' cy='16' r='4' fill='#2c7be5'/>"

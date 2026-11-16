@@ -65,7 +65,7 @@ function graphUrl() {
   if (openClusters.length) params.push("open=" + encodeURIComponent(openClusters.join(",")));
   return "/api/graph" + (params.length ? "?" + params.join("&") : "");
 }
-const COLORS = {branch: "#b7e4a7", current: "#b7e4a7", remote: "#a7c8f0", tag: "#ffe9a0", head: "#f4a7a7", stash: "#d9c7f2"};
+const COLORS = CommitLog.COLORS;  // ブランチ / タグの色 (ファイル表示のログと共通。commit_log.js)
 const CHUNK = 500;
 const listView = document.getElementById("listView"), detailView = document.getElementById("detailView");
 const views = {list: listView, detail: detailView}, savedScroll = {list: 0, detail: 0};
@@ -190,24 +190,11 @@ function setDocumentTitleFromHtml(titleHtml) {
   el.innerHTML = titleHtml;
   setDocumentTitle(el.textContent || el.innerText || "");
 }
-function chips(h) {
+function chips(h) {  // コミットのブランチ / タグの札 (ファイル表示のログと共通の描画。commit_log.js)
   const n = DATA.nodes[h];
-  if (!n) return "";
-  return n.refs.map(r => {
-    const current = r.kind === "current" || (r.kind === "branch" && r.name === currentBranch);
-    return '<span class="chip" style="background:' + COLORS[r.kind] + '"' +
-      (current ? ' title="' + esc(t("current_branch")) + '"' : "") + '>' + (current ? "★ " : "") + esc(r.name) + "</span>";
-  }).join("");
+  return n ? CommitLog.chipsHtml(n.refs, currentBranch) : "";
 }
-function detailChips(h) {
-  const n = DATA.nodes[h];
-  if (!n) return "";
-  return n.refs.map(r => {
-    const current = r.kind === "current" || (r.kind === "branch" && r.name === currentBranch);
-    return '<span class="chip" style="background:' + COLORS[r.kind] + '"' +
-      (current ? ' title="' + esc(t("current_branch")) + '"' : "") + '>' + (current ? "★ " : "") + esc(r.name) + "</span>";
-  }).join("");
-}
+function detailChips(h) { return chips(h); }
 
 function fallbackCopy(text) {
   const ta = document.createElement("textarea");
@@ -251,9 +238,7 @@ document.addEventListener("click", ev => {
   });
 }, true);
 
-function copyLink(h) {  // フルハッシュをコピーするリンク
-  return '<a class="copy" data-copy="' + h + '" title="' + esc(t("copy_hash_title")) + '">📋</a>';
-}
+function copyLink(h) { return CommitLog.copyLink(h); }  // フルハッシュをコピーするリンク
 function api(path, params) {
   return fetch(path + "?" + new URLSearchParams(params)).then(r =>
     r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); }));
@@ -276,10 +261,7 @@ function saveUiState() {
   }), "");
   persistUiSel();  // 別ページ (/files /diff) から戻っても選択を復元できるようにする
 }
-function rowHtml(c, extraClass, graphTd) {  // c = [hash, short, author, date, subject, parents?]; graphTd = マージグラフの列
-  return '<tr class="clickable' + (extraClass ? ' ' + extraClass : '') + '" data-h="' + c[0] + '">' + (graphTd || "") +
-    '<td class="h">' + esc(c[1]) + copyLink(c[0]) + '</td><td class="log-cell">' +
-    '<div class="log-main"><div class="log-subj" title="' + esc(c[4]) + '"><span class="rc">' + chips(c[0]) + "</span>" + esc(c[4]) + "</div>" +
-    '<div class="meta">' + esc(c[2]) + " / " + esc(c[3]) + "</div></div></td></tr>";
+function rowHtml(c, extraClass, graphTd) {  // c = [hash, short, author, date, subject, parents?]; graphTd = マージグラフの列。行の描画はファイル表示のログと共通 (commit_log.js)
+  return CommitLog.rowHtml(c, {extraClass: extraClass, graphTd: graphTd, chips: chips(c[0])});
 }
 

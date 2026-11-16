@@ -13,11 +13,9 @@ html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-s
   .graph-toast-message { flex: 1; min-width: 0; }
   .graph-toast-close { flex: none; border: 0; background: transparent; color: inherit; cursor: pointer; font: inherit; padding: 0 2px; }
   #reload.busy svg { animation: spin 1s linear infinite; }
-  body.node-dragging, body.node-dragging svg g.node { cursor: grabbing; user-select: none; -webkit-user-select: none; }
-  g.node.drag-src, tr.drag-src { opacity: .55; }
-  tr.drop-target { outline: 2px solid #e67e00; outline-offset: -2px; }
+  body.node-dragging svg g.node { cursor: grabbing; user-select: none; -webkit-user-select: none; }
+  g.node.drag-src { opacity: .55; }
   g.node.drop-target { filter: drop-shadow(0 0 3px #e67e00); }
-  #dragTip { position: fixed; z-index: 1000; pointer-events: none; background: #333; color: #fff; font: 12px monospace; padding: 2px 6px; border-radius: 3px; white-space: pre; }
   #splitter { flex: 0 0 6px; cursor: col-resize; background: #eee; border-left: 1px solid #ccc; border-right: 1px solid #ccc; box-sizing: border-box; touch-action: none; }
   #splitter:hover, body.resizing #splitter { background: #c8d8f0; }
   body.resizing { cursor: col-resize; user-select: none; }
@@ -30,16 +28,12 @@ html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-s
   h2 { font-size: 14px; margin: 0 0 8px; }
   pre { white-space: pre-wrap; word-break: break-word; background: #fff; border: 1px solid #ddd; padding: 8px; margin: 6px 0; font-size: 12px; }
   code { background: #eee; padding: 1px 4px; border-radius: 3px; user-select: all; }
-  .chip { display: inline-block; padding: 0 6px; border-radius: 3px; margin: 0 4px 2px 0; font-weight: bold; }
   .chip .ref-delete { border: 0; background: transparent; color: #555; cursor: pointer; font: inherit; font-weight: normal; line-height: inherit; margin-left: 4px; padding: 0 2px; }
   .ref-delete:hover { color: #cf222e; }
   .tag { display: inline-block; padding: 0 6px; border-radius: 3px; margin-right: 4px; font-weight: bold; color: #fff; }
   .tagA { background: #06c; } .tagB { background: #e8590c; }
   .meta { color: #555; margin: 2px 0; }
   .hint { color: #777; }
-  .copy { cursor: pointer; font-size: 12px; margin-left: 6px; user-select: none; text-decoration: none; border-radius: 3px; padding: 0 2px; }
-  .copy:hover { background: #e4e4e4; }
-  td.h .copy { opacity: .45; } tr:hover td.h .copy { opacity: 1; }
   .actions { border: 1px solid #ddd; background: #fafafa; border-radius: 4px; padding: 8px; margin: 8px 0; }
   .actions .arow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0; }
   .actions input[type=text] { padding: 3px 6px; border: 1px solid #bbb; border-radius: 3px; min-width: 0; flex: 1; }
@@ -74,10 +68,7 @@ html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-s
   .ri-row.squash, .ri-row.fixup { margin-left: 22px; background: #f3f8ff; }
   #actionError { margin-top: 8px; white-space: pre-wrap; } #actionError:empty { display: none; }
   h3 { font-size: 13px; margin: 10px 0 2px; }
-  table.log { border-collapse: collapse; width: 100%; margin-top: 6px; }
-  table.log td { border-bottom: 1px solid #e3e3e3; padding: 4px; vertical-align: top; }
-  table.log tr.clickable { cursor: pointer; }
-  table.log tr.clickable:hover td { background: #eef; }
+/*__COMMIT_LOG_CSS__*/
   table.log tr.submodule-row { cursor: pointer; }
   table.log tr.submodule-row:hover td { background: #eef; }
   table.log tr.submodule-row.uninit { color: #888; }
@@ -94,17 +85,9 @@ html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-s
   table.log td.graph line { stroke-width: 2; stroke-linecap: round; }
   table.log td.graph line.sel-line { opacity: .8; }
   table.log td.graph circle { stroke-width: 2; }
-  table.log td.h { width: 1%; font-family: monospace; white-space: nowrap; color: #b60; }
   g.node.actionTarget polygon { stroke: #d22; stroke-width: 3; }
-  table.log .meta { font-size: 12px; color: #888; margin: 0; }
   /* 幅が広いときは、件名と作者/日付を1行に並べる (比較ログは各列の幅で判定する) */
   #listView, .compare-log-col { container: loglist / inline-size; }
-  @container loglist (min-width: 320px) {
-    table.log .log-main { display: flex; align-items: baseline; gap: 12px; }
-    table.log td.log-cell { max-width: 0; }  /* 列の幅を残りの幅に固定して、長い件名を省略表示にする */
-    table.log .log-subj { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    table.log .log-main > .meta { flex: none; white-space: nowrap; }
-  }
   table.log tr.log-gap td { padding-top: 4px; padding-bottom: 4px; }
   .compare-log-col table.log tr.log-common td { background: #f3f3f3; color: #666; }
   .compare-log-col table.log tr.log-common-start td { border-top: 2px solid #999; }

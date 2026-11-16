@@ -50,15 +50,15 @@ __FAVICON__
   .sel-bar label.selall { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
   .sel-bar .cnt { color: #666; }
   .entry input.ck { flex: none; margin: 0; align-self: center; cursor: pointer; }
-  table.file-log { border-collapse: collapse; width: 100%; margin-top: 8px; }
-  table.file-log td { border-bottom: 1px solid #e3e3e3; padding: 5px 6px; vertical-align: top; }
-  table.file-log td.hash { width: 1%; font-family: monospace; white-space: nowrap; }
-  table.file-log td.date { width: 1%; color: #777; white-space: nowrap; }
-  table.file-log td.author { width: 1%; color: #555; white-space: nowrap; }
-  table.file-log a { color: inherit; text-decoration: none; }
-  table.file-log a.commit-graph:hover { text-decoration: underline; }
-  table.file-log tr:hover td { background: #eef; }
-  table.dir-log { table-layout: fixed; width: 100%; }
+  table.log a.commit-graph { color: inherit; text-decoration: none; }  /* ハッシュは、グラフ画面で開くリンク */
+  table.log a.commit-graph:hover { text-decoration: underline; }
+  table.dir-log { table-layout: fixed; width: 100%; border-collapse: collapse; margin-top: 8px; }
+  table.dir-log td { border-bottom: 1px solid #e3e3e3; padding: 5px 6px; vertical-align: top; }
+  table.dir-log td.hash { font-family: monospace; }
+  table.dir-log td.date { color: #777; }
+  table.dir-log a { color: inherit; text-decoration: none; }
+  table.dir-log a.commit-graph:hover { text-decoration: underline; }
+  table.dir-log tr:hover td { background: #eef; }
   table.dir-log th { text-align: left; font-weight: normal; color: #666; padding: 4px 6px; border-bottom: 1px solid #ccc; white-space: nowrap; }
   table.dir-log tr.dir-log-row { cursor: pointer; }
   table.dir-log .dir-name { width: 28%; min-width: 8em; }
@@ -67,7 +67,6 @@ __FAVICON__
   table.dir-log .dir-msg { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   table.dir-log .date { width: 8.5em; white-space: nowrap; }
   table.dir-log tr.dir-log-row:hover td.dir-name { color: #06c; }
-  table.file-log tr { cursor: pointer; }
   .blame { display: table; width: 100%; table-layout: auto; border-collapse: collapse; font: 12px monospace; }
   .blame-line { display: table-row; cursor: pointer; }
   .blame-line:hover > * { background: #f6f8fa; }
@@ -101,7 +100,6 @@ __FAVICON__
   .edit-bar button.primary { background: #1a7f37; border-color: #1a7f37; color: #fff; }
   .edit-bar button:disabled { opacity: .5; cursor: default; }
   .file-actions button:disabled { opacity: .5; cursor: default; }
-  .chip { display: inline-block; padding: 0 6px; border-radius: 3px; margin: 0 4px 2px 0; font-weight: bold; color: #222; }  /* ブランチ / タグ (グラフ画面と同じ) */
   .wip-box { margin: 8px 0; } .wip-box > summary { cursor: pointer; font-weight: bold; margin-bottom: 4px; }
 /*__MENUBAR_CSS__*/
 </style></head>
@@ -117,6 +115,8 @@ __FAVICON__
 <div id="content" class="hint">{{select_file_hint}}</div></div><section id="wipCommitView" hidden><h2>{{wip_title}} <button type="button" class="sbtn" id="wipCommitBack">{{back_history}}</button></h2><div id="wipCommitPanel"></div></section></main>
 </div>
 <script>/*__LOG_SELECT__*/</script>
+<script>/*__COMMIT_LOG__*/</script>
+<script>/*__COPY__*/</script>
 <script>/*__PANE_RESIZE__*/</script>
 <script>/*__DIFF_EDITOR_VIEW__*/</script>
 <script>
@@ -687,14 +687,8 @@ function logHash() { return isWip ? wipHead : hash; }  // ファイルのログ�
 function esc(s) { return String(s).replace(/[&<>\"]/g, c => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", "\"":"&quot;"}[c])); }
 function api(path, params) { return fetch(path + "?" + new URLSearchParams(params)).then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); })); }
 // ---- ブランチ / タグ / HEAD の表示 (グラフ画面と同じ名前・色)。コミット → 名前の一覧は、ページを開いたときに 1 回読む ----
-var REF_COLORS = {branch: "#b7e4a7", current: "#b7e4a7", remote: "#a7c8f0", tag: "#ffe9a0", head: "#f4a7a7", stash: "#d9c7f2"};
 var refLabels = {};  // コミット → [{name, kind}] (var: 読み込み前に refChips が呼ばれても落ちないようにする)
-function refChips(h) {
-  return ((refLabels || {})[h] || []).map(r => {
-    const cur = r.kind === "current";
-    return '<span class="chip" style="background:' + (REF_COLORS[r.kind] || "#ddd") + '"' + (cur ? ' title="' + esc(t("current_branch")) + '"' : "") + '>' + (cur ? "★ " : "") + esc(r.name) + "</span>";
-  }).join("");
-}
+function refChips(h) { return CommitLog.chipsHtml((refLabels || {})[h], ""); }  // 札の描画はグラフ画面と共通 (commit_log.js)
 const refsReady = api("/api/ref-labels", {}).then(r => { refLabels = r.labels || {}; }).catch(() => { refLabels = {}; });  // 取れなくても、名前が出ないだけで他の表示は動く
 refsReady.then(() => { if (currentCommitMeta) renderCommitHeader(currentCommitMeta); });  // 左上のコミット情報にも、読み込み後に名前を出す
 function showError(e) { list.innerHTML = '<p class="hint">' + t("error") + esc(e.message) + '</p>'; }
@@ -1146,10 +1140,8 @@ function clearFile() {  // ファイルを選ぶ前の表示に戻す
   content.className = "hint";
   content.textContent = t("select_file_hint");
 }
-function fileLogRow(c) {  // ログの 1 行: ハッシュ・日付・作者・(ブランチ / タグ +) 件名。操作の対象 / A / B の行は強調する (グラフのログと同じ。log_select.js)
-  const marks = LogSel.kinds(c[0], LogSel.load());
-  return '<tr class="file-log-row' + (marks ? ' ' + marks : '') + '" data-hash="' + esc(c[0]) + '"><td class="hash"><a class="commit-graph" href="/?commit_hash=' + encodeURIComponent(c[0]) + '">' + esc(c[1]) + '</a>' +
-    '</td><td class="date">' + esc(c[3]) + '</td><td class="author">' + esc(c[2]) + '</td><td>' + refChips(c[0]) + esc(c[4]) + '</td></tr>';
+function fileLogRow(c) {  // ログの 1 行。グラフ画面のログと同じ行 (commit_log.js): ハッシュ (グラフ画面で開くリンク)・(ブランチ / タグ +) 件名・作者 / 日付。操作の対象 / A / B の行は強調する (log_select.js)
+  return CommitLog.rowHtml(c, {extraClass: LogSel.kinds(c[0], LogSel.load()), chips: refChips(c[0]), graphLink: true});
 }
 LogSel.onChange(sel => LogSel.markRows(content, sel));  // メニューで対象 / A / B を変えたら、表示中のログの強調も付け直す
 function dirLogCells(c) {  // 最終コミットのセル (ハッシュ・件名・日付)。c が無ければ空 (まだ読み込み中 / 履歴に見つからない)
@@ -1196,7 +1188,7 @@ function showDir() {  // ファイルを開いていないとき、ディレク�
   bindPathCrumb(title);
   if (!entries.length) { content.className = "hint"; content.textContent = t("empty_directory"); return; }
   content.className = "";
-  content.innerHTML = '<table class="file-log dir-log"><thead><tr><th class="dir-name">' + esc(t("dir_log_name")) + '</th><th class="hash">' + esc(t("dir_log_commit")) +
+  content.innerHTML = '<table class="dir-log"><thead><tr><th class="dir-name">' + esc(t("dir_log_name")) + '</th><th class="hash">' + esc(t("dir_log_commit")) +
     '</th><th class="dir-msg">' + esc(t("dir_log_message")) + '</th><th class="date">' + esc(t("dir_log_date")) + '</th></tr></thead><tbody>' +
     entries.map(e => '<tr class="dir-log-row" data-type="' + e.type + '" data-name="' + esc(e.name) + '" data-path="' +
       esc(path ? path + "/" + e.name : e.name) + '">' + dirNameCell(e, path ? path + "/" + e.name : e.name) + dirLogCells(null) + '</tr>').join("") + '</tbody></table><div id="dirLogNote"></div>';
@@ -1236,7 +1228,7 @@ function showDirLog(all) {  // ファイルを開いていないとき、この�
     const rows = r.commits.map(fileLogRow).join("");
     content.className = "";
     content.innerHTML = '<div class="meta">' + esc(t("n_commits", {n: r.total})) + '</div>' +
-      (rows ? '<table class="file-log"><tbody>' + rows + '</tbody></table>' : '<p class="hint">' + esc(t("no_history")) + '</p>') +
+      (rows ? CommitLog.tableHtml(rows) : '<p class="hint">' + esc(t("no_history")) + '</p>') +
       (r.has_more ? '<p class="hint">' + esc(t("dir_log_more", {n: r.commits.length})) + '</p>' : "");
   }).catch(e => { if (seq === dirLogSeq && !currentFile && dirLogOn && !commitLogOn) { content.className = "hint"; content.textContent = t("error") + e.message; } });
 }
@@ -1650,23 +1642,37 @@ content.addEventListener("click", ev => {
     openEntry(dirRow.dataset.path, dirRow.dataset.type);
     return;
   }
-  const row = ev.target.closest("tr.file-log-row, .blame-line");
-  if (!row || !row.dataset.hash) return;
-  if (window.mbSetTarget) window.mbSetTarget(row.dataset.hash);  // ログ / blame の行をクリックしたコミットを、メニューの「対象」にする
+  const row = ev.target.closest("tr.clickable, .blame-line"), rowHash = row && (row.dataset.h || row.dataset.hash);  // ログの行は data-h (グラフ画面と同じ)、blame の行は data-hash
+  if (!rowHash) return;
+  if (window.mbSetTarget) window.mbSetTarget(rowHash);  // ログ / blame の行をクリックしたコミットを、メニューの「対象」にする
   if (!currentFile) {  // ディレクトリのログの項目: そのコミットでのディレクトリを開く
     if (!dirLogOn) return;
-    const dirParams = new URLSearchParams({hash: row.dataset.hash});
+    const dirParams = new URLSearchParams({hash: rowHash});
     if (current) dirParams.set("path", current);
     if (fileViewTab) dirParams.set("file_view", "1");
     location.href = "/files?" + dirParams;
     return;
   }
-  const params = new URLSearchParams({hash: row.dataset.hash, file: currentFile});
+  const params = new URLSearchParams({hash: rowHash, file: currentFile});
   const slash = currentFile.lastIndexOf("/");
   const dir = slash < 0 ? "" : currentFile.slice(0, slash);
   if (dir) params.set("path", dir);
   if (fileViewTab) params.set("file_view", "1");
   location.href = "/files?" + params;
+});
+// ---- ログの行をドラッグ&ドロップして A / B にセットする (ドラッグ元が A、ドロップ先が B)。ドラッグの動きはグラフ画面と共通 (commit_log.js)。落としたら、メニューバーの AB操作メニューを開く ----
+const commitDrag = CommitLog.createDrag({
+  hitAt: (x, y) => {
+    const at = document.elementFromPoint(x, y), tr = at && at.closest("#content tr.clickable");
+    return tr && tr.dataset.h ? {el: tr, hash: tr.dataset.h} : null;
+  },
+  tip: (from, hit) => "A: " + from.slice(0, 7) + (hit ? "  →  B: " + hit.hash.slice(0, 7) : ""),
+  onDrop: (from, hit) => { if (window.mbSetAB) window.mbSetAB(from, hit.hash); },
+});
+content.addEventListener("pointerdown", ev => {  // ログの行からドラッグを始める (リンク・入力欄・コピー記号の上は除く)
+  const tr = ev.target.closest("tr.clickable");
+  if (!tr || ev.target.closest("a, input, select, textarea, .copy")) return;
+  commitDrag.start(tr, tr.dataset.h, ev);
 });
 function loadFileDiff(path) {  // 右ペインに、このファイルの差分を差分エディタ (変更前 | 変更後) で出す
   closeEditor();  // 表示のエディタ
@@ -1708,7 +1714,7 @@ function loadFileLog(path) {
     const rows = r.commits.map(fileLogRow).join("");
     content.className = "";
     content.innerHTML = '<div class="meta">' + esc(t("n_commits", {n: r.total})) + '</div>' +
-      (rows ? '<table class="file-log"><tbody>' + rows + '</tbody></table>' : '<p class="hint">' + t("no_history") + '</p>');
+      (rows ? CommitLog.tableHtml(rows) : '<p class="hint">' + t("no_history") + '</p>');
   }).catch(e => { content.className = "hint"; content.textContent = t("error") + e.message; });
 }
 function loadFileCommitLog() {  // 右ペインに、通常のコミットログ (パスで絞らない。この時点までの全コミット) を出す
@@ -1744,9 +1750,9 @@ function loadCommitLog(alive) {  // 通常のコミットログを本文に出�
         total = r.total;
         content.className = "";
         content.innerHTML = '<div class="meta">' + esc(t("n_commits", {n: total})) + '</div>' +
-          (rows ? '<table class="file-log"><tbody>' + rows + '</tbody></table>' : '<p class="hint">' + esc(t("no_history")) + '</p>') +
+          (rows ? CommitLog.tableHtml(rows) : '<p class="hint">' + esc(t("no_history")) + '</p>') +
           '<div class="file-actions log-more"></div>';
-        tbody = content.querySelector("table.file-log tbody");
+        tbody = content.querySelector("table.log tbody");
       } else if (tbody) tbody.insertAdjacentHTML("beforeend", rows);
       shown += r.commits.length;
       const more = content.querySelector(".log-more");
