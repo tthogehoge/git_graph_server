@@ -2,7 +2,12 @@
 // グラフ画面では js/ の部品が同じ部品を動かすので、ここは data-page がグラフ以外のときだけ働く。
 // 方針: その画面でできる操作はその場で行い、できない操作は隠さず無効にする (理由は title に出す)。
 // push / pull / fetch は wip_diff_remote.js。ダイアログの部品 (openDialog など) は diff_dialog.js、文言は T。
-function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / false = 失敗 / "progress" (または省略) = 実行中・案内
+function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / false = 失敗 / "progress" (または省略) = 実行中・案内。共通トーストへ
+  if (typeof setStatus === "function") {
+    const type = state === true ? "success" : state === false ? "error" : (state === "progress" ? "progress" : "info");
+    setStatus(text || "", type, state === false);
+    return;
+  }
   const el = document.getElementById("mbmsg");
   if (!el) return;
   el.textContent = text || "";

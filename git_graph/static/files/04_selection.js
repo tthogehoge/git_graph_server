@@ -1,7 +1,7 @@
 /* ---- files/04_selection.js ---- */
 // ---- 左ペインでチェックしたファイル・ディレクトリのステージ状態 (作業ツリーの表示だけ) ----
 selBar.hidden = !wipSelectionEnabled();
-function setSelMsg(text, ok) { selMsg.textContent = text; selMsg.className = "msg" + (ok ? "" : " err"); }
+function setSelMsg(text, ok) { setStatus(text || "", ok === false ? "error" : (ok === true ? "success" : "info"), ok === false); }
 function stagePlan() {
   const stage = new Set(), unstage = new Set();
   wipStatusFiles.forEach(f => {

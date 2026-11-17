@@ -28,14 +28,16 @@ MENUBAR_TEMPLATE = (STATIC_DIR / "menubar.html").read_text(encoding="utf-8")  # 
 APP_JS = "/* ---- log_select.js ---- */\n" + (STATIC_DIR / "log_select.js").read_text(encoding="utf-8") + \
     "/* ---- commit_log.js ---- */\n" + (STATIC_DIR / "commit_log.js").read_text(encoding="utf-8") + \
     "/* ---- wip_panel.js ---- */\n" + (STATIC_DIR / "wip_panel.js").read_text(encoding="utf-8") + \
-    "/* ---- patch_ops.js ---- */\n" + (STATIC_DIR / "patch_ops.js").read_text(encoding="utf-8") + "".join(
+    "/* ---- patch_ops.js ---- */\n" + (STATIC_DIR / "patch_ops.js").read_text(encoding="utf-8") + \
+    "/* ---- toast.js ---- */\n" + (STATIC_DIR / "toast.js").read_text(encoding="utf-8") + "".join(
     f"/* ---- js/{path.name} ---- */\n" + path.read_text(encoding="utf-8")
     for path in sorted((STATIC_DIR / "js").glob("*.js")))
 # 共通のメニューバーの CSS (menubar.css) を先頭に連結する。ファイル表示 / 差分ページは menubar.css だけを埋め込む
 # ファイル表示ページの JavaScript は static/files/ の部品 (番号順) を連結する。
 # 部品の境界を示すコメントを挟むので、ブラウザーのエラーに出る行番号から元のファイルを探せる。
 # 先頭の /*__FILE_I18N__*/ は 01_core.js にあり、pages.py が翻訳・CAN_COPY・DESKTOP の定義に置き換える。
-FILES_JS = "".join(path.read_text(encoding="utf-8") for path in sorted((STATIC_DIR / "files").glob("*.js")))
+FILES_JS = (STATIC_DIR / "toast.js").read_text(encoding="utf-8") + "\n" + "".join(
+    path.read_text(encoding="utf-8") for path in sorted((STATIC_DIR / "files").glob("*.js")))
 
 APP_CSS = ((STATIC_DIR / "menubar.css").read_text(encoding="utf-8") + (STATIC_DIR / "wip_panel.css").read_text(encoding="utf-8")
            + (STATIC_DIR / "app.css").read_text(encoding="utf-8").replace(  # ログの行の強調 (log_select.css) とログの表 (commit_log.css) は、app.css の目印の位置へ

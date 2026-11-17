@@ -1,41 +1,4 @@
-const graphStatusTimers = new Map();
-function setGraphStatus(message, type, clearProgress) {
-  const container = document.getElementById("graphStatus");
-  const progress = type === "progress";  // 進捗かどうかは表示文言ではなく type で明示する (文言は翻訳で変わる)
-  if (clearProgress || !progress) {
-    container.querySelectorAll(".graph-toast.progress").forEach(toast => {
-      clearTimeout(graphStatusTimers.get(toast));
-      graphStatusTimers.delete(toast);
-      toast.remove();
-    });
-  }
-  if (!message) return;
-  const toast = [...container.children].find(el =>
-    el.dataset.message === message && el.classList.contains(progress ? "progress" : (type || "info")));
-  if (toast) {
-    clearTimeout(graphStatusTimers.get(toast));
-    graphStatusTimers.delete(toast);
-  }
-  const item = toast || document.createElement("div");
-  item.className = "graph-toast " + (type || "info");
-  item.setAttribute("role", "status");
-  item.setAttribute("aria-live", "polite");
-  item.dataset.message = message;
-  item.innerHTML = '<span class="graph-toast-message"></span><button type="button" class="graph-toast-close" aria-label="' + esc(t("close_notification")) + '" title="' + esc(t("close_notification")) + '">×</button>';
-  item.querySelector(".graph-toast-message").textContent = message;
-  item.querySelector(".graph-toast-close").addEventListener("click", () => {
-    clearTimeout(graphStatusTimers.get(item));
-    graphStatusTimers.delete(item);
-    item.remove();
-  });
-  if (!toast) container.appendChild(item);
-  if (!progress) {
-    graphStatusTimers.set(item, setTimeout(() => {
-      item.remove();
-      graphStatusTimers.delete(item);
-    }, 15000));
-  }
-}
+// setGraphStatus / setStatus は toast.js (画面共通)
 
 // 操作のあと、グラフを(表示したまま)作り直して新しいブランチ/タグ/HEAD を反映する
 function refreshGraph() {

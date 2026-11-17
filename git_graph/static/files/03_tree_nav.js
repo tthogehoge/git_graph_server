@@ -4,7 +4,10 @@ var refLabels = {};  // コミット → [{name, kind}] (var: 読み込み前に
 function refChips(h) { return CommitLog.chipsHtml((refLabels || {})[h], ""); }  // 札の描画はグラフ画面と共通 (commit_log.js)
 const refsReady = api("/api/ref-labels", {}).then(r => { refLabels = r.labels || {}; }).catch(() => { refLabels = {}; });  // 取れなくても、名前が出ないだけで他の表示は動く
 refsReady.then(() => { if (currentCommitMeta) renderCommitHeader(currentCommitMeta); });  // 左上のコミット情報にも、読み込み後に名前を出す
-function showError(e) { list.innerHTML = '<p class="hint">' + t("error") + esc(e.message) + '</p>'; }
+function showError(e) {
+  list.innerHTML = '<p class="hint">' + t("error") + esc(e.message) + '</p>';
+  setStatus(t("error") + e.message, "error", true);
+}
 function pageUrl(path, file, view, dirlog) {  // 表示中のディレクトリ・ファイル・表示 (edit / blame / log) を URL に残す (戻る/進む・再読み込みで復元する)。dirlog: ファイルを開かずに、ディレクトリのログを出している
   const p = new URLSearchParams({hash: hash});
   if (path) p.set("path", path);
@@ -61,10 +64,9 @@ function entryIcon(e) { return e.type === "tree" ? "📁" : e.type === "commit" 
 function entryTip(e) { return e.type === "commit" ? ' title="' + esc(t(isWip ? "submodule_entry_tip_wip" : "submodule_entry_tip")) + '"' : ""; }
 function submoduleBadge(e) { return e.type === "commit" ? ' <span class="sm-badge">' + esc(t("submodule_entry")) + '</span>' : ""; }
 function smMsg(text, ok, url) {
-  const el = document.getElementById("smMsg");
-  el.className = "sm-msg" + (ok ? "" : " err");
-  el.textContent = text;
-  if (url) { el.append(" "); const a = document.createElement("a"); a.href = url; a.target = "_blank"; a.rel = "noopener"; a.textContent = url; el.append(a); }
+  // サブモジュール操作の結果も共通トーストで出す (成功時は URL を文言に含める)
+  const msg = url ? (text + (text ? "\n" : "") + url) : text;
+  setStatus(msg || "", ok ? "success" : "error", !ok);
 }
 let smOpening = false;
 function openSubmoduleFiles(path) {
