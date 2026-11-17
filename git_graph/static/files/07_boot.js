@@ -290,7 +290,7 @@ window.showOtherReflog = function (branch) {
   };
 };
 
-// ---- 操作履歴 (その他メニュー)。グラフの showOpHistory と同じ API ----
+// ---- 操作履歴 (その他メニュー)。グラフと同じ API + OtherLists.opHistoryHtml ----
 window.showOtherOpHistory = function () {
   closeEditor();
   if (logPager) logPager.stop();
@@ -302,66 +302,32 @@ window.showOtherOpHistory = function () {
   title.textContent = t("op_history_title");
   setDocumentTitle(t("op_history_title"));
   content.className = "";
-  content.innerHTML = '<div class="meta">' + esc(t("op_history_help")) + '</div><div class="hint" id="ophMsg">' + esc(t("loading")) + "</div>";
+  content.innerHTML = '<div class="meta">' + esc(t("op_history_help")) + '</div><div class="hint">' + esc(t("loading")) + "</div>";
   document.getElementById("main").scrollTop = 0;
   api("/api/undo-history", {}).then(h => {
     if (otherListSeq !== seq) return;
-    const rows = (h.entries || []).map(e => {
-      const note = e.done ? "" : " (" + t("op_history_undone") + ")";
-      const warn = e.undoable ? "" : ' <span class="hint">' + esc(t("op_history_irreversible", {reason: e.problem || ""})) + "</span>";
-      return '<tr class="' + (e.done ? "" : "oph-undone") + '"><td class="h">' + esc(new Date(e.time * 1000).toLocaleString()) +
-        "</td><td class=\"log-cell\">" + esc(e.label) + esc(note) + warn + "</td></tr>";
-    }).join("");
-    const body = rows
-      ? '<table class="log"><tbody>' + rows + "</tbody></table>"
-      : '<div class="hint">' + esc(t("op_history_empty")) + "</div>";
-    content.innerHTML = '<div class="meta">' + esc(t("op_history_help")) + "</div>" + body;
+    content.innerHTML = '<div class="meta">' + esc(t("op_history_help")) + "</div>" +
+      OtherLists.opHistoryHtml(h.entries, {t: t, esc: esc});
   }).catch(e => {
     if (otherListSeq !== seq) return;
     content.innerHTML = '<div class="hint">' + esc(t("error") + e.message) + "</div>";
   });
 };
 
-// ---- submodule 一覧 (その他メニュー)。グラフと同じ API。行クリックで子サーバーを開く ----
-function submoduleRowHtmlFiles(c, sm, writable) {
-  const sel = writable ? '<td class="sel"><input type="checkbox" class="submodule-sel" data-path="' + esc(sm.path) + '"></td>' : "";
-  return '<tr class="submodule-row' + (sm.initialized ? "" : " uninit") + '" data-path="' + esc(sm.path) + '" data-init="' + (sm.initialized ? "1" : "") +
-    '" title="' + esc(t(sm.initialized ? "submodule_open_tip" : "submodule_uninit_tip")) + '">' + sel +
-    '<td class="h">' + esc(c[1]) + '</td><td class="log-cell"><div class="log-main"><div class="log-subj">' + esc(c[4]) +
-    '</div><div class="meta">' + esc(c[2]) + (c[3] ? " / " + esc(c[3]) : "") + "</div></div></td></tr>";
-}
-
-// submodule の HTTP 認証付き POST (グラフの postSubmoduleWithAuth と同じ流れ。ダイアログは openDialog)
-async function postSubmoduleWithAuthFiles(url, body, doneKey) {
-  let r = await postJson(url, body);
-  if (!r.auth_required) return r;
-  const merged = new Map((r.results || []).map(x => [x.path, x]));
-  const asked = new Set(), pending = (r.auth_requests || []).slice();
-  while (pending.length) {
-    const req = pending.shift();
-    if (asked.has(req.origin)) continue;
-    asked.add(req.origin);
-    const auth = await openDialog((t("http_auth") || "HTTP auth") + " — " + req.origin, form => {
+// ---- submodule 一覧 (その他メニュー)。行 HTML・バー・認証は OtherLists 共通 ----
+function filesSubmoduleAuthDeps() {
+  return {
+    post: postJson,
+    t: t,
+    askAuth: origin => openDialog((t("http_auth") || "HTTP auth") + " — " + origin, form => {
       field(form, t("auth_username") || "Username", input("text", "username"), false);
       form.querySelector('[name="username"]').autocomplete = "username";
       form.querySelector('[name="username"]').autofocus = true;
       field(form, t("auth_password") || "Password", input("password", "password"), false);
       form.querySelector('[name="password"]').autocomplete = "current-password";
-    }, t("authenticate") || "OK");
-    if (!auth) {
-      for (const path of (req.paths || [])) merged.set(path, {path: path, ok: false, error: t("submodule_auth_cancelled") || "cancelled"});
-      if (!req.paths) throw new Error(t("submodule_auth_cancelled") || "cancelled");
-      continue;
-    }
-    r = await postJson(url, Object.assign({}, body, req.paths ? {paths: req.paths} : {}, {auth: auth, auth_origin: req.origin}));
-    for (const x of (r.results || [])) merged.set(x.path, x);
-    for (const q of (r.auth_requests || [])) pending.push(q);
-    if (!r.results) return r;
-  }
-  const results = Array.from(merged.values()), done = results.filter(x => x.ok).length;
-  return {ok: done === results.length, results: results, message: doneKey ? t(doneKey, {done: done, total: results.length}) : (r.message || "")};
+    }, t("authenticate") || "OK"),
+  };
 }
-
 window.showOtherSubmoduleList = function () {
   closeEditor();
   if (logPager) logPager.stop();
@@ -372,59 +338,32 @@ window.showOtherSubmoduleList = function () {
   fileActions.hidden = true;
   title.textContent = t("submodule_list_title");
   setDocumentTitle(t("submodule_list_title"));
-  const writable = !!(typeof CAN_COPY !== "undefined" && CAN_COPY);  // ファイル画面の書き込み可能フラグ
-  const bar = writable
-    ? '<div class="submodule-bar"><label><input type="checkbox" id="submoduleAll"> ' + esc(t("submodule_select_all")) + "</label> " +
-      '<button class="sbtn" id="submoduleUpdateBtn" disabled title="' + esc(t("submodule_update_tip")) + '">' + esc(t("submodule_update")) + "</button> " +
-      '<button class="sbtn" id="submoduleUpdateRemoteBtn" disabled title="' + esc(t("submodule_update_remote_tip")) + '">' + esc(t("submodule_update_remote")) + "</button> " +
-      '<button class="sbtn" id="submoduleFetchBtn" disabled title="' + esc(t("submodule_fetch_tip")) + '">' + esc(t("submodule_fetch")) + "</button> " +
-      '<label title="' + esc(t("submodule_recursive_tip")) + '"><input type="checkbox" id="submoduleRecursive"> ' + esc(t("submodule_recursive")) + "</label> " +
-      '<button class="sbtn" id="submoduleAddToggle" title="' + esc(t("submodule_add_tip")) + '">' + esc(t("submodule_add_toggle")) + "</button></div>" +
-      '<div class="submodule-bar" id="submoduleAddForm" hidden>' +
-      '<input id="smAddUrl" size="42" placeholder="' + esc(t("submodule_add_url")) + '"> ' +
-      '<input id="smAddPath" size="22" placeholder="' + esc(t("submodule_add_path")) + '"> ' +
-      '<input id="smAddBranch" size="16" placeholder="' + esc(t("submodule_add_branch")) + '"> ' +
-      '<button class="sbtn" id="submoduleAddGo">' + esc(t("submodule_add_go")) + "</button></div>" +
-      '<div class="meta" id="submoduleMsg"></div>'
-    : '<div class="meta" id="submoduleMsg"></div>';
+  const writable = !!(typeof CAN_COPY !== "undefined" && CAN_COPY);
   content.className = "";
-  content.innerHTML = '<div class="meta">' + esc(t("submodule_list_help")) + "</div>" + bar +
+  content.innerHTML = '<div class="meta">' + esc(t("submodule_list_help")) + "</div>" +
+    OtherLists.submoduleBarHtml({writable: writable, t: t, esc: esc}) +
     '<div class="log-head"><span class="meta" id="logCount">' + esc(t("loading")) + "</span></div>" +
     '<table class="log"><tbody id="smRows"></tbody></table>';
   document.getElementById("main").scrollTop = 0;
+  OtherLists.bindAddPathHint(content);
   let submoduleBusy = false;
-  function syncSel() {
-    const all = Array.from(content.querySelectorAll("input.submodule-sel"));
-    const n = all.filter(el => el.checked).length;
-    for (const id of ["submoduleUpdateBtn", "submoduleUpdateRemoteBtn", "submoduleFetchBtn"]) {
-      const b = document.getElementById(id);
-      if (b) b.disabled = n === 0 || submoduleBusy;
-    }
-    const top = document.getElementById("submoduleAll");
-    if (top) { top.checked = all.length > 0 && n === all.length; top.indeterminate = n > 0 && n < all.length; }
-  }
-  function selectedPaths() {
-    return Array.from(content.querySelectorAll("input.submodule-sel:checked")).map(el => el.dataset.path);
-  }
+  function syncSel() { OtherLists.syncSel(content, submoduleBusy); }
   function smMsg(html) {
     const el = document.getElementById("submoduleMsg");
     if (el) el.innerHTML = html;
   }
-  function recursive() {
-    const el = document.getElementById("submoduleRecursive");
-    return !!(el && el.checked);
-  }
   function runBatch(url, extra, confirmKey, workingKey, doneKey) {
-    const paths = selectedPaths();
+    const paths = OtherLists.selectedPaths(content);
     if (!paths.length || submoduleBusy) return;
     if (confirmKey && !confirm(t(confirmKey, {n: paths.length}))) return;
     submoduleBusy = true; syncSel();
     smMsg(esc(t(workingKey, {n: paths.length})));
-    postSubmoduleWithAuthFiles(url, Object.assign({paths: paths, recursive: recursive()}, extra || {}), doneKey).then(async r => {
-      const failed = (r.results || []).filter(x => !x.ok).map(x => "<div>" + esc(x.path) + ": " + esc(x.error) + "</div>").join("");
-      await reloadRows().catch(() => {});
-      smMsg('<span style="color:' + (r.ok ? "#080" : "#b00") + '">' + esc(r.message || "") + "</span>" + failed);
-    }).catch(e => smMsg('<span style="color:#b00">' + esc(t("error") + e.message) + "</span>"))
+    OtherLists.postWithAuth(url, Object.assign({paths: paths, recursive: OtherLists.recursiveOn(content)}, extra || {}), doneKey, filesSubmoduleAuthDeps())
+      .then(async r => {
+        const failed = (r.results || []).filter(x => !x.ok).map(x => "<div>" + esc(x.path) + ": " + esc(x.error) + "</div>").join("");
+        await reloadRows().catch(() => {});
+        smMsg('<span style="color:' + (r.ok ? "#080" : "#b00") + '">' + esc(r.message || "") + "</span>" + failed);
+      }).catch(e => smMsg('<span style="color:#b00">' + esc(t("error") + e.message) + "</span>"))
       .finally(() => { submoduleBusy = false; syncSel(); });
   }
   async function reloadRows() {
@@ -432,7 +371,7 @@ window.showOtherSubmoduleList = function () {
     if (otherListSeq !== seq) return;
     const tbody = document.getElementById("smRows");
     if (!tbody) return;
-    tbody.innerHTML = (r.commits || []).map((c, i) => submoduleRowHtmlFiles(c, r.submodules[i], writable)).join("");
+    tbody.innerHTML = (r.commits || []).map((c, i) => OtherLists.submoduleRowHtml(c, r.submodules[i], {writable: writable, t: t, esc: esc})).join("");
     const count = document.getElementById("logCount");
     if (count) count.textContent = t("n_changes", {n: r.total != null ? r.total : (r.commits || []).length});
     syncSel();
@@ -440,7 +379,7 @@ window.showOtherSubmoduleList = function () {
   api("/api/submodules", {}).then(r => {
     if (otherListSeq !== seq) return;
     const tbody = document.getElementById("smRows");
-    tbody.innerHTML = (r.commits || []).map((c, i) => submoduleRowHtmlFiles(c, r.submodules[i], writable)).join("");
+    tbody.innerHTML = (r.commits || []).map((c, i) => OtherLists.submoduleRowHtml(c, r.submodules[i], {writable: writable, t: t, esc: esc})).join("");
     const count = document.getElementById("logCount");
     if (count) count.textContent = t("n_changes", {n: r.total != null ? r.total : (r.commits || []).length});
     syncSel();
@@ -468,13 +407,14 @@ window.showOtherSubmoduleList = function () {
       const go = document.getElementById("submoduleAddGo");
       if (go) go.disabled = true;
       smMsg(esc(t("submodule_adding", {path: path})));
-      postSubmoduleWithAuthFiles("/api/submodule-add", {url: url, path: path, branch: branch, recursive: recursive()}, "").then(async r => {
-        for (const id of ["smAddUrl", "smAddPath", "smAddBranch"]) {
-          const el = document.getElementById(id); if (el) { el.value = ""; delete el.dataset.touched; }
-        }
-        await reloadRows().catch(() => {});
-        smMsg('<span style="color:#080">' + esc(r.message || "").replace(/\n/g, "<br>") + "</span>");
-      }).catch(e => smMsg('<span style="color:#b00">' + esc(t("error") + e.message) + "</span>"))
+      OtherLists.postWithAuth("/api/submodule-add", {url: url, path: path, branch: branch, recursive: OtherLists.recursiveOn(content)}, "", filesSubmoduleAuthDeps())
+        .then(async r => {
+          for (const id of ["smAddUrl", "smAddPath", "smAddBranch"]) {
+            const el = document.getElementById(id); if (el) { el.value = ""; delete el.dataset.touched; }
+          }
+          await reloadRows().catch(() => {});
+          smMsg('<span style="color:#080">' + esc(r.message || "").replace(/\n/g, "<br>") + "</span>");
+        }).catch(e => smMsg('<span style="color:#b00">' + esc(t("error") + e.message) + "</span>"))
         .finally(() => { submoduleBusy = false; syncSel(); if (go) go.disabled = false; });
       return;
     }
@@ -501,15 +441,4 @@ window.showOtherSubmoduleList = function () {
     }).catch(e => smMsg('<span style="color:#b00">' + esc(t("error") + e.message) + "</span>"))
       .finally(() => { opening = false; });
   };
-  // URL から path 案を入れる (グラフと同じ)
-  content.addEventListener("input", ev => {
-    if (otherListSeq !== seq) return;
-    const el = ev.target;
-    if (el.id === "smAddPath") { el.dataset.touched = "1"; return; }
-    if (el.id !== "smAddUrl") return;
-    const pathEl = document.getElementById("smAddPath");
-    if (!pathEl || pathEl.dataset.touched) return;
-    const last = el.value.trim().replace(/[\/:]+$/, "").split(/[\/:]/).pop() || "";
-    pathEl.value = last.replace(/\.git$/, "");
-  });
 };

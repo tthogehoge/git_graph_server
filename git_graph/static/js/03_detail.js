@@ -56,31 +56,15 @@ function showStashList(fromHistory) {
 }
 function submoduleWritable() { return !!(typeof DATA !== "undefined" && DATA && DATA.writable); }
 function showSubmoduleList() {
-  const bar = submoduleWritable()
-    ? '<div class="submodule-bar"><label><input type="checkbox" id="submoduleAll"> ' + esc(t("submodule_select_all")) + "</label> " +
-      '<button class="sbtn" id="submoduleUpdateBtn" disabled title="' + esc(t("submodule_update_tip")) + '">' + esc(t("submodule_update")) + "</button> " +
-      '<button class="sbtn" id="submoduleUpdateRemoteBtn" disabled title="' + esc(t("submodule_update_remote_tip")) + '">' + esc(t("submodule_update_remote")) + "</button> " +
-      '<button class="sbtn" id="submoduleFetchBtn" disabled title="' + esc(t("submodule_fetch_tip")) + '">' + esc(t("submodule_fetch")) + "</button> " +
-      '<label title="' + esc(t("submodule_recursive_tip")) + '"><input type="checkbox" id="submoduleRecursive"> ' + esc(t("submodule_recursive")) + "</label> " +
-      '<button class="sbtn" id="submoduleAddToggle" title="' + esc(t("submodule_add_tip")) + '">' + esc(t("submodule_add_toggle")) + "</button></div>" +
-      '<div class="submodule-bar" id="submoduleAddForm" hidden>' +
-      '<input id="smAddUrl" size="42" placeholder="' + esc(t("submodule_add_url")) + '"> ' +
-      '<input id="smAddPath" size="22" placeholder="' + esc(t("submodule_add_path")) + '"> ' +
-      '<input id="smAddBranch" size="16" placeholder="' + esc(t("submodule_add_branch")) + '"> ' +
-      '<button class="sbtn" id="submoduleAddGo">' + esc(t("submodule_add_go")) + "</button></div>"
-    : "";
+  const bar = OtherLists.submoduleBarHtml({writable: submoduleWritable(), t: t, esc: esc});
   showLog(t("submodule_list_title"), "",
-          '<div class="meta">' + esc(t("submodule_list_help")) + "</div>" + bar + '<div class="meta" id="submoduleMsg"></div>',
+          '<div class="meta">' + esc(t("submodule_list_help")) + "</div>" + bar,
           false, 0, {path: "/api/submodules", params: {}});
 }
 // submodule は、この画面で選択 (コミットとして) するのではなく、別のプロセス (別のサーバー) で開く。
 // submodule のコミットは、このリポジトリのグラフには無いので、行はコミットの行 (tr.clickable) にしない
-function submoduleRowHtml(c, sm) {  // c = [hash, short, status, describe, subject]; sm = {path, url, initialized}
-  const sel = submoduleWritable() ? '<td class="sel"><input type="checkbox" class="submodule-sel" data-path="' + esc(sm.path) + '"></td>' : "";
-  return '<tr class="submodule-row' + (sm.initialized ? "" : " uninit") + '" data-path="' + esc(sm.path) + '" data-init="' + (sm.initialized ? "1" : "") +
-    '" title="' + esc(t(sm.initialized ? "submodule_open_tip" : "submodule_uninit_tip")) + '">' + sel + '<td class="h">' + esc(c[1]) +
-    '</td><td class="log-cell"><div class="log-main"><div class="log-subj">' + esc(c[4]) +
-    '</div><div class="meta">' + esc(c[2]) + (c[3] ? " / " + esc(c[3]) : "") + "</div></div></td></tr>";
+function submoduleRowHtml(c, sm) {  // OtherLists 共通部品
+  return OtherLists.submoduleRowHtml(c, sm, {writable: submoduleWritable(), t: t, esc: esc});
 }
 function submoduleMessage(html) {
   const el = document.getElementById("submoduleMsg");
@@ -106,16 +90,10 @@ function openSubmodule(path) {
     .finally(() => { submoduleOpening = false; });
 }
 function selectedSubmodules() {
-  return Array.from(listView.querySelectorAll("input.submodule-sel:checked")).map(el => el.dataset.path);
+  return OtherLists.selectedPaths(listView);
 }
-function syncSubmoduleSel() {  // 選択数に合わせて、更新ボタンと全選択の状態を更新する
-  const all = Array.from(listView.querySelectorAll("input.submodule-sel")), n = all.filter(el => el.checked).length;
-  for (const id of ["submoduleUpdateBtn", "submoduleUpdateRemoteBtn", "submoduleFetchBtn"]) {
-    const b = document.getElementById(id);
-    if (b) b.disabled = n === 0 || submoduleBusy;
-  }
-  const top = document.getElementById("submoduleAll");
-  if (top) { top.checked = all.length > 0 && n === all.length; top.indeterminate = n > 0 && n < all.length; }
+function syncSubmoduleSel() {
+  OtherLists.syncSel(listView, submoduleBusy);
 }
 async function reloadSubmoduleRows() {  // 履歴を増やさずに、一覧の行だけ読み直す
   const rows = listView.querySelector("#rows");
@@ -128,36 +106,19 @@ async function reloadSubmoduleRows() {  // 履歴を増やさずに、一覧の�
 }
 let submoduleBusy = false;
 function submoduleRecursive() {
-  const el = document.getElementById("submoduleRecursive");
-  return !!(el && el.checked);
+  return OtherLists.recursiveOn(listView);
 }
 // HTTP 認証が必要だと返されたら、origin (接続先) ごとに認証情報を尋ね、そのパスだけをやり直す。
 // 入力した認証情報は、サーバーが、その origin の質問にだけ使う。更新・fetch は結果を、パスごとに最後のものへ入れ替えて返す。
 async function postSubmoduleWithAuth(url, body, doneKey) {
-  let r = await post(url, body);
-  if (!r.auth_required) return r;
-  const merged = new Map((r.results || []).map(x => [x.path, x]));
-  const asked = new Set(), pending = (r.auth_requests || []).slice();
-  while (pending.length) {
-    const req = pending.shift();
-    if (asked.has(req.origin)) continue;  // 同じ接続先を 2 度は尋ねない (認証に失敗した結果は、そのまま失敗として出す)
-    asked.add(req.origin);
-    const auth = await openActionDialog(t("http_auth") + " — " + req.origin,
+  return OtherLists.postWithAuth(url, body, doneKey, {
+    post: post,
+    t: t,
+    askAuth: origin => openActionDialog(t("http_auth") + " — " + origin,
       '<label>' + esc(t("auth_username")) + '<input name="username" autocomplete="username" autofocus></label>' +
       '<label>' + esc(t("auth_password")) + '<input type="password" name="password" autocomplete="current-password"></label>',
-      t("authenticate"));
-    if (!auth) {
-      for (const p of (req.paths || [])) merged.set(p, {path: p, ok: false, error: t("submodule_auth_cancelled")});
-      if (!req.paths) throw new Error(t("submodule_auth_cancelled"));  // 追加: そのまま取りやめる
-      continue;
-    }
-    r = await post(url, Object.assign({}, body, req.paths ? {paths: req.paths} : {}, {auth: auth, auth_origin: req.origin}));
-    for (const x of (r.results || [])) merged.set(x.path, x);
-    for (const q of (r.auth_requests || [])) pending.push(q);  // 入れ子の submodule が別のホストを求めた
-    if (!r.results) return r;  // 追加: 結果はそのまま
-  }
-  const results = Array.from(merged.values()), done = results.filter(x => x.ok).length;
-  return {ok: done === results.length, results: results, message: t(doneKey, {done: done, total: results.length})};
+      t("authenticate")),
+  });
 }
 // 選んだ submodule に対して、url の API を 1 回呼ぶ (更新・fetch)。結果は一覧の上に出し、一覧の行は読み直す
 function runSubmoduleBatch(url, extra, confirmKey, workingKey, doneKey) {

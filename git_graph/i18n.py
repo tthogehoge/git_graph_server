@@ -29,6 +29,7 @@ APP_JS = "/* ---- log_select.js ---- */\n" + (STATIC_DIR / "log_select.js").read
     "/* ---- commit_log.js ---- */\n" + (STATIC_DIR / "commit_log.js").read_text(encoding="utf-8") + \
     "/* ---- wip_panel.js ---- */\n" + (STATIC_DIR / "wip_panel.js").read_text(encoding="utf-8") + \
     "/* ---- patch_ops.js ---- */\n" + (STATIC_DIR / "patch_ops.js").read_text(encoding="utf-8") + \
+    "/* ---- other_lists.js ---- */\n" + (STATIC_DIR / "other_lists.js").read_text(encoding="utf-8") + \
     "/* ---- toast.js ---- */\n" + (STATIC_DIR / "toast.js").read_text(encoding="utf-8") + "".join(
     f"/* ---- js/{path.name} ---- */\n" + path.read_text(encoding="utf-8")
     for path in sorted((STATIC_DIR / "js").glob("*.js")))
@@ -36,7 +37,8 @@ APP_JS = "/* ---- log_select.js ---- */\n" + (STATIC_DIR / "log_select.js").read
 # ファイル表示ページの JavaScript は static/files/ の部品 (番号順) を連結する。
 # 部品の境界を示すコメントを挟むので、ブラウザーのエラーに出る行番号から元のファイルを探せる。
 # 先頭の /*__FILE_I18N__*/ は 01_core.js にあり、pages.py が翻訳・CAN_COPY・DESKTOP の定義に置き換える。
-FILES_JS = (STATIC_DIR / "toast.js").read_text(encoding="utf-8") + "\n" + "".join(
+FILES_JS = (STATIC_DIR / "toast.js").read_text(encoding="utf-8") + "\n" + \
+    "/* ---- other_lists.js ---- */\n" + (STATIC_DIR / "other_lists.js").read_text(encoding="utf-8") + "\n" + "".join(
     path.read_text(encoding="utf-8") for path in sorted((STATIC_DIR / "files").glob("*.js")))
 
 APP_CSS = ((STATIC_DIR / "menubar.css").read_text(encoding="utf-8") + (STATIC_DIR / "wip_panel.css").read_text(encoding="utf-8")

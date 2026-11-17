@@ -492,15 +492,9 @@ function updateUndoButtons() {  // 元に戻す先 / やり直す先が無いと
 function showOpHistory() {
   closeMenus();
   api("/api/undo-history", {}).then(h => {
-    const rows = h.entries.map(e => {
-      const note = e.done ? "" : " (" + t("op_history_undone") + ")",
-            warn = e.undoable ? "" : ' <span class="hint">' + esc(t("op_history_irreversible", {reason: e.problem})) + "</span>";
-      return '<tr class="' + (e.done ? "" : "oph-undone") + '"><td>' + esc(new Date(e.time * 1000).toLocaleString()) +
-        "</td><td>" + esc(e.label) + esc(note) + warn + "</td></tr>";
-    }).join("");
-    const body = rows ? '<table class="log"><tbody>' + rows + "</tbody></table>" : '<div class="hint">' + esc(t("op_history_empty")) + "</div>";
     listView.innerHTML = "<h2>" + esc(t("op_history_title")) + "</h2>" +
-      '<div class="meta">' + esc(t("op_history_help")) + "</div>" + body;
+      '<div class="meta">' + esc(t("op_history_help")) + "</div>" +
+      OtherLists.opHistoryHtml(h.entries, {t: t, esc: esc});
     setDocumentTitleFromHtml(esc(t("op_history_title")));
     showView("list");
     listView.dataset.src = "";
