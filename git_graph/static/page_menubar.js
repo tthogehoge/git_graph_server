@@ -368,6 +368,9 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
   // remote 追加 / 削除 (その他メニュー)
   enable(bar.querySelector('[data-cact="remote-add"]'), () => writable);
   enable(bar.querySelector('[data-cact="remote-remove"]'), () => writable);
+  // 「マージを表示」はグラフ描画専用。ファイル画面では隠す
+  const showMergesBtn = $("showMergesBtn");
+  if (showMergesBtn) showMergesBtn.hidden = true;
   function applyUnavailable() {
     const skip = new Set(["actionTarget", "cmpA", "cmpB", "cmpActToggle", "abActToggle", "otherMenuBtn", "reload", "rld", "reloadBtn", "navGraphBtn", "navFilesBtn", "clearCmpBtn"]);
     bar.querySelectorAll("button").forEach(b => {

@@ -330,6 +330,38 @@ function submoduleRowHtmlFiles(c, sm, writable) {
     '<td class="h">' + esc(c[1]) + '</td><td class="log-cell"><div class="log-main"><div class="log-subj">' + esc(c[4]) +
     '</div><div class="meta">' + esc(c[2]) + (c[3] ? " / " + esc(c[3]) : "") + "</div></div></td></tr>";
 }
+
+// submodule の HTTP 認証付き POST (グラフの postSubmoduleWithAuth と同じ流れ。ダイアログは openDialog)
+async function postSubmoduleWithAuthFiles(url, body, doneKey) {
+  let r = await postJson(url, body);
+  if (!r.auth_required) return r;
+  const merged = new Map((r.results || []).map(x => [x.path, x]));
+  const asked = new Set(), pending = (r.auth_requests || []).slice();
+  while (pending.length) {
+    const req = pending.shift();
+    if (asked.has(req.origin)) continue;
+    asked.add(req.origin);
+    const auth = await openDialog((t("http_auth") || "HTTP auth") + " — " + req.origin, form => {
+      field(form, t("auth_username") || "Username", input("text", "username"), false);
+      form.querySelector('[name="username"]').autocomplete = "username";
+      form.querySelector('[name="username"]').autofocus = true;
+      field(form, t("auth_password") || "Password", input("password", "password"), false);
+      form.querySelector('[name="password"]').autocomplete = "current-password";
+    }, t("authenticate") || "OK");
+    if (!auth) {
+      for (const path of (req.paths || [])) merged.set(path, {path: path, ok: false, error: t("submodule_auth_cancelled") || "cancelled"});
+      if (!req.paths) throw new Error(t("submodule_auth_cancelled") || "cancelled");
+      continue;
+    }
+    r = await postJson(url, Object.assign({}, body, req.paths ? {paths: req.paths} : {}, {auth: auth, auth_origin: req.origin}));
+    for (const x of (r.results || [])) merged.set(x.path, x);
+    for (const q of (r.auth_requests || [])) pending.push(q);
+    if (!r.results) return r;
+  }
+  const results = Array.from(merged.values()), done = results.filter(x => x.ok).length;
+  return {ok: done === results.length, results: results, message: doneKey ? t(doneKey, {done: done, total: results.length}) : (r.message || "")};
+}
+
 window.showOtherSubmoduleList = function () {
   closeEditor();
   if (logPager) logPager.stop();
@@ -388,7 +420,7 @@ window.showOtherSubmoduleList = function () {
     if (confirmKey && !confirm(t(confirmKey, {n: paths.length}))) return;
     submoduleBusy = true; syncSel();
     smMsg(esc(t(workingKey, {n: paths.length})));
-    postJson(url, Object.assign({paths: paths, recursive: recursive()}, extra || {})).then(async r => {
+    postSubmoduleWithAuthFiles(url, Object.assign({paths: paths, recursive: recursive()}, extra || {}), doneKey).then(async r => {
       const failed = (r.results || []).filter(x => !x.ok).map(x => "<div>" + esc(x.path) + ": " + esc(x.error) + "</div>").join("");
       await reloadRows().catch(() => {});
       smMsg('<span style="color:' + (r.ok ? "#080" : "#b00") + '">' + esc(r.message || "") + "</span>" + failed);
@@ -436,7 +468,7 @@ window.showOtherSubmoduleList = function () {
       const go = document.getElementById("submoduleAddGo");
       if (go) go.disabled = true;
       smMsg(esc(t("submodule_adding", {path: path})));
-      postJson("/api/submodule-add", {url: url, path: path, branch: branch, recursive: recursive()}).then(async r => {
+      postSubmoduleWithAuthFiles("/api/submodule-add", {url: url, path: path, branch: branch, recursive: recursive()}, "").then(async r => {
         for (const id of ["smAddUrl", "smAddPath", "smAddBranch"]) {
           const el = document.getElementById(id); if (el) { el.value = ""; delete el.dataset.touched; }
         }
