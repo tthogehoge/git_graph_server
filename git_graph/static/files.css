@@ -1,0 +1,101 @@
+  html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-size: 13px; color: #222; }
+  #tree { width: 360px; flex: none; overflow: auto; border-right: 1px solid #ccc; background: #fafafa; padding: 12px; box-sizing: border-box; }
+  #sideSplitter { flex: 0 0 5px; cursor: col-resize; background: #eee; border-right: 1px solid #ccc; box-sizing: border-box; touch-action: none; }
+  #sideSplitter:hover, #sideSplitter:focus-visible, body.resizing #sideSplitter { background: #c8d8f0; outline: none; }
+  body.resizing { cursor: col-resize; user-select: none; }
+  #main { flex: 1; min-width: 0; overflow: auto; padding: 14px 18px; box-sizing: border-box; }
+  h1 { font-size: 15px; margin: 0 0 8px; word-break: break-all; }
+  h2 { font-size: 14px; margin: 0 0 8px; }
+  h2 .crumb { margin: 0; }
+  .meta, .hint { color: #666; margin: 3px 0; }
+  .crumb { margin: 8px 0; word-break: break-all; }
+  .crumb a, .entry { color: #06c; text-decoration: none; cursor: pointer; }
+  .crumb a:hover, .entry:hover { text-decoration: underline; }
+  .entry { display: flex; gap: 8px; padding: 4px 6px; border-radius: 3px; font-family: monospace; }
+  .entry:hover { background: #eef; }
+  .entry.selected { background: #d0e3ff; outline: 1px solid #8ab4f8; }
+  #changes table.files tr.frow.selected td { background: #d0e3ff; }  /* WIP 変更一覧のキーボード選択 */
+  .st { display: inline-block; min-width: 1.3em; text-align: center; font-weight: bold; color: #fff; border-radius: 2px; margin-right: 4px; font-family: system-ui, sans-serif; }
+  .stM { background: #d29922; } .stA { background: #1a7f37; } .stD { background: #cf222e; } .stR { background: #6f42c1; } .stU { background: #cf222e; } .stN { background: #888; }
+  .entry .size { margin-left: auto; color: #777; white-space: nowrap; }
+  .sm-badge { margin-left: 2px; padding: 0 5px; border: 1px solid #9ab; border-radius: 8px; font-size: 11px; color: #456; background: #eef3f8; white-space: nowrap; }
+  .sm-msg { margin: 4px 6px; font-size: 12px; color: #0a7b35; white-space: pre-wrap; word-break: break-all; }
+  .sm-msg:empty { display: none; }
+  .sm-msg.err { color: #c00; }
+  pre { white-space: pre-wrap; word-break: break-word; background: #fff; border: 1px solid #ddd; padding: 10px; font: 12px monospace; }
+  .file-actions { display: flex; gap: 6px; margin: 8px 0; }
+  .file-actions[hidden] { display: none; }
+  .patch-bar { flex-wrap: wrap; align-items: center; }
+  .file-actions button { background: #e8eefc; border: 1px solid #b8c7ee; padding: 4px 8px; border-radius: 3px; cursor: pointer; }
+  .file-actions button:hover { background: #d6e2fb; }
+  .file-actions .msg { margin-left: 8px; color: #0a7b35; white-space: pre-wrap; }
+  .file-actions .msg.err { color: #c00; }
+  .tag { display: inline-block; min-width: 1.3em; text-align: center; font-weight: bold; color: #fff; border-radius: 2px; padding: 0 4px; margin-right: 4px; font-family: system-ui, sans-serif; font-size: 11px; }
+  .tagA { background: #06c; } .tagB { background: #e8590c; }
+  .commit-header { margin: 4px 0 8px; font-size: 12px; line-height: 1.4; }
+  .commit-subject { font-weight: bold; color: #222; word-break: break-word; margin-bottom: 2px; }
+  .commit-sub { color: #666; word-break: break-word; font-size: 11px; }
+  .commit-sub a.commit-graph, .compare-row a.commit-graph { font-family: monospace; font-weight: bold; color: #06c; text-decoration: none; }
+  .commit-sub a.commit-graph:hover, .compare-row a.commit-graph:hover { text-decoration: underline; }
+  .compare-row { margin: 4px 0; word-break: break-word; font-size: 12px; }
+  .compare-row .commit-subject { display: inline; font-weight: normal; color: #222; }
+  .sel-bar { margin: 4px 0; }
+  .sel-bar[hidden] { display: none; }
+  .sel-bar-btns { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 4px; }
+  .sel-bar-check { display: flex; align-items: center; gap: 6px; }
+  .sel-bar label.selall { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+  .sel-bar .cnt { color: #666; }
+  .entry input.ck { flex: none; margin: 0; align-self: center; cursor: pointer; }
+  .log-head { display: flex; align-items: center; gap: 6px; margin: 4px 0; }  /* ログの件数と検索ボタン */
+  table.log a.commit-graph { color: inherit; text-decoration: none; }  /* ハッシュは、グラフ画面で開くリンク */
+  table.log a.commit-graph:hover { text-decoration: underline; }
+  table.dir-log { table-layout: fixed; width: 100%; border-collapse: collapse; margin-top: 8px; }
+  table.dir-log td { border-bottom: 1px solid #e3e3e3; padding: 5px 6px; vertical-align: top; }
+  table.dir-log td.hash { font-family: monospace; }
+  table.dir-log td.date { color: #777; }
+  table.dir-log a { color: inherit; text-decoration: none; }
+  table.dir-log a.commit-graph:hover { text-decoration: underline; }
+  table.dir-log tr:hover td { background: #eef; }
+  table.dir-log th { text-align: left; font-weight: normal; color: #666; padding: 4px 6px; border-bottom: 1px solid #ccc; white-space: nowrap; }
+  table.dir-log tr.dir-log-row { cursor: pointer; }
+  table.dir-log .dir-name { width: 28%; min-width: 8em; }
+  table.dir-log td.dir-name { font-family: monospace; word-break: break-all; }
+  table.dir-log .hash { width: 7.5em; white-space: nowrap; }
+  table.dir-log .dir-msg { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  table.dir-log .date { width: 8.5em; white-space: nowrap; }
+  table.dir-log tr.dir-log-row:hover td.dir-name { color: #06c; }
+  .blame { display: table; width: 100%; table-layout: auto; border-collapse: collapse; font: 12px monospace; }
+  .blame-line { display: table-row; cursor: pointer; }
+  .blame-line:hover > * { background: #f6f8fa; }
+  .blame-line > * { display: table-cell; vertical-align: top; padding-right: 1ch; white-space: nowrap; }
+  .blame-no { width: 1%; text-align: right; color: #8c959f; padding-right: 1ch; }
+  .blame-hash { width: 1%; color: #666; }
+  .blame-hash a, a.blame-hash { color: inherit; text-decoration: none; }
+  .blame-hash a:hover, a.blame-hash:hover { text-decoration: underline; }
+  .blame-author { width: 1%; color: #666; max-width: 20em; overflow: hidden; text-overflow: ellipsis; }
+  .blame-date { width: 1%; color: #666; }
+  .blame-subject { width: 1%; color: #888; }
+  .blame-subject > span { display: inline-block; max-width: 18em; overflow: hidden; text-overflow: ellipsis; vertical-align: top; }  /* 長いと本文のコードが見えなくなるので、短く切る */
+  .blame-code { width: 99%; white-space: pre-wrap; min-width: 0; }
+  .edit-info { color: #666; margin: 4px 0; }
+  .edit-info.warn { color: #b35900; }
+  .cm-host { min-height: 200px; box-sizing: border-box; border: 1px solid #bbb; }  /* ファイルの表示と編集のエディタ。高さは fitEditor() が本文の領域に合わせる */
+  .edit-bar { display: flex; gap: 6px; margin: 6px 0; }
+  .side-tabs { display: flex; margin: 8px 0; }
+  .side-tabs[hidden], #changes[hidden] { display: none; }
+  .side-tabs button { flex: 1; padding: 4px 6px; border: 1px solid #b8c7ee; background: #fff; color: #333; cursor: pointer; }
+  .side-tabs button:first-child { border-radius: 3px 0 0 3px; }
+  .side-tabs button:last-child { border-radius: 0 3px 3px 0; border-left: none; }
+  .side-tabs button.on { background: #e8eefc; font-weight: bold; }
+  #changes .entry > span:first-child { min-width: 0; word-break: break-all; }
+  #changes .entry .dir { color: #777; }
+  #changes .entry .size .add { color: #1a7f37; } #changes .entry .size .del { color: #cf222e; }
+  .view-bar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 4px 0; }
+  .view-bar label.edit-vim { color: #444; cursor: pointer; }
+  .edit-bar label.edit-vim { align-self: center; margin-left: 8px; color: #444; cursor: pointer; }
+  .edit-bar button { background: #e8eefc; border: 1px solid #b8c7ee; padding: 4px 10px; border-radius: 3px; cursor: pointer; }
+  .edit-bar button.primary { background: #1a7f37; border-color: #1a7f37; color: #fff; }
+  .edit-bar button:disabled { opacity: .5; cursor: default; }
+  .file-actions button:disabled { opacity: .5; cursor: default; }
+  .wip-box { margin: 8px 0; } .wip-box > summary { cursor: pointer; font-weight: bold; margin-bottom: 4px; }
+/*__MENUBAR_CSS__*/

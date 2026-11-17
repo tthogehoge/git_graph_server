@@ -44,6 +44,8 @@ COMMIT_LOG_JS = read_asset("commit_log.js")  # ログの行・ブランチ / タ
 COMMIT_LOG_CSS = read_asset("commit_log.css")  # ログの表・札・コピー記号・ドラッグ中の見た目。ファイル表示用 (グラフは app.css に差し込む)
 LOG_SELECT_CSS = read_asset("log_select.css")  # ログの行 (対象 / A / B) の強調。ファイル表示のログ用 (グラフは app.css に差し込む)
 PATCH_OPS_JS = read_asset("patch_ops.js")  # パッチの作成・適用 (グラフ画面とファイル表示で共通)
+FILES_CSS = read_asset("files.css")  # ファイル表示ページ (/files) の CSS (files.html の <style> に差し込む)
+FILES_JS = read_asset("files.js")  # ファイル表示ページの JavaScript 本体 (files.html の <script> に差し込む)
 MERGE_JS = read_asset("merge.js")
 MERGE_EDITOR_JS = read_asset("vendor/merge_editor.js")  # CodeMirror 6 をまとめたもの (tools/merge_editor でビルド)
 TEXT_EDITOR_JS = read_asset("vendor/text_editor.js")  # ファイル編集のエディタ (CodeMirror 6 + 言語 + Vim)。こちらも tools/merge_editor でビルド
@@ -481,6 +483,8 @@ def render_files_page():
     # グラフへ戻るリンクと差分ボタンは、ページの JS が表示中のコミット / ファイルに合わせて付け替える
     menubar = menubar_html("files", reload_id="reloadBtn")
     return with_project(fill_template(FILES_PAGE)
+            .replace("/*__FILES_CSS__*/", FILES_CSS)  # 以降の置換 (目印) が、CSS / JS の中にも効くように、最初に差し込む
+            .replace("/*__FILES_JS__*/", FILES_JS)
             .replace('<html lang="ja">', f'<html lang="{state.UI_LANG}">')
             .replace("/*__MENUBAR_CSS__*/", MENUBAR_CSS + WIP_PANEL_CSS + COMMIT_LOG_CSS + LOG_SELECT_CSS)
             .replace("<!--__MENUBAR__-->", menubar)

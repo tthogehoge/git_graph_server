@@ -174,7 +174,7 @@ class SubmoduleFileViewTests(SubmoduleTestBase):
 
 class FilesPageStyleTests(unittest.TestCase):
     def test_the_styles_for_the_submodule_marks_reach_the_page(self):
-        # ファイル表示の CSS は files.html の <style> にある (別ファイルの CSS は無い)。
+        # ファイル表示の CSS は files.css にある (pages.py が files.html の <style> に差し込む)。
         # そこへ書き漏らすと、印の装飾が効かず、名前と印がくっついて見える
         page = server_module.render_files_page()
         for rule in (".sm-badge {", ".sm-msg {", ".sm-msg.err {"):

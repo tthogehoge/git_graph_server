@@ -1,0 +1,1698 @@
+/*__FILE_I18N__*/
+function t(key, values = {}) {
+  let text = key in I18N ? I18N[key] : key;
+  Object.entries(values).forEach(([name, value]) => { text = text.replaceAll("{" + name + "}", () => String(value)); });
+  return text;
+}
+
+const PROJECT_DOCUMENT_TITLE = document.title.slice(0, document.title.length - t("file_view").length - 3);  // ウィンドウタイトルは「プロジェクト名 - 表示対象」
+function setDocumentTitle(label) {
+  document.title = PROJECT_DOCUMENT_TITLE + " - " + (label || t("file_view"));
+}
+
+const qs = new URLSearchParams(location.search), hash = qs.get("hash"), fileViewTab = qs.get("file_view") === "1";
+const compareFrom = qs.get("dfrom") || "", compareTo = qs.get("dto") || "";
+const sideTabs = document.getElementById("sideTabs"), sideTreeBtn = document.getElementById("sideTreeBtn"), sideChangesBtn = document.getElementById("sideChangesBtn"), changesEl = document.getElementById("changes");
+const fileViewEl = document.getElementById("fileView"), wipCommitView = document.getElementById("wipCommitView");
+let wipCommitPanel = null;
+const list = document.getElementById("list"), content = document.getElementById("content"), title = document.getElementById("title");
+const fileActions = document.getElementById("fileActions"), fileLogBtn = document.getElementById("fileLogBtn"), fileBlameBtn = document.getElementById("fileBlameBtn"), fileContentBtn = document.getElementById("fileContentBtn");
+const fileGraphLogBtn = document.getElementById("fileGraphLogBtn");
+const dirActions = document.getElementById("dirActions"), dirLogBtn = document.getElementById("dirLogBtn"), dirCommitLogBtn = document.getElementById("dirCommitLogBtn");
+const fileCommitLogBtn = document.getElementById("fileCommitLogBtn");
+const dirListBtn = document.getElementById("dirListBtn"), dirGraphLogBtn = document.getElementById("dirGraphLogBtn");
+const fileDownloadBtn = document.getElementById("fileDownloadBtn"), fileExtEditBtn = document.getElementById("fileExtEditBtn");
+const fileRmBtn = document.getElementById("fileRmBtn"), fileRmCachedBtn = document.getElementById("fileRmCachedBtn");
+const fileCopyBtn = document.getElementById("fileCopyBtn"), fileMsg = document.getElementById("fileMsg");
+const fileDiffBtn = document.getElementById("fileDiffBtn"), fileEditBtn = document.getElementById("fileEditBtn");
+const fileExtDiffBtn = document.getElementById("fileExtDiffBtn"), fileMergeBtn = document.getElementById("fileMergeBtn");
+const patchCreateBtn = document.getElementById("patchCreateBtn"), patchMsg = document.getElementById("patchMsg");
+const selBar = document.getElementById("selBar"), selAll = document.getElementById("selAll"), selCount = document.getElementById("selCount"), selMsg = document.getElementById("selMsg");
+const selAddBtn = document.getElementById("selAddBtn"), selRmBtn = document.getElementById("selRmBtn"), selRmCachedBtn = document.getElementById("selRmCachedBtn");
+const commitEl = document.getElementById("commit");
+let currentCommitMeta = null;
+
+function formatAuthor(author) {
+  return (author || "").replace(/\s*<.*>$/, "");
+}
+function formatDate(date) {
+  return (date || "").slice(0, 16);
+}
+function firstLine(msg) {
+  return (msg || "").split("\n", 1)[0];
+}
+function commitLinkHtml(hashVal) {  // ハッシュのリンク + そのコミットのブランチ / タグ
+  const short = (hashVal || "").slice(0, 7);
+  return '<a class="commit-graph" href="/?commit_hash=' + encodeURIComponent(hashVal) + '" title="' + esc(hashVal) + '">' + esc(short) + '</a>' + (refChips(hashVal) ? ' ' + refChips(hashVal) : "");
+}
+function renderCommitHeader(meta) {
+  if (!commitEl) return;
+  if (!meta) {
+    commitEl.textContent = isWip
+      ? t("working_tree_files") + (wipHead ? " (HEAD " + wipHead.slice(0, 7) + ")" : "")
+      : (hash ? hash.slice(0, 7) : "");
+    return;
+  }
+  if (meta.type === "compare") {
+    const a = meta.from, b = meta.to;
+    let html = '<div class="commit-header compare-header">';
+    if (a) {
+      const subA = firstLine(a.message);
+      html += '<div class="compare-row">' +
+        '<span class="tag tagA">A</span>' +
+        commitLinkHtml(a.hash) + ' ' +
+        '<span class="commit-subject" title="' + esc(a.message || "") + '">' + esc(subA) + '</span>' +
+        '<div class="commit-sub meta">' + esc(formatAuthor(a.author)) + (a.date ? ' / ' + esc(formatDate(a.date)) : '') + '</div>' +
+      '</div>';
+    }
+    if (b) {
+      if (b.hash === "WIP") {
+        html += '<div class="compare-row">' +
+          '<span class="tag tagB">B</span>' +
+          '<strong>' + esc(t("working_tree_files")) + '</strong> <span class="hint">(WIP)</span>' +
+        '</div>';
+      } else {
+        const subB = firstLine(b.message);
+        html += '<div class="compare-row">' +
+          '<span class="tag tagB">B</span>' +
+          commitLinkHtml(b.hash) + ' ' +
+          '<span class="commit-subject" title="' + esc(b.message || "") + '">' + esc(subB) + '</span>' +
+          '<div class="commit-sub meta">' + esc(formatAuthor(b.author)) + (b.date ? ' / ' + esc(formatDate(b.date)) : '') + '</div>' +
+        '</div>';
+      }
+    }
+    html += '</div>';
+    commitEl.innerHTML = html;
+  } else if (meta.type === "wip") {
+    const h = meta.head;
+    let html = '<div class="commit-header">' +
+      '<div class="commit-subject"><strong>' + esc(t("working_tree_files")) + '</strong> <span class="hint">(WIP)</span></div>';
+    if (h && h.hash) {
+      const sub = firstLine(h.message);
+      html += '<div class="commit-sub meta">' +
+        'HEAD: ' + commitLinkHtml(h.hash) + ' ' +
+        '<span class="commit-subject" title="' + esc(h.message || "") + '">' + esc(sub) + '</span>' +
+        (h.author ? ' <span class="hint">(' + esc(formatAuthor(h.author)) + (h.date ? ' / ' + esc(formatDate(h.date)) : '') + ')</span>' : '') +
+      '</div>';
+    }
+    html += '</div>';
+    commitEl.innerHTML = html;
+  } else if (meta.type === "commit" && meta.commit) {
+    const c = meta.commit;
+    const sub = firstLine(c.message);
+    commitEl.innerHTML = '<div class="commit-header">' +
+      '<div class="commit-subject" title="' + esc(c.message || "") + '">' + esc(sub) + '</div>' +
+      '<div class="commit-sub meta">' +
+        commitLinkHtml(c.hash) + ' ' +
+        '<span class="commit-author" title="' + esc(c.author || "") + '">' + esc(formatAuthor(c.author)) + '</span> ' +
+        '<span class="commit-date">' + esc(formatDate(c.date)) + '</span>' +
+      '</div></div>';
+  }
+}
+function updateCommitHeader(meta) {
+  currentCommitMeta = meta;
+  renderCommitHeader(meta);
+}
+if (commitEl) {
+  commitEl.addEventListener("click", ev => {
+    const link = ev.target.closest("a.commit-graph");
+    if (link && window.opener && !window.opener.closed) {
+      ev.preventDefault();
+      window.opener.postMessage({type: "git-graph-commit", hash: new URL(link.href, location.href).searchParams.get("commit_hash")}, location.origin);
+    }
+  });
+}
+const CAN_EDIT = CAN_COPY && hash === "WIP";  // 作業ツリーのファイルだけ編集できる (書き込みが有効なとき)
+const isWip = hash === "WIP";  // 作業ツリーのファイルを表示する
+(function () {  // グラフへ戻るとき、このコミットの選択を復元する
+  const g = document.getElementById("navGraphBtn");
+  if (g && hash) g.href = isWip ? "/?select_wip=1" : "/?select_hash=" + encodeURIComponent(hash);  // WIP もコミットも、戻ったグラフで同じ選択にする
+})();
+fileCopyBtn.disabled = !CAN_COPY || isWip;
+let current = "", currentFile = "", wipHead = null;
+let dirEntries = null, dirLogSeq = 0;  // dirEntries: 表示中のディレクトリの項目 (読み込み前は null), dirLogSeq: 古い応答を捨てるための通し番号
+let dirLogOn = false;  // ディレクトリの本文に、項目の一覧ではなく「このディレクトリのログ」(または通常のコミットログ) を出しているか
+let commitLogOn = false;  // dirLogOn のうち、パスで絞らない通常のコミットログ
+let wipFiles = [];  // 作業ツリーの変更の一覧 (WIP パネルが決める。パス・種類 wip・変更前のパス old_path)
+let wipStatusFiles = [];
+let stageOverrides = new Map(), stageDirty = false;
+let wipHeadFiles = [];  // HEAD または URL の比較対象コミットと作業ツリーの差分
+let wipCompareChanges = compareTo === "WIP" && compareFrom ? Object.create(null) : null, wipCompareDirs = new Set();
+let diffSel = null;  // 選択中の差分の WIP 種別または比較元
+let commitFiles = [];  // このコミットで変更されたファイルの一覧 (左ペインの「変更ファイル」)
+let entryInfo = {}, commitChanges = null, commitDirs = new Set();  // entryInfo: パス → 一覧の項目 (WIP の変更の種類 xy), commitChanges: パス → コミットでの変更
+function diffParams(path) {  // このファイルの差分 API の引数。変更がなければ null
+  if (isWip) {
+    if (diffSel && diffSel.path === path) {
+      if (diffSel.from && diffSel.to === "WIP") {
+        const p = {from: diffSel.from, wip: "compare", path: path};
+        if (diffSel.old) p.old = diffSel.old;
+        return p;
+      }
+      if (diffSel.from && diffSel.to) {
+        const p = {from: diffSel.from, to: diffSel.to, path: path};
+        if (diffSel.old) p.old = diffSel.old;
+        return p;
+      }
+      return diffSel.old ? {path: path, wip: diffSel.wip, old: diffSel.old} : {path: path, wip: diffSel.wip};
+    }
+    const xy = (entryInfo[path] || {}).xy;
+    if (xy) {
+      const st = entryInfo[path].st;
+      const kind = xy === "??" ? "untracked" : st === "U" ? "conflict" : xy[1] !== " " ? "unstaged" : "staged";
+      return {path: path, wip: kind};
+    }
+    // 一覧を読み込んでいないディレクトリのファイルは、WIP パネルの一覧から探す (複数あれば、競合・未ステージ・未追跡・ステージ済み・amend の順)
+    const same = wipFiles.filter(f => f.path === path);
+    const f = ["conflict", "unstaged", "untracked", "staged", "amend"].map(k => same.find(x => x.wip === k)).find(Boolean);
+    if (!f) return null;
+    return f.old_path ? {path: path, wip: f.wip, old: f.old_path} : {path: path, wip: f.wip};
+  }
+  if (diffSel && diffSel.path === path && diffSel.from && diffSel.to === "WIP") {
+    const p = {from: diffSel.from, wip: "compare", path: path};
+    if (diffSel.old) p.old = diffSel.old;
+    return p;
+  }
+  if (diffSel && diffSel.path === path && diffSel.from && diffSel.to) {
+    const p = {from: diffSel.from, to: diffSel.to, path: path};
+    if (diffSel.old) p.old = diffSel.old;
+    return p;
+  }
+  const f = commitChanges && commitChanges[path];
+  if (!f) return null;
+  const p = {hash: hash, path: path};
+  if ((diffSel && diffSel.path === path && diffSel.old) || f.old_path) p.old = (diffSel && diffSel.path === path && diffSel.old) || f.old_path;
+  return p;
+}
+function updateRmBtns() {  // git rm できるのは、作業ツリー表示の追跡中のファイルだけ (書き込みが有効なとき)
+  const tracked = !!currentFile && (entryInfo[currentFile] || {}).xy !== "??";
+  fileRmBtn.disabled = fileRmCachedBtn.disabled = !(CAN_EDIT && tracked);
+}
+function isConflictFile(path) {  // 競合中のファイルか (差分選択 or WIP の競合一覧)
+  if (!path) return false;
+  if (diffSel && diffSel.path === path && diffSel.wip === "conflict") return true;
+  return wipStatusFiles.some(f => f.path === path && f.wip === "conflict");
+}
+function updateMergeBtn() {  // 競合ファイルはマージエディタで解決できる
+  const show = CAN_EDIT && isConflictFile(currentFile);
+  fileMergeBtn.hidden = !show;
+  fileMergeBtn.disabled = !show;
+}
+function updateDiffBtn() {
+  const p = currentFile && diffParams(currentFile);
+  fileDiffBtn.disabled = !p;
+  fileExtDiffBtn.hidden = !DESKTOP || currentView !== "diff" || !p;
+  updateMergeBtn();
+  updateRmBtns();
+}
+function showFilePane() {
+  fileViewEl.hidden = false;
+  wipCommitView.hidden = true;
+}
+function showWipCommitPane() {
+  if (!isWip) return;
+  fileViewEl.hidden = true;
+  wipCommitView.hidden = false;
+  document.getElementById("main").scrollTop = 0;
+}
+function openWipCommit() {
+  if (!isWip || !CAN_EDIT || !wipCommitView.hidden || !leaveEdit()) return;
+  const params = new URLSearchParams(location.search);
+  params.set("wip_commit", "1");
+  history.pushState({path: current, file: currentFile, view: currentView, wipCommit: true}, "", "?" + params);
+  showWipCommitPane();
+}
+const wipCommitMenuBtn = document.getElementById("wipCommitMenuBtn");
+wipCommitMenuBtn.disabled = !CAN_COPY;
+wipCommitMenuBtn.onclick = () => {
+  if (!CAN_COPY) return;
+  if (isWip) openWipCommit();
+  else location.href = "/files?hash=WIP&wip_commit=1";
+};
+document.getElementById("wipCommitBack").onclick = () => {
+  if (history.state && history.state.wipCommit) { history.back(); return; }
+  const params = new URLSearchParams(location.search);
+  params.delete("wip_commit");
+  history.replaceState({path: current, file: currentFile, view: currentView}, "", "?" + params);
+  showFilePane();
+};
+function loadCommitChanges() {  // このコミットで変更されたファイル (差分ボタンを出すかどうかに使う)
+  if (isWip || !hash) return;
+  const load = compareFrom && compareTo
+    ? api("/api/compare", {from: compareFrom, to: compareTo})
+    : api("/api/commit", {hash: hash});
+  load.then(c => {
+    if (compareFrom && compareTo) {
+      updateCommitHeader({type: "compare", from: c.from, to: c.to});
+    } else {
+      updateCommitHeader({type: "commit", commit: c});
+    }
+    commitChanges = {};
+    commitDirs = new Set();
+    commitFiles = c.files;
+    c.files.forEach(f => {
+      commitChanges[f.path] = f;
+      for (let i = f.path.indexOf("/"); i > 0; i = f.path.indexOf("/", i + 1)) commitDirs.add(f.path.slice(0, i));  // 上のディレクトリすべて
+    });
+    updateDiffBtn();
+    refreshBadges();
+    renderChanges();
+  }).catch(e => { changesEl.innerHTML = '<p class="hint">' + esc(t("error") + e.message) + '</p>'; });
+}
+// ---- 左ペインの表示: ファイル一覧 / コミットまたは HEAD との差分 ----
+const SIDE_KEY = "gitGraphFilesSide";
+let sideMode = "tree";  // "tree" | "changes"。保存先 (localStorage) が使えなくても切り替わるよう、メモリ上の値を正とする
+try { sideMode = localStorage.getItem(SIDE_KEY) === "changes" ? "changes" : "tree"; } catch (e) { sideMode = "tree"; }
+if (compareFrom && compareTo) sideMode = "changes";
+function activeList() { return sideMode === "changes" ? changesEl : list; }  // ↑↓ Enter の対象
+function syncTreeSelection() {
+  if (activeList() !== list) return;
+  selectEntry([...list.querySelectorAll(".entry")].find(r => r.dataset.path === currentFile) || null);
+}
+function applySideMode() {
+  const changes = sideMode === "changes";
+  list.hidden = changes;
+  changesEl.hidden = !changes;
+  selBar.hidden = !wipSelectionEnabled();
+  sideTreeBtn.classList.toggle("on", !changes);
+  sideChangesBtn.classList.toggle("on", changes);
+  selectEntry(null);
+  updateSelBar();
+  if (changes) syncChangesSelection();
+  else syncTreeSelection();
+}
+function setSideMode(mode) {
+  sideMode = mode;
+  try { localStorage.setItem(SIDE_KEY, mode); } catch (e) { /* 保存できなくても切り替わる (次回は引き継がれない) */ }
+  applySideMode();
+}
+sideTreeBtn.onclick = () => setSideMode("tree");
+sideChangesBtn.onclick = () => setSideMode("changes");
+const CHANGE_MARK = {A: "A", C: "A", R: "R", D: "D"};  // それ以外は M
+function renderChanges() {  // コミット (または比較) の変更ファイル一覧
+  if (isWip) return;
+  sideChangesBtn.textContent = t("side_changes") + (commitChanges ? " (" + commitFiles.length + ")" : "");
+  if (!commitChanges) { changesEl.innerHTML = '<p class="hint">' + esc(t("loading")) + '</p>'; return; }
+  if (!commitFiles.length) { changesEl.innerHTML = '<p class="hint">' + esc(t("no_changed_files")) + '</p>'; return; }
+  changesEl.innerHTML = commitFiles.map(f => {
+    const mark = CHANGE_MARK[f.status] || "M", slash = f.path.lastIndexOf("/");
+    const tip = t(COMMIT_MARK_KEY[mark] || "commit_mark_M") + (mark === "R" && f.old_path ? ": " + f.old_path : "");
+    const num = f.added === null || f.deleted === null ? t("binary_short") : '<span class="add">+' + f.added + '</span> <span class="del">−' + f.deleted + '</span>';
+    return '<div class="entry" data-type="change" data-path="' + esc(f.path) + '" title="' + esc(f.old_path ? f.old_path + " → " + f.path : f.path) + '"><span>' +
+      '<span class="st ' + ST_CLASS[mark] + '" title="' + esc(tip) + '">' + mark + '</span>' +
+      (slash < 0 ? "" : '<span class="dir">' + esc(f.path.slice(0, slash + 1)) + '</span>') + esc(f.path.slice(slash + 1)) + '</span><span class="size">' + num + '</span></div>';
+  }).join("");
+  changesEl.querySelectorAll(".entry").forEach(a => { a.onclick = () => { selectEntry(a); openChange(a.dataset.path); }; });
+  syncChangesSelection();
+}
+function wipFilesChanged(files, status) {  // WIP パネルの一覧と状態が決まった (パネルを描き直すたびに呼ばれる)
+  wipFiles = files;
+  wipStatusFiles = status ? [
+    ...(status.conflicts || []).map(f => Object.assign({wip: "conflict"}, f)),
+    ...(status.staged || []).map(f => Object.assign({wip: "staged"}, f)),
+    ...(status.unstaged || []).map(f => Object.assign({wip: "unstaged"}, f)),
+    ...(status.untracked || []).map(f => Object.assign({wip: "untracked"}, f)),
+  ] : files;
+  if (!stageDirty) stageOverrides.clear();
+  [...stageOverrides].forEach(([key, value]) => {
+    if (!key.startsWith("tree\0")) return;
+    const path = key.slice(5);
+    const matches = wipStatusFiles.filter(f => (f.path === path || f.path.startsWith(path + "/")) && f.wip !== "conflict");
+    if (!matches.length) return;
+    matches.forEach(f => stageOverrides.set(stageKey(f.wip, f.path), value));
+    stageOverrides.delete(key);
+  });
+  syncTreeCheckBoxes();
+  updateDiffBtn();
+  markWipCurrent();
+  if (isWip && wipHeadFiles.length) renderWipChanges();
+}
+function wipStatusForPath(path) {
+  const same = wipStatusFiles.filter(f => f.path === path);
+  return ["conflict", "unstaged", "untracked", "staged", "amend"].map(k => same.find(f => f.wip === k)).find(Boolean);
+}
+function stageKey(kind, path) { return kind + "\0" + path; }
+function desiredStageChecked(kind, path) {
+  const key = stageKey(kind, path);
+  if (stageOverrides.has(key)) return stageOverrides.get(key);
+  let match = null;
+  stageOverrides.forEach((value, treeKey) => {
+    if (!treeKey.startsWith("tree\0")) return;
+    const treePath = treeKey.slice(5);
+    if ((path === treePath || path.startsWith(treePath + "/")) && (!match || treePath.length > match.path.length))
+      match = {path: treePath, value: value};
+  });
+  return match ? match.value : kind === "staged";
+}
+function setStageChecked(kind, path, value) {
+  if (kind === "tree") {
+    const matches = wipStatusFiles.filter(f => (f.path === path || f.path.startsWith(path + "/")) && f.wip !== "conflict");
+    if (matches.length) {
+      matches.forEach(f => stageOverrides.set(stageKey(f.wip, f.path), value));
+      stageDirty = true;
+      return;
+    }
+  }
+  stageOverrides.set(stageKey(kind, path), value);
+  stageDirty = true;
+}
+function stageKindsForPath(path) {
+  const kinds = [...new Set(wipStatusFiles.filter(f => f.path === path).map(f => f.wip))];
+  if (kinds.length) return kinds;
+  const e = entryInfo[path] || {}, xy = e.xy || "";
+  if (xy === "??") return ["untracked"];
+  if (xy.includes("U")) return ["conflict"];
+  const result = [];
+  if (xy[0] && xy[0] !== " ") result.push("staged");
+  if (xy[1] && xy[1] !== " ") result.push("unstaged");
+  return result;
+}
+function treeCheckState(path) {
+  const treeKey = stageKey("tree", path);
+  if (stageOverrides.has(treeKey)) return {checked: stageOverrides.get(treeKey), indeterminate: false};
+  const statuses = wipStatusFiles.filter(f => f.path === path || f.path.startsWith(path + "/"));
+  const values = statuses.length
+    ? statuses.filter(f => f.wip !== "conflict").map(f => desiredStageChecked(f.wip, f.path))
+    : stageKindsForPath(path).filter(k => k !== "conflict").map(k => desiredStageChecked(k, path));
+  const checked = values.length > 0 && values.every(Boolean);
+  return {checked: checked, indeterminate: values.some(Boolean) && !checked};
+}
+function syncTreeCheckBoxes() {
+  list.querySelectorAll('input.ck[data-kind="tree"]').forEach(c => {
+    const state = treeCheckState(c.dataset.path);
+    c.checked = state.checked;
+    c.indeterminate = state.indeterminate;
+  });
+}
+function renderWipChanges() {
+  sideChangesBtn.textContent = t("side_changes") + (wipHeadFiles.length ? " (" + wipHeadFiles.length + ")" : "");
+  const from = wipCompareFrom();
+  const ctx = from ? {from: from, wip: "compare"} : {};
+  if (wipSelectionEnabled()) {
+    const changes = new Map(wipHeadFiles.map(f => [f.path, f]));
+    const labels = {conflict: "conflict", staged: "staged", unstaged: "unstaged", untracked: "untracked"};
+    let body = "";
+    ["conflict", "staged", "unstaged", "untracked"].forEach(kind => {
+      const group = wipStatusFiles.filter(f => f.wip === kind && changes.has(f.path))
+        .map(f => Object.assign({}, changes.get(f.path), f, {wip: kind}));
+      if (!group.length) return;
+      const check = f => '<td class="fk"><input type="checkbox" class="ck" data-kind="' + esc(f.wip) + '" data-path="' + esc(f.path) +
+        '" aria-label="' + esc(f.path) + '"' + (desiredStageChecked(f.wip, f.path) ? " checked" : "") +
+        (f.wip === "conflict" ? " disabled" : "") + "></td>";
+      const all = kind === "conflict" ? "" : '<input type="checkbox" class="changeall" data-kind="' + kind +
+        '" title="' + esc(t("select_all")) + '"> ';
+      body += '<h3>' + all + esc(t(labels[kind])) + " (" + group.length + ")</h3>" +
+        WipPanel.filesTable(ctx, group, 0, {t: t, check: check});
+    });
+    changesEl.innerHTML = body || '<p class="hint">' + esc(t("no_changed_files")) + "</p>";
+  } else {
+    const files = wipHeadFiles.map(f => {
+      const status = wipStatusForPath(f.path);
+      const st = status && status.st || f.st || (f.status === "A" || f.status === "C" ? "A" : f.status === "D" ? "D" : f.status === "R" ? "R" : "M");
+      return Object.assign({}, f, {st: st});
+    });
+    changesEl.innerHTML = WipPanel.filesTable(ctx, files, 0, {t: t});
+  }
+  bindSelectionChecks(changesEl);
+  updateSelBar();
+  updateDiffBtn();
+  markWipCurrent();
+  // 再描画で要素が消えるので選択を付け直す（同一パスが複数グループにある場合も先頭の1つだけ）
+  selectedEntry = null;
+  if (sideMode === "changes") syncChangesSelection();
+}
+let wipChangesSeq = 0;
+function wipCompareFrom() {
+  return compareTo === "WIP" && compareFrom ? compareFrom : wipHead;
+}
+function wipSelectionEnabled() {
+  if (!CAN_EDIT) return false;
+  return compareTo !== "WIP" || !compareFrom || (!!wipHead && (compareFrom === wipHead ||
+    (compareFrom.length >= 7 && wipHead.startsWith(compareFrom))));
+}
+function loadWipChanges() {
+  if (!isWip) return Promise.resolve();
+  const seq = ++wipChangesSeq, head = wipCompareFrom();
+  if (!head) {
+    updateCommitHeader({type: "wip", head: null});
+    return api("/api/status", {}).then(s => {
+      if (seq !== wipChangesSeq) return;
+      wipHeadFiles = [];
+      ["conflicts", "staged", "unstaged", "untracked"].forEach((key, index) => {
+        const kinds = ["conflict", "staged", "unstaged", "untracked"];
+        wipHeadFiles.push(...(s[key] || []).map(f => Object.assign({wip: kinds[index]}, f)));
+      });
+      renderWipChanges();
+    }).catch(e => {
+      if (seq === wipChangesSeq) changesEl.innerHTML = '<p class="hint">' + esc(t("error") + e.message) + "</p>";
+    });
+  }
+  return api("/api/compare", {from: head, to: "WIP"}).then(r => {
+    if (seq !== wipChangesSeq) return;
+    if (compareTo === "WIP" && compareFrom) {
+      updateCommitHeader({type: "compare", from: r.from, to: {hash: "WIP"}});
+    } else {
+      updateCommitHeader({type: "wip", head: r.from});
+    }
+    wipHeadFiles = r.files.map(f => Object.assign({wip: "compare"}, f));
+    if (wipCompareChanges !== null) {
+      wipCompareChanges = Object.create(null);
+      wipCompareDirs = new Set();
+      wipHeadFiles.forEach(f => {
+        wipCompareChanges[f.path] = f;
+        for (let i = f.path.indexOf("/"); i > 0; i = f.path.indexOf("/", i + 1)) {
+          wipCompareDirs.add(f.path.slice(0, i));
+        }
+      });
+      refreshBadges();
+    }
+    renderWipChanges();
+  }).catch(e => {
+    if (seq === wipChangesSeq) changesEl.innerHTML = '<p class="hint">' + esc(t("error") + e.message) + "</p>";
+  });
+}
+function markWipCurrent() {  // WIP の変更一覧で、右ペインに差分を出しているファイルの行に印を付ける
+  if (!isWip) return;
+  changesEl.querySelectorAll("tr.frow").forEach(tr => {
+    const a = tr.querySelector("a[href^='/files?']");
+    const q = a ? new URL(a.href, location.href).searchParams : null;
+    tr.classList.toggle("cur", !!(q && currentView === "diff" && q.get("file") === currentFile));
+  });
+}
+function openWipChange(sel) {  // WIP の変更を、右ペインの差分エディタで開く
+  const key = [sel.path, sel.wip || "", sel.from || "", sel.to || "", sel.old || ""].join("\0");
+  if (currentFile === sel.path && currentView === "diff" && diffSel && diffSel.wip === sel.wip &&
+      diffSel.from === sel.from && diffSel.to === sel.to && diffSel.old === sel.old) {
+    showFilePane();
+    return Promise.resolve();
+  }
+  if (pendingWipOpen && pendingWipOpen.key === key) {
+    showFilePane();
+    return pendingWipOpen.promise;
+  }
+  if (!leaveEdit()) return Promise.resolve();
+  diffSel = sel;
+  showFilePane();
+  const dir = parentDir(sel.path);
+  if (dir !== current) loadTree(dir, false);
+  history.pushState({path: dir, file: sel.path, view: "diff"}, "", pageUrl(dir, sel.path, "diff"));
+  const pending = {key: key, promise: null};
+  pending.promise = loadFile(sel.path, false).then(() => renderView("diff")).finally(() => {
+    if (pendingWipOpen === pending) pendingWipOpen = null;
+  });
+  pendingWipOpen = pending;
+  return pending.promise;
+}
+let pendingWipOpen = null;
+changesEl.addEventListener("click", ev => {
+  if (!isWip || ev.button || ev.ctrlKey || ev.metaKey || ev.shiftKey || ev.altKey) return;
+  const row = ev.target.closest("tr.frow");
+  if (!row) return;
+  if (ev.target.closest("input")) return;
+  const a = ev.target.closest("a[href^='/files?']") || row.querySelector("a[href^='/files?']");
+  if (!a) return;
+  const q = new URL(a.href, location.href).searchParams;
+  const path = q.get("file");
+  if (!path) return;
+  ev.preventDefault();
+  selectEntry(row);  // クリックした行を選択状態にする（open の途中で再描画されても付く）
+  const from = q.get("dfrom"), to = q.get("dto");
+  openWipChange(from && to
+    ? {path: path, from: from, to: to, wip: "compare", old: q.get("dold") || ""}
+    : {path: path, wip: q.get("dwip") || "unstaged", old: q.get("dold") || ""});
+});
+function syncChangesSelection() {  // いま開いているファイルが、変更ファイルの一覧にあれば選択する
+  if (activeList() !== changesEl) return;
+  const byEntry = [...changesEl.querySelectorAll(".entry")].find(r => r.dataset.path === currentFile);
+  if (byEntry) { selectEntry(byEntry); return; }
+  // WIP の tr.frow（同一パスが staged/unstaged など複数あるときは diffSel の wip を優先）
+  const rows = [...changesEl.querySelectorAll("tr.frow")].filter(r => pathOfNavRow(r) === currentFile);
+  let byFrow = rows[0] || null;
+  if (rows.length > 1 && diffSel && diffSel.path === currentFile && diffSel.wip) {
+    const match = rows.find(r => (r.dataset.kind || "") === diffSel.wip);
+    if (match) byFrow = match;
+  }
+  selectEntry(byFrow);
+}
+function openChange(path) {  // 変更ファイルを、右ペインの差分エディタで開く (ファイルを開いて差分の表示にするまで、履歴は 1 つ)
+  const f = commitChanges && commitChanges[path];
+  if (!f) return Promise.resolve();
+  if (path === currentFile && currentView === "diff") return Promise.resolve();  // 同じファイルなら leaveEdit しない (差分エディタを破棄しない)
+  if (!leaveEdit()) return Promise.resolve();
+  diffSel = compareFrom && compareTo ? {path: path, from: compareFrom, to: compareTo, old: f.old_path || ""} : null;
+  showFilePane();
+  const dir = parentDir(path);
+  if (dir !== current) loadTree(dir, false);
+  history.pushState({path: dir, file: path, view: "diff"}, "", pageUrl(dir, path, "diff"));
+  return loadFile(path, false).then(() => renderView("diff"));  // 消されたファイルは、内容を読めなくても差分は出せる
+}
+fileDiffBtn.onclick = () => { if (currentFile && diffParams(currentFile)) openView("diff"); };  // このファイルの差分を右ペインに表示
+fileExtDiffBtn.onclick = () => {
+  const params = currentFile && diffParams(currentFile);
+  if (!params) return;
+  fileExtDiffBtn.disabled = true;
+  fetch("/api/open-diff", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(params)})
+    .then(r => r.ok ? r.json() : r.text().then(m => { throw new Error(m || r.status); }))
+    .then(r => setFileMsg(r.message, true))
+    .catch(e => setFileMsg(e.message, false))
+    .finally(() => { fileExtDiffBtn.disabled = false; });
+};
+fileMergeBtn.onclick = () => {  // 競合ファイルをマージエディタで開く
+  if (!currentFile || !isConflictFile(currentFile)) return;
+  location.href = "/merge?" + new URLSearchParams({path: currentFile});
+};
+function logHash() { return isWip ? wipHead : hash; }  // ファイルのログの起点 (作業ツリーなら HEAD)
+function esc(s) { return String(s).replace(/[&<>\"]/g, c => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", "\"":"&quot;"}[c])); }
+function api(path, params) { return fetch(path + "?" + new URLSearchParams(params)).then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); })); }
+// ---- ブランチ / タグ / HEAD の表示 (グラフ画面と同じ名前・色)。コミット → 名前の一覧は、ページを開いたときに 1 回読む ----
+var refLabels = {};  // コミット → [{name, kind}] (var: 読み込み前に refChips が呼ばれても落ちないようにする)
+function refChips(h) { return CommitLog.chipsHtml((refLabels || {})[h], ""); }  // 札の描画はグラフ画面と共通 (commit_log.js)
+const refsReady = api("/api/ref-labels", {}).then(r => { refLabels = r.labels || {}; }).catch(() => { refLabels = {}; });  // 取れなくても、名前が出ないだけで他の表示は動く
+refsReady.then(() => { if (currentCommitMeta) renderCommitHeader(currentCommitMeta); });  // 左上のコミット情報にも、読み込み後に名前を出す
+function showError(e) { list.innerHTML = '<p class="hint">' + t("error") + esc(e.message) + '</p>'; }
+function pageUrl(path, file, view, dirlog) {  // 表示中のディレクトリ・ファイル・表示 (edit / blame / log) を URL に残す (戻る/進む・再読み込みで復元する)。dirlog: ファイルを開かずに、ディレクトリのログを出している
+  const p = new URLSearchParams({hash: hash});
+  if (path) p.set("path", path);
+  if (file) p.set("file", file);
+  if (file && view) p.set("view", view);
+  else if (!file && dirlog) p.set("view", dirlog === "clog" ? "clog" : "log");  // clog: パスで絞らない通常のコミットログ
+  if (file && view === "diff" && diffSel && diffSel.path === file) {
+    if (diffSel.from && diffSel.to) { p.set("dfrom", diffSel.from); p.set("dto", diffSel.to); }
+    if (diffSel.wip) p.set("dwip", diffSel.wip);
+    if (diffSel.old) p.set("dold", diffSel.old);
+  }
+  if (fileViewTab) p.set("file_view", "1");
+  return "?" + p;
+}
+const ST_CLASS = {M: "stM", A: "stA", D: "stD", R: "stR", U: "stU", "?": "stN"};
+const COMMIT_MARK_KEY = {A: "commit_mark_A", M: "commit_mark_M", R: "commit_mark_R", D: "commit_mark_D"};
+const COMPARE_MARK_KEY = {A: "compare_mark_A", M: "compare_mark_M", R: "compare_mark_R", D: "compare_mark_D"};
+function changeBadge(e, path, changes, dirs, markKeys, dirKey) {
+  if (!changes) return "";
+  let mark, tip;
+  if (e.type === "tree") {
+    if (!dirs.has(path)) return "";
+    mark = "M"; tip = t(dirKey);
+  } else {
+    const f = changes[path];
+    if (!f) return "";
+    mark = f.status === "A" || f.status === "C" ? "A" : f.status === "R" ? "R" : "M";
+    tip = t(markKeys[mark] || markKeys.M) + (mark === "R" && f.old_path ? ": " + f.old_path : "");
+  }
+  return '<span class="st ' + ST_CLASS[mark] + '" title="' + esc(tip) + '">' + mark + '</span>';
+}
+function commitBadge(e, path) {  // コミット表示での、そのコミットで変更・追加されたものの印
+  return changeBadge(e, path, commitChanges, commitDirs, COMMIT_MARK_KEY, "commit_dir_changed");
+}
+function refreshBadges() {  // 変更の一覧が読み込めたあと、表示済みの項目の印を更新する
+  if (isWip && wipCompareChanges === null) return;
+  document.querySelectorAll("#list .entry, #content tr.dir-log-row").forEach(el => {
+    const e = entryInfo[el.dataset.path], slot = el.querySelector(".bd");
+    if (e && slot) slot.innerHTML = statusBadge(e, el.dataset.path);
+  });
+}
+function statusBadge(e, path) {  // WIP は作業ツリー状態または比較元との差分、コミット表示はそのコミットでの変更
+  if (!isWip) return commitBadge(e, path);
+  if (wipCompareChanges !== null) {
+    return changeBadge(e, path, wipCompareChanges, wipCompareDirs, COMPARE_MARK_KEY, "compare_dir_changed");
+  }
+  if (!e.st) return "";
+  const tip = e.type === "tree" ? t("wip_dir_changed") : e.xy === "??" ? t("untracked") : e.st === "U" ? t("conflict")
+    : [e.xy[0] !== " " ? t("staged") : "", e.xy[1] !== " " ? t("unstaged") : ""].filter(Boolean).join(" / ");
+  return '<span class="st ' + (ST_CLASS[e.st] || "stM") + '" title="' + esc(tip) + '">' + esc(e.st) + '</span>';
+}
+// submodule (type "commit") は、ファイルではなく別のリポジトリ。クリックで、別のプロセスのファイル表示を開く
+function entryIcon(e) { return e.type === "tree" ? "📁" : e.type === "commit" ? "🔗" : "📄"; }
+function entryTip(e) { return e.type === "commit" ? ' title="' + esc(t(isWip ? "submodule_entry_tip_wip" : "submodule_entry_tip")) + '"' : ""; }
+function submoduleBadge(e) { return e.type === "commit" ? ' <span class="sm-badge">' + esc(t("submodule_entry")) + '</span>' : ""; }
+function smMsg(text, ok, url) {
+  const el = document.getElementById("smMsg");
+  el.className = "sm-msg" + (ok ? "" : " err");
+  el.textContent = text;
+  if (url) { el.append(" "); const a = document.createElement("a"); a.href = url; a.target = "_blank"; a.rel = "noopener"; a.textContent = url; el.append(a); }
+}
+let smOpening = false;
+function openSubmoduleFiles(path) {
+  const e = entryInfo[path] || {};
+  if (smOpening || (!isWip && !e.sha)) return;
+  smOpening = true;
+  smMsg(t("submodule_opening", {path: path}), true);
+  fetch("/api/submodule-open", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({path: path, files_hash: isWip ? "WIP" : e.sha})})
+    .then(r => r.ok ? r.json() : r.text().then(m => { throw new Error(m || r.status); }))
+    .then(r => {
+      // ブラウザーでは、子のサーバーのファイル表示を新しいタブで開く (pywebview では、子が自分のウィンドウを開く)。
+      // ポップアップとしてブロックされることがあるので、リンクも残す
+      let url = "";
+      if (r.port) { url = location.protocol + "//" + location.hostname + ":" + r.port + (r.start_path || "/"); window.open(url, "_blank"); }
+      smMsg(r.message, true, url);
+    })
+    .catch(err => smMsg(err.message, false))
+    .finally(() => { smOpening = false; });
+}
+function openEntry(path, type) { return type === "change" ? openChange(path) : type === "tree" ? openDir(path) : type === "commit" ? openSubmoduleFiles(path) : loadFile(path, true); }
+
+// 左ペインのキーボード操作: ↑↓ で選択、Enter で右ペイン表示、← で親へ、→ でディレクトリに入る
+// ファイル一覧は .entry、変更ファイル (コミット) も .entry、WIP 変更は table.files の tr.frow
+let selectedEntry = null;
+function selectEntry(el) {
+  // 再描画や同一パスの複数行（staged/unstaged）などで複数に .selected が付くのを防ぐ
+  document.querySelectorAll("#list .entry.selected, #changes .entry.selected, #changes tr.frow.selected").forEach(e => e.classList.remove("selected"));
+  selectedEntry = el || null;
+  if (selectedEntry) {
+    selectedEntry.classList.add("selected");
+    selectedEntry.scrollIntoView({block: "nearest"});
+  }
+}
+function toggleSelectedCheck() {
+  // 選択行のチェックをスペースでトグル
+  if (!selectedEntry || !selectedEntry.isConnected) return false;
+  const c = selectedEntry.querySelector("input.ck:not(:disabled)");
+  if (!c) return false;
+  c.checked = !c.checked;
+  setStageFromBox(c, c.checked);
+  updateSelBar();
+  return true;
+}
+function focusFileActionButton() {
+  // ファイルを開いたあと、右ペインの操作ボタンにフォーカスを移す
+  const btn = fileActions.querySelector("button:not([hidden]):not([disabled])");
+  if (btn) btn.focus();
+}
+function parentDir(path) {
+  if (!path) return "";
+  const i = path.lastIndexOf("/");
+  return i < 0 ? "" : path.slice(0, i);
+}
+function sideNavRows() {
+  // 表示中の左ペイン一覧から、キーボードで辿る行を集める
+  const root = activeList();
+  const entries = [...root.querySelectorAll(".entry")];
+  if (entries.length) return entries;
+  // WIP 変更一覧 (wip_panel の table.files)
+  return [...root.querySelectorAll("tr.frow:not(.dhide)")];
+}
+function pathOfNavRow(el) {
+  if (!el) return null;
+  if (el.dataset && el.dataset.path) return el.dataset.path;
+  const a = el.querySelector && el.querySelector("a[href^='/files?']");
+  if (!a) return null;
+  try { return new URL(a.href, location.href).searchParams.get("file"); } catch (e) { return null; }
+}
+function openNavRow(el, key) {
+  if (!el) return null;
+  if (el.classList.contains("entry")) {
+    const type = el.dataset.type, path = el.dataset.path;
+    if (key === "ArrowRight" && type !== "tree" && type !== "commit") return null;
+    selectEntry(el);
+    return openEntry(path, type);
+  }
+  // tr.frow (WIP)
+  if (key === "ArrowRight") return null;  // ディレクトリ相当ではない
+  const a = el.querySelector("a[href^='/files?']");
+  if (!a) return null;
+  selectEntry(el);
+  const q = new URL(a.href, location.href).searchParams;
+  const path = q.get("file");
+  if (!path) return null;
+  const from = q.get("dfrom"), to = q.get("dto");
+  return openWipChange(from && to
+    ? {path: path, from: from, to: to, wip: "compare", old: q.get("dold") || ""}
+    : {path: path, wip: q.get("dwip") || "unstaged", old: q.get("dold") || ""});
+}
+document.addEventListener("keydown", ev => {
+  if (ev.key !== "ArrowUp" && ev.key !== "ArrowDown" && ev.key !== "ArrowLeft" &&
+      ev.key !== "ArrowRight" && ev.key !== "Enter" && ev.key !== " ") return;
+  if (ev.altKey || ev.ctrlKey || ev.metaKey) return;
+  if (ev.target.closest("#compareToolbar")) return;
+  const tag = ev.target && ev.target.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || tag === "BUTTON") return;
+  if (ev.target && (ev.target.isContentEditable || ev.target.closest(".cm-editor"))) return;
+  if (ev.target === document.getElementById("sideSplitter")) return;  // スプリッタの ←→ は幅変更に使う
+  if (!ev.target.closest("#tree")) return;
+  const rows = sideNavRows();
+  if (!rows.length) return;
+
+  if (ev.key === " ") {
+    if (toggleSelectedCheck()) ev.preventDefault();
+    return;
+  }
+
+  if (ev.key === "ArrowLeft") {
+    if (!current || activeList() !== list) return;  // 変更ファイルの一覧に、親ディレクトリは無い
+    ev.preventDefault();
+    openDir(parentDir(current));
+    return;
+  }
+
+  if (ev.key === "Enter" || ev.key === "ArrowRight") {
+    let el = selectedEntry;
+    if (!el || !el.isConnected) {
+      // 未選択なら現在開いているファイルを優先
+      if (currentFile) el = rows.find(r => pathOfNavRow(r) === currentFile) || null;
+    }
+    if (!el) return;
+    const p = openNavRow(el, ev.key);
+    if (p === null) return;
+    ev.preventDefault();
+    if (p && typeof p.then === "function") {
+      p.then(() => focusFileActionButton());
+    }
+    return;
+  }
+
+  // ↑ / ↓
+  ev.preventDefault();
+  let idx = selectedEntry ? rows.indexOf(selectedEntry) : -1;
+  if (idx < 0 && currentFile) {
+    for (let i = 0; i < rows.length; i++) if (pathOfNavRow(rows[i]) === currentFile) { idx = i; break; }
+  }
+  if (idx < 0) idx = ev.key === "ArrowDown" ? -1 : rows.length;
+  const next = ev.key === "ArrowUp" ? idx - 1 : idx + 1;
+  if (next < 0 || next >= rows.length) return;
+  selectEntry(rows[next]);
+});
+
+function loadTree(path, push) {
+  current = path;
+  dirEntries = null;
+  if (push) history.pushState({path: path, file: currentFile, view: currentView}, "", pageUrl(path, currentFile, currentView));
+  return api("/api/tree", {hash: hash, path: path}).then(r => {
+    dirEntries = r.entries;
+    if (isWip) { wipHead = r.head || null; selBar.hidden = !wipSelectionEnabled(); loadWipChanges(); }
+    if (currentCommitMeta) {
+      renderCommitHeader(currentCommitMeta);
+    } else if (compareFrom && compareTo) {
+      const toLabel = compareTo === "WIP" ? t("working_tree_files") + " (WIP)" : compareTo.slice(0, 7);
+      commitEl.textContent = "A: " + compareFrom.slice(0, 7) + " → B: " + toLabel;
+    } else {
+      commitEl.textContent = isWip
+        ? t("working_tree_files") + (r.head ? " (HEAD " + r.head.slice(0, 7) + ")" : "") : r.hash.slice(0, 7);
+    }
+    const parts = path ? path.split("/") : [];
+    let crumb = '<div class="crumb"><a data-dir="">📁 ' + t("root") + '</a>';
+    parts.forEach((p, i) => { const d = parts.slice(0, i + 1).join("/"); crumb += ' / <a data-dir="' + esc(d) + '">' + esc(p) + '</a>'; });
+    crumb += '</div>';
+    list.innerHTML = crumb + (r.entries.length ? r.entries.map(e => {
+      const p = path ? path + "/" + e.name : e.name;
+      entryInfo[p] = e;
+      const size = e.size === null ? "" : e.size.toLocaleString() + " B";
+      const state = treeCheckState(p);
+      const ck = wipSelectionEnabled() ? '<input type="checkbox" class="ck" data-kind="tree" data-path="' + esc(p) + '" aria-label="' + esc(p) + '"' +
+        (state.checked ? " checked" : "") + '>' : "";
+      return '<div class="entry" data-type="' + e.type + '" data-path="' + esc(p) + '"' + entryTip(e) + '>' + ck + '<span>' + entryIcon(e) + ' <span class="bd">' + statusBadge(e, p) + '</span>' + esc(e.name) + submoduleBadge(e) + '</span><span class="size">' + size + '</span></div>';
+    }).join("") : '<p class="hint">' + t("empty_directory") + '</p>');
+    list.querySelectorAll("[data-dir]").forEach(a => a.onclick = () => openDir(a.dataset.dir));
+    list.querySelectorAll(".entry").forEach(a => {
+      a.onclick = () => {
+        selectEntry(a);
+        openEntry(a.dataset.path, a.dataset.type);
+      };
+    });
+    bindSelectionChecks(list);
+    syncTreeCheckBoxes();
+    // 一覧を作り直したあと、tree モードのときだけ選択を復元する。
+    // changes モードで loadTree が走ると（別ディレクトリの変更を開いたときなど）
+    // ここで selectEntry すると変更一覧の .selected が消えてしまうため。
+    if (sideMode === "tree") {
+      selectedEntry = null;
+      if (currentFile) {
+        const cur = [...list.querySelectorAll(".entry")].find(e => e.dataset.path === currentFile);
+        if (cur) selectEntry(cur);
+      }
+    }
+    updateSelBar();
+  }).catch(e => {
+    // 対象ファイルの親ディレクトリがこのコミットに無いとき (ログから古いコミットを選んだ場合など) はルートを表示する
+    if (path) return loadTree("", false);
+    showError(e);
+  });
+}
+fileDownloadBtn.onclick = () => {  // Content-Disposition: attachment なので、画面は移動せず保存される
+  if (currentFile) location.href = "/download?" + new URLSearchParams({hash: hash, path: currentFile});
+};
+fileExtEditBtn.onclick = () => {  // OS の標準のエディタ、または設定ファイルの editor で開く
+  if (!currentFile) return;
+  fileExtEditBtn.disabled = true;
+  fetch("/api/open-editor", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({path: currentFile})})
+    .then(r => r.ok ? r.json() : r.text().then(m => { throw new Error(m || r.status); }))
+    .then(r => setFileMsg(r.message, true))
+    .catch(e => setFileMsg(e.message, false))
+    .finally(() => { fileExtEditBtn.disabled = false; });
+};
+// ---- 左ペインでチェックしたファイル・ディレクトリのステージ状態 (作業ツリーの表示だけ) ----
+selBar.hidden = !wipSelectionEnabled();
+function setSelMsg(text, ok) { selMsg.textContent = text; selMsg.className = "msg" + (ok ? "" : " err"); }
+function stagePlan() {
+  const stage = new Set(), unstage = new Set();
+  wipStatusFiles.forEach(f => {
+    if (f.wip === "conflict") return;
+    const checked = desiredStageChecked(f.wip, f.path);
+    if (f.wip === "staged" && !checked) unstage.add(f.path);
+    else if ((f.wip === "unstaged" || f.wip === "untracked") && checked) stage.add(f.path);
+  });
+  stageOverrides.forEach((checked, key) => {
+    const split = key.indexOf("\0"), kind = key.slice(0, split), path = key.slice(split + 1);
+    if (kind !== "tree") return;
+    const matches = wipStatusFiles.filter(f => f.path === path || f.path.startsWith(path + "/"));
+    matches.forEach(f => { stage.delete(f.path); unstage.delete(f.path); });
+    if (checked && matches.some(f => f.wip === "unstaged" || f.wip === "untracked")) stage.add(path);
+    else if (!checked && matches.some(f => f.wip === "staged")) unstage.add(path);
+  });
+  stage.forEach(path => unstage.delete(path));
+  return {stage_paths: [...stage].sort(), unstage_paths: [...unstage].sort()};
+}
+function checkedStagePaths() {
+  return [...new Set(wipStatusFiles.filter(f => f.wip !== "conflict" && desiredStageChecked(f.wip, f.path)).map(f => f.path))];
+}
+function setStageFromBox(c, checked) {
+  if (c.dataset.kind === "tree") {
+    const path = c.dataset.path, matches = wipStatusFiles.filter(f => f.path === path || f.path.startsWith(path + "/"));
+    if (matches.length) matches.forEach(f => { if (f.wip !== "conflict") setStageChecked(f.wip, f.path, checked); });
+    else setStageChecked("tree", path, checked);
+  } else setStageChecked(c.dataset.kind, c.dataset.path, checked);
+  syncTreeCheckBoxes();
+}
+function bindSelectionChecks(root) {
+  root.querySelectorAll("input.ck").forEach(c => {
+    c.onclick = ev => ev.stopPropagation();
+    c.onchange = () => { setStageFromBox(c, c.checked); updateSelBar(); };
+  });
+  root.querySelectorAll("input.changeall").forEach(all => {
+    all.onchange = () => {
+      root.querySelectorAll("input.ck").forEach(c => {
+        if (c.dataset.kind !== all.dataset.kind || c.disabled) return;
+        c.checked = all.checked;
+        setStageFromBox(c, all.checked);
+      });
+      updateSelBar();
+    };
+  });
+}
+function syncChangeGroupChecks() {
+  changesEl.querySelectorAll("input.changeall").forEach(all => {
+    const boxes = [...changesEl.querySelectorAll("input.ck")].filter(c => c.dataset.kind === all.dataset.kind && !c.disabled);
+    const checked = boxes.filter(c => c.checked).length;
+    all.disabled = boxes.length === 0;
+    all.checked = boxes.length > 0 && checked === boxes.length;
+    all.indeterminate = checked > 0 && checked < boxes.length;
+  });
+}
+function activeSelectionBoxes() {
+  return [...(sideMode === "changes" ? changesEl : list).querySelectorAll("input.ck:not(:disabled)")];
+}
+function updateSelBar() {
+  const plan = stagePlan(), n = new Set(plan.stage_paths.concat(plan.unstage_paths)).size, boxes = activeSelectionBoxes();
+  const rmCount = checkedStagePaths().length;
+  syncChangeGroupChecks();
+  selCount.textContent = n ? t("sel_count", {n: n}) : "";
+  selAddBtn.disabled = !n;
+  selRmBtn.disabled = selRmCachedBtn.disabled = !rmCount;
+  selAll.disabled = !boxes.length;
+  selAll.checked = boxes.length > 0 && boxes.every(b => b.checked);
+  selAll.indeterminate = !selAll.checked && boxes.some(b => b.checked);
+}
+selAll.onchange = () => {  // いま表示している一覧の項目をすべてチェック / 外す
+  const on = selAll.checked;
+  activeSelectionBoxes().forEach(c => { c.checked = on; setStageFromBox(c, on); });
+  updateSelBar();
+};
+function isUntrackedEntry(p) {  // 未追跡のファイル / 中がすべて未追跡のディレクトリ (git rm できない)
+  const e = entryInfo[p] || {};
+  return e.xy === "??" || (e.type === "tree" && e.st === "?") || wipStatusFiles.some(f => f.path === p && f.wip === "untracked");
+}
+function runSel(url, body, onDone) {
+  if (!wipSelectionEnabled()) return;
+  const wasEditing = editing;
+  if (!leaveEdit()) return;
+  selAddBtn.disabled = selRmBtn.disabled = selRmCachedBtn.disabled = true;
+  setSelMsg(t("wip_execute"), true);
+  fetch(url, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)})
+    .then(r => r.ok ? r.json() : r.text().then(m => { throw new Error(m || r.status); }))
+    .then(r => { stageOverrides.clear(); stageDirty = false; setSelMsg(r.message, true); return onDone(r, wasEditing); })
+    .catch(e => setSelMsg(e.message, false))
+    .finally(updateSelBar);
+}
+function reloadAfterSel(dir, fileGone, wasEditing) {  // 一覧を読み直し、変更の印・差分ボタン・開いているファイルを合わせる
+  entryInfo = {};
+  if (fileGone) clearFile();
+  return loadTree(dir, dir !== current).then(() => {
+    if (!currentFile) showDir();
+    else if (wasEditing) return loadFile(currentFile, false);  // 編集欄を閉じたので内容を出し直す
+    else updateDiffBtn();
+  }).then(refreshWipCommitPanel);
+}
+function refreshWipCommitPanel() {
+  if (!wipCommitPanel) return;
+  return wipCommitPanel.render(document.getElementById("wipCommitPanel"), {});
+}
+selAddBtn.onclick = () => {
+  const plan = stagePlan();
+  if (plan.stage_paths.length || plan.unstage_paths.length)
+    runSel("/api/stage", plan, (r, wasEditing) => reloadAfterSel(current, false, wasEditing));
+};
+function underAny(path, dirs) { return dirs.some(d => path === d || path.startsWith(d + "/")); }
+function doSelRm(cached) {  // チェックしたものを git rm / git rm --cached。変更があるものは -f で実行する (確認文で変更が失われることを伝える)
+  const paths = checkedStagePaths().sort(), n = paths.length;
+  if (!n) return;
+  const bad = paths.filter(isUntrackedEntry);
+  if (bad.length) { setSelMsg(t("rm_untracked", {files: bad.slice(0, 3).join(", ")}), false); return; }
+  const changed = paths.some(p => { const e = entryInfo[p] || {}; return !!(e.xy || e.st) || wipFiles.some(f => f.path === p); });
+  if (!confirm(t(cached ? "confirm_rm_cached_selected" : changed ? "confirm_rm_selected_changed" : "confirm_rm_selected", {n: n}))) return;
+  runSel("/api/rm", {paths: paths, cached: cached, force: changed, recursive: true}, (r, wasEditing) => {
+    let dir = current;  // 表示中のディレクトリごと削除したときは、残っている親に移る
+    while (!cached && dir && underAny(dir, paths)) dir = dir.includes("/") ? dir.slice(0, dir.lastIndexOf("/")) : "";
+    return reloadAfterSel(dir, !cached && !!currentFile && underAny(currentFile, paths), wasEditing);
+  });
+}
+selRmBtn.onclick = () => doSelRm(false);
+selRmCachedBtn.onclick = () => doSelRm(true);
+function doRm(cached) {  // git rm / git rm --cached。変更のあるファイルは -f で実行する (確認文で変更が失われることを伝える)
+  if (!currentFile || !CAN_EDIT) return;
+  const path = currentFile, changed = !!(entryInfo[path] || {}).xy;
+  const text = cached ? t("confirm_rm_cached_file", {path: path})
+    : changed ? t("confirm_rm_file_changed", {path: path}) : t("confirm_rm_file", {path: path});
+  if (!confirm(text)) return;
+  fileRmBtn.disabled = fileRmCachedBtn.disabled = true;
+  fetch("/api/rm", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({paths: [path], cached: cached, force: changed})})
+    .then(r => r.ok ? r.json() : r.text().then(m => { throw new Error(m || r.status); }))
+    .then(r => {
+      entryInfo = {};  // 一覧を読み直す (ステージされた削除や、未追跡になったことを反映する)
+      return loadTree(current, false).then(() => {
+        if (cached) { updateDiffBtn(); setFileMsg(r.message, true); }
+        else { clearFile(); showDir(); setFileMsg(r.message, true); }
+      }).then(refreshWipCommitPanel);
+    })
+    .catch(e => setFileMsg(e.message, false))
+    .finally(() => { fileRmBtn.disabled = fileRmCachedBtn.disabled = false; });
+}
+fileRmBtn.onclick = () => doRm(false);
+fileRmCachedBtn.onclick = () => doRm(true);
+// ---- コミットのパッチ作成 (ダウンロード) ----
+// 作業ツリー (WIP) のパッチ作成と、パッチの適用は、メニューバーの「その他」 (page_menubar.js が patch_ops.js で動かす)
+function setPatchMsg(text, ok) { patchMsg.textContent = text; patchMsg.className = "msg" + (ok ? "" : " err"); }
+document.getElementById("patchBar").hidden = isWip;  // 作業ツリーの表示では、メニューを使う
+patchCreateBtn.title = t("tip_patch_create_commit");
+patchCreateBtn.onclick = () => {
+  setPatchMsg("", true);
+  patchCreateBtn.disabled = true;
+  PatchOps.download({hash: hash}, hash.slice(0, 7) + ".patch", setPatchMsg)
+    .finally(() => { patchCreateBtn.disabled = false; });
+};
+function setFileMsg(text, ok) { fileMsg.textContent = text; fileMsg.className = "msg" + (ok ? "" : " err"); }
+function defaultCopyName(path) {  // 例: src/a.py → src/a_1234567.py
+  const i = path.lastIndexOf("/"), dir = path.slice(0, i + 1), name = path.slice(i + 1), dot = name.lastIndexOf(".");
+  const suffix = "_" + hash.slice(0, 7);
+  return dir + (dot > 0 ? name.slice(0, dot) + suffix + name.slice(dot) : name + suffix);
+}
+fileCopyBtn.onclick = () => {
+  if (!currentFile) return;
+  const dest = prompt(t("prompt_copy_dest"), defaultCopyName(currentFile));
+  if (dest === null || !dest.trim()) return;
+  fetch("/api/file-copy", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({hash: hash, path: currentFile, dest: dest.trim()})})
+    .then(r => r.ok ? r.json() : r.text().then(m => { throw new Error(m || r.status); }))
+    .then(r => setFileMsg(r.message, true))
+    .catch(e => setFileMsg(e.message, false));
+};
+function clearFile() {  // ファイルを選ぶ前の表示に戻す
+  closeEditor();
+  currentFile = ""; currentView = "";
+  setDocumentTitle("");
+  fileActions.hidden = true;
+  title.textContent = t("select_file");
+  content.className = "hint";
+  content.textContent = t("select_file_hint");
+}
+function fileLogRow(c) {  // ログの 1 行。グラフ画面のログと同じ行 (commit_log.js): ハッシュ (グラフ画面で開くリンク)・(ブランチ / タグ +) 件名・作者 / 日付。操作の対象 / A / B の行は強調する (log_select.js)
+  return CommitLog.rowHtml(c, {extraClass: LogSel.kinds(c[0], LogSel.load()), chips: refChips(c[0]), graphLink: true});
+}
+LogSel.onChange(sel => LogSel.markRows(content, sel));  // メニューで対象 / A / B を変えたら、表示中のログの強調も付け直す
+function dirLogCells(c) {  // 最終コミットのセル (ハッシュ・件名・日付)。c が無ければ空 (まだ読み込み中 / 履歴に見つからない)
+  if (!c) return '<td class="hash"></td><td class="dir-msg"></td><td class="date"></td>';
+  return '<td class="hash"><a class="commit-graph" href="/?commit_hash=' + encodeURIComponent(c[0]) + '">' + esc(c[1]) + '</a></td><td class="dir-msg" title="' + esc(c[4]) + '">' +
+    esc(c[4]) + '</td><td class="date">' + esc(c[3]) + '</td>';
+}
+function dirNameCell(e, path) {
+  return '<td class="dir-name"' + entryTip(e) + '>' + entryIcon(e) + ' <span class="bd">' + statusBadge(e, path) + '</span>' + esc(e.name) + submoduleBadge(e) + '</td>';
+}
+function setDirActions() {  // ディレクトリを表示しているときの操作ボタン (項目の一覧 ↔ このディレクトリのログ)
+  dirActions.hidden = !!currentFile;
+  const canLog = !!logHash();
+  dirCommitLogBtn.hidden = commitLogOn || !canLog;  // 通常のコミットログ (パスで絞らない)。ディレクトリのログからも切り替えられる
+  dirLogBtn.hidden = (dirLogOn && !commitLogOn) || !canLog;
+  dirListBtn.hidden = !dirLogOn;
+  dirGraphLogBtn.hidden = !dirLogOn || commitLogOn || !canLog || !current;  // ルートは、グラフ画面のファイルログの対象にならない
+}
+
+function pathCrumbHtml(path) {
+  const parts = path ? path.split("/") : [];
+  let html = '<span class="crumb"><a data-dir="">📁 ' + t("root") + '</a>';
+  parts.forEach((p, i) => {
+    const d = parts.slice(0, i + 1).join("/");
+    html += ' / <a data-dir="' + esc(d) + '">' + esc(p) + '</a>';
+  });
+  return html + '</span>';
+}
+function bindPathCrumb(el) {
+  el.querySelectorAll("a[data-dir]").forEach(a => {
+    a.onclick = (ev) => { ev.preventDefault(); openDir(a.dataset.dir); };
+  });
+}
+
+function showDir() {  // ファイルを開いていないとき、ディレクトリ内の一覧を各項目の最終コミットつきで本文に出す
+  showFilePane();
+  closeEditor();
+  if (dirEntries === null || currentFile) return;
+  dirLogOn = commitLogOn = false;
+  setDirActions();
+  const seq = ++dirLogSeq, path = current, entries = dirEntries;
+  setDocumentTitle(path || t("root"));
+  title.innerHTML = pathCrumbHtml(path);
+  bindPathCrumb(title);
+  if (!entries.length) { content.className = "hint"; content.textContent = t("empty_directory"); return; }
+  content.className = "";
+  content.innerHTML = '<table class="dir-log"><thead><tr><th class="dir-name">' + esc(t("dir_log_name")) + '</th><th class="hash">' + esc(t("dir_log_commit")) +
+    '</th><th class="dir-msg">' + esc(t("dir_log_message")) + '</th><th class="date">' + esc(t("dir_log_date")) + '</th></tr></thead><tbody>' +
+    entries.map(e => '<tr class="dir-log-row" data-type="' + e.type + '" data-name="' + esc(e.name) + '" data-path="' +
+      esc(path ? path + "/" + e.name : e.name) + '">' + dirNameCell(e, path ? path + "/" + e.name : e.name) + dirLogCells(null) + '</tr>').join("") + '</tbody></table><div id="dirLogNote"></div>';
+  api("/api/tree-log", {hash: hash, path: path}).then(r => {
+    if (seq !== dirLogSeq || currentFile) return;  // 別のディレクトリ / ファイルに移った
+    const byName = {};
+    entries.forEach(e => { byName[e.name] = e; });
+    content.querySelectorAll("tr.dir-log-row").forEach(row => {
+      const e = byName[row.dataset.name];
+      row.innerHTML = dirNameCell(e, row.dataset.path) + dirLogCells(r.commits[e.name]);
+    });
+    if (!r.complete) document.getElementById("dirLogNote").innerHTML = '<p class="hint">' + esc(t("dir_log_incomplete")) + '</p>';
+  }).catch(e => { if (seq === dirLogSeq && !currentFile) { content.className = "hint"; content.textContent = t("error") + e.message; } });
+}
+function showDirLog(all) {  // ファイルを開いていないとき、このディレクトリの git log を本文に出す (all: パスで絞らない通常のコミットログ)
+  closeEditor();
+  const rev = logHash();
+  if (currentFile || !rev) { showDir(); return; }  // 作業ツリーに HEAD が無いときは、ログが無い
+  const seq = ++dirLogSeq, path = current, label = path || t("root");
+  dirLogOn = true; commitLogOn = !!all;
+  setDirActions();
+  if (all) {
+    setDocumentTitle(t("commit_log_title", {rev: rev.slice(0, 7)}));
+    title.textContent = t("commit_log_title", {rev: rev.slice(0, 7)});
+    showLogList("", () => seq === dirLogSeq && !currentFile && dirLogOn && commitLogOn);
+    return;
+  }
+  setDocumentTitle(t("file_history_title", {path: label}));
+  const histSuffix = t("file_history_title", {path: ""}).replace("{path}", "").trim();
+  title.innerHTML = pathCrumbHtml(path) + (histSuffix ? " " + esc(histSuffix) : "");
+  bindPathCrumb(title);
+  showLogList(path, () => seq === dirLogSeq && !currentFile && dirLogOn && !commitLogOn);
+}
+function openDirLogView(all) {  // 「このディレクトリのログ」「ログ」: 履歴に積んで出す (ブラウザーの戻るで一覧に戻れる)。ログ同士の切り替えは履歴を積み増さない
+  if (currentFile || !logHash() || (dirLogOn && !!all === commitLogOn)) return;
+  const state = {path: current, dirlog: true, viaPush: true}, url = pageUrl(current, "", "", all ? "clog" : true);
+  if (dirLogOn) history.replaceState(state, "", url); else history.pushState(state, "", url);
+  showDirLog(all);
+}
+function openDirLog() { openDirLogView(false); }
+function openCommitLogView() { openDirLogView(true); }
+function backToDirList() {  // ディレクトリの一覧に戻る。前の履歴が同じディレクトリのログ表示なら、そこへ戻る
+  if (history.state && history.state.viaPush && history.state.dirlog) { history.back(); return; }
+  history.replaceState({path: current}, "", pageUrl(current, ""));
+  showDir();
+}
+dirLogBtn.onclick = openDirLog;
+dirListBtn.onclick = backToDirList;
+dirGraphLogBtn.onclick = () => {
+  const rev = logHash();
+  if (rev && current) location.href = "/?file_log_hash=" + encodeURIComponent(rev) + "&file_log_path=" + encodeURIComponent(current);
+};
+function openDir(path) {  // ディレクトリを選ぶ: 開いているファイルは閉じて、ディレクトリの一覧を本文に出す
+  if (!leaveEdit()) return;
+  showFilePane();
+  if (currentFile) clearFile();
+  loadTree(path, true).then(showDir);
+}
+function loadFile(path, push) {
+  if (!leaveEdit()) return;
+  showFilePane();
+  if (push && (path !== currentFile || currentView)) history.pushState({path: current, file: path}, "", pageUrl(current, path));
+  currentFile = path; currentView = "";
+  if (diffSel && diffSel.path !== path) diffSel = null;
+  syncChangesSelection();
+  markWipCurrent();
+  dirLogOn = commitLogOn = false; dirActions.hidden = true;
+  setDocumentTitle(path);
+  setFileMsg("", true);
+  fileActions.hidden = false;
+  fileDiffBtn.hidden = false;  // 内容表示中は差分ボタン (内容ボタンは出さない)
+  fileContentBtn.hidden = true;
+  fileEditBtn.hidden = false;
+  fileEditBtn.disabled = true;  // 内容取得後に更新
+  fileExtEditBtn.hidden = false;
+  fileExtEditBtn.disabled = !(DESKTOP && isWip);  // pywebview などでは、作業ツリーのファイルを外部エディタで開ける
+  fileLogBtn.hidden = !logHash();
+  fileCommitLogBtn.hidden = !logHash();
+  fileLogBtn.disabled = !logHash();
+  fileBlameBtn.hidden = false;
+  fileBlameBtn.disabled = isWip && !wipHead;
+  fileGraphLogBtn.hidden = true;
+  fileDownloadBtn.hidden = false;
+  fileDownloadBtn.disabled = false;
+  fileCopyBtn.disabled = !CAN_COPY || isWip;
+  updateDiffBtn();
+  fileData = null;
+  return api("/api/file", {hash: hash, path: path}).then(r => {
+    if (path !== currentFile) return;
+    fileData = r;
+    fileEditBtn.hidden = false;
+    fileEditBtn.disabled = !CAN_EDIT || r.binary || !r.editable;
+    fileEditBtn.title = (!CAN_EDIT || r.binary) ? "" : (r.editable ? "" : t(r.edit_reason || "edit_bad_encoding"));
+    title.textContent = fileTitle(r, "");
+    if (r.binary) { content.className = "binary"; content.textContent = t("binary_file"); }
+    else showCode(r);
+    fileBlameBtn.hidden = false;
+    fileBlameBtn.disabled = r.binary || (isWip && !wipHead);
+  }).catch(e => { title.textContent = path; content.className = "hint"; content.textContent = t("error") + e.message; });
+}
+// ---- ファイルごとの表示 (内容 / 編集 / blame / ログ) ----
+// 表示を切り替えるたびに履歴に積む。viaPush: 同じファイルの前の表示から来た (「ファイル内容」などは履歴を戻る)
+let currentView = "", afterRestore = null;
+function renderView(view) {
+  currentView = view;
+  updateDiffBtn();
+  if (view === "edit") {
+    if (!CAN_EDIT) setFileMsg(t("write_disabled"), false);
+    else if (fileData && fileData.editable) startEdit();
+    else if (fileData) setFileMsg(t(fileData.edit_reason || "edit_bad_encoding"), false);
+  } else if (view === "blame") loadFileBlame(currentFile);
+  else if (view === "log") loadFileLog(currentFile);
+  else if (view === "clog") loadFileCommitLog();
+  else if (view === "diff") loadFileDiff(currentFile);
+  else showFileContentView();  // ファイル内容 (履歴に積んで戻れる)
+  markWipCurrent();
+}
+function showFileContentView() {  // 差分 / ログ / blame から内容表示へ (API 再取得なし)
+  closeEditor();
+  fileDiffBtn.hidden = false;
+  fileContentBtn.hidden = true;
+  fileEditBtn.hidden = false;
+  fileExtEditBtn.hidden = false;
+  fileExtEditBtn.disabled = !(DESKTOP && isWip);
+  fileLogBtn.hidden = !logHash();
+  fileCommitLogBtn.hidden = !logHash();
+  fileLogBtn.disabled = !logHash();
+  fileBlameBtn.hidden = false;
+  fileBlameBtn.disabled = (fileData && fileData.binary) || (isWip && !wipHead);
+  fileGraphLogBtn.hidden = true;
+  fileDownloadBtn.hidden = false;
+  fileDownloadBtn.disabled = false;
+  fileCopyBtn.disabled = !CAN_COPY || isWip;
+  setDocumentTitle(currentFile || "");
+  if (fileData) {
+    fileEditBtn.disabled = !CAN_EDIT || fileData.binary || !fileData.editable;
+    fileEditBtn.title = (!CAN_EDIT || fileData.binary) ? "" : (fileData.editable ? "" : t(fileData.edit_reason || "edit_bad_encoding"));
+    title.textContent = fileTitle(fileData, "");
+    if (fileData.binary) { content.className = "binary"; content.textContent = t("binary_file"); }
+    else showCode(fileData);
+  } else if (currentFile) {
+    loadFile(currentFile, false);
+    return;
+  }
+  updateDiffBtn();
+  updateRmBtns();
+}
+function openView(view) {
+  if (!currentFile || view === currentView) return;
+  if (!leaveEdit()) return;
+  history.pushState({path: current, file: currentFile, view: view, viaPush: true}, "", pageUrl(current, currentFile, view));
+  if (currentView === "edit" || !fileData) loadFile(currentFile, false).then(() => renderView(view));  // 編集欄を閉じて内容を出し直す
+  else renderView(view);
+}
+function backToContent(after) {  // ファイル内容の表示に戻る。前の履歴が同じファイルならそこへ戻る
+  if (history.state && history.state.viaPush) { afterRestore = after || null; history.back(); return; }
+  history.replaceState({path: current, file: currentFile}, "", pageUrl(current, currentFile));
+  const done = loadFile(currentFile, false);
+  if (after && done) done.then(after);
+}
+// ---- 編集 (作業ツリーのみ) ----
+// 編集欄では改行が LF になるので、保存時にサーバー側で元の改行コード・文字コード・BOM に戻す
+let fileData = null, editing = false, editDirty = false, textEditor = null;
+const VIM_KEY = "gitGraphEditorVim";
+const WRAP_KEY = "gitGraphEditorWrap";
+let vimOn = false;  // Vim モードにするか。保存先 (localStorage) が使えない pywebview などでも切り替わるよう、メモリ上の値を正とする
+let wrapOn = true;  // 長い行を折り返すか。既定はオン (以前の表示と同じ)
+try { vimOn = localStorage.getItem(VIM_KEY) === "1"; } catch (e) { vimOn = false; }
+try { const w = localStorage.getItem(WRAP_KEY); if (w === "0") wrapOn = false; else if (w === "1") wrapOn = true; } catch (e) { wrapOn = true; }
+function setVimPref(on) {  // Vim モードの設定 (表示・編集・差分で共通)
+  vimOn = on;
+  try { localStorage.setItem(VIM_KEY, vimOn ? "1" : "0"); } catch (e) { /* 保存できなくても切り替わる (次回は引き継がれない) */ }
+}
+function setWrapPref(on) {  // 折り返しの設定 (表示・編集・差分で共通)
+  wrapOn = on;
+  try { localStorage.setItem(WRAP_KEY, wrapOn ? "1" : "0"); } catch (e) { /* 保存できなくても切り替わる (次回は引き継がれない) */ }
+}
+const EOL_LABEL = {crlf: "CRLF", lf: "LF", cr: "CR"};
+let diffView = null;  // 右ペインの差分エディタ (view=diff)
+function closeEditor() {
+  if (textEditor) { textEditor.destroy(); textEditor = null; }
+  if (diffView) { diffView.close(); diffView = null; }
+}
+function fileTitle(r, lang) { return r.path + (lang ? " (" + lang + ")" : "") + (r.encoding ? " [" + r.encoding + "]" : ""); }
+function fitEditor(host) {  // エディタの高さを本文の領域に合わせる (ページではなくエディタの中でスクロールさせる)
+  const main = document.getElementById("main");
+  const top = host.getBoundingClientRect().top - main.getBoundingClientRect().top + main.scrollTop;
+  host.style.height = Math.max(200, main.clientHeight - top - 14 - 2) + "px";  // 14: #main の下の余白、2: 枠線
+}
+window.addEventListener("resize", () => { const host = document.querySelector(".cm-host"); if (host) fitEditor(host); });
+let keepViewerScroll = null;  // 更新ボタンで読み直すとき、表示のスクロール位置を引き継ぐ ({path, top})
+function jumpToHashLine() {  // URL の #L12 で、その行を出す
+  const m = /^#L(\d+)$/.exec(location.hash);
+  if (m && textEditor && !editing) textEditor.scrollToLine(parseInt(m[1], 10));
+}
+window.addEventListener("hashchange", jumpToHashLine);
+function showCode(r) {  // ファイルの内容を、読み取り専用のエディタで出す (編集画面と同じ CodeMirror。行番号・構文ハイライト・検索 Ctrl+F)
+  content.className = "";
+  content.innerHTML = (r.truncated ? '<p class="hint">' + esc(t("large_file_head")) + '</p>' : "") +
+    '<div class="view-bar"><label class="edit-vim" title="' + esc(t("edit_wrap_tip")) + '"><input type="checkbox" id="viewWrap"' + (wrapOn ? " checked" : "") +
+    '> ' + esc(t("edit_wrap")) + '</label><label class="edit-vim" title="' + esc(t("vim_readonly_tip")) + '"><input type="checkbox" id="viewVim"' + (vimOn ? " checked" : "") +
+    '> ' + esc(t("edit_vim")) + '</label></div><div class="cm-host" id="viewer"></div>';
+  document.getElementById("main").scrollTop = 0;
+  const host = document.getElementById("viewer");
+  document.getElementById("viewWrap").onchange = ev => {
+    setWrapPref(ev.target.checked);
+    if (textEditor) { textEditor.setWrap(wrapOn); textEditor.focus(); }
+  };
+  document.getElementById("viewVim").onchange = ev => {  // Vim モード (移動・検索・コピーのキー)。編集画面と同じ設定
+    setVimPref(ev.target.checked);
+    if (textEditor) { textEditor.setVim(vimOn); textEditor.focus(); }
+  };
+  fitEditor(host);
+  loadEditorScript().then(() => {
+    if (fileData !== r || currentView !== "" || !host.isConnected) return;  // 読み込んでいる間に、別の表示に移った
+    closeEditor();
+    textEditor = GGText.createTextEditor({parent: host, text: r.content, path: r.path, readOnly: true, vim: vimOn, wrap: wrapOn, phrases: editorPhrases()});
+    title.textContent = fileTitle(r, textEditor.language);
+    if (keepViewerScroll && keepViewerScroll.path === r.path) textEditor.setScrollTop(keepViewerScroll.top);
+    else jumpToHashLine();
+    keepViewerScroll = null;
+  }).catch(e => {  // エディタを読み込めなくても、内容は読めるようにする
+    if (fileData === r && host.isConnected) content.innerHTML = '<p class="hint">' + esc(e.message) + '</p><pre>' + esc(r.content) + '</pre>';
+  });
+}
+function leaveEdit() {  // 編集中なら、変更を捨ててよいか確認して編集をやめる
+  if (editing && editDirty && !confirm(t("edit_discard_confirm"))) return false;
+  const keepDiff = editing && currentView === "diff" && diffView;  // 差分エディタ上の編集は、差分表示を残す
+  editing = editDirty = false;
+  const bar = content.querySelector(".edit-bar-diff");
+  if (bar) bar.remove();
+  if (keepDiff) {
+    if (diffView.isEditable && diffView.isEditable()) diffView.setEditable(false);
+    // 差分表示のボタン配置に戻す
+    fileDiffBtn.hidden = true;
+    fileContentBtn.hidden = false;
+    fileEditBtn.hidden = false;
+    fileExtEditBtn.hidden = false;
+    fileExtEditBtn.disabled = !(DESKTOP && isWip);
+    fileLogBtn.hidden = !logHash();
+    fileCommitLogBtn.hidden = !logHash();
+    fileLogBtn.disabled = !logHash();
+    fileBlameBtn.hidden = false;
+    fileBlameBtn.disabled = (fileData && fileData.binary) || (isWip && !wipHead);
+    fileGraphLogBtn.hidden = true;
+    fileDownloadBtn.hidden = false;
+    fileCopyBtn.disabled = !CAN_COPY || isWip;
+    updateDiffBtn();
+    updateRmBtns();
+    if (fileData) title.textContent = t("file_diff_title", {path: currentFile});
+    return true;
+  }
+  closeEditor();
+  return true;
+}
+let editorScript = null;
+function loadEditorScript() {  // エディタ (CodeMirror 6 + 言語 + Vim。1MB ほど) は、最初にファイルの内容を出すときに読み込む (ディレクトリの一覧だけなら読み込まない)
+  if (window.GGText) return Promise.resolve();
+  if (!editorScript) {
+    editorScript = new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = "/static/vendor/text_editor.js";
+      script.onload = resolve;
+      script.onerror = () => { editorScript = null; reject(new Error(t("editor_load_failed"))); };  // 次の機会に読み直せるようにする
+      document.head.appendChild(script);
+    });
+  }
+  return editorScript;
+}
+function editorPhrases() {  // 検索パネルなどの文言 (CodeMirror 側の英語の文言 → 翻訳)
+  return {"Find": t("editor_find"), "Replace": t("editor_replace"), "next": t("editor_next"), "previous": t("editor_previous"),
+          "all": t("editor_all"), "match case": t("editor_match_case"), "regexp": t("editor_regexp"), "by word": t("editor_by_word"),
+          "replace": t("editor_replace_one"), "replace all": t("editor_replace_all"), "close": t("editor_close"),
+          "Go to line": t("editor_goto_line"), "go": t("editor_go")};
+}
+window.addEventListener("beforeunload", ev => { if (editing && editDirty) { ev.preventDefault(); ev.returnValue = ""; } });
+function startEdit() {
+  if (!fileData || !fileData.editable || !currentFile) return;
+  closeEditor();  // 表示のエディタ
+  editing = true; editDirty = false;
+  setFileMsg("", true);
+  [fileCommitLogBtn, fileLogBtn, fileBlameBtn, fileDiffBtn, fileExtDiffBtn, fileMergeBtn, fileEditBtn, fileContentBtn, fileGraphLogBtn, fileCopyBtn, fileDownloadBtn, fileExtEditBtn, fileRmBtn, fileRmCachedBtn].forEach(b => { b.hidden = true; });
+  const eol = EOL_LABEL[fileData.eol] || t("edit_eol_none");
+  title.textContent = t("file_edit_title", {path: currentFile});
+  content.className = "";
+  content.innerHTML = '<div class="edit-info">' + esc(t("edit_format", {encoding: fileData.encoding, eol: eol})) + '</div>' +
+    (fileData.eol_mixed ? '<div class="edit-info warn">' + esc(t("edit_eol_mixed", {eol: eol})) + '</div>' : "") +
+    '<div class="edit-bar"><button class="primary" id="editSave">' + esc(t("edit_save")) + '</button><button id="editCancel">' +
+    esc(t("edit_cancel")) + '</button><label class="edit-vim" title="' + esc(t("edit_wrap_tip")) + '"><input type="checkbox" id="editWrap"' + (wrapOn ? " checked" : "") +
+    '> ' + esc(t("edit_wrap")) + '</label><label class="edit-vim" title="' + esc(t("edit_vim_tip")) + '"><input type="checkbox" id="editVim"' + (vimOn ? " checked" : "") +
+    '> ' + esc(t("edit_vim")) + '</label></div><div id="editor" class="cm-host"></div>';
+  document.getElementById("main").scrollTop = 0;
+  fitEditor(document.getElementById("editor"));
+  const loaded = fileData;
+  loadEditorScript().then(() => {
+    const host = document.getElementById("editor");
+    if (!editing || fileData !== loaded || !host) return;  // 読み込んでいる間に、別の表示に移った
+    textEditor = GGText.createTextEditor({
+      parent: host, text: loaded.content, path: currentFile, vim: vimOn, wrap: wrapOn, phrases: editorPhrases(),
+      onChange: () => { editDirty = true; }, onSave: saveEdit,
+      onQuit: force => { if (force) editDirty = false; if (leaveEdit()) backToContent(); },  // Vim の :q / :q!
+    });
+    textEditor.focus();
+  }).catch(e => {
+    if (!leaveEdit()) return;
+    backToContent(() => setFileMsg(e.message, false));
+  });
+  document.getElementById("editWrap").onchange = ev => {
+    setWrapPref(ev.target.checked);
+    if (textEditor) { textEditor.setWrap(wrapOn); textEditor.focus(); }
+  };
+  document.getElementById("editVim").onchange = ev => {
+    setVimPref(ev.target.checked);
+    if (textEditor) { textEditor.setVim(vimOn); textEditor.focus(); }
+  };
+  document.getElementById("editSave").onclick = saveEdit;
+  document.getElementById("editCancel").onclick = () => { if (leaveEdit()) backToContent(); };
+}
+function saveEdit() {
+  const btn = document.getElementById("editSave");
+  if (!editing || !textEditor || btn.disabled) return;
+  btn.disabled = true;
+  const path = currentFile;
+  fetch("/api/file-save", {method: "POST", headers: {"Content-Type": "application/json"},
+                           body: JSON.stringify({path: path, content: textEditor.getText(), sha: fileData.sha})})
+    .then(r => r.ok ? r.json() : r.text().then(m => { throw new Error(m || r.status); }))
+    .then(r => {
+      editing = editDirty = false;
+      closeEditor();
+      fileData = null;  // 保存後の内容は読み込み直す
+      backToContent(() => loadTree(current, false)  // 変更の印と差分ボタンを更新する
+        .then(() => { updateDiffBtn(); setFileMsg(r.message, true); }));
+    })
+    .catch(e => { btn.disabled = false; setFileMsg(e.message, false); fileActions.hidden = false; });
+}
+fileEditBtn.onclick = () => {
+  // 差分表示中は、変更後側を差分エディタのまま編集する (内容表示の単独編集へは移らない)
+  if (currentView === "diff" && isWip && CAN_EDIT) startDiffEdit();
+  else openView("edit");
+};
+function startDiffEdit() {
+  if (!currentFile || currentView !== "diff" || !diffView) return openView("edit");
+  const begin = () => {
+    if (!fileData) return;
+    if (fileData.binary || !fileData.editable) {
+      setFileMsg(t(fileData.edit_reason || "edit_bad_encoding"), false);
+      return;
+    }
+    editing = true; editDirty = false;
+    setFileMsg("", true);
+    [fileCommitLogBtn, fileLogBtn, fileBlameBtn, fileDiffBtn, fileExtDiffBtn, fileMergeBtn, fileEditBtn, fileContentBtn, fileGraphLogBtn, fileCopyBtn, fileDownloadBtn, fileExtEditBtn, fileRmBtn, fileRmCachedBtn].forEach(b => { b.hidden = true; });
+    title.textContent = t("file_edit_title", {path: currentFile});
+    let bar = content.querySelector(".edit-bar-diff");
+    if (!bar) {
+      bar = document.createElement("div");
+      bar.className = "edit-bar edit-bar-diff";
+      bar.innerHTML = '<button class="primary" id="diffEditSave">' + esc(t("edit_save")) + '</button>' +
+        '<button id="diffEditCancel">' + esc(t("edit_cancel")) + '</button>';
+      content.insertBefore(bar, content.firstChild);
+      document.getElementById("diffEditSave").onclick = () => saveDiffEdit();
+      document.getElementById("diffEditCancel").onclick = () => { leaveEdit(); };
+    }
+    diffView.setEditable(true, {
+      onChange: () => { editDirty = true; },
+      onSave: () => saveDiffEdit(),
+    });
+  };
+  if (fileData) begin();
+  else api("/api/file", {hash: hash, path: currentFile}).then(r => {
+    fileData = r;
+    begin();
+  }).catch(e => setFileMsg(e.message, false));
+}
+function saveDiffEdit() {
+  if (!editing || !diffView || !fileData) return;
+  const text = diffView.getText();
+  if (text === null) return;
+  const btn = document.getElementById("diffEditSave");
+  if (btn) btn.disabled = true;
+  const path = currentFile;
+  fetch("/api/file-save", {method: "POST", headers: {"Content-Type": "application/json"},
+                           body: JSON.stringify({path: path, content: text, sha: fileData.sha})})
+    .then(r => r.ok ? r.json() : r.text().then(m => { throw new Error(m || r.status); }))
+    .then(r => {
+      editing = editDirty = false;
+      fileData = null;
+      const bar = content.querySelector(".edit-bar-diff");
+      if (bar) bar.remove();
+      if (diffView) diffView.close();
+      diffView = null;
+      setFileMsg(r.message, true);
+      // 保存後は差分を読み直す
+      loadTree(current, false).then(() => {
+        updateDiffBtn();
+        loadFileDiff(path);
+      });
+    })
+    .catch(e => {
+      if (btn) btn.disabled = false;
+      setFileMsg(e.message, false);
+    });
+}
+
+function loadFileBlame(path) {
+  closeEditor();  // 表示のエディタ
+  fileDiffBtn.hidden = true;
+  fileContentBtn.hidden = false;
+  fileCommitLogBtn.hidden = !logHash();
+  fileLogBtn.hidden = true;
+  fileBlameBtn.hidden = true;
+  fileGraphLogBtn.hidden = true;
+  setDocumentTitle(t("file_blame_title", {path: path}));
+  title.textContent = t("file_blame_title", {path: path});
+  content.className = "";
+  content.textContent = t("loading");
+  Promise.all([api("/api/blame", {hash: hash, path: path}), refsReady]).then(([r]) => {
+    content.innerHTML = '<div class="meta">' + esc(t("n_lines", {n: r.lines.length})) + '</div><div class="blame">' +
+      r.lines.map(line => {
+        const nc = /^0+$/.test(line.hash);
+        const meta = nc
+          ? '<span class="blame-hash"></span><span class="blame-author">' + esc(t("not_committed_yet")) + '</span><span class="blame-date"></span><span class="blame-subject"></span>'
+          : '<span class="blame-hash"><a class="blame-commit commit-graph" href="/?commit_hash=' + encodeURIComponent(line.hash) + '">' +
+            esc(line.hash.slice(0, 7)) + '</a></span><span class="blame-author">' + esc(line.author) +
+            '</span><span class="blame-date">' + esc(line.date) + '</span><span class="blame-subject">' + refChips(line.hash) + '<span title="' + esc(line.subject || "") + '">' + esc(line.subject || "") + '</span></span>';
+        return '<div class="blame-line" data-hash="' + (nc ? "" : esc(line.hash)) + '"><span class="blame-no">' + line.line +
+          '</span>' + meta + '<span class="blame-code">' + esc(line.content) + '</span></div>';
+      }).join("") + '</div>';
+  }).catch(e => { content.className = "hint"; content.textContent = t("error") + e.message; });
+}
+content.addEventListener("click", ev => {
+  const link = ev.target.closest("a.commit-graph");
+  if (link) {
+    if (window.opener && !window.opener.closed) {
+      ev.preventDefault();
+      window.opener.postMessage({type: "git-graph-commit", hash: new URL(link.href).searchParams.get("commit_hash")}, location.origin);
+    }
+    return;
+  }
+  const dirRow = ev.target.closest("tr.dir-log-row");
+  if (dirRow && !currentFile) {  // ディレクトリの一覧の項目: ディレクトリなら開き、ファイルなら表示する
+    openEntry(dirRow.dataset.path, dirRow.dataset.type);
+    return;
+  }
+  const row = ev.target.closest("tr.clickable, .blame-line"), rowHash = row && (row.dataset.h || row.dataset.hash);  // ログの行は data-h (グラフ画面と同じ)、blame の行は data-hash
+  if (!rowHash) return;
+  if (window.mbSetTarget) window.mbSetTarget(rowHash);  // ログ / blame の行をクリックしたコミットを、メニューの「対象」にする
+  if (!currentFile) {  // ディレクトリのログの項目: そのコミットでのディレクトリを開く
+    if (!dirLogOn) return;
+    const dirParams = new URLSearchParams({hash: rowHash});
+    if (current) dirParams.set("path", current);
+    if (fileViewTab) dirParams.set("file_view", "1");
+    location.href = "/files?" + dirParams;
+    return;
+  }
+  const params = new URLSearchParams({hash: rowHash, file: currentFile});
+  const slash = currentFile.lastIndexOf("/");
+  const dir = slash < 0 ? "" : currentFile.slice(0, slash);
+  if (dir) params.set("path", dir);
+  if (fileViewTab) params.set("file_view", "1");
+  location.href = "/files?" + params;
+});
+// ---- ログの行をドラッグ&ドロップして A / B にセットする (ドラッグ元が A、ドロップ先が B)。ドラッグの動きはグラフ画面と共通 (commit_log.js)。落としたら、メニューバーの AB操作メニューを開く ----
+const commitDrag = CommitLog.createDrag({
+  hitAt: (x, y) => {
+    const at = document.elementFromPoint(x, y), tr = at && at.closest("#content tr.clickable");
+    return tr && tr.dataset.h ? {el: tr, hash: tr.dataset.h} : null;
+  },
+  tip: (from, hit) => "A: " + from.slice(0, 7) + (hit ? "  →  B: " + hit.hash.slice(0, 7) : ""),
+  onDrop: (from, hit) => { if (window.mbSetAB) window.mbSetAB(from, hit.hash); },
+});
+content.addEventListener("pointerdown", ev => {  // ログの行からドラッグを始める (リンク・入力欄・コピー記号の上は除く)
+  const tr = ev.target.closest("tr.clickable");
+  if (!tr || ev.target.closest("a, input, select, textarea, .copy")) return;
+  commitDrag.start(tr, tr.dataset.h, ev);
+});
+function loadFileDiff(path) {  // 右ペインに、このファイルの差分を差分エディタ (変更前 | 変更後) で出す
+  closeEditor();  // 表示のエディタ
+  fileDiffBtn.hidden = true;  // 差分表示中は内容ボタンだけ (差分ボタンは出さない)
+  fileContentBtn.hidden = false;
+  fileLogBtn.hidden = !logHash();  // 差分からも、このファイルのログへ移れる (作業ツリーに HEAD が無いときは、ログが無い)
+  fileCommitLogBtn.hidden = !logHash();
+  fileLogBtn.disabled = !logHash();
+  fileBlameBtn.hidden = false;  // 差分表示中もこのファイルの blame へ移れる
+  fileBlameBtn.disabled = (fileData && fileData.binary) || (isWip && !wipHead);
+  fileGraphLogBtn.hidden = true;
+  setDocumentTitle(t("file_diff_title", {path: path}));
+  title.textContent = t("file_diff_title", {path: path});
+  // 変更の一覧 (commitChanges) の読み込み前に URL から開かれても出せるよう、コミットは hash と path だけでも (変更前の名前は分からないが) 開く
+  const params = diffParams(path) || (isWip ? null : {hash: hash, path: path});
+  if (!params) { content.className = "hint"; content.textContent = t("no_diff"); return; }
+  content.className = "";
+  content.textContent = "";
+  const box = document.createElement("div");
+  content.appendChild(box);
+  diffView = createDiffEditorView({box: box, text: t, phrases: editorPhrases, loadScript: loadEditorScript, vim: {get: () => vimOn, set: setVimPref}});
+  diffView.load(params);
+}
+function loadFileLog(path) {
+  closeEditor();  // 表示のエディタ
+  const hash = logHash();
+  if (!hash) return;
+  fileDiffBtn.hidden = true;
+  fileContentBtn.hidden = false;
+  fileCommitLogBtn.hidden = !logHash();
+  fileLogBtn.hidden = true;
+  fileBlameBtn.hidden = true;
+  fileGraphLogBtn.hidden = false;
+  setDocumentTitle(t("file_history_title", {path: path}));
+  title.textContent = t("file_history_title", {path: path});
+  showLogList(path, () => currentFile === path && currentView === "log");
+}
+function loadFileCommitLog() {  // 右ペインに、通常のコミットログ (パスで絞らない。この時点までの全コミット) を出す
+  closeEditor();  // 表示のエディタ
+  const rev = logHash(), path = currentFile;
+  if (!rev) return;
+  fileDiffBtn.hidden = true;
+  fileContentBtn.hidden = false;
+  fileCommitLogBtn.hidden = true;  // 表示中のログのボタンは出さない (ほかの表示と同じ)
+  fileLogBtn.hidden = false;
+  fileLogBtn.disabled = false;
+  fileBlameBtn.hidden = false;
+  fileBlameBtn.disabled = (fileData && fileData.binary) || (isWip && !wipHead);
+  fileGraphLogBtn.hidden = true;
+  setDocumentTitle(t("commit_log_title", {rev: rev.slice(0, 7)}));
+  title.textContent = t("commit_log_title", {rev: rev.slice(0, 7)});
+  showLogList("", () => currentFile === path && currentView === "clog");
+}
+let logCtx = null, logPager = null;  // logCtx: 表示中のログ (検索し直すときに使う)、logPager: 続きの読み込み
+function showLogList(path, alive, search) {  // 右ペインに git log を出す (path: 空ならパスで絞らない通常のコミットログ)。alive: 別の表示に移っていたら false (古い応答を捨てる)
+  // 続きの読み込み (無限スクロール) と検索は、グラフ画面のログと共通 (commit_log.js)
+  const rev = logHash();
+  if (!rev) return;
+  if (logPager) logPager.stop();
+  search = CommitLog.normSearch(search);
+  logCtx = {path: path, alive: alive};
+  content.className = "";
+  content.innerHTML = '<div class="log-head"><span class="meta" id="logCount">' + esc(t("loading")) + '</span>' +
+    '<button class="sbtn iconbtn log-search-btn' + (search ? " on" : "") + '" title="' + esc(t("search_open")) + '">🔍</button></div>' +
+    CommitLog.searchHtml(search) + CommitLog.tableHtml("") + '<div id="logSentinel" class="hint"></div>';
+  document.getElementById("main").scrollTop = 0;
+  const rows = content.querySelector("table.log tbody"), count = content.querySelector("#logCount"), sentinel = content.querySelector("#logSentinel");
+  const searchP = CommitLog.searchParams(search);
+  if (search) content.querySelector("#logSearch input").focus({preventScroll: true});
+  const pg = logPager = CommitLog.createPager({
+    root: document.getElementById("main"), sentinel: sentinel,
+    alive: () => logPager === pg && alive(),
+    load: skip => Promise.all([api("/api/log", Object.assign({rev: rev, path: path, skip: skip, limit: CommitLog.CHUNK}, searchP)), refsReady]).then(([r]) => r),
+    onPage: r => {
+      rows.insertAdjacentHTML("beforeend", r.commits.map(c => fileLogRow(c)).join(""));
+      count.textContent = CommitLog.countText(search, pg.done, pg.skip, pg.total);
+      sentinel.textContent = pg.done ? (pg.skip === 0 ? t("none") : "") : t("loading");
+    },
+    onError: e => { sentinel.textContent = t("error") + e.message; },
+  });
+  pg.watch();
+}
+CommitLog.bindSearch(content, {apply: search => { if (logCtx) showLogList(logCtx.path, logCtx.alive, search); }});
+fileCommitLogBtn.onclick = () => { if (currentFile) openView("clog"); };  // 通常のコミットログは右ペインに出す (履歴に積むので、戻るで元の表示へ戻れる)
+dirCommitLogBtn.onclick = openCommitLogView;
+fileLogBtn.onclick = () => { if (currentFile) openView("log"); };
+fileBlameBtn.onclick = () => openView("blame");
+fileContentBtn.onclick = () => { if (currentFile) openView(""); };  // 履歴に積むので戻るで差分などへ戻れる
+fileGraphLogBtn.onclick = () => {
+  const rev = logHash();
+  if (rev && currentFile) location.href = "/?file_log_hash=" + encodeURIComponent(rev) + "&file_log_path=" + encodeURIComponent(currentFile);
+};
+function restoreFromUrl(first) {  // URL の path / file / view の状態を画面に反映する
+  const p = new URLSearchParams(location.search), dir = p.get("path") || "", file = p.get("file") || "";
+  const view = file ? (p.get("view") || (p.get("edit") === "1" ? "edit" : "")) : "";
+  if (!first && editing && (file !== currentFile || view !== "edit")) {  // 編集中に戻る/進む: 破棄しないなら編集画面にとどまる
+    if (!leaveEdit()) {
+      // 戻ろうとした先が同じファイルの別の表示なら、保存/キャンセルでそこへ戻れるようにする
+      history.pushState({path: current, file: currentFile, view: "edit", viaPush: file === currentFile},
+                        "", pageUrl(current, currentFile, "edit"));
+      return;
+    }
+  }
+  const tree = first || dir !== current ? loadTree(dir, false) : Promise.resolve();
+  // WIP ではツリーの読み込みで HEAD が分かってから開く (ログ / blame ボタンの表示に使う)
+  return tree.then(() => {
+    if (!file) {
+      if (currentFile) clearFile();
+      const v = p.get("view");  // ファイルを開かない view=log は、ディレクトリのログ。view=clog は、通常のコミットログ
+      if (v === "log") showDirLog(); else if (v === "clog") showDirLog(true); else showDir();
+      return;
+    }
+    const from = p.get("dfrom"), to = p.get("dto"), dwip = p.get("dwip");
+    diffSel = view === "diff" && from && to
+      ? {path: file, from: from, to: to, wip: to === "WIP" ? "compare" : "", old: p.get("dold") || ""}
+      : view === "diff" && (dwip || p.get("dold"))
+        ? {path: file, wip: dwip || "", old: p.get("dold") || ""} : null;
+    const reload = first || file !== currentFile || !view || currentView === "edit" || !fileData;
+    return (reload ? loadFile(file, false) : Promise.resolve()).then(() => { if (view) renderView(view); });
+  }).then(() => {
+    if (p.get("wip_commit") === "1") showWipCommitPane(); else showFilePane();
+    const f = afterRestore; afterRestore = null; if (f) f();
+  });
+}
+window.onpopstate = () => restoreFromUrl(false);
+// 更新ボタン (作業ツリーの表示だけ): 一覧と開いているファイル / 表示を、いまの作業ツリーから読み直す。
+// コミットの内容は変わらないので、コミット表示では出さない。編集中の変更は、捨ててよいか確認してから読み直す
+const reloadBtn = document.getElementById("reloadBtn");
+reloadBtn.disabled = !isWip || !hash;  // 作業ツリーのときだけ使える (それ以外は無効)
+reloadBtn.onclick = () => {
+  if (reloadBtn.disabled) return;
+  const viewerScroll = textEditor && !editing ? {path: currentFile, top: textEditor.getScrollTop()} : null;  // leaveEdit() が閉じる前に控える
+  if (!leaveEdit()) return;
+  keepViewerScroll = viewerScroll;
+  const treeEl = document.getElementById("tree"), mainEl = document.getElementById("main");
+  const keep = {tree: treeEl.scrollTop, main: mainEl.scrollTop};
+  reloadBtn.disabled = true;
+  stageOverrides.clear();
+  stageDirty = false;
+  entryInfo = {};
+  Promise.resolve(restoreFromUrl(true)).then(refreshWipCommitPanel).finally(() => {
+    treeEl.scrollTop = keep.tree; mainEl.scrollTop = keep.main;
+    reloadBtn.disabled = false;
+  });
+};
+updateDiffBtn();  // 差分アイコンは、ファイルを開く前から押せる
+sideTabs.hidden = !hash;
+sideChangesBtn.textContent = t("side_changes");
+if (hash) changesEl.innerHTML = '<p class="hint">' + esc(t("loading")) + '</p>';
+if (hash) applySideMode();
+if (!hash) showError(new Error(t("commit_required"))); else { loadCommitChanges(); restoreFromUrl(true); }
