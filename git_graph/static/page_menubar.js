@@ -365,6 +365,9 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
   enable($("branchListBtn")); enable($("tagListBtn")); enable($("stashListBtn")); enable($("reflogBtn"));
   enable($("submoduleListBtn")); enable($("opHistoryBtn"));
   enable($("commitGraphBtn"), () => writable);  // 書き込み可能なときだけ
+  // remote 追加 / 削除 (その他メニュー)
+  enable(bar.querySelector('[data-cact="remote-add"]'), () => writable);
+  enable(bar.querySelector('[data-cact="remote-remove"]'), () => writable);
   function applyUnavailable() {
     const skip = new Set(["actionTarget", "cmpA", "cmpB", "cmpActToggle", "abActToggle", "otherMenuBtn", "reload", "rld", "reloadBtn", "navGraphBtn", "navFilesBtn", "clearCmpBtn"]);
     bar.querySelectorAll("button").forEach(b => {
@@ -405,6 +408,50 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
       applyUnavailable();
     }
   });
+  // remote 追加 / 削除 (グラフの doRemoteConfig と同じ API・確認)
+  async function doRemoteConfigFiles(act) {
+    closeMenus();
+    if (act === "remote-add") {
+      const v = await openDialog(T.remote_add || "remote add", form => {
+        field(form, T.name || "Name", input("text", "name"), false);
+        form.querySelector('[name="name"]').placeholder = "origin";
+        form.querySelector('[name="name"]').required = true;
+        form.querySelector('[name="name"]').autofocus = true;
+        field(form, "URL", input("text", "url"), false);
+        form.querySelector('[name="url"]').required = true;
+        field(form, T.fetch_after_add || "Fetch after add", input("checkbox", "fetch", true), true);
+      }, T.add || T.create || "Add");
+      if (!v) return;
+      const body = {name: (v.name || "").trim(), url: (v.url || "").trim(), fetch: !!v.fetch};
+      if (!body.name || !body.url) { mbSay(T.name_url_required || "name and url required", false); return; }
+      mbSay(body.fetch ? (T.running_fetch || T.running || "…") : (T.running || "…"), "progress");
+      try {
+        const r = await postJson("/api/remote-add", body);
+        mbSay(r.message, r.ok !== false && !r.fetch_failed);
+      } catch (e) { mbSay(e.message, false); }
+      return;
+    }
+    // remote-remove
+    let list;
+    try { list = (await getJson("/api/remotes")).remotes || []; }
+    catch (e) { mbSay(e.message, false); return; }
+    if (!list.length) { mbSay(T.no_remotes || "no remotes", false); return; }
+    const v = await openDialog(T.remote_remove || "remote remove", form => {
+      field(form, T.remote_to_remove || "Remote", selectEl("name", list.map(r => [r.name, r.name + (r.url ? " — " + r.url : "")]), list[0].name), false);
+    }, T.delete || "Delete");
+    if (!v) return;
+    const name = v.name;
+    if (!confirm((T.confirm_remove_remote || "Remove remote {name}?").replace("{name}", name))) return;
+    mbSay(T.running || "…", "progress");
+    try {
+      const r = await postJson("/api/remote-remove", {name: name});
+      mbSay(r.message, true);
+    } catch (e) { mbSay(e.message, false); }
+  }
+  const remoteAddBtn = bar.querySelector('[data-cact="remote-add"]');
+  const remoteRmBtn = bar.querySelector('[data-cact="remote-remove"]');
+  if (remoteAddBtn) remoteAddBtn.addEventListener("click", () => doRemoteConfigFiles("remote-add").catch(fail));
+  if (remoteRmBtn) remoteRmBtn.addEventListener("click", () => doRemoteConfigFiles("remote-remove").catch(fail));
   const menuButtons = menu => [...menu.querySelectorAll(".abtn")].filter(b => !b.disabled && !b.closest("[hidden]"));
   const toolbarItems = () => [...bar.querySelectorAll("button, a[href]")]
     .filter(b => !b.disabled && !b.closest(".dropdown, [hidden]"));

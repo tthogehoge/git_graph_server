@@ -215,7 +215,80 @@ window.showOtherList = showOtherList;
 window.showOtherBranchList = () => showOtherList("branches", "branch_list_title", "branch_list_help", "/api/branches", {});
 window.showOtherTagList = () => showOtherList("tags", "tag_list_title", "tag_list_help", "/api/tags", {});
 window.showOtherStashList = () => showOtherList("stash", "stash_list_title", "stash_list_help", "/api/stash-list", {});
-window.showOtherReflog = (branch) => showOtherList("reflog", "reflog", "reflog_help", "/api/reflog", branch ? {branch: branch} : {});
+window.showOtherReflog = function (branch) {
+  // ブランチ選択付き reflog (グラフの showReflog に近づける)
+  closeEditor();
+  if (logPager) logPager.stop();
+  const seq = ++otherListSeq;
+  if (currentFile) clearFile();
+  dirLogOn = commitLogOn = false;
+  dirActions.hidden = true;
+  fileActions.hidden = true;
+  title.textContent = "reflog " + (branch || "HEAD");
+  setDocumentTitle("reflog " + (branch || "HEAD"));
+  content.className = "";
+  content.innerHTML = '<div class="meta"><label>' + esc(t("target_label") || "Target") +
+    ': <select class="reflog-ref" id="filesReflogRef"><option value="">HEAD</option></select></label></div>' +
+    '<div class="meta">' + esc(t("reflog_help")) + '</div>' +
+    '<div class="log-head"><span class="meta" id="logCount">' + esc(t("loading")) + '</span></div>' +
+    CommitLog.tableHtml("") + '<div id="logSentinel" class="hint"></div>';
+  document.getElementById("main").scrollTop = 0;
+  // ブランチ候補を埋める
+  api("/api/branches", {}).then(r => {
+    if (otherListSeq !== seq) return;
+    const sel = document.getElementById("filesReflogRef");
+    if (!sel) return;
+    const names = [];
+    (r.commits || []).forEach(c => {
+      // c[2] はラベル (★ name など)。ローカル名だけ拾う簡易版
+      const lab = String(c[2] || "").replace(/^★\s*/, "");
+      if (lab && !lab.includes("/") && !names.includes(lab)) names.push(lab);
+    });
+    names.sort();
+    names.forEach(n => {
+      const o = document.createElement("option");
+      o.value = n; o.textContent = n;
+      if (n === branch) o.selected = true;
+      sel.appendChild(o);
+    });
+    if (branch) sel.value = branch;
+  }).catch(() => {});
+  function loadReflog(br) {
+    if (logPager) logPager.stop();
+    const rows = content.querySelector("table.log tbody");
+    const count = content.querySelector("#logCount");
+    const sentinel = content.querySelector("#logSentinel");
+    if (rows) rows.innerHTML = "";
+    title.textContent = "reflog " + (br || "HEAD");
+    setDocumentTitle("reflog " + (br || "HEAD"));
+    const p0 = br ? {branch: br} : {};
+    const pg = logPager = CommitLog.createPager({
+      root: document.getElementById("main"), sentinel: sentinel,
+      alive: () => logPager === pg && otherListSeq === seq && !currentFile,
+      load: skip => api("/api/reflog", Object.assign({}, p0, {skip: skip, limit: CommitLog.CHUNK})),
+      onPage: r => {
+        const list = r.commits || [];
+        rows.insertAdjacentHTML("beforeend", list.map(c => fileLogRow(c)).join(""));
+        count.textContent = CommitLog.countText(null, pg.done, pg.skip, r.total !== undefined ? r.total : pg.total);
+        sentinel.textContent = pg.done ? (pg.skip === 0 ? t("none") : "") : t("loading");
+      },
+      onError: e => { sentinel.textContent = t("error") + e.message; },
+    });
+    pg.watch();
+  }
+  loadReflog(branch || "");
+  content.onchange = ev => {
+    if (otherListSeq !== seq) return;
+    if (ev.target && ev.target.id === "filesReflogRef") loadReflog(ev.target.value);
+  };
+  content.onclick = ev => {
+    if (otherListSeq !== seq) return;
+    const tr = ev.target.closest("tr.clickable");
+    if (!tr || !tr.dataset.h || ev.target.closest("a, .copy")) return;
+    if (ev.detail > 1) return;
+    location.href = "/files?hash=" + encodeURIComponent(tr.dataset.h);
+  };
+};
 
 // ---- 操作履歴 (その他メニュー)。グラフの showOpHistory と同じ API ----
 window.showOtherOpHistory = function () {
@@ -273,7 +346,13 @@ window.showOtherSubmoduleList = function () {
       '<button class="sbtn" id="submoduleUpdateBtn" disabled title="' + esc(t("submodule_update_tip")) + '">' + esc(t("submodule_update")) + "</button> " +
       '<button class="sbtn" id="submoduleUpdateRemoteBtn" disabled title="' + esc(t("submodule_update_remote_tip")) + '">' + esc(t("submodule_update_remote")) + "</button> " +
       '<button class="sbtn" id="submoduleFetchBtn" disabled title="' + esc(t("submodule_fetch_tip")) + '">' + esc(t("submodule_fetch")) + "</button> " +
-      '<label title="' + esc(t("submodule_recursive_tip")) + '"><input type="checkbox" id="submoduleRecursive"> ' + esc(t("submodule_recursive")) + "</label></div>" +
+      '<label title="' + esc(t("submodule_recursive_tip")) + '"><input type="checkbox" id="submoduleRecursive"> ' + esc(t("submodule_recursive")) + "</label> " +
+      '<button class="sbtn" id="submoduleAddToggle" title="' + esc(t("submodule_add_tip")) + '">' + esc(t("submodule_add_toggle")) + "</button></div>" +
+      '<div class="submodule-bar" id="submoduleAddForm" hidden>' +
+      '<input id="smAddUrl" size="42" placeholder="' + esc(t("submodule_add_url")) + '"> ' +
+      '<input id="smAddPath" size="22" placeholder="' + esc(t("submodule_add_path")) + '"> ' +
+      '<input id="smAddBranch" size="16" placeholder="' + esc(t("submodule_add_branch")) + '"> ' +
+      '<button class="sbtn" id="submoduleAddGo">' + esc(t("submodule_add_go")) + "</button></div>" +
       '<div class="meta" id="submoduleMsg"></div>'
     : '<div class="meta" id="submoduleMsg"></div>';
   content.className = "";
@@ -343,6 +422,30 @@ window.showOtherSubmoduleList = function () {
     if (ev.target.closest("#submoduleUpdateBtn")) { runBatch("/api/submodule-update", {remote: false}, "submodule_confirm_update", "submodule_updating", "submodule_update_done"); return; }
     if (ev.target.closest("#submoduleUpdateRemoteBtn")) { runBatch("/api/submodule-update", {remote: true}, "submodule_confirm_update_remote", "submodule_updating", "submodule_update_done"); return; }
     if (ev.target.closest("#submoduleFetchBtn")) { runBatch("/api/submodule-fetch", {}, "", "submodule_fetching", "submodule_fetch_done"); return; }
+    if (ev.target.closest("#submoduleAddToggle")) {
+      const f = document.getElementById("submoduleAddForm");
+      if (f) { f.hidden = !f.hidden; if (!f.hidden) document.getElementById("smAddUrl").focus(); }
+      return;
+    }
+    if (ev.target.closest("#submoduleAddGo")) {
+      const val = id => (document.getElementById(id) || {}).value || "";
+      const url = val("smAddUrl").trim(), path = val("smAddPath").trim(), branch = val("smAddBranch").trim();
+      if (!url || !path) { smMsg(esc(t("submodule_url_and_path_required"))); return; }
+      if (submoduleBusy) return;
+      submoduleBusy = true; syncSel();
+      const go = document.getElementById("submoduleAddGo");
+      if (go) go.disabled = true;
+      smMsg(esc(t("submodule_adding", {path: path})));
+      postJson("/api/submodule-add", {url: url, path: path, branch: branch, recursive: recursive()}).then(async r => {
+        for (const id of ["smAddUrl", "smAddPath", "smAddBranch"]) {
+          const el = document.getElementById(id); if (el) { el.value = ""; delete el.dataset.touched; }
+        }
+        await reloadRows().catch(() => {});
+        smMsg('<span style="color:#080">' + esc(r.message || "").replace(/\n/g, "<br>") + "</span>");
+      }).catch(e => smMsg('<span style="color:#b00">' + esc(t("error") + e.message) + "</span>"))
+        .finally(() => { submoduleBusy = false; syncSel(); if (go) go.disabled = false; });
+      return;
+    }
     if (ev.target.id === "submoduleAll") {
       for (const el of content.querySelectorAll("input.submodule-sel")) el.checked = ev.target.checked;
       syncSel(); return;
@@ -366,4 +469,15 @@ window.showOtherSubmoduleList = function () {
     }).catch(e => smMsg('<span style="color:#b00">' + esc(t("error") + e.message) + "</span>"))
       .finally(() => { opening = false; });
   };
+  // URL から path 案を入れる (グラフと同じ)
+  content.addEventListener("input", ev => {
+    if (otherListSeq !== seq) return;
+    const el = ev.target;
+    if (el.id === "smAddPath") { el.dataset.touched = "1"; return; }
+    if (el.id !== "smAddUrl") return;
+    const pathEl = document.getElementById("smAddPath");
+    if (!pathEl || pathEl.dataset.touched) return;
+    const last = el.value.trim().replace(/[\/:]+$/, "").split(/[\/:]/).pop() || "";
+    pathEl.value = last.replace(/\.git$/, "");
+  });
 };
