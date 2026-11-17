@@ -361,6 +361,9 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
   ["resetBranchBtn", "renameBranchBtn", "deleteBranchBtn", "deleteRemoteBranchBtn", "deleteTagBtn", "undoBtn", "redoBtn"].forEach(id => enable($(id), () => writable));
   enable($("findEquivalentParentsBtn")); enable($("findEquivalentBranchBtn"));
   enable($("wipPatchCreateBtn"), () => worktree); enable($("wipPatchApplyBtn"), () => writable && worktree); enable($("wipPatchAmBtn"), () => writable && worktree);
+  // その他メニューの一覧系: ファイル画面では右ペインに同じ一覧を出す (グラフの showRefList 等と同じ API)
+  enable($("branchListBtn")); enable($("tagListBtn")); enable($("stashListBtn")); enable($("reflogBtn"));
+  // submodule / op history / commit-graph は後続で共通化。当面はグラフ専用のまま
   function applyUnavailable() {
     const skip = new Set(["actionTarget", "cmpA", "cmpB", "cmpActToggle", "abActToggle", "otherMenuBtn", "reload", "rld", "reloadBtn", "navGraphBtn", "navFilesBtn", "clearCmpBtn"]);
     bar.querySelectorAll("button").forEach(b => {
@@ -379,6 +382,10 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
   // ---- メニューの開閉 (操作 / AB操作 / その他) ----
   const menus = [["cmpActToggle", "cmpActions"], ["abActToggle", "abActions"], ["otherMenuBtn", "otherActions"]];
   const closeMenus = () => menus.forEach(([b, m]) => { $(m).hidden = true; $(b).setAttribute("aria-expanded", "false"); });
+  on("branchListBtn", () => { closeMenus(); if (window.showOtherBranchList) window.showOtherBranchList(); });
+  on("tagListBtn", () => { closeMenus(); if (window.showOtherTagList) window.showOtherTagList(); });
+  on("stashListBtn", () => { closeMenus(); if (window.showOtherStashList) window.showOtherStashList(); });
+  on("reflogBtn", () => { closeMenus(); if (window.showOtherReflog) window.showOtherReflog(""); });
   const menuButtons = menu => [...menu.querySelectorAll(".abtn")].filter(b => !b.disabled && !b.closest("[hidden]"));
   const toolbarItems = () => [...bar.querySelectorAll("button, a[href]")]
     .filter(b => !b.disabled && !b.closest(".dropdown, [hidden]"));

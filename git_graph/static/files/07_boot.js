@@ -163,3 +163,56 @@ sideChangesBtn.textContent = t("side_changes");
 if (hash) changesEl.innerHTML = '<p class="hint">' + esc(t("loading")) + '</p>';
 if (hash) applySideMode();
 if (!hash) showError(new Error(t("commit_required"))); else { loadCommitChanges(); restoreFromUrl(true); }
+
+// ---- その他メニューの一覧 (ブランチ / タグ / stash / reflog など) を右ペインに表示。グラフ画面の showRefList 等と同じ API・同じ行 (CommitLog) を使う ----
+let otherListSeq = 0;
+function showOtherList(kind, titleKey, helpKey, apiPath, params, opts) {
+  opts = opts || {};
+  closeEditor();
+  if (logPager) logPager.stop();
+  const seq = ++otherListSeq;
+  const alive = () => otherListSeq === seq && !currentFile;  // ファイルを開いたら捨てる (簡易)
+  // ファイルを開いていない状態に寄せる
+  if (currentFile) clearFile();
+  dirLogOn = commitLogOn = false;
+  dirActions.hidden = true;
+  fileActions.hidden = true;
+  title.textContent = t(titleKey);
+  setDocumentTitle(t(titleKey));
+  content.className = "";
+  const top = helpKey ? '<div class="meta">' + esc(t(helpKey)) + "</div>" : "";
+  content.innerHTML = top + '<div class="log-head"><span class="meta" id="logCount">' + esc(t("loading")) + '</span></div>' +
+    CommitLog.tableHtml("") + '<div id="logSentinel" class="hint"></div>';
+  document.getElementById("main").scrollTop = 0;
+  const rows = content.querySelector("table.log tbody"), count = content.querySelector("#logCount"), sentinel = content.querySelector("#logSentinel");
+  const p0 = Object.assign({}, params || {});
+  const pg = logPager = CommitLog.createPager({
+    root: document.getElementById("main"), sentinel: sentinel,
+    alive: () => logPager === pg && alive(),
+    load: skip => api(apiPath, Object.assign({}, p0, {skip: skip, limit: CommitLog.CHUNK})),
+    onPage: r => {
+      const list = r.commits || r.list || [];
+      rows.insertAdjacentHTML("beforeend", list.map(c => {
+        if (opts.rowHtml) return opts.rowHtml(c, r);
+        return fileLogRow(c);  // グラフと同じ行 (ハッシュリンク + 件名)
+      }).join(""));
+      count.textContent = CommitLog.countText(null, pg.done, pg.skip, r.total !== undefined ? r.total : pg.total);
+      sentinel.textContent = pg.done ? (pg.skip === 0 ? t("none") : "") : t("loading");
+    },
+    onError: e => { sentinel.textContent = t("error") + e.message; },
+  });
+  pg.watch();
+  // 行クリック: そのコミットのファイル画面へ (グラフでは詳細)
+  content.onclick = ev => {
+    if (otherListSeq !== seq) return;
+    const tr = ev.target.closest("tr.clickable");
+    if (!tr || !tr.dataset.h || ev.target.closest("a, .copy")) return;
+    if (ev.detail > 1) return;
+    location.href = "/files?hash=" + encodeURIComponent(tr.dataset.h);
+  };
+}
+window.showOtherList = showOtherList;
+window.showOtherBranchList = () => showOtherList("branches", "branch_list_title", "branch_list_help", "/api/branches", {});
+window.showOtherTagList = () => showOtherList("tags", "tag_list_title", "tag_list_help", "/api/tags", {});
+window.showOtherStashList = () => showOtherList("stash", "stash_list_title", "stash_list_help", "/api/stash-list", {});
+window.showOtherReflog = (branch) => showOtherList("reflog", "reflog", "reflog_help", "/api/reflog", branch ? {branch: branch} : {});
