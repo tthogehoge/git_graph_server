@@ -96,6 +96,8 @@ MENUBAR_TEXT_KEYS = (
     "undo_confirm", "undo_failed", "undo_nothing", "undo_worktree_force", "what_branch",
     # 「その他」メニューのパッチ作成・適用 (patch_ops.js)
     "confirm_patch_apply", "confirm_patch_am", "wip_execute",
+    # commit-graph 最適化 (その他メニュー・ファイル画面でも実行可)
+    "confirm_commit_graph_optimize", "commit_graph_optimizing", "commit_graph_optimize_failed",
 )
 # ヘッダーのアイコンボタン。files.html / index.html にも同じ絵を直接書いてある
 _SVG = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">{p}</svg>'

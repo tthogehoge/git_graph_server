@@ -363,7 +363,8 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
   enable($("wipPatchCreateBtn"), () => worktree); enable($("wipPatchApplyBtn"), () => writable && worktree); enable($("wipPatchAmBtn"), () => writable && worktree);
   // その他メニューの一覧系: ファイル画面では右ペインに同じ一覧を出す (グラフの showRefList 等と同じ API)
   enable($("branchListBtn")); enable($("tagListBtn")); enable($("stashListBtn")); enable($("reflogBtn"));
-  // submodule / op history / commit-graph は後続で共通化。当面はグラフ専用のまま
+  enable($("submoduleListBtn")); enable($("opHistoryBtn"));
+  enable($("commitGraphBtn"), () => writable);  // 書き込み可能なときだけ
   function applyUnavailable() {
     const skip = new Set(["actionTarget", "cmpA", "cmpB", "cmpActToggle", "abActToggle", "otherMenuBtn", "reload", "rld", "reloadBtn", "navGraphBtn", "navFilesBtn", "clearCmpBtn"]);
     bar.querySelectorAll("button").forEach(b => {
@@ -386,6 +387,24 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
   on("tagListBtn", () => { closeMenus(); if (window.showOtherTagList) window.showOtherTagList(); });
   on("stashListBtn", () => { closeMenus(); if (window.showOtherStashList) window.showOtherStashList(); });
   on("reflogBtn", () => { closeMenus(); if (window.showOtherReflog) window.showOtherReflog(""); });
+  on("opHistoryBtn", () => { closeMenus(); if (window.showOtherOpHistory) window.showOtherOpHistory(); });
+  on("submoduleListBtn", () => { closeMenus(); if (window.showOtherSubmoduleList) window.showOtherSubmoduleList(); });
+  on("commitGraphBtn", async () => {
+    closeMenus();
+    if (!confirm(T.confirm_commit_graph_optimize || "Optimize commit-graph?")) return;
+    const btn = $("commitGraphBtn");
+    if (btn) btn.disabled = true;
+    mbSay(T.commit_graph_optimizing || "Optimizing…", "progress");
+    try {
+      const r = await postJson("/api/commit-graph", {});
+      mbSay(r.message, true);
+    } catch (e) {
+      mbSay((T.commit_graph_optimize_failed || "Failed: {error}").replace("{error}", e.message), false);
+    } finally {
+      if (btn) btn.disabled = false;
+      applyUnavailable();
+    }
+  });
   const menuButtons = menu => [...menu.querySelectorAll(".abtn")].filter(b => !b.disabled && !b.closest("[hidden]"));
   const toolbarItems = () => [...bar.querySelectorAll("button, a[href]")]
     .filter(b => !b.disabled && !b.closest(".dropdown, [hidden]"));

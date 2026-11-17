@@ -216,3 +216,154 @@ window.showOtherBranchList = () => showOtherList("branches", "branch_list_title"
 window.showOtherTagList = () => showOtherList("tags", "tag_list_title", "tag_list_help", "/api/tags", {});
 window.showOtherStashList = () => showOtherList("stash", "stash_list_title", "stash_list_help", "/api/stash-list", {});
 window.showOtherReflog = (branch) => showOtherList("reflog", "reflog", "reflog_help", "/api/reflog", branch ? {branch: branch} : {});
+
+// ---- 操作履歴 (その他メニュー)。グラフの showOpHistory と同じ API ----
+window.showOtherOpHistory = function () {
+  closeEditor();
+  if (logPager) logPager.stop();
+  const seq = ++otherListSeq;
+  if (currentFile) clearFile();
+  dirLogOn = commitLogOn = false;
+  dirActions.hidden = true;
+  fileActions.hidden = true;
+  title.textContent = t("op_history_title");
+  setDocumentTitle(t("op_history_title"));
+  content.className = "";
+  content.innerHTML = '<div class="meta">' + esc(t("op_history_help")) + '</div><div class="hint" id="ophMsg">' + esc(t("loading")) + "</div>";
+  document.getElementById("main").scrollTop = 0;
+  api("/api/undo-history", {}).then(h => {
+    if (otherListSeq !== seq) return;
+    const rows = (h.entries || []).map(e => {
+      const note = e.done ? "" : " (" + t("op_history_undone") + ")";
+      const warn = e.undoable ? "" : ' <span class="hint">' + esc(t("op_history_irreversible", {reason: e.problem || ""})) + "</span>";
+      return '<tr class="' + (e.done ? "" : "oph-undone") + '"><td class="h">' + esc(new Date(e.time * 1000).toLocaleString()) +
+        "</td><td class=\"log-cell\">" + esc(e.label) + esc(note) + warn + "</td></tr>";
+    }).join("");
+    const body = rows
+      ? '<table class="log"><tbody>' + rows + "</tbody></table>"
+      : '<div class="hint">' + esc(t("op_history_empty")) + "</div>";
+    content.innerHTML = '<div class="meta">' + esc(t("op_history_help")) + "</div>" + body;
+  }).catch(e => {
+    if (otherListSeq !== seq) return;
+    content.innerHTML = '<div class="hint">' + esc(t("error") + e.message) + "</div>";
+  });
+};
+
+// ---- submodule 一覧 (その他メニュー)。グラフと同じ API。行クリックで子サーバーを開く ----
+function submoduleRowHtmlFiles(c, sm, writable) {
+  const sel = writable ? '<td class="sel"><input type="checkbox" class="submodule-sel" data-path="' + esc(sm.path) + '"></td>' : "";
+  return '<tr class="submodule-row' + (sm.initialized ? "" : " uninit") + '" data-path="' + esc(sm.path) + '" data-init="' + (sm.initialized ? "1" : "") +
+    '" title="' + esc(t(sm.initialized ? "submodule_open_tip" : "submodule_uninit_tip")) + '">' + sel +
+    '<td class="h">' + esc(c[1]) + '</td><td class="log-cell"><div class="log-main"><div class="log-subj">' + esc(c[4]) +
+    '</div><div class="meta">' + esc(c[2]) + (c[3] ? " / " + esc(c[3]) : "") + "</div></div></td></tr>";
+}
+window.showOtherSubmoduleList = function () {
+  closeEditor();
+  if (logPager) logPager.stop();
+  const seq = ++otherListSeq;
+  if (currentFile) clearFile();
+  dirLogOn = commitLogOn = false;
+  dirActions.hidden = true;
+  fileActions.hidden = true;
+  title.textContent = t("submodule_list_title");
+  setDocumentTitle(t("submodule_list_title"));
+  const writable = !!(typeof CAN_COPY !== "undefined" && CAN_COPY);  // ファイル画面の書き込み可能フラグ
+  const bar = writable
+    ? '<div class="submodule-bar"><label><input type="checkbox" id="submoduleAll"> ' + esc(t("submodule_select_all")) + "</label> " +
+      '<button class="sbtn" id="submoduleUpdateBtn" disabled title="' + esc(t("submodule_update_tip")) + '">' + esc(t("submodule_update")) + "</button> " +
+      '<button class="sbtn" id="submoduleUpdateRemoteBtn" disabled title="' + esc(t("submodule_update_remote_tip")) + '">' + esc(t("submodule_update_remote")) + "</button> " +
+      '<button class="sbtn" id="submoduleFetchBtn" disabled title="' + esc(t("submodule_fetch_tip")) + '">' + esc(t("submodule_fetch")) + "</button> " +
+      '<label title="' + esc(t("submodule_recursive_tip")) + '"><input type="checkbox" id="submoduleRecursive"> ' + esc(t("submodule_recursive")) + "</label></div>" +
+      '<div class="meta" id="submoduleMsg"></div>'
+    : '<div class="meta" id="submoduleMsg"></div>';
+  content.className = "";
+  content.innerHTML = '<div class="meta">' + esc(t("submodule_list_help")) + "</div>" + bar +
+    '<div class="log-head"><span class="meta" id="logCount">' + esc(t("loading")) + "</span></div>" +
+    '<table class="log"><tbody id="smRows"></tbody></table>';
+  document.getElementById("main").scrollTop = 0;
+  let submoduleBusy = false;
+  function syncSel() {
+    const all = Array.from(content.querySelectorAll("input.submodule-sel"));
+    const n = all.filter(el => el.checked).length;
+    for (const id of ["submoduleUpdateBtn", "submoduleUpdateRemoteBtn", "submoduleFetchBtn"]) {
+      const b = document.getElementById(id);
+      if (b) b.disabled = n === 0 || submoduleBusy;
+    }
+    const top = document.getElementById("submoduleAll");
+    if (top) { top.checked = all.length > 0 && n === all.length; top.indeterminate = n > 0 && n < all.length; }
+  }
+  function selectedPaths() {
+    return Array.from(content.querySelectorAll("input.submodule-sel:checked")).map(el => el.dataset.path);
+  }
+  function smMsg(html) {
+    const el = document.getElementById("submoduleMsg");
+    if (el) el.innerHTML = html;
+  }
+  function recursive() {
+    const el = document.getElementById("submoduleRecursive");
+    return !!(el && el.checked);
+  }
+  function runBatch(url, extra, confirmKey, workingKey, doneKey) {
+    const paths = selectedPaths();
+    if (!paths.length || submoduleBusy) return;
+    if (confirmKey && !confirm(t(confirmKey, {n: paths.length}))) return;
+    submoduleBusy = true; syncSel();
+    smMsg(esc(t(workingKey, {n: paths.length})));
+    postJson(url, Object.assign({paths: paths, recursive: recursive()}, extra || {})).then(async r => {
+      const failed = (r.results || []).filter(x => !x.ok).map(x => "<div>" + esc(x.path) + ": " + esc(x.error) + "</div>").join("");
+      await reloadRows().catch(() => {});
+      smMsg('<span style="color:' + (r.ok ? "#080" : "#b00") + '">' + esc(r.message || "") + "</span>" + failed);
+    }).catch(e => smMsg('<span style="color:#b00">' + esc(t("error") + e.message) + "</span>"))
+      .finally(() => { submoduleBusy = false; syncSel(); });
+  }
+  async function reloadRows() {
+    const r = await api("/api/submodules", {});
+    if (otherListSeq !== seq) return;
+    const tbody = document.getElementById("smRows");
+    if (!tbody) return;
+    tbody.innerHTML = (r.commits || []).map((c, i) => submoduleRowHtmlFiles(c, r.submodules[i], writable)).join("");
+    const count = document.getElementById("logCount");
+    if (count) count.textContent = t("n_changes", {n: r.total != null ? r.total : (r.commits || []).length});
+    syncSel();
+  }
+  api("/api/submodules", {}).then(r => {
+    if (otherListSeq !== seq) return;
+    const tbody = document.getElementById("smRows");
+    tbody.innerHTML = (r.commits || []).map((c, i) => submoduleRowHtmlFiles(c, r.submodules[i], writable)).join("");
+    const count = document.getElementById("logCount");
+    if (count) count.textContent = t("n_changes", {n: r.total != null ? r.total : (r.commits || []).length});
+    syncSel();
+  }).catch(e => {
+    if (otherListSeq !== seq) return;
+    content.innerHTML = '<div class="hint">' + esc(t("error") + e.message) + "</div>";
+  });
+  let opening = false;
+  content.onclick = ev => {
+    if (otherListSeq !== seq) return;
+    if (ev.target.closest("#submoduleUpdateBtn")) { runBatch("/api/submodule-update", {remote: false}, "submodule_confirm_update", "submodule_updating", "submodule_update_done"); return; }
+    if (ev.target.closest("#submoduleUpdateRemoteBtn")) { runBatch("/api/submodule-update", {remote: true}, "submodule_confirm_update_remote", "submodule_updating", "submodule_update_done"); return; }
+    if (ev.target.closest("#submoduleFetchBtn")) { runBatch("/api/submodule-fetch", {}, "", "submodule_fetching", "submodule_fetch_done"); return; }
+    if (ev.target.id === "submoduleAll") {
+      for (const el of content.querySelectorAll("input.submodule-sel")) el.checked = ev.target.checked;
+      syncSel(); return;
+    }
+    if (ev.target.classList && ev.target.classList.contains("submodule-sel")) { syncSel(); return; }
+    const tr = ev.target.closest("tr.submodule-row");
+    if (!tr || ev.target.closest("td.sel")) return;
+    if (!tr.dataset.init) { smMsg(esc(t("submodule_uninit_tip"))); return; }
+    if (opening) return;
+    opening = true;
+    const path = tr.dataset.path;
+    smMsg(esc(t("submodule_opening", {path: path})));
+    postJson("/api/submodule-open", {path: path, start_path: "/files"}).then(r => {
+      let link = "";
+      if (r.port) {
+        const url = location.protocol + "//" + location.hostname + ":" + r.port + (r.start_path || "/files");
+        window.open(url, "_blank");
+        link = ' <a href="' + esc(url) + '" target="_blank" rel="noopener">' + esc(url) + "</a>";
+      }
+      smMsg(esc(r.message || "") + link);
+    }).catch(e => smMsg('<span style="color:#b00">' + esc(t("error") + e.message) + "</span>"))
+      .finally(() => { opening = false; });
+  };
+};
