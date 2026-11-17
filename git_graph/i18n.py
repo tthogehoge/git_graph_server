@@ -32,6 +32,11 @@ APP_JS = "/* ---- log_select.js ---- */\n" + (STATIC_DIR / "log_select.js").read
     f"/* ---- js/{path.name} ---- */\n" + path.read_text(encoding="utf-8")
     for path in sorted((STATIC_DIR / "js").glob("*.js")))
 # 共通のメニューバーの CSS (menubar.css) を先頭に連結する。ファイル表示 / 差分ページは menubar.css だけを埋め込む
+# ファイル表示ページの JavaScript は static/files/ の部品 (番号順) を連結する。
+# 部品の境界を示すコメントを挟むので、ブラウザーのエラーに出る行番号から元のファイルを探せる。
+# 先頭の /*__FILE_I18N__*/ は 01_core.js にあり、pages.py が翻訳・CAN_COPY・DESKTOP の定義に置き換える。
+FILES_JS = "".join(path.read_text(encoding="utf-8") for path in sorted((STATIC_DIR / "files").glob("*.js")))
+
 APP_CSS = ((STATIC_DIR / "menubar.css").read_text(encoding="utf-8") + (STATIC_DIR / "wip_panel.css").read_text(encoding="utf-8")
            + (STATIC_DIR / "app.css").read_text(encoding="utf-8").replace(  # ログの行の強調 (log_select.css) とログの表 (commit_log.css) は、app.css の目印の位置へ
                "/*__LOG_SELECT_CSS__*/", (STATIC_DIR / "log_select.css").read_text(encoding="utf-8")).replace(

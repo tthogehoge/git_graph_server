@@ -7,7 +7,7 @@ from urllib.parse import urlencode
 from . import app_state as state
 from .history import api_commit, api_compare, api_diff
 from .i18n import (
-    client_translations, FAVICON_LINK, FILES_PAGE, fill_template, MENUBAR_TEMPLATE, MERGE_PAGE, read_asset, tr, UserError,
+    client_translations, FAVICON_LINK, FILES_JS, FILES_PAGE, fill_template, MENUBAR_TEMPLATE, MERGE_PAGE, read_asset, tr, UserError,
     with_project,
 )
 from .external import configured
@@ -45,7 +45,7 @@ COMMIT_LOG_CSS = read_asset("commit_log.css")  # ログの表・札・コピー�
 LOG_SELECT_CSS = read_asset("log_select.css")  # ログの行 (対象 / A / B) の強調。ファイル表示のログ用 (グラフは app.css に差し込む)
 PATCH_OPS_JS = read_asset("patch_ops.js")  # パッチの作成・適用 (グラフ画面とファイル表示で共通)
 FILES_CSS = read_asset("files.css")  # ファイル表示ページ (/files) の CSS (files.html の <style> に差し込む)
-FILES_JS = read_asset("files.js")  # ファイル表示ページの JavaScript 本体 (files.html の <script> に差し込む)
+# FILES_JS は i18n.py で static/files/ の部品を連結したもの
 MERGE_JS = read_asset("merge.js")
 MERGE_EDITOR_JS = read_asset("vendor/merge_editor.js")  # CodeMirror 6 をまとめたもの (tools/merge_editor でビルド)
 TEXT_EDITOR_JS = read_asset("vendor/text_editor.js")  # ファイル編集のエディタ (CodeMirror 6 + 言語 + Vim)。こちらも tools/merge_editor でビルド
