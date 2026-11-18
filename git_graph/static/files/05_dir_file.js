@@ -1,15 +1,4 @@
 /* ---- files/05_dir_file.js ---- */
-// ---- コミットのパッチ作成 (ダウンロード) ----
-// 作業ツリー (WIP) のパッチ作成と、パッチの適用は、メニューバーの「その他」 (page_menubar.js が patch_ops.js で動かす)
-function setPatchMsg(text, ok) { setStatus(text || "", ok === false ? "error" : (ok === true ? "success" : "info"), ok === false); }
-document.getElementById("patchBar").hidden = isWip;  // 作業ツリーの表示では、メニューを使う
-patchCreateBtn.title = t("tip_patch_create_commit");
-patchCreateBtn.onclick = () => {
-  setPatchMsg("", true);
-  patchCreateBtn.disabled = true;
-  PatchOps.download({hash: hash}, hash.slice(0, 7) + ".patch", setPatchMsg)
-    .finally(() => { patchCreateBtn.disabled = false; });
-};
 function setFileMsg(text, ok) { setStatus(text || "", ok === false ? "error" : (ok === true ? "success" : "info"), ok === false); }
 function defaultCopyName(path) {  // 例: src/a.py → src/a_1234567.py
   const i = path.lastIndexOf("/"), dir = path.slice(0, i + 1), name = path.slice(i + 1), dot = name.lastIndexOf(".");

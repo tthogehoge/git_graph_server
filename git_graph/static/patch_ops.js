@@ -74,10 +74,15 @@ const PatchOps = (function () {
       input.click();
     }
   }
-  // メニューの 3 項目 (wipPatchCreateBtn / wipPatchApplyBtn / wipPatchAmBtn) を動かす。有効・無効は画面側で決める
+  // メニューの 3 項目 (wipPatchCreateBtn / wipPatchApplyBtn / wipPatchAmBtn) を動かす。有効・無効は画面側で決める。
+  // o.commit() が {params, name} を返すときは WIP の代わりにそのコミットのパッチを作る (表示中のコミットで判定する。ファイル表示などで使う)
   function bind(o) {
     const on = (id, fn) => { const b = document.getElementById(id); if (b) b.addEventListener("click", fn); };
-    on("wipPatchCreateBtn", () => download({hash: "WIP"}, "wip.patch", o.say));
+    on("wipPatchCreateBtn", () => {
+      const c = o.commit && o.commit();
+      if (c) download(c.params, c.name, o.say);
+      else download({hash: "WIP"}, "wip.patch", o.say);
+    });
     // stopImmediatePropagation: 同じクリックで「メニューを閉じる」が走るとファイル選択がキャンセルされる
     on("wipPatchApplyBtn", ev => { ev.stopImmediatePropagation(); pick("apply", o); });
     on("wipPatchAmBtn", ev => { ev.stopImmediatePropagation(); pick("am", o); });

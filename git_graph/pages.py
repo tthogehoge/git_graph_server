@@ -94,8 +94,8 @@ MENUBAR_TEXT_KEYS = (
     "reset_branch_no_branch", "reset_branch_select", "revert", "revert_error", "reverting", "tag_to_delete",
     "target_detached_head", "tip_no_ff", "tip_redo", "tip_redo_op", "tip_undo", "tip_undo_op", "undo_busy",
     "undo_confirm", "undo_failed", "undo_nothing", "undo_worktree_force", "what_branch",
-    # 「その他」メニューのパッチ作成・適用 (patch_ops.js)
-    "confirm_patch_apply", "confirm_patch_am", "wip_execute",
+    # 「その他」メニューのパッチ作成・適用 (patch_ops.js)。表示中のコミットのパッチを作るときは文言を替える
+    "confirm_patch_apply", "confirm_patch_am", "wip_execute", "patch_create", "tip_patch_create_commit",
     # commit-graph 最適化 (その他メニュー・ファイル画面でも実行可)
     "confirm_commit_graph_optimize", "commit_graph_optimizing", "commit_graph_optimize_failed",
     # remote 追加 / 削除 (その他メニュー)

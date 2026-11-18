@@ -1664,16 +1664,18 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             qf.blob_for_worktree(commit, "missing.txt")
 
-    def test_files_page_has_commit_patch_button_and_wip_patch_menu_items(self):
+    def test_files_page_patch_menu_items_share_patch_ops(self):
         page = viewer.render_files_page()
 
-        self.assertIn('id="patchCreateBtn"', page)  # コミットのパッチ作成 (左ペイン)
+        for removed in ('id="patchCreateBtn"', 'id="patchBar"', 'id="patchApplyBtn"', 'id="patchAmBtn"', 'id="patchFile"'):
+            self.assertNotIn(removed, page)  # パッチ作成・適用は「その他」メニューに統一した (左ペインのボタンは出さない)
         for removed in ('id="patchApplyBtn"', 'id="patchAmBtn"', 'id="patchFile"'):
             self.assertNotIn(removed, page)  # WIP のパッチ作成・適用は「その他」メニューへ移した
         other = page[page.index('id="otherActions"'):]
         other = other[:other.index("</div>")]
         for item in ('id="wipPatchCreateBtn"', 'id="wipPatchApplyBtn"', 'id="wipPatchAmBtn"'):
             self.assertIn(item, other)
+        self.assertIn('commit: () => (page === "files" && here', page)  # 表示中のコミットでパッチ作成の対象を判定する
         self.assertEqual(page.count("const PatchOps = "), 1)  # 共通部品は 1 度だけ入る
         self.assertIn("/api/patch-am", page)
         self.assertIn("/api/patch-apply", page)

@@ -347,20 +347,29 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
   on("renameBranchBtn", doRenameBranch); on("deleteBranchBtn", () => doDeleteRef("branch")); on("deleteTagBtn", () => doDeleteRef("tag"));
   on("deleteRemoteBranchBtn", () => doDeleteRef("remote-branch"));
   on("undoBtn", () => doUndoRedo("undo")); on("redoBtn", () => doUndoRedo("redo"));
-  // 作業ツリー (WIP) のパッチ作成 / 適用 (apply・am)。グラフ画面と共通の patch_ops.js。適用のあとは、変わった作業ツリー / ブランチを表示に反映する
+  // 作業ツリー (WIP) のパッチ作成 / 適用 (apply・am)。グラフ画面と共通の patch_ops.js。適用のあとは、変わった作業ツリー / ブランチを表示に反映する。
+  // パッチ作成は、表示中のコミットがあれば WIP ではなくそのコミットのパッチ。そのときは文言もコミット用に替える
   PatchOps.bind({
     t: (key, values) => fmt(T[key], values),
     post: postJson,
     say: mbSay,
     before: () => typeof leaveEdit !== "function" || leaveEdit(),  // ファイル表示で編集中なら、変更を捨ててよいか確認する
     applied: () => reloadSoon(),
+    commit: () => (page === "files" && here ? {params: {hash: here}, name: here.slice(0, 7) + ".patch"} : null),
   });
+  const wipPatchCreate = page === "files" && here;  // ファイル表示でコミットを開いているときは、メニューの作成をそのコミットのパッチに替える
+  const wipPatchCreateBtn = $("wipPatchCreateBtn");
+  if (wipPatchCreateBtn && wipPatchCreate) {
+    wipPatchCreateBtn.textContent = T.patch_create;
+    wipPatchCreateBtn.title = T.tip_patch_create_commit;
+  }
   ["renameBranchBtn", "deleteBranchBtn", "deleteRemoteBranchBtn", "deleteTagBtn", "undoBtn", "redoBtn"].forEach(id => { $(id).disabled = true; });  // 状態が分かるまでは押せない
   const worktreeOps = ["mergeBtn", "rebaseBtn", "cherryBtn", "revertBtn", "mergeIntoBtn", "cherryOntoBtn", "rebaseOntoBtn", "rebaseRangeBtn", "rebaseDescendantsBtn", "rebaseEquivalentBtn"];
   worktreeOps.forEach(id => enable($(id), () => writable && worktree));
   ["resetBranchBtn", "renameBranchBtn", "deleteBranchBtn", "deleteRemoteBranchBtn", "deleteTagBtn", "undoBtn", "redoBtn"].forEach(id => enable($(id), () => writable));
   enable($("findEquivalentParentsBtn")); enable($("findEquivalentBranchBtn"));
-  enable($("wipPatchCreateBtn"), () => worktree); enable($("wipPatchApplyBtn"), () => writable && worktree); enable($("wipPatchAmBtn"), () => writable && worktree);
+  enable($("wipPatchCreateBtn"), () => worktree || wipPatchCreate);  // コミット表示なら作業ツリーが無くても作れる。適用は書き込めて作業ツリーがあるときだけ
+  enable($("wipPatchApplyBtn"), () => writable && worktree); enable($("wipPatchAmBtn"), () => writable && worktree);
   // その他メニューの一覧系: ファイル画面では右ペインに同じ一覧を出す (グラフの showRefList 等と同じ API)
   enable($("branchListBtn")); enable($("tagListBtn")); enable($("stashListBtn")); enable($("reflogBtn"));
   enable($("submoduleListBtn")); enable($("opHistoryBtn"));
