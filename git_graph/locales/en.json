@@ -750,7 +750,6 @@
   "stage_done": "Staging state updated for {n} item(s)",
   "add_conflict": "Conflicted files must be resolved with the conflict-resolution actions in WIP ({files})",
   "stage_button": "Stage",
-  "sel_all": "Select all",
   "sel_count": "{n} selected",
   "tip_stage_selected": "Apply the checked staged/unstaged state; checked changes are staged and unchecked staged changes are unstaged",
   "tip_rm_selected": "Run git rm on the checked files and directories (delete from the working tree and stage the deletion)",

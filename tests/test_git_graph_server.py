@@ -1429,8 +1429,9 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
     def test_files_page_has_checkbox_add_rm_controls(self):
         page = viewer.render_files_page()
 
-        for element in ('id="selBar"', 'id="selAddBtn"', 'id="selRmBtn"', 'id="selRmCachedBtn"', 'id="selAll"'):
+        for element in ('id="selBar"', 'id="selAddBtn"', 'id="selRmBtn"', 'id="selRmCachedBtn"'):
             self.assertIn(element, page)
+        self.assertNotIn('id="selAll"', page)
         self.assertIn('"/api/stage"', page)
         self.assertIn("recursive: true", page)
 

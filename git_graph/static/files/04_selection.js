@@ -57,25 +57,14 @@ function syncChangeGroupChecks() {
     all.indeterminate = checked > 0 && checked < boxes.length;
   });
 }
-function activeSelectionBoxes() {
-  return [...(sideMode === "changes" ? changesEl : list).querySelectorAll("input.ck:not(:disabled)")];
-}
 function updateSelBar() {
-  const plan = stagePlan(), n = new Set(plan.stage_paths.concat(plan.unstage_paths)).size, boxes = activeSelectionBoxes();
+  const plan = stagePlan(), n = new Set(plan.stage_paths.concat(plan.unstage_paths)).size;
   const rmCount = checkedStagePaths().length;
   syncChangeGroupChecks();
   selCount.textContent = n ? t("sel_count", {n: n}) : "";
   selAddBtn.disabled = !n;
   selRmBtn.disabled = selRmCachedBtn.disabled = !rmCount;
-  selAll.disabled = !boxes.length;
-  selAll.checked = boxes.length > 0 && boxes.every(b => b.checked);
-  selAll.indeterminate = !selAll.checked && boxes.some(b => b.checked);
 }
-selAll.onchange = () => {  // いま表示している一覧の項目をすべてチェック / 外す
-  const on = selAll.checked;
-  activeSelectionBoxes().forEach(c => { c.checked = on; setStageFromBox(c, on); });
-  updateSelBar();
-};
 function isUntrackedEntry(p) {  // 未追跡のファイル / 中がすべて未追跡のディレクトリ (git rm できない)
   const e = entryInfo[p] || {};
   return e.xy === "??" || (e.type === "tree" && e.st === "?") || wipStatusFiles.some(f => f.path === p && f.wip === "untracked");

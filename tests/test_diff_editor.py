@@ -283,7 +283,7 @@ class DiffEditorPageTests(unittest.TestCase):
         self.assertIn("function syncChangeGroupChecks()", files_html)
         self.assertIn("desiredStageChecked(f.wip, f.path)", files_html)
         self.assertIn('runSel("/api/stage", plan', files_html)
-        self.assertIn("function activeSelectionBoxes()", files_html)
+        self.assertNotIn("function activeSelectionBoxes()", files_html)  # すべて選択チェックは削除した
         self.assertIn('id="wipCommitView"', files_html)
         self.assertNotIn('id="wipCommitOpen"', files_html)
         self.assertIn("return wipCommitPanel.render(document.getElementById(\"wipCommitPanel\"), {});", files_html)
