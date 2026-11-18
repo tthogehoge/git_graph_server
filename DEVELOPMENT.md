@@ -21,7 +21,7 @@ python3 git_graph_server.py --check-i18n
 
 ## アプリケーションの流れ
 
-1. `git_graph_server.py` が `git_graph/server.py` の `main()` を呼び出します。`main()` は CLI 引数と言語を決定し、指定された Git リポジトリのルートを特定します。
+1. `git_graph_server.py` が `git_graph/server.py` の `main()` を呼び出します。`main()` は CLI 引数と言語を決定し、指定された Git リポジトリのルートを特定します。指定されたパスが Git リポジトリでないときは、終了せずに「リポジトリ未選択」(`app_state.NEED_REPO`) で起動し、開くフォルダとリポジトリのアドレス (任意) を尋ねる設定画面 (`static/setup.html`) だけを出します (`--dot` のときと、git が無いときは従来どおりエラー終了)。
 2. `git_graph/app_state.py` に対象リポジトリや起動設定を設定します。各機能モジュールはこの状態を参照し、`git_graph/gitrun.py` のヘルパーを通じて Git を実行します。
 3. `git_graph/server.py` の HTTP ハンドラーが HTML、静的アセット、API リクエストを処理します。ページの HTML/CSS/JavaScript は `git_graph/i18n.py` を通じてテンプレート展開されます。
 4. API ハンドラーは機能別モジュールにあり、`@route` で登録されます。グラフ API は Git 履歴を `git_graph/graph.py` で処理し、画面側の `git_graph/static/js/` が API を呼んで画面を更新します。
@@ -58,6 +58,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.test_git_graph_server.InputV
 | --- | --- |
 | `git_graph_server.py` | 起動用エントリーポイント。各モジュールの互換エクスポートも提供します。新しい機能は原則として機能別モジュールに実装します。 |
 | `git_graph/server.py` | CLI 引数、共有状態の初期化、HTTP サーバー、ページ/API の GET/POST 処理、書き込み要求の制御。 |
+| `git_graph/repo_setup.py` | 開くリポジトリの決定。`open_repo(path)` が `app_state` (リポジトリ・作業ツリーの有無・WIP・プロジェクト名など) を設定し、起動時と設定画面の両方から使われます (リポジトリでなければ `UserError` で、状態は変えません)。`/api/setup` は、リポジトリのアドレスがあればそのフォルダへ `git clone` (`protocol.ext` は禁止。`-` で始まるアドレスは拒否。クローン先は存在しないか空であること。HTTP 認証が必要なときは `auth_required` / `auth_origin` を返し、画面が尋ねてやり直す) してから開きます。`NEED_REPO` の間、`server.py` は `/` に設定画面を返し、ほかのページは `/` へ戻し、`/api/setup` と終了・再起動以外の POST は拒否します。`/api/setup` はリポジトリが決まる前に呼ばれるので `engine.IGNORED` に入れてあり、`LOCAL_PATHS` に入れて `--read-only` でも (ローカルからは) 使えます。クローンだけは書き込みなので、`--read-only` では拒否します。 |
 | `git_graph/routing.py` | `@route` による API ルート登録。HTTP メソッドとパスの組み合わせで管理し、重複登録を拒否します。 |
 | `git_graph/app_state.py` | 対象リポジトリ、起動オプション、書き込み可否、worktree 状態、HTTP サーバーなどのプロセス共有状態。 |
 | `git_graph/gitrun.py` | Git コマンド実行、コミット/ref/ホストの検証、書き込みコマンド、リモート通信と認証情報の処理。 |
@@ -109,6 +110,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.test_git_graph_server.InputV
 | `git_graph/static/commit_log.js`、`commit_log.css` | コミットのログの行 (`tr.clickable[data-h]`) の描画・ブランチ / タグの札・コピー記号・続きの読み込み (無限スクロール `createPager`)・件数の表示・ログの検索 (条件 / 入力欄 / ボタン `bindSearch`)・コミットのドラッグ&ドロップ (`CommitLog`) と、その見た目の **唯一の実装**。グラフのログ画面は `i18n.py` が app.js の先頭に連結し (`rowHtml` / `chips` / 続きの読み込み / 検索 / ドラッグは `CommitLog` に任せる。違うのは、マージグラフの列・stash / サブモジュールの行・対象のコミットへ飛ぶ処理)、CSS は `app.css` の `/*__COMMIT_LOG_CSS__*/` の位置に差し込みます (ほかのルールとの優先順位を変えないため)。ファイル表示は `pages.py` が埋め込み、右ペインのログ (コミットログ / このファイルのログ / このディレクトリのログ) は、1 つの `showLogList` で、同じ行・表・続きの読み込み・検索を使います。ドラッグ&ドロップは、ドラッグの動き (しきい値・案内・Escape・直後のクリックの抑止) だけを共通にし、落としたときの動作は画面ごとに `createDrag` へ渡します (グラフ: AB操作メニューを開く / ファイル表示: `mbSetAB` でメニューバーの AB操作メニューを開く)。 |
 | `git_graph/static/log_select.js`、`log_select.css` | 対象 / A / B の選択 (sessionStorage の `git_graph_ui_sel`) の **保存形式の唯一の実装** (`LogSel`) と、ログの行の強調のスタイル。グラフは `i18n.py` が app.js の先頭に連結し、CSS は `app.css` の `/*__LOG_SELECT_CSS__*/` の位置に差し込みます (ほかのルールとの優先順位を変えないため)。ファイル表示 / 差分は `pages.py` が埋め込み、`page_menubar.js` が選択の読み書きに使います。ファイル表示のログ (`table.file-log`) は、対象 / A / B の行を同じ見た目で強調し、メニューで選択を変えたら付け直します (`LogSel.onChange`)。 |
 | `git_graph/static/wip_panel.js`、`wip_panel.css`、`wip_panel_mount.js` | 作業ツリーの変更 (WIP) の一覧とコミットフォームの **唯一の実装**。グラフ (グラフ用にまとめる JS の先頭に連結)・ファイル表示 (`hash=WIP` のとき左ペイン)・差分 (WIP のとき左ペイン) の 3 画面がこれを使い、チェック・amend・コミット・stash・破棄・rm・競合の解決・中断 / 続行を、画面によらず同じにします。画面ごとの違いは `WipPanel.create(host)` の host (通信・ダイアログ・成功後の更新) だけで表します。`wip_panel_mount.js` は、ファイル表示 / 差分ページ向けの host。`wip_panel.css` は一覧とフォームの CSS (グラフの `app.css` の先頭にも連結)。振る舞いは `tests/wip_panel_behavior.js` (jsdom) が検査します。WIP のコミットフォームを直すときは、ここだけを直します。 |
+| `git_graph/static/setup.html` | 開くリポジトリが決まっていないとき (`NEED_REPO`) の画面。開くフォルダ (アドレスを指定したときはクローン先) とリポジトリのアドレス (任意) を入力して `/api/setup` へ送り、成功したら `/` へ移ります。HTML・CSS・JavaScript を 1 つにまとめた単独のページで、`i18n.py` が読み込み、`render_setup_page()` が翻訳とフォルダの初期値を埋め込みます。 |
 | `git_graph/static/menubar.html` | 全画面 (グラフ / ファイル表示 / 差分) 共通のメニューバーの HTML (1 つの定義)。`pages.py` の `menubar_html()` が、ページ切り替えのリンク・再読み込みボタンの id・`data-*` 属性だけを差し替えて、3 画面すべてに入れます (グラフ画面は `i18n.py` の `render_main_page()` が `index.html` の `<!--__MENUBAR__-->` に入れます)。項目を足すときはここに足し、画面ごとにできる / できないを決めます (グラフは `js/` の部品、グラフ以外は `page_menubar.js`)。 |
 | `git_graph/static/menubar.css`、`page_menubar.js` | メニューバーの CSS (グラフの `app.css` の先頭にも連結) と、グラフ以外の画面での動作。`page_menubar.js` は、その画面でできない操作を隠さずに無効にし、WIP / HEAD / 対象・A・B への移動、A・B の選択 (グラフと同じ sessionStorage)、ブランチ・タグの作成、チェックアウト (`/api/commit-refs` でそのコミットのブランチを取る)、リセット、終了 / 再起動を受け持ちます。`menubar.css` には入力ダイアログの CSS も入っています。 |
 | `git_graph/static/toast.js` | 画面共通のトースト通知 (`setStatus`)。`#statusToasts` に積み上げて表示する (グラフ画面・ファイル画面で同じ見た目・同じ API。CSS は `menubar.css`)。グラフの `setGraphStatus`、ファイル表示の `setFileMsg`・`setSelMsg`、`page_menubar.js` の `mbSay` もこの共通 API に寄せてあるので、操作メッセージの見た目・閉じる・自動消去・progress の扱いを変えるときはここだけを直します。グラフは `i18n.py` が app.js に、ファイル表示は `FILES_JS` に連結します。 |

@@ -86,12 +86,13 @@ if want:
 print(os.environ.get('GIT_GRAPH_HTTP_USERNAME' if prompt.lower().startswith('username') else 'GIT_GRAPH_HTTP_PASSWORD', ''))
 """
 
-def run_git_net(*args, timeout=None, auth=None, auth_host=None, c_locale=False):
+def run_git_net(*args, timeout=None, auth=None, auth_host=None, c_locale=False, cwd=None):
     """リモートと通信する git を実行する。
     SSH の未知ホストは初回だけ known_hosts に登録し、登録済みホストの
     鍵が変わった場合は SSH に拒否させる。必要なら一時的な HTTP 認証用
     askpass を使う。c_locale=True なら、メッセージを解析できるよう C ロケールで実行する。
     auth_host を指定すると、askpass はそのホストの質問にだけ答える (入れ子の submodule など、別のホストへ認証情報を渡さないため)。
+    cwd を指定すると、そのフォルダで実行する (まだリポジトリが無い clone 用。省略すると表示中のリポジトリ)。
     """
     env = dict(os.environ, GIT_TERMINAL_PROMPT="0")
     if c_locale:  # 失敗時のメッセージを解析するための再実行用
@@ -114,7 +115,7 @@ def run_git_net(*args, timeout=None, auth=None, auth_host=None, c_locale=False):
                    GIT_GRAPH_HTTP_USERNAME=auth.get("username", ""),
                    GIT_GRAPH_HTTP_PASSWORD=auth.get("password", ""), GIT_GRAPH_HTTP_HOST=auth_host or "")
     try:
-        return subprocess.run(["git", "-C", state.REPO, *args], capture_output=True, text=True,
+        return subprocess.run(["git", "-C", cwd or state.REPO, *args], capture_output=True, text=True,
                               encoding="utf-8", errors="replace", env=env, timeout=timeout,
                               stdin=subprocess.DEVNULL, start_new_session=True)  # 制御端末を切り離し ssh が /dev/tty に尋ねないように
     except subprocess.TimeoutExpired:
@@ -158,14 +159,14 @@ def auth_origin_from_error(r):
     return http_origin((r.stderr or "") + "\n" + (r.stdout or ""))
 
 
-def run_git_net_origin(*args, auth=None, origin=None, timeout=None):
+def run_git_net_origin(*args, auth=None, origin=None, timeout=None, cwd=None):
     """HTTP 認証が必要かもしれない git を、origin (scheme://host[:port]) 単位に認証情報を使い分けて実行する。
     auth / origin: 明示された認証情報と、その認証情報を使う origin。ほかの origin には渡さない。
     認証が必要になったら、覚えている認証情報 (HTTP_AUTH_CACHE。キーは origin) で 1 回だけ再実行する。
     戻り値: (結果, need)。need は、認証が必要なのに使える認証情報が無かった origin (そうでなければ None)。
     明示された認証情報で失敗したときは、need は None のまま失敗として返し、覚えていた認証情報も捨てる。"""
     explicit = auth if (auth and origin) else None
-    r = run_git_net(*args, auth=explicit, auth_host=urlsplit(origin).hostname if explicit else None, timeout=timeout)
+    r = run_git_net(*args, auth=explicit, auth_host=urlsplit(origin).hostname if explicit else None, timeout=timeout, cwd=cwd)
     if r.returncode == 0:
         if explicit:
             HTTP_AUTH_CACHE[origin] = {"username": explicit.get("username", ""), "password": explicit.get("password", "")}
@@ -180,7 +181,7 @@ def run_git_net_origin(*args, auth=None, origin=None, timeout=None):
         return r, None
     cached = HTTP_AUTH_CACHE.get(need)
     if cached:
-        r2 = run_git_net(*args, auth=cached, auth_host=urlsplit(need).hostname, timeout=timeout)
+        r2 = run_git_net(*args, auth=cached, auth_host=urlsplit(need).hostname, timeout=timeout, cwd=cwd)
         if r2.returncode == 0 or not is_http_auth_error(r2):
             return r2, None
         HTTP_AUTH_CACHE.pop(need, None)

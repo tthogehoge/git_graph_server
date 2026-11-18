@@ -123,7 +123,7 @@ These buttons work only with `--desktop` on a loopback address with writing enab
 
 | Option | Description |
 | --- | --- |
-| `[repo] [rev ...]` | Repository path (default: current directory), then the revisions to show (default: all). Use `.` as the repo to give only revisions |
+| `[repo] [rev ...]` | Repository path (default: current directory), then the revisions to show (default: all). Use `.` as the repo to give only revisions. If the path is not a git repository, a page asks for the folder to open and an optional repository address (if given, it is cloned first and then opened) |
 | `--host HOST` / `--port PORT` | Listen address / port (default 8000; if it is in use a free port is chosen automatically, but an explicit `--port` that is in use is an error) |
 | `--open` | Open the browser after startup |
 | `--no-remotes` / `--no-tags` | Hide remotes / tags |

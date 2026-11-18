@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{setup_title}} - git graph</title>
+__FAVICON__
+<style>
+:root { color-scheme: light dark; --accent: #2c7be5; --muted: #888; --border: #8886; }
+* { box-sizing: border-box; }
+body { margin: 0; font: 14px/1.5 system-ui, "Yu Gothic UI", "Segoe UI", sans-serif; }
+main { max-width: 640px; margin: 8vh auto; padding: 0 20px; }
+h1 { font-size: 20px; margin: 0 0 8px; }
+.lead { color: var(--muted); margin: 0 0 20px; }
+label { display: block; font-weight: 600; margin: 16px 0 4px; }
+input[type=text], input[type=password] { width: 100%; padding: 7px 9px; font: inherit; border: 1px solid var(--border); border-radius: 4px; background: Canvas; color: CanvasText; }
+input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.hint { color: var(--muted); font-size: 12px; margin-top: 3px; }
+#setupAuth { margin-top: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 4px; }
+#setupAuth label:first-of-type { margin-top: 8px; }
+.err { color: #d33; margin-top: 14px; white-space: pre-wrap; word-break: break-word; }
+.actions { margin-top: 18px; display: flex; align-items: center; gap: 12px; }
+button { font: inherit; padding: 7px 22px; border: 1px solid var(--accent); border-radius: 4px; background: var(--accent); color: #fff; cursor: pointer; }
+button:disabled { opacity: .6; cursor: default; }
+#setupBusy { color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+<h1>{{setup_title}}</h1>
+<p class="lead">{{setup_lead}}</p>
+<form id="setupForm" autocomplete="off">
+  <label for="setupPath">{{setup_path_label}}</label>
+  <input type="text" id="setupPath" value="__PATH__" spellcheck="false" autofocus>
+  <div class="hint">{{setup_path_hint}}</div>
+
+  <label for="setupUrl">{{setup_url_label}}</label>
+  <input type="text" id="setupUrl" placeholder="https://github.com/user/repo.git" spellcheck="false">
+  <div class="hint">{{setup_url_hint}}</div>
+
+  <div id="setupAuth" hidden>
+    <div id="setupAuthNote"></div>
+    <label for="setupUser">{{setup_username}}</label>
+    <input type="text" id="setupUser" autocomplete="username">
+    <label for="setupPass">{{setup_password}}</label>
+    <input type="password" id="setupPass" autocomplete="current-password">
+  </div>
+
+  <div class="err" id="setupError" role="alert"></div>
+  <div class="actions">
+    <button type="submit" id="setupSubmit">{{setup_open}}</button>
+    <span id="setupBusy"></span>
+  </div>
+</form>
+</main>
+<script>
+/*__SETUP_I18N__*/
+function t(key, values = {}) {  // {name} を values[name] に置き換える (値の中の $ は特別扱いしない)
+  return (I18N[key] ?? key).replace(/\{(\w+)\}/g, (m, name) => name in values ? String(values[name]) : m);
+}
+const $ = id => document.getElementById(id);
+let authOrigin = null;  // 認証が必要だと言われた origin (認証情報はこの origin にだけ使う)
+
+async function post(path, body) {
+  const res = await fetch(path, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+  const text = await res.text();
+  if (!res.ok) throw new Error(text);
+  return JSON.parse(text);
+}
+
+$("setupForm").addEventListener("submit", async ev => {
+  ev.preventDefault();
+  const url = $("setupUrl").value.trim();
+  const body = {path: $("setupPath").value, url};
+  if (authOrigin) {
+    body.auth = {username: $("setupUser").value, password: $("setupPass").value};
+    body.auth_origin = authOrigin;
+  }
+  $("setupError").textContent = "";
+  $("setupSubmit").disabled = true;
+  $("setupBusy").textContent = t(url ? "setup_cloning" : "setup_opening");
+  let moving = false;
+  try {
+    const res = await post("/api/setup", body);
+    if (res.auth_required) {  // 認証が必要。ユーザー名とパスワードを尋ねて、もう一度
+      authOrigin = res.auth_origin;
+      $("setupAuthNote").textContent = t("setup_auth_needed", {origin: authOrigin});
+      $("setupAuth").hidden = false;
+      $("setupUser").focus();
+      return;
+    }
+    moving = true;
+    location.href = "/";
+  } catch (e) {
+    $("setupError").textContent = e.message;
+  } finally {
+    if (!moving) {
+      $("setupSubmit").disabled = false;
+      $("setupBusy").textContent = "";
+    }
+  }
+});
+</script>
+</body>
+</html>

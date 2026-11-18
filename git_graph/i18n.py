@@ -21,6 +21,7 @@ TRANSLATIONS = {lang: json.loads((LOCALES_DIR / f"{lang}.json").read_text(encodi
 HTML_TEMPLATE = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
 FILES_PAGE = (STATIC_DIR / "files.html").read_text(encoding="utf-8")
 MERGE_PAGE = (STATIC_DIR / "merge.html").read_text(encoding="utf-8")
+SETUP_PAGE = (STATIC_DIR / "setup.html").read_text(encoding="utf-8")  # リポジトリが決まっていないときの、開くパスとクローン元の入力画面
 MENUBAR_TEMPLATE = (STATIC_DIR / "menubar.html").read_text(encoding="utf-8")  # 全画面共通のメニューバー (pages.menubar_html が使う)
 # ブラウザ側の JavaScript は static/js/ の部品 (番号順) を連結して、/static/app.js として配る。
 # 部品の境界を示すコメントを挟むので、ブラウザーのエラーに出る行番号から元のファイルを探せる。
@@ -106,6 +107,15 @@ def render_main_page():
     return with_project(fill_template(HTML_TEMPLATE.replace("<!--__MENUBAR__-->", menubar_html("graph")))
             .replace('<html lang="ja">', f'<html lang="{state.UI_LANG}">'))
 
+def render_setup_page():
+    """開くリポジトリが決まっていないときの画面 (開くフォルダと、クローン元のアドレスの入力)。
+    フォルダの初期値は最後に差し込む (その中の文字列を、ほかの目印として置き換えないため)。"""
+    return (fill_template(SETUP_PAGE)
+            .replace('<html lang="ja">', f'<html lang="{state.UI_LANG}">')
+            .replace("__FAVICON__", FAVICON_LINK)
+            .replace("/*__SETUP_I18N__*/", "const I18N = " + client_translations() + ";")
+            .replace("__PATH__", html.escape(state.SETUP_PATH, quote=True)))
+
 def render_app_js():
     return APP_JS.replace("/*__I18N__*/", "const I18N = " + client_translations() + ";\n"
                           + "const WIP_ENABLED = " + ("true" if state.WIP_ENABLED else "false") + ";")
@@ -182,7 +192,7 @@ def check_i18n():
             if lang == "ja":
                 continue
             state.UI_LANG = lang
-            for name, page in (("main page", HTML_TEMPLATE), ("files page", FILES_PAGE), ("merge page", MERGE_PAGE)):
+            for name, page in (("main page", HTML_TEMPLATE), ("files page", FILES_PAGE), ("merge page", MERGE_PAGE), ("setup page", SETUP_PAGE)):
                 text = _strip_comments(fill_template(page))
                 problems += [f"[{lang}] {name}: untranslated text: {l.strip()[:80]}" for l in text.split("\n") if _CJK.search(l)]
                 problems += [f"[{lang}] {name}: unresolved key: {k}" for k in re.findall(r"\{\{(\w+)\}\}", text)]
@@ -197,9 +207,9 @@ def check_i18n():
 
 __all__ = [
     "read_asset",
-    "FILES_PAGE", "MERGE_PAGE",
+    "FILES_PAGE", "MERGE_PAGE", "SETUP_PAGE",
     "APP_CSS", "APP_JS", "DEFAULT_LANG", "FAVICON_LINK", "HTML_TEMPLATE", "MENUBAR_TEMPLATE",
     "TRANSLATIONS", "UserError", "check_i18n", "client_translations",
-    "detect_language", "fill_template", "render_app_js", "render_main_page",
+    "detect_language", "fill_template", "render_app_js", "render_main_page", "render_setup_page",
     "tr", "with_project",
 ]

@@ -46,6 +46,7 @@ IGNORED = {
     "/api/submodule-update", "/api/submodule-fetch",  # submodule の中身は別のリポジトリなので、元に戻す対象外
     "/api/find-equivalent-parents", "/api/find-equivalent-branch",  # POST だが読み取りだけ
     "/api/undo", "/api/redo",
+    "/api/setup",  # 開くリポジトリを決める (リポジトリが決まる前に呼ばれるので、状態を記録する対象が無い)
 }
 # 操作名 -> 履歴に出す文言の翻訳キー
 LABEL_KEYS = {

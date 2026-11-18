@@ -17,7 +17,7 @@ from .winproc import hide_console_windows
 from .graph import CLUSTER_MIN_NODES, DEFAULT_MERGE_MAX_NODES, build_graph, dot_text_for_cli, graph_payload, warm_graph  # noqa: F401
 from .i18n import (
     APP_CSS, check_i18n, detect_language, FILES_PAGE, fill_template, HTML_TEMPLATE, render_app_js,
-    render_main_page, tr, TRANSLATIONS, UserError,
+    render_main_page, render_setup_page, tr, TRANSLATIONS, UserError,
 )
 from .rebase import (  # noqa: F401
     api_abort, api_cherry_pick, api_find_equivalent_branch, api_find_equivalent_parents, api_head,
@@ -42,6 +42,7 @@ from .history import (  # noqa: F401
 )
 from .external import DEFAULT_CONFIG_PATH, load_config
 from .launcher import api_submodule_open  # noqa: F401
+from .repo_setup import api_setup, open_repo  # noqa: F401
 from .submodules import api_submodule_add, api_submodule_fetch, api_submodule_update  # noqa: F401
 from . import engine, tmpdir
 from .pages import diff_page_url, diff_url, render_files_page, render_merge_page, TEXT_EDITOR_JS, wip_files
@@ -55,7 +56,8 @@ _write_lock = threading.Lock()
 
 DEFAULT_PORT = 8000
 STOP_PATHS = ("/api/shutdown", "/api/restart")  # サーバー自身を止める API (応答を返してから止める。--read-only でもローカルからは使える)
-LOCAL_PATHS = ("/api/submodule-open",)  # ローカルで別プロセスを起動するだけの API (リポジトリは変更しない。--read-only でもローカルからは使える)
+LOCAL_PATHS = ("/api/submodule-open", "/api/setup")  # ローカルで別プロセスを起動するだけ / 開くリポジトリを決めるだけの API (--read-only でもローカルからは使える。クローンは api_setup が書き込み可否を確かめる)
+SETUP_PATHS = ("/api/setup",) + STOP_PATHS  # 開くリポジトリが決まるまで (state.NEED_REPO) に使える API
 
 class QuietServer(ThreadingHTTPServer):
     # Windows では SO_REUSEADDR が「使用中のポートへの二重 bind」を許してしまうため、無効にする
@@ -155,6 +157,16 @@ class Handler(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         q = parse_qs(u.query)
         try:
+            if state.NEED_REPO:  # 開くリポジトリが決まるまでは、設定画面しか出さない (ほかのページは / へ戻す)
+                if u.path == "/":
+                    self._send(200, "text/html", render_setup_page())
+                else:
+                    self.send_response(302)
+                    self.send_header("Location", "/")
+                    self.send_header("Cache-Control", "no-store")
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                return
             if u.path == "/":
                 start = None if u.query else start_page_url()  # ?commit_hash=... などの指定があるときはそのまま
                 if start:
@@ -230,6 +242,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(404, "text/plain", "not found")
                 return
             self._check_post(shutdown=path in STOP_PATHS, local=path in LOCAL_PATHS)
+            if state.NEED_REPO and path not in SETUP_PATHS:
+                raise UserError("setup_required")
             n = int(self.headers.get("Content-Length") or 0)
             if n > BODY_LIMITS.get(path, DEFAULT_BODY_LIMIT):
                 raise ValueError("body too large")
@@ -239,7 +253,9 @@ class Handler(BaseHTTPRequestHandler):
             with _write_lock:
                 res = engine.run(path, handler, body)  # リポジトリを変更する操作は、状態の前後を記録するエンジン経由で実行する
             self._send(200, "application/json", json.dumps(res, ensure_ascii=False))
-            if path not in STOP_PATHS and path not in LOCAL_PATHS:
+            if path == "/api/setup" and not state.NEED_REPO:
+                warm_graph()  # リポジトリが決まったので、最初の画面を見ている裏でグラフを作っておく
+            elif path not in STOP_PATHS and path not in LOCAL_PATHS:
                 warm_graph()  # 変更のあとのグラフを先に作っておく (コミット後にトップへ戻るときなど)
             if path in ("/api/shutdown", "/api/restart") and state.SERVER is not None:
                 if path == "/api/restart":
@@ -320,17 +336,20 @@ def main():
     state.WRITABLE = (not state.OPTS.read_only) and (is_loopback(state.OPTS.host) or state.OPTS.allow_write)
 
     try:
-        git("rev-parse", "--git-dir")
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        sys.exit(tr("cli_not_a_repo", repo=repr(state.REPO)))
-    # サブディレクトリが指定されても、パスの扱い (status / diff はルート基準) がずれないようルートに揃える
-    r = subprocess.run(["git", "-C", state.REPO, "rev-parse", "--show-toplevel"], capture_output=True, text=True, encoding="utf-8", errors="replace")
-    state.HAS_WORKTREE = r.returncode == 0
-    if state.HAS_WORKTREE:
-        state.REPO = r.stdout.strip()
-    state.WIP_ENABLED = state.HAS_WORKTREE and not state.OPTS.no_wip
-    state.PROJECT_NAME = os.path.basename(os.path.abspath(state.REPO)) or state.REPO
-    state.START_WIP = state.OPTS.start == "wip"
+        open_repo(state.OPTS.repo)  # サブディレクトリが指定されても、パスの扱い (status / diff はルート基準) がずれないようルートに揃える
+    except UserError as e:
+        if e.key == "setup_git_missing":  # git が無いときは、リポジトリを尋ねても進めない
+            sys.exit(str(e))
+        if state.OPTS.dot:  # 標準出力に DOT を出すだけの使い方では、画面で尋ねられない
+            sys.exit(tr("cli_not_a_repo", repo=repr(state.REPO)))
+        # git リポジトリではなかった。開くパスとリポジトリのアドレスを尋ねる設定画面を出す (アドレスが指定されたらクローンしてから開く)
+        state.NEED_REPO = True
+        state.SETUP_PATH = os.path.abspath(os.path.expanduser(state.OPTS.repo))
+        state.PROJECT_NAME = ""
+        state.WIP_ENABLED = False
+        state.HAS_WORKTREE = False
+        state.START_WIP = state.OPTS.start == "wip"
+        print(tr("cli_setup_mode", repo=repr(state.REPO)))
     start_path = state.OPTS.start_path
     if start_path and (not start_path.startswith("/") or start_path.startswith("//") or any(ord(c) < 32 or ord(c) == 127 for c in start_path)):
         ap.error(tr("start_path_invalid"))  # 他のサイトへの転送にならないよう、このサーバーの中のパスだけ
@@ -361,7 +380,8 @@ def main():
         print(tr("cli_listening", port=state.OPTS.port))
         if state.WRITABLE:
             print(tr("cli_lan_warning"))
-    warm_graph()  # 最初の画面 (WIP の差分) を見ている裏で、グラフを作っておく
+    if not state.NEED_REPO:
+        warm_graph()  # 最初の画面 (WIP の差分) を見ている裏で、グラフを作っておく
     if state.OPTS.open:
         webbrowser.open(url)
     try:
