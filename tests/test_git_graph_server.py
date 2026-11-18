@@ -1891,7 +1891,7 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertEqual(files.count("const CommitLog = "), 1)
         self.assertLess(files.index("const CommitLog = "), files.index("function fileLogRow("))
         self.assertIn("CommitLog.rowHtml(c, {extraClass: LogSel.kinds(c[0], LogSel.load()), chips: refChips(c[0]), graphLink: true})", files)
-        self.assertEqual(files.count("CommitLog.tableHtml("), 1)  # コミットログ / ファイルのログ / ディレクトリのログは、同じ表 (showLogList)
+        self.assertEqual(files.count("CommitLog.tableHtml("), 3)  # コミットログ / ファイルのログ / ディレクトリのログ (showLogList) と、その他メニューの一覧 (showOtherList / showOtherReflog) は、同じ表 (CommitLog.tableHtml) を使う
         self.assertIn("function refChips(h) { return CommitLog.chipsHtml((refLabels || {})[h], \"\"); }", files)
         self.assertEqual(files.count('{branch: "#b7e4a7"'), 1)  # ファイル表示にも、色の定義を別に持たない (CommitLog の 1 か所だけ)
         self.assertIn("function copyText(", files)  # 行のコピー記号 (.copy) の処理

@@ -22,9 +22,15 @@ class StaticAssetTests(unittest.TestCase):
 
     def test_every_asset_is_embedded_by_pages_py(self):
         pages = read("git_graph", "pages.py")
+        i18n = read("git_graph", "i18n.py")
         for name in self.assets():
             m = re.search(r'^(\w+)\s*=\s*read_asset\("%s"\)' % re.escape(name), pages, re.M)
-            self.assertIsNotNone(m, f"{name} は pages.py で読み込まれていない (使わないファイルは消す)")
+            if not m:
+                # 画面共通の部品 (toast.js / other_lists.js など) は i18n.py が APP_JS / FILES_JS に連結する
+                self.assertRegex(
+                    i18n, r'STATIC_DIR / "%s"\)' % re.escape(name),
+                    f"{name} は pages.py でも i18n.py でも読み込まれていない (使わないファイルは消す)")
+                continue
             uses = len(re.findall(r"\b%s\b" % m.group(1), pages)) - 1  # 定義の 1 回を除く
             self.assertGreater(uses, 0, f"{name} は読み込んでいるが、ページに埋め込まれていない")
 

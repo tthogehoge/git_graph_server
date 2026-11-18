@@ -216,12 +216,13 @@ class DiffEditorPageTests(unittest.TestCase):
         self.assertIn("<script>\n/*__FILES_JS__*/</script>", html)
         self.assertLess(html.count("\n"), 60)
         css, js = pages.read_asset("files.css"), pages.FILES_JS
-        self.assertTrue(js.startswith("/*__FILE_I18N__*/\n"))  # 翻訳などの定義に置き換える目印は、連結後の先頭 (01_core.js)
+        # 翻訳などの定義に置き換える目印は 1 つだけ (01_core.js)。共通部品 (toast.js / other_lists.js) がその前に連結される
+        self.assertEqual(js.count("/*__FILE_I18N__*/"), 1)
         page = pages.render_files_page()
         for marker in ("/*__FILES_CSS__*/", "/*__FILES_JS__*/", "/*__FILE_I18N__*/", "/*__MENUBAR_CSS__*/"):
             self.assertNotIn(marker, page)
         self.assertIn(css.split("/*__MENUBAR_CSS__*/")[0], page)  # CSS の本体は、そのままページに入る
-        self.assertIn(js.split("\n", 1)[1], page)  # JS の本体 (先頭の目印の行より後) も、そのまま入る
+        self.assertIn(js[js.index("/*__FILE_I18N__*/\n") + len("/*__FILE_I18N__*/\n"):], page)  # JS の本体 (目印の行より後) も、そのまま入る (目印の行は翻訳に置き換わる)
         self.assertLess(page.index("const I18N = "), page.index("function t(key, values = {})"))  # 翻訳の定義が先
 
     def test_the_files_page_shows_the_diff_in_the_right_pane(self):
