@@ -140,6 +140,7 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
   enable($("compareWipBtn"), () => worktree); enable($("setABtn")); enable($("setBBtn")); enable($("unsetABtn")); enable($("unsetBBtn")); enable($("compareBtn"));
   enable($("quitBtn")); enable($("keyboardHelpBtn")); enable($("clearCmpBtn")); enable($("swapAbBtn")); enable($("backBtn"));
   enable($("wipBtn"), () => worktree); enable($("topBtn"));
+  enable($("dupWindowBtn"));  // 別ウインドウで同じ画面を開く (常に使える)
   enable($("wipCommitMenuBtn"), () => writable && worktree);
   enable(bar.querySelector('[data-cact="branch"]'), () => writable); enable(bar.querySelector('[data-cact="tag"]'), () => writable);
   enable(bar.querySelector('[data-cact="checkout"]'), () => writable && worktree); enable($("resetBtn"), () => writable && worktree);
