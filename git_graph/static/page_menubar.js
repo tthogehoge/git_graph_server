@@ -75,11 +75,23 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
   $("clearCmpBtn").addEventListener("click", () => { sel.compareA = sel.compareB = sel.actionHash = null; save(); refresh(); });
   for (const slot of ["A", "B"]) {
     const key = "compare" + slot;
-    $("set" + slot + "Btn").addEventListener("click", () => {  // 設定済みなら解除 (グラフ画面と同じ)
+    $("set" + slot + "Btn").addEventListener("click", ev => {  // 設定済みなら解除 (グラフ画面と同じ)
       const h = target();
       if (!h) return;
-      sel[key] = sel[key] === h ? null : h;
-      save(); closeMenus(); refresh();
+      const near = $("cmpActions").classList.contains("near-pointer");
+      const pointer = near ? {type: "contextmenu", clientX: ev.clientX, clientY: ev.clientY, detail: 1} : null;
+      if (sel[key] === h) { sel[key] = null; save(); closeMenus(); refresh(); return; }
+      sel[key] = h;
+      save(); refresh();
+      // 右クリックから A/B を揃えたら、グラフと同様に AB 操作メニューをポインタ付近へ
+      if (near && sel.compareA && sel.compareB) {
+        closeMenus();
+        $("abActions").hidden = false;
+        $("abActToggle").setAttribute("aria-expanded", "true");
+        positionMenuNearPointer($("abActions"), pointer);
+      } else {
+        closeMenus();
+      }
     });
     $("unset" + slot + "Btn").addEventListener("click", () => { sel[key] = null; save(); closeMenus(); refresh(); });
   }
@@ -404,7 +416,59 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
 
   // ---- メニューの開閉 (操作 / AB操作 / その他) ----
   const menus = [["cmpActToggle", "cmpActions"], ["abActToggle", "abActions"], ["otherMenuBtn", "otherActions"]];
-  const closeMenus = () => menus.forEach(([b, m]) => { $(m).hidden = true; $(b).setAttribute("aria-expanded", "false"); });
+  function restoreMenuPosition(menu) {
+    if (!menu) return;
+    menu.classList.remove("near-pointer");
+    menu.style.removeProperty("--menu-left");
+    menu.style.removeProperty("--menu-top");
+  }
+  // グラフ画面の positionMenuNearPointer と同じ (右クリックでメニューをポインタ付近に出す)
+  function positionMenuNearPointer(menu, ev) {
+    if (!menu || !ev || (ev.detail === 0 && ev.type !== "contextmenu")) return;
+    const gap = 12, edge = 8;
+    menu.classList.add("near-pointer");
+    menu.style.setProperty("--menu-left", (ev.clientX + gap) + "px");
+    menu.style.setProperty("--menu-top", (ev.clientY + gap) + "px");
+    const rect = menu.getBoundingClientRect();
+    let left = ev.clientX + gap, top = ev.clientY + gap;
+    if (left + rect.width > window.innerWidth - edge) left = ev.clientX - rect.width - gap;
+    if (top + rect.height > window.innerHeight - edge) top = ev.clientY - rect.height - gap;
+    left = Math.max(edge, Math.min(left, window.innerWidth - rect.width - edge));
+    top = Math.max(edge, Math.min(top, window.innerHeight - rect.height - edge));
+    menu.style.setProperty("--menu-left", left + "px");
+    menu.style.setProperty("--menu-top", top + "px");
+  }
+  const closeMenus = () => menus.forEach(([b, m]) => {
+    const menu = $(m);
+    menu.hidden = true;
+    restoreMenuPosition(menu);
+    $(b).setAttribute("aria-expanded", "false");
+  });
+
+  // ファイル画面のログ行の右クリック: グラフと同じく操作メニューをポインタ付近に開く
+  document.addEventListener("contextmenu", ev => {
+    const tr = ev.target.closest("#content tr.clickable, #content tr[data-h]");
+    if (!tr || !tr.dataset.h) return;
+    if (ev.target.closest("a, input, select, textarea, .copy, button")) return;
+    const h = tr.dataset.h;
+    if (!HASH.test(h)) return;
+    ev.preventDefault();
+    const A = sel.compareA, B = sel.compareB;
+    closeMenus();
+    if (A && B && (h === A || h === B)) {
+      // A/B の行は AB 操作メニュー
+      $("abActions").hidden = false;
+      $("abActToggle").setAttribute("aria-expanded", "true");
+      positionMenuNearPointer($("abActions"), ev);
+    } else {
+      sel.actionHash = h;
+      save();
+      refresh();
+      $("cmpActions").hidden = false;
+      $("cmpActToggle").setAttribute("aria-expanded", "true");
+      positionMenuNearPointer($("cmpActions"), ev);
+    }
+  });
   on("branchListBtn", () => { closeMenus(); if (window.showOtherBranchList) window.showOtherBranchList(); });
   on("tagListBtn", () => { closeMenus(); if (window.showOtherTagList) window.showOtherTagList(); });
   on("stashListBtn", () => { closeMenus(); if (window.showOtherStashList) window.showOtherStashList(); });
@@ -519,6 +583,7 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
     closeMenus();
     $(m).hidden = !open;
     $(b).setAttribute("aria-expanded", String(open));
+    if (open) restoreMenuPosition($(m));  // ツールバーから開くときは通常位置
     if (open && ev.detail === 0) menuButtons($(m))[0]?.focus();
   }));
   bar.addEventListener("keydown", ev => {
