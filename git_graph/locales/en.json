@@ -41,6 +41,7 @@
   "keyboard_help_log": "Select a commit; press Enter to show its details.",
   "keyboard_help_detail": "Use ↑/↓ to move through commit history. Press Tab to reach file and diff links.",
   "keyboard_help_files": "Select an item in the left pane and press Enter to show it on the right. Use ←/→ to go to the parent / open a directory.",
+  "keyboard_help_files_log": "In the log on the right of the files screen, use ↑/↓ to select a commit and Enter to show that commit.",
   "keyboard_help_close": "Close",
   "menu_select_commit": "Click a commit in the graph to see the actions for it here",
   "tip_push_head": "Push the current branch (HEAD); other branches can be chosen in the dialog",

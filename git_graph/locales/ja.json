@@ -41,6 +41,7 @@
   "keyboard_help_log": "コミットを選択し、Enterで詳細を表示します。",
   "keyboard_help_detail": "↑/↓でコミット履歴を移動します。Tabでファイル表示／差分リンクへ移動します。",
   "keyboard_help_files": "左ペインで項目を選び、Enterで右ペインに表示します。←/→で親へ戻る／ディレクトリを開きます。",
+  "keyboard_help_files_log": "ファイル画面の右ペインのログで、↑/↓でコミットを選択し、Enterでそのコミットの表示へ移ります。",
   "keyboard_help_close": "閉じる",
   "menu_select_commit": "グラフのコミットをクリックして選ぶと、そのコミットに対する操作がここに出ます",
   "tip_push_head": "現在のブランチ (HEAD) を push (ダイアログで他のブランチも選べます)",

@@ -13,6 +13,34 @@ content.addEventListener("pointerdown", ev => {  // ログの行からドラッ�
   if (!tr || ev.target.closest("a, input, select, textarea, .copy")) return;
   commitDrag.start(tr, tr.dataset.h, ev);
 });
+// ---- ログの行のキーボード操作 (右ペイン): グラフ画面のログと同じ。↑ / ↓ で選択 (メニューの「対象」) を上下に移し、Enter でそのコミットの表示へ移る (行のクリックと同じ)。Space は特に扱わない ----
+// ボタンやリンクにフォーカスがあるときの Enter は、そのボタンなどの操作を優先する (↑ / ↓ だけ、右ペインへフォーカスを移して受ける)
+document.addEventListener("keydown", ev => {
+  if (ev.defaultPrevented || ev.altKey || ev.ctrlKey || ev.metaKey || ev.shiftKey) return;
+  if (ev.key !== "ArrowUp" && ev.key !== "ArrowDown" && ev.key !== "Enter") return;
+  const main = document.getElementById("main");
+  if (!main || !ev.target.closest || !ev.target.closest("#main")) return;
+  if (ev.target.closest("input, textarea, select, [contenteditable], .cm-editor")) return;  // 入力欄とエディタの中は、それぞれの操作
+  if (document.querySelector('[id$="Modal"]:not([hidden]), #dlgBg')) return;
+  const rows = [...content.querySelectorAll("tr.clickable[data-h]")];
+  if (!rows.length) return;
+  const onButton = !!ev.target.closest("button, a[href], summary");
+  const h = (LogSel.load() || {}).actionHash;
+  let idx = h ? rows.findIndex(r => r.dataset.h === h) : -1;
+  if (ev.key === "Enter") {
+    if (onButton || idx < 0) return;
+    ev.preventDefault();
+    rows[idx].click();  // 行のクリックと同じ: 対象にして、そのコミットの表示へ移る
+    return;
+  }
+  ev.preventDefault();
+  if (onButton) main.focus({preventScroll: true});
+  if (idx < 0) idx = ev.key === "ArrowDown" ? -1 : rows.length;  // 未選択のときは、↓ で先頭、↑ で末尾から
+  const next = ev.key === "ArrowUp" ? idx - 1 : idx + 1;
+  if (next < 0 || next >= rows.length) return;
+  if (window.mbSetTarget) window.mbSetTarget(rows[next].dataset.h);
+  rows[next].scrollIntoView({block: "nearest"});
+});
 function loadFileDiff(path) {  // 右ペインに、このファイルの差分を差分エディタ (変更前 | 変更後) で出す
   closeEditor();  // 表示のエディタ
   fileDiffBtn.hidden = true;  // 差分表示中は内容ボタンだけ (差分ボタンは出さない)
