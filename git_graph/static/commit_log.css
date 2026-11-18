@@ -31,3 +31,10 @@ body.node-dragging { cursor: grabbing; user-select: none; -webkit-user-select: n
 tr.drag-src { opacity: .55; }
 tr.drop-target { outline: 2px solid #e67e00; outline-offset: -2px; }
 #dragTip { position: fixed; z-index: 1000; pointer-events: none; background: #333; color: #fff; font: 12px monospace; padding: 2px 6px; border-radius: 3px; white-space: pre; }
+/* マージグラフ (log_graph.js): 行の左の列と、選択中の線を重ねる <svg> (ログを入れる要素を position: relative にしておく) */
+table.log td.graph { position: relative; padding: 0; }
+table.log td.graph svg { position: absolute; top: 0; left: 0; height: calc(100% + 1px); overflow: visible; }
+table.log td.graph line { stroke-width: 2; stroke-linecap: round; }
+table.log td.graph line.sel-line { opacity: .8; }
+table.log td.graph circle { stroke-width: 2; }
+svg.log-sel-overlay { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; z-index: 3; }

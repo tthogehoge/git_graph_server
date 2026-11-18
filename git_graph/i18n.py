@@ -28,6 +28,7 @@ MENUBAR_TEMPLATE = (STATIC_DIR / "menubar.html").read_text(encoding="utf-8")  # 
 # 画面共通の WIP の一覧とコミットフォーム (wip_panel.js) と、パッチの作成・適用 (patch_ops.js) を先頭に置く
 APP_JS = "/* ---- log_select.js ---- */\n" + (STATIC_DIR / "log_select.js").read_text(encoding="utf-8") + \
     "/* ---- commit_log.js ---- */\n" + (STATIC_DIR / "commit_log.js").read_text(encoding="utf-8") + \
+    "/* ---- log_graph.js ---- */\n" + (STATIC_DIR / "log_graph.js").read_text(encoding="utf-8") + \
     "/* ---- wip_panel.js ---- */\n" + (STATIC_DIR / "wip_panel.js").read_text(encoding="utf-8") + \
     "/* ---- patch_ops.js ---- */\n" + (STATIC_DIR / "patch_ops.js").read_text(encoding="utf-8") + \
     "/* ---- other_lists.js ---- */\n" + (STATIC_DIR / "other_lists.js").read_text(encoding="utf-8") + \

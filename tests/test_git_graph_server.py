@@ -411,8 +411,8 @@ class GitApiIntegrationTests(unittest.TestCase):
         self.assertIn('id="fileGraphLogBtn" hidden', page)
         self.assertIn("fileLogBtn.onclick = () => { if (currentFile) openView(\"log\"); };", page)
         self.assertIn('showLogList(path, () => currentFile === path && currentView === "log");', page)  # このファイルのログ (パスで絞る)
-        self.assertIn('api("/api/log", Object.assign({rev: rev, path: path, skip: skip, limit: CommitLog.CHUNK}, searchP))', page)  # 続きは skip で読む。検索の条件を付けられる
-        self.assertIn("CommitLog.rowHtml(c, {extraClass: LogSel.kinds(c[0], LogSel.load()), chips: refChips(c[0]), graphLink: true})", page)  # グラフのログと同じ行。対象 / A / B の行には、強調のクラスが付く
+        self.assertIn('api("/api/log", Object.assign({rev: rev, path: path, skip: skip, limit: CommitLog.CHUNK}, searchP, graphRow ? {graph: 1} : {}))', page)  # 続きは skip で読む。検索の条件を付けられる
+        self.assertIn("CommitLog.rowHtml(c, {extraClass: LogSel.kinds(c[0], LogSel.load()), chips: refChips(c[0]), graphLink: true, graphTd: graphTd})", page)  # グラフのログと同じ行。対象 / A / B の行には、強調のクラスが付く
         self.assertIn('class="commit-graph" href="/?commit_hash=', page)
         self.assertIn('new URLSearchParams({hash: rowHash, file: currentFile})', page)
         self.assertIn('const dir = slash < 0 ? "" : currentFile.slice(0, slash);', page)
@@ -1858,7 +1858,8 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertLess(files.index("const LogSel = "), files.index("const sel = LogSel.load() || {};"))
         self.assertIn("const save = () => LogSel.save(sel);", files)
         self.assertIn("LogSel.kinds(c[0], LogSel.load())", files)  # 描画時に、対象 / A / B の行へクラスを付ける
-        self.assertIn("LogSel.onChange(sel => LogSel.markRows(content, sel));", files)  # メニューでの変更に追従する
+        self.assertIn("LogSel.onChange(sel => {", files)  # メニューでの変更に追従する
+        self.assertIn("LogSel.markRows(content, sel);\n  if (logGraphCur) logGraphCur.sync();", files)  # 強調と、マージグラフの選択中の線
         for rule in ("table.log tr.cmpA td", "table.log tr.cmpB td", "table.log tr.actionTarget td"):
             self.assertIn(rule, files)
         self.assertNotIn("file-log", files)
@@ -1892,7 +1893,7 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         files = viewer.render_files_page()
         self.assertEqual(files.count("const CommitLog = "), 1)
         self.assertLess(files.index("const CommitLog = "), files.index("function fileLogRow("))
-        self.assertIn("CommitLog.rowHtml(c, {extraClass: LogSel.kinds(c[0], LogSel.load()), chips: refChips(c[0]), graphLink: true})", files)
+        self.assertIn("CommitLog.rowHtml(c, {extraClass: LogSel.kinds(c[0], LogSel.load()), chips: refChips(c[0]), graphLink: true, graphTd: graphTd})", files)
         self.assertEqual(files.count("CommitLog.tableHtml("), 3)  # コミットログ / ファイルのログ / ディレクトリのログ (showLogList) と、その他メニューの一覧 (showOtherList / showOtherReflog) は、同じ表 (CommitLog.tableHtml) を使う
         self.assertIn("function refChips(h) { return CommitLog.chipsHtml((refLabels || {})[h], \"\"); }", files)
         self.assertEqual(files.count('{branch: "#b7e4a7"'), 1)  # ファイル表示にも、色の定義を別に持たない (CommitLog の 1 か所だけ)
@@ -2093,7 +2094,7 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         start = page.index("function showLogList(path, alive, search)")
         body = page[start:page.index("CommitLog.bindSearch(content", start)]
         self.assertIn('showLogList("", () => currentFile === path && currentView === "clog");', page)  # パスで絞らない (path が空)
-        self.assertIn('api("/api/log", Object.assign({rev: rev, path: path, skip: skip, limit: CommitLog.CHUNK}, searchP))', body)  # 続きは skip で読む
+        self.assertIn('api("/api/log", Object.assign({rev: rev, path: path, skip: skip, limit: CommitLog.CHUNK}, searchP, graphRow ? {graph: 1} : {}))', body)  # 続きは skip で読む
         self.assertIn("CommitLog.createPager({", body)
         self.assertNotIn("location.href", body)
         self.assertEqual(page.count("fileCommitLogBtn.hidden = !logHash();"), 6)  # 内容 / 内容に戻る / 差分 / 差分編集を抜けた後 / blame / ファイルのログ
@@ -3619,6 +3620,33 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
     def read_file(self, path):
         with open(os.path.join(self.repo, path), encoding="utf-8") as file:
             return file.read()
+
+
+
+class FilesLogMergeGraphTests(unittest.TestCase):
+    """ファイル表示のログにも、グラフ画面と同じマージグラフ (log_graph.js) を付ける。"""
+
+    def test_files_page_embeds_the_shared_graph_code(self):
+        from git_graph import pages
+        page = pages.render_files_page() if hasattr(pages, "render_files_page") else None
+        self.assertIsNotNone(page)
+        self.assertEqual(page.count("function logGraph(opts)"), 1)
+        self.assertNotIn("/*__LOG_GRAPH__*/", page)
+        self.assertIn("svg.log-sel-overlay", page)  # 選択中の線を重ねる svg の CSS
+
+    def test_graph_screen_uses_the_same_code_with_its_own_host(self):
+        from git_graph.i18n import APP_JS, render_app_js
+        self.assertEqual(APP_JS.count("function logGraph(opts)"), 1)
+        self.assertIn("logGraph({host: listView,", APP_JS)
+        src = (Path(__file__).resolve().parent.parent / "git_graph" / "static" / "log_graph.js").read_text(encoding="utf-8")
+        code = "\n".join(l for l in src.split("\n") if not l.lstrip().startswith("//"))
+        self.assertNotIn("listView", code)  # 共通部は、画面ごとの変数 (listView / actionHash) を参照しない
+        self.assertNotIn("actionHash", code)
+
+    def test_only_the_plain_commit_log_gets_the_graph(self):
+        src = (Path(__file__).resolve().parent.parent / "git_graph" / "static" / "files" / "07_boot.js").read_text(encoding="utf-8")
+        self.assertIn("const graphRow = !path && !search", src)  # パスで絞ったログと検索結果には付けない
+        self.assertIn("graphRow ? {graph: 1} : {}", src)  # 親を返させる
 
 
 if __name__ == "__main__":

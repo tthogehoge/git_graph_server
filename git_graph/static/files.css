@@ -4,6 +4,7 @@
   #sideSplitter:hover, #sideSplitter:focus-visible, body.resizing #sideSplitter { background: #c8d8f0; outline: none; }
   body.resizing { cursor: col-resize; user-select: none; }
   #main { flex: 1; min-width: 0; overflow: auto; padding: 14px 18px; box-sizing: border-box; }
+  #content { position: relative; }  /* ログのマージグラフで、選択中の線の <svg> を重ねる基準 (log_graph.js) */
   h1 { font-size: 15px; margin: 0 0 8px; word-break: break-all; }
   h2 { font-size: 14px; margin: 0 0 8px; }
   h2 .crumb { margin: 0; }

@@ -81,12 +81,17 @@ function showLogList(path, alive, search) {  // 右ペインに git log を出�
   const rows = content.querySelector("table.log tbody"), count = content.querySelector("#logCount"), sentinel = content.querySelector("#logSentinel");
   const searchP = CommitLog.searchParams(search);
   if (search) content.querySelector("#logSearch input").focus({preventScroll: true});
+  // マージグラフを付けるのは、パスで絞らない通常のコミットログだけ (グラフ画面と同じ。パスで絞ると親が途中で抜けるので描けない。検索結果も途中のコミットが抜ける)
+  const graphRow = !path && !search
+    ? logGraph({host: content, rows: () => rows, target: () => (LogSel.load() || {}).actionHash || ""}) : null;
+  logGraphCur = graphRow;
   const pg = logPager = CommitLog.createPager({
     root: document.getElementById("main"), sentinel: sentinel,
     alive: () => logPager === pg && alive(),
-    load: skip => Promise.all([api("/api/log", Object.assign({rev: rev, path: path, skip: skip, limit: CommitLog.CHUNK}, searchP)), refsReady]).then(([r]) => r),
+    load: skip => Promise.all([api("/api/log", Object.assign({rev: rev, path: path, skip: skip, limit: CommitLog.CHUNK}, searchP, graphRow ? {graph: 1} : {})), refsReady]).then(([r]) => r),
     onPage: r => {
-      rows.insertAdjacentHTML("beforeend", r.commits.map(c => fileLogRow(c)).join(""));
+      rows.insertAdjacentHTML("beforeend", r.commits.map(c => fileLogRow(c, graphRow ? graphRow(c) : "")).join(""));
+      if (graphRow) graphRow.sync();  // 行が増えた: 長い線の描き直しと、操作の対象の線
       count.textContent = CommitLog.countText(search, pg.done, pg.skip, pg.total);
       sentinel.textContent = pg.done ? (pg.skip === 0 ? t("none") : "") : t("loading");
     },
@@ -94,7 +99,10 @@ function showLogList(path, alive, search) {  // 右ペインに git log を出�
   });
   pg.watch();
 }
-CommitLog.bindSearch(content, {apply: search => { if (logCtx) showLogList(logCtx.path, logCtx.alive, search); }});
+CommitLog.bindSearch(content, {
+  apply: search => { if (logCtx) showLogList(logCtx.path, logCtx.alive, search); },
+  toggled: () => { if (logGraphCur) logGraphCur.sync(); },  // 検索欄を開閉すると行が下へずれるので、選択中の線 (ログ全体にかぶせた svg) を描き直す
+});
 fileCommitLogBtn.onclick = () => { if (currentFile) openView("clog"); };  // 通常のコミットログは右ペインに出す (履歴に積むので、戻るで元の表示へ戻れる)
 dirCommitLogBtn.onclick = openCommitLogView;
 fileLogBtn.onclick = () => { if (currentFile) openView("log"); };

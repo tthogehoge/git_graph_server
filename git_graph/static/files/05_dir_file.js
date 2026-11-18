@@ -23,10 +23,13 @@ function clearFile() {  // ファイルを選ぶ前の表示に戻す
   content.className = "hint";
   content.textContent = t("select_file_hint");
 }
-function fileLogRow(c) {  // ログの 1 行。グラフ画面のログと同じ行 (commit_log.js): ハッシュ (グラフ画面で開くリンク)・(ブランチ / タグ +) 件名・作者 / 日付。操作の対象 / A / B の行は強調する (log_select.js)
-  return CommitLog.rowHtml(c, {extraClass: LogSel.kinds(c[0], LogSel.load()), chips: refChips(c[0]), graphLink: true});
+function fileLogRow(c, graphTd) {  // ログの 1 行。グラフ画面のログと同じ行 (commit_log.js): (マージグラフ +) ハッシュ (グラフ画面で開くリンク)・(ブランチ / タグ +) 件名・作者 / 日付。操作の対象 / A / B の行は強調する (log_select.js)
+  return CommitLog.rowHtml(c, {extraClass: LogSel.kinds(c[0], LogSel.load()), chips: refChips(c[0]), graphLink: true, graphTd: graphTd});
 }
-LogSel.onChange(sel => LogSel.markRows(content, sel));  // メニューで対象 / A / B を変えたら、表示中のログの強調も付け直す
+LogSel.onChange(sel => {  // メニューで対象 / A / B を変えたら、表示中のログの強調も付け直す。対象がマージコミットなら、マージグラフでその線を全部描く
+  LogSel.markRows(content, sel);
+  if (logGraphCur) logGraphCur.sync();
+});
 function dirLogCells(c) {  // 最終コミットのセル (ハッシュ・件名・日付)。c が無ければ空 (まだ読み込み中 / 履歴に見つからない)
   if (!c) return '<td class="hash"></td><td class="dir-msg"></td><td class="date"></td>';
   return '<td class="hash"><a class="commit-graph" href="/?commit_hash=' + encodeURIComponent(c[0]) + '">' + esc(c[1]) + '</a></td><td class="dir-msg" title="' + esc(c[4]) + '">' +

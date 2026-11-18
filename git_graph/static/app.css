@@ -12,7 +12,6 @@ html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-s
   body.compare-logs-mode #panel { flex-basis: min(var(--compare-panel-width, 760px), 68vw); }
   #listView, #detailView { flex: 1; min-height: 0; overflow: auto; padding: 14px; box-sizing: border-box; }
   #listView { position: relative; }
-  svg.log-sel-overlay { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; z-index: 3; }
   #detailView { display: none; background: #fff; }
   h2 { font-size: 14px; margin: 0 0 8px; }
   pre { white-space: pre-wrap; word-break: break-word; background: #fff; border: 1px solid #ddd; padding: 8px; margin: 6px 0; font-size: 12px; }
@@ -69,11 +68,6 @@ html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-s
 /*__LOG_SELECT_CSS__*/
   table.log tr.clickable.cur.cmpA td { background: #cfe3ff; }
   table.log tr.clickable.cur.cmpB td { background: #ffedd5; }
-  table.log td.graph { position: relative; padding: 0; }
-  table.log td.graph svg { position: absolute; top: 0; left: 0; height: calc(100% + 1px); overflow: visible; }
-  table.log td.graph line { stroke-width: 2; stroke-linecap: round; }
-  table.log td.graph line.sel-line { opacity: .8; }
-  table.log td.graph circle { stroke-width: 2; }
   g.node.actionTarget polygon { stroke: #d22; stroke-width: 3; }
   /* 幅が広いときは、件名と作者/日付を1行に並べる (比較ログは各列の幅で判定する) */
   #listView, .compare-log-col { container: loglist / inline-size; }
