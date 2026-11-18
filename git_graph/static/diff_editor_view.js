@@ -5,6 +5,10 @@
 // 引数: box (中身を作る要素) / text(key, values) (文言) / phrases() (検索パネルなどの文言) / loadScript() (GGText を読み込む Promise) /
 //   vim ({get(), set(on)}。Vim モードの設定。省略すると、ファイル表示・編集と同じ localStorage の設定を使う)。
 // エディタ本体 (GGText.createDiffEditor) は 1MB ほどあるので、ページには埋め込まず、最初に load するときに loadScript で読み込む。
+// CodeMirror MergeView の差分精度。既定 scanLimit 500 だと大きな変更で粗い差分になる。
+// vendor を再ビルドせず、create 後の reconfigure で上書きする (scanLimit=文字数, timeout=ms)。
+const DIFF_SCAN = {scanLimit: 50000, timeout: 8000};
+
 function createDiffEditorView(opts) {
   const box = opts.box, text = opts.text;
   const VIM_KEY = "gitGraphEditorVim";  // files.html のエディタと同じ。どの画面で切り替えても、ほかの画面に引き継ぐ
@@ -104,6 +108,7 @@ function createDiffEditorView(opts) {
         collapse: collapse.checked, wrap: wrapBox.checked, vim: vimBox.checked, phrases: opts.phrases(),
         editable: !!editMode, onChange: editOnChange, onSave: editOnSave,
       });
+      if (editor.view && editor.view.reconfigure) editor.view.reconfigure({diffConfig: DIFF_SCAN});
       const chunks = editor.chunkCount();
       prev.disabled = next.disabled = !chunks;
       count.textContent = chunks ? text("diff_editor_chunks", {n: chunks}) : text("diff_editor_none");

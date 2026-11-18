@@ -3,6 +3,9 @@
 // 方式は 2 つ。どちらも、結果 (競合マーカーの入った内容) は 1 つで、方式を切り替えても引き継ぐ。
 // 「競合マーカー方式」は、上段の ours | theirs と、下段の結果 (競合ごとの採用ボタンつき)。
 // 「ベース編集方式」は、ours | 結果 と theirs | 結果 を 2 行に並べる (2 つの結果は連動する。差分の矢印ボタンで取り込む)。
+// CodeMirror MergeView の差分精度 (vendor 再ビルド不要。create 後に reconfigure)。
+const DIFF_SCAN = {scanLimit: 50000, timeout: 8000};
+
 function t(key, values = {}) {
   let text = key in I18N ? I18N[key] : key;
   Object.entries(values).forEach(([name, value]) => { text = text.replaceAll("{" + name + "}", () => String(value)); });
@@ -55,13 +58,19 @@ function showUnsupported(d) {
 
 const conflictLabels = () => ({ours: t("merge_pick_ours"), theirs: t("merge_pick_theirs"), both: t("merge_pick_both"),
                                both_rev: t("merge_pick_both_rev"), base: t("merge_pick_base"), keys: SHORTCUTS, revert: t("merge_revert_chunk")});
+function applyDiffScan(mv) {
+  if (mv && mv.reconfigure) mv.reconfigure({diffConfig: DIFF_SCAN});
+}
 function createMarkersEditor(text) {
   editor = GGMerge.createMergeEditor({top: $("top"), result: $("result"), ours: data.ours, theirs: data.theirs, text: text,
                                       onChange: onConflictCount, labels: conflictLabels()});
+  applyDiffScan(editor.topView);  // ours|theirs の差分表示
 }
 function createBaseEditor(text) {
   baseEditor = GGMerge.createBaseMergeEditor({oursParent: $("oursPair"), theirsParent: $("theirsPair"), ours: data.ours, theirs: data.theirs,
                                               text: text, onChange: onConflictCount, labels: conflictLabels()});
+  applyDiffScan(baseEditor.oursView);
+  applyDiffScan(baseEditor.theirsView);
 }
 // 方式を切り替える。結果の内容は、切り替える前の方式のものを引き継ぐ (どちらの方式のエディタにも、同じ内容を入れる)
 function setMode(next, remember) {
