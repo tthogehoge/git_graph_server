@@ -1429,8 +1429,9 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
     def test_files_page_has_checkbox_add_rm_controls(self):
         page = viewer.render_files_page()
 
-        for element in ('id="selBar"', 'id="selAddBtn"', 'id="selRmBtn"', 'id="selRmCachedBtn"'):
+        for element in ('id="selBar"', 'id="selCommitBtn"', 'id="selAddBtn"', 'id="selRmBtn"', 'id="selRmCachedBtn"'):
             self.assertIn(element, page)
+        self.assertLess(page.index('id="selCommitBtn"'), page.index('id="selAddBtn"'))  # コミットボタンはステージボタンの左
         self.assertNotIn('id="selAll"', page)
         self.assertIn('"/api/stage"', page)
         self.assertIn("recursive: true", page)

@@ -751,6 +751,7 @@
   "add_conflict": "Conflicted files must be resolved with the conflict-resolution actions in WIP ({files})",
   "stage_button": "Stage",
   "tip_stage_selected": "Apply the checked staged/unstaged state; checked changes are staged and unchecked staged changes are unstaged",
+  "tip_sel_commit": "Open the commit screen; the left-pane checked state is carried over to the commit form's checkboxes",
   "tip_rm_selected": "Run git rm on the checked files and directories (delete from the working tree and stage the deletion)",
   "tip_rm_cached_selected": "Stop tracking the checked items only (the working-tree files are kept and become untracked)",
   "confirm_rm_selected": "Run git rm on the {n} checked item(s)? The working-tree files are deleted and the deletion is staged.",

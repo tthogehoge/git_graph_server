@@ -13,6 +13,7 @@
 //     current(f)                いま開いているファイルの行か (省略可。差分ページで強調する)
 //   });
 //   panel.render(root, {top(s, files), mid(s, files), error(e), okMsg})   root に、一覧とフォームを描く
+//   panel.setChecks(map)   「kind\0path」→ 真偽値 のチェック状態を sel に入れて localStorage に共有する (ファイル表示の左ペインから)
 //
 // チェック・メッセージ・ブランチ名は localStorage で、amend は sessionStorage で、画面をまたいで引き継ぐ。
 const WipPanel = (function () {
@@ -118,6 +119,10 @@ const WipPanel = (function () {
     function reset(clearText) {  // 操作が成功したあとの状態
       sel = {}; keepClear();
       if (clearText) { msg = ""; msgNormal = ""; branchVal = ""; amendOn = false; saveAmend(); }
+    }
+    function setChecks(map) {  // 別の画面 (ファイル表示の左ペイン) で決めたチェック状態「kind\0path」→ 真偽値 を sel に入れて共有する
+      sel = Object.assign({}, map);
+      keepSave();
     }
 
     // ---- チェック ----
@@ -424,7 +429,7 @@ const WipPanel = (function () {
       });
     }
 
-    return {render: render, say: say, reset: reset, amend: () => amendOn, files: () => files};
+    return {render: render, say: say, reset: reset, setChecks: setChecks, amend: () => amendOn, files: () => files};
   }
 
   return {create: create, filesTable: filesTable, diffUrl: diffUrl, dirOf: dirOf, badge: badge};

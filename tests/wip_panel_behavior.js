@@ -27,7 +27,7 @@ async function scenario(name, status, opts) {
   await panel.render(root, {});
   const q = s => root.querySelector(s), all = s => [...root.querySelectorAll(s)];
   const ck = (kind, p) => root.querySelector('.wipck[data-kind="' + kind + '"][data-path="' + p + '"]');
-  return {w, root, q, all, ck, panel, calls, posts, name};
+  return {w, root, q, all, ck, panel, calls, posts, changes, name};
 }
 const base = {head: "abc1234", head_message: "prev", staged: [], unstaged: [], untracked: [], conflicts: [], amend_files: []};
 
@@ -82,6 +82,17 @@ const base = {head: "abc1234", head_message: "prev", staged: [], unstaged: [], u
   // 変更なし
   s = await scenario("clean", base);
   check(!s.q("table.files") && s.root.textContent.includes("no_changes"), "clean: no changes text");
+  // setChecks: 別の画面 (ファイル表示の左ペイン) で決めたチェック状態を sel に入れ、次の描画に反映する
+  s = await scenario("setChecks", Object.assign({}, base, {staged: [file("tracked.txt")], unstaged: [file("tracked.txt")], untracked: [file("new.txt", {st: "?"})]}));
+  s.panel.setChecks({"staged\0tracked.txt": false, "unstaged\0tracked.txt": true});
+  await s.panel.render(s.root, {});
+  check(!s.ck("staged", "tracked.txt").checked && s.ck("unstaged", "tracked.txt").checked, "setChecks: left-pane state wins after re-render");
+  check(!s.ck("untracked", "new.txt").checked, "setChecks: file missing from the map keeps the default");
+  s.q("#wipMsg").value = "msg";
+  s.q("#wipCommit").click(); await new Promise(r => setTimeout(r, 10));
+  const ckPost = s.posts.find(p => p[0] === "/api/wip-commit");
+  check(ckPost && JSON.stringify(ckPost[1].paths) === '["tracked.txt"]' && JSON.stringify(ckPost[1].staged_paths) === "[]",
+        "setChecks: committed from the working tree " + JSON.stringify(ckPost));
   // 破棄: 競合ファイルは破棄できない
   s = await scenario("discard", Object.assign({}, base, {conflicts: [file("c.txt", {st: "U"})], unstaged: [file("u.txt")]}));
   s.ck("conflict", "c.txt").checked = true; s.ck("conflict", "c.txt").dispatchEvent(new s.w.Event("change", {bubbles: true}));

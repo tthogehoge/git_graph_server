@@ -63,7 +63,22 @@ function updateSelBar() {
   syncChangeGroupChecks();
   selAddBtn.disabled = !n;
   selRmBtn.disabled = selRmCachedBtn.disabled = !rmCount;
+  selCommitBtn.disabled = !wipSelectionEnabled();
 }
+function wipPanelChecks() {  // 左ペインのチェック状態を、コミット画面の WipPanel の sel「kind\0path」→ 真偽値 にする (競合の欄は左ペインでは選べないので、コミット画面の既定に任せる)
+  const out = {};
+  wipStatusFiles.forEach(f => {
+    if (f.wip === "conflict") return;
+    out[f.wip + "\0" + f.path] = desiredStageChecked(f.wip, f.path);
+  });
+  return out;
+}
+selCommitBtn.onclick = () => {  // チェック状態を反映してコミット画面 (WIP のコミットフォーム) を開く
+  if (!isWip || !wipSelectionEnabled() || !wipCommitPanel) return;
+  wipCommitPanel.setChecks(wipPanelChecks());
+  if (wipCommitView.hidden) openWipCommit();
+  refreshWipCommitPanel();
+};
 function isUntrackedEntry(p) {  // 未追跡のファイル / 中がすべて未追跡のディレクトリ (git rm できない)
   const e = entryInfo[p] || {};
   return e.xy === "??" || (e.type === "tree" && e.st === "?") || wipStatusFiles.some(f => f.path === p && f.wip === "untracked");
