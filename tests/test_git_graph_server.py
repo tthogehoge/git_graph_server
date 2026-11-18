@@ -3643,6 +3643,16 @@ class FilesLogMergeGraphTests(unittest.TestCase):
         self.assertNotIn("listView", code)  # 共通部は、画面ごとの変数 (listView / actionHash) を参照しない
         self.assertNotIn("actionHash", code)
 
+    def test_clicking_the_graph_column_only_selects_the_commit(self):
+        from git_graph import pages
+        page = pages.render_files_page()
+        select = page.index("window.mbSetTarget(rowHash)")
+        guard = page.index('if (ev.target.closest("td.graph")) return;')
+        navigate = page.index('location.href = "/files?" + params;', guard)
+        self.assertLess(select, guard)  # 対象にはする
+        self.assertLess(guard, navigate)  # そのコミットの表示へ移る前に止める
+        self.assertLess(guard, page.index('const dirParams = new URLSearchParams({hash: rowHash});'))  # ディレクトリのログの項目でも同じ
+
     def test_only_the_plain_commit_log_gets_the_graph(self):
         src = (Path(__file__).resolve().parent.parent / "git_graph" / "static" / "files" / "07_boot.js").read_text(encoding="utf-8")
         self.assertIn("const graphRow = !path && !search", src)  # パスで絞ったログと検索結果には付けない

@@ -285,6 +285,7 @@ content.addEventListener("click", ev => {
   const row = ev.target.closest("tr.clickable, .blame-line"), rowHash = row && (row.dataset.h || row.dataset.hash);  // ログの行は data-h (グラフ画面と同じ)、blame の行は data-hash
   if (!rowHash) return;
   if (window.mbSetTarget) window.mbSetTarget(rowHash);  // ログ / blame の行をクリックしたコミットを、メニューの「対象」にする
+  if (ev.target.closest("td.graph")) return;  // マージグラフの列は、対象にするだけ (そのコミットの表示へは移らない。線の強調は対象の変更で付く)
   if (!currentFile) {  // ディレクトリのログの項目: そのコミットでのディレクトリを開く
     if (!dirLogOn) return;
     const dirParams = new URLSearchParams({hash: rowHash});
