@@ -630,8 +630,22 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
     ev.preventDefault();
     buttons[next].focus();
   });
-  document.addEventListener("click", ev => { if (!ev.target.closest(".menu-wrap")) closeMenus(); });
-  document.addEventListener("keydown", ev => { if (ev.key === "Escape") closeMenus(); });
+  function anyMenuOpen() {
+    return menus.some(([, m]) => !$(m).hidden);
+  }
+  // グラフ画面と同じ: メニューが開いているときは外側クリックで閉じるだけ (下のログ行クリック等はしない)
+  document.addEventListener("click", ev => {
+    if (!anyMenuOpen()) return;
+    if (ev.target.closest(".menu-wrap")) return;  // メニュー項目のクリックは通す
+    if (ev.target.closest("#cmpActToggle, #abActToggle, #otherMenuBtn")) return;  // トグルは既存処理に任せる
+    closeMenus();
+    ev.stopPropagation();
+    ev.preventDefault();
+  }, true);
+  document.addEventListener("keydown", ev => {
+    if (ev.key !== "Escape") return;
+    if (anyMenuOpen()) { closeMenus(); ev.preventDefault(); }
+  });
   bar.querySelectorAll(".dropdown .abtn").forEach(b => b.addEventListener("click", () => {
     // パッチ適用は patch_ops が stopImmediatePropagation する。ここでも閉じないよう除外する
     if (b.id === "wipPatchApplyBtn" || b.id === "wipPatchAmBtn") return;
