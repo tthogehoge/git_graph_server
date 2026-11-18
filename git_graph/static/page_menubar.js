@@ -445,29 +445,63 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
     $(b).setAttribute("aria-expanded", "false");
   });
 
+  // ログ行の操作メニューを開く (右クリック / Shift+F10 / ContextMenu キー)。開いたら先頭項目にフォーカスする
+  function openLogRowMenu(h, ev) {
+    if (!HASH.test(h || "")) return false;
+    const A = sel.compareA, B = sel.compareB;
+    closeMenus();
+    let menu;
+    if (A && B && (h === A || h === B)) {
+      menu = $("abActions");
+      menu.hidden = false;
+      $("abActToggle").setAttribute("aria-expanded", "true");
+    } else {
+      sel.actionHash = h;
+      save();
+      refresh();
+      menu = $("cmpActions");
+      menu.hidden = false;
+      $("cmpActToggle").setAttribute("aria-expanded", "true");
+    }
+    if (ev) positionMenuNearPointer(menu, ev);
+    else restoreMenuPosition(menu);
+    // キーボード操作のため、開いたメニューの先頭の有効な項目へフォーカスする
+    requestAnimationFrame(() => {
+      const first = [...menu.querySelectorAll(".abtn")].find(b => !b.disabled && !b.closest("[hidden]"));
+      if (first) first.focus();
+    });
+    return true;
+  }
   // ファイル画面のログ行の右クリック: グラフと同じく操作メニューをポインタ付近に開く
   document.addEventListener("contextmenu", ev => {
     const tr = ev.target.closest("#content tr.clickable, #content tr[data-h]");
     if (!tr || !tr.dataset.h) return;
     if (ev.target.closest("a, input, select, textarea, .copy, button")) return;
-    const h = tr.dataset.h;
-    if (!HASH.test(h)) return;
+    if (!HASH.test(tr.dataset.h)) return;
     ev.preventDefault();
-    const A = sel.compareA, B = sel.compareB;
-    closeMenus();
-    if (A && B && (h === A || h === B)) {
-      // A/B の行は AB 操作メニュー
-      $("abActions").hidden = false;
-      $("abActToggle").setAttribute("aria-expanded", "true");
-      positionMenuNearPointer($("abActions"), ev);
-    } else {
-      sel.actionHash = h;
-      save();
-      refresh();
-      $("cmpActions").hidden = false;
-      $("cmpActToggle").setAttribute("aria-expanded", "true");
-      positionMenuNearPointer($("cmpActions"), ev);
+    openLogRowMenu(tr.dataset.h, ev);
+  });
+  // キーボード: Shift+F10 または ContextMenu キーで、フォーカス行 / 操作対象の行のメニューを開く
+  document.addEventListener("keydown", ev => {
+    const isCtx = ev.key === "ContextMenu" || (ev.key === "F10" && ev.shiftKey);
+    if (!isCtx) return;
+    if (ev.defaultPrevented) return;
+    const tag = ev.target && ev.target.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+    if (ev.target && (ev.target.isContentEditable || ev.target.closest(".cm-editor"))) return;
+    const content = document.getElementById("content");
+    if (!content) return;
+    let tr = ev.target.closest && ev.target.closest("#content tr.clickable, #content tr[data-h]");
+    if (!tr || !tr.dataset.h) {
+      const h = sel.actionHash || target();
+      if (h) tr = content.querySelector('tr[data-h="' + CSS.escape(h) + '"]');
     }
+    if (!tr || !tr.dataset.h || !HASH.test(tr.dataset.h)) return;
+    ev.preventDefault();
+    // 行の中央付近にメニューを出す (マウス座標が無いとき)
+    const rect = tr.getBoundingClientRect();
+    const fake = {type: "contextmenu", clientX: rect.left + Math.min(120, rect.width / 2), clientY: rect.top + rect.height / 2, detail: 1};
+    openLogRowMenu(tr.dataset.h, fake);
   });
   on("branchListBtn", () => { closeMenus(); if (window.showOtherBranchList) window.showOtherBranchList(); });
   on("tagListBtn", () => { closeMenus(); if (window.showOtherTagList) window.showOtherTagList(); });
