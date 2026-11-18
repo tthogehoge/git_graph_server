@@ -203,6 +203,8 @@
   "tip_scroll_head": "Select the HEAD commit, show its log, and scroll the graph to it",
   "tip_wip_open": "Show the working-tree changes (WIP), select the WIP node, and scroll the graph to it",
   "show_merges": "Show merges",
+  "rebuild_graph": "Rebuild graph",
+  "tip_rebuild_graph": "Rebuild the graph, prioritizing target, A, B, then HEAD",
   "cli_help_merge_max_nodes": "cap the total number of graph nodes when showing merges, newest merges first (0 = unlimited, default: 2200)",
   "cluster_nodes": "{n} nodes",
   "cli_help_cluster_min_nodes": "group nodes into year/month/day clusters when there are more than this many (0 = never, default: 1000)",

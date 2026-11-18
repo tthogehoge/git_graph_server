@@ -1,6 +1,7 @@
 # グラフ用の履歴モデル (残すコミットとエッジ) の読み取り・構築。
 # DOT/SVG の描画は git_graph.graph に残す。HTTP は知らない。
 import heapq
+from itertools import chain
 import subprocess
 import sys
 from collections import defaultdict
@@ -253,6 +254,10 @@ def build_model(opts):
             if p in parents:
                 desc[p] |= d
     keep = set(base)
+    # UI から指定されたコミットは、マージ表示の上限判定より先に残す。
+    # 既存の必須ノード数が上限を超える場合と同様、選択ノード分だけ上限を超えることがある。
+    priority = [h for h in getattr(opts, "graph_priority", ()) if h in parents]
+    keep.update(priority)
     for x in order:
         d = desc[x]
         if d & (d - 1) == 0:  # base の子孫が 1 つ以下
@@ -277,13 +282,49 @@ def build_model(opts):
     # ブランチを消したあとのマージは、通常の省略では分岐も合流も見えなくなるため。
     show_merges = getattr(opts, "show_merges", False)
     extra = set()
+    priority_sources = []
+    priority_groups = []
     if show_merges:
         # 大きなリポジトリではマージが何万もあり、全部出すと分岐元探しも dot も終わらない。
         # グラフ全体のノード数が max_nodes を超えない範囲で、新しいマージから出す (0 で無制限)。
         max_nodes = getattr(opts, "merge_max_nodes", DEFAULT_MERGE_MAX_NODES)
         pos = {h: i for i, h in enumerate(order)}
         opts.merge_truncated = False
-        for h in order:  # 新しい順
+        # 指定したマージコミットの直接の分岐元は上限判定より先に確保する。
+        # ここが欠けると、親側の次に残っている古いノードから線が伸びてしまう。
+        forced_sources = set()
+        for h in priority:
+            ps = [p for p in parents[h] if p in pos]
+            if len(ps) < 2:
+                priority_groups.append([h])
+                continue
+            found = set()
+            for i in range(len(ps)):
+                for j in range(i + 1, len(ps)):
+                    found.update(merge_bases(parents, pos, ps[i], ps[j]))
+            bases = list(found)
+            sources = [x for x in bases if x not in keep and x not in forced_sources]
+            priority_sources.extend(sources)
+            forced_sources.update(sources)
+            # 簡易描画で開くクラスタを 1 つに絞る場合も、マージ元を優先して見せる。
+            priority_groups.append([*bases, h])
+        keep.update(forced_sources)
+        # 指定コミットそのものだけでは通常マージでないので、その祖先にあるマージも優先する。
+        # 複数の指定先は入力順 (対象 / A / B / HEAD) にたどり、各グループ内は新しい順にする。
+        visited, prioritized_merges = set(), []
+        for tip in priority:
+            stack, group = [tip], set()
+            while stack:
+                h = stack.pop()
+                if h in visited or h not in parents:
+                    continue
+                visited.add(h)
+                if len(parents[h]) > 1:
+                    group.add(h)
+                stack.extend(parents[h])
+            prioritized_merges.extend(h for h in order if h in group)
+        priority_set = set(prioritized_merges)
+        for h in chain(prioritized_merges, (h for h in order if h not in priority_set)):  # 指定先の祖先マージ優先、その後は新しい順
             ps = [p for p in parents[h] if p in pos]
             if len(ps) < 2:
                 continue
@@ -297,6 +338,7 @@ def build_model(opts):
                 break
             extra |= added
         extra -= keep
+        extra |= forced_sources
         keep |= extra
 
     need = [h for h in keep if h not in subjects]  # 残したコミットの件名だけ取る
@@ -378,7 +420,9 @@ def build_model(opts):
                 counts[(d, c, via)] = 0 if none_omitted else 1
     keep_order.reverse()  # 出力の順序を毎回同じにする (レイアウトが安定する)
 
-    return {"keep": keep, "keep_order": keep_order, "extra": extra, "edges": edges, "counts": counts,
+    return {"keep": keep, "keep_order": keep_order, "extra": extra, "priority_sources": priority_sources,
+            "priority_groups": priority_groups,
+            "edges": edges, "counts": counts,
             "labels": labels, "subjects": subjects, "parents": parents, "dates": dates, "head": head,
             "truncated": show_merges and getattr(opts, "merge_truncated", False)}
 

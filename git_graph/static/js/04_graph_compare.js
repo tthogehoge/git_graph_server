@@ -1,9 +1,9 @@
 // setGraphStatus / setStatus は toast.js (画面共通)
 
 // 操作のあと、グラフを(表示したまま)作り直して新しいブランチ/タグ/HEAD を反映する
-function refreshGraph() {
+function refreshGraph(prioritizeSelection = false) {
   setGraphStatus(t("graph_updating"), "progress");
-  return fetch(graphUrl())
+  return fetch(graphUrl(prioritizeSelection))
     .then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); }))
     .then(r => {
       const keys = new Set(Object.keys(DATA.nodes).concat(Object.keys(r.nodes)));

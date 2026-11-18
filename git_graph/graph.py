@@ -326,7 +326,7 @@ def _edge_key(d, c, via):
     return f"{d}->{c}" if via is None else f"m_{d}_{c}_{via}"  # グラフの線のキー (_edge_data と同じ)
 
 
-def _model_for(merges):
+def _model_for(merges, priority=()):
     """作業ツリー以外 (ref / HEAD / stash) が変わらない限りキャッシュしたモデルを返す。_lock の中で呼ぶ。
     返す値: (キャッシュ, opts, HEAD, キャッシュのキー)"""
     cache = _cache.setdefault(merges, {"base_key": None, "model": None, "payload_key": None, "payload": None})
@@ -334,7 +334,9 @@ def _model_for(merges):
     opts.show_merges = merges
     # 同じコミットを指すブランチ間で checkout すると current (★) 表示がキャッシュされたままになるのを防ぐ
     head, current_branch = head_and_branch()
-    key = model_cache_key(head, current_branch)
+    priority = tuple(dict.fromkeys([*priority, *([head] if head else [])]))
+    key = (model_cache_key(head, current_branch), priority)
+    opts.graph_priority = priority
     if cache["base_key"] != key:
         cache.update(base_key=key, model=build_model(opts), payload_key=None, payload=None)
     return cache, opts, head, key
@@ -351,7 +353,12 @@ def _dot_for(model, opts, head, wip_n, requested, minimal=False):
     extra, anchor = {}, head
     if clustered:
         clusters, cluster_of = _clusters_of(model)
-        open_ids = resolve_open(clusters, cluster_of.get(head), requested)
+        # 再作成で優先した対象 / A / B / HEAD が属するクラスタも開き、個別ノードを見せる。
+        priority_groups = model.get("priority_groups") or [[h] for h in getattr(opts, "graph_priority", ())]
+        selected_clusters = [cluster_of[h] for group in priority_groups for h in group
+                             if h in cluster_of and cluster_of[h] not in requested]
+        # resolve_open は末尾のクラスタを優先する。対象を最優先にするため、優先クラスタは逆順で渡す。
+        open_ids = resolve_open(clusters, cluster_of.get(head), [*requested, *reversed(selected_clusters)])
         if minimal:
             open_ids = open_ids[-1:]
         dot_text, nodes, edges = render_clustered(model, opts, clusters, cluster_of, open_ids)
@@ -388,9 +395,14 @@ def graph_payload(q=None):
     作業ツリーの変更 (WIP ノード) だけを毎回付け替える。
     ?merges=1 でマージ表示、?open=c:2024-03,c:2023 で開いておくクラスター (古い順) を指定する。"""
     merges = bool(q) and q.get("merges", [""])[0] == "1"
+    priority = []
+    if q:
+        import re
+        priority = list(dict.fromkeys(x for x in q.get("priority", [""])[0].split(",")
+                                      if re.fullmatch(r"[0-9a-fA-F]{7,40}", x)))
     requested = [x for x in (q.get("open", [""])[0].split(",") if q else []) if x]
     with _lock:  # 同時に複数回作らない (2つ目以降はキャッシュを使う)
-        cache, opts, head, key = _model_for(merges)
+        cache, opts, head, key = _model_for(merges, priority)
         wip_n = None  # None: WIP を出さない / 0: 変更なしの WIP (ノードに出すのは変更ファイル数だけ)
         if state.WIP_ENABLED:
             try:

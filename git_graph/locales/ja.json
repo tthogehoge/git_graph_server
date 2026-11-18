@@ -203,6 +203,8 @@
   "tip_scroll_head": "HEAD のコミットを選択してログを表示し、グラフをそのノードまでスクロールします",
   "tip_wip_open": "作業ツリーの変更 (WIP) を表示し、WIP ノードを選択してグラフをその位置までスクロールします",
   "show_merges": "マージ表示",
+  "rebuild_graph": "グラフ再作成",
+  "tip_rebuild_graph": "対象、A、B、HEAD の順に優先してグラフを再作成します",
   "cli_help_merge_max_nodes": "マージ表示でグラフ全体のノード数をこの数までにする。新しいマージから出す (0 で無制限、既定: 2200)",
   "cluster_nodes": "{n} ノード",
   "cli_help_cluster_min_nodes": "ノード数がこれを超えたら、年・月・日のクラスターにまとめて表示する (0 でまとめない、既定: 1000)",

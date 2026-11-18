@@ -59,9 +59,13 @@ function setShowMerges(on) {
   try { localStorage.setItem(SHOW_MERGES_KEY, on ? "1" : "0"); } catch (e) { /* 保存できなくても表示は切り替わる (次回起動時には引き継がれない) */ }
 }
 let openClusters = [];  // クラスター表示で開いているクラスター (古い順)。サーバーが数を絞って返す
-function graphUrl() {
+function graphUrl(prioritizeSelection = false) {
   const params = [];
   if (showMergesOn()) params.push("merges=1");
+  if (prioritizeSelection) {
+    const priority = [actionHash, compareAHash, compareBHash].filter((h, i, a) => h && a.indexOf(h) === i);
+    if (priority.length) params.push("priority=" + encodeURIComponent(priority.join(",")));
+  }
   if (openClusters.length) params.push("open=" + encodeURIComponent(openClusters.join(",")));
   return "/api/graph" + (params.length ? "?" + params.join("&") : "");
 }

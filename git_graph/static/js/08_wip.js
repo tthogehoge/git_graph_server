@@ -77,3 +77,8 @@ document.getElementById("showMergesBtn").addEventListener("click", () => {  // �
     .catch(() => { cb.checked = !cb.checked; setShowMerges(cb.checked); })  // 作り直せなかったら、表示中のグラフに合わせて戻す
     .finally(() => { btn.disabled = false; });
 });
+document.getElementById("rebuildGraphBtn").addEventListener("click", () => {
+  const btn = document.getElementById("rebuildGraphBtn");
+  btn.disabled = true;
+  refreshGraph(true).finally(() => { btn.disabled = false; });
+});
