@@ -147,7 +147,10 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
   // 対象 = 操作の対象のコミット、A / B = 比較の 2 つのコミット。作業ツリーが要る操作は、書き込めて作業ツリーがあるときだけ使える
   const A = () => sel.compareA, B = () => sel.compareB, short7 = h => (h || "").slice(0, 7);
   const OP_LABEL = () => ({merge: T.merge, rebase: T.rebase, cherry: T.cherry_pick, revert: T.revert});
-  const reloadSoon = () => setTimeout(() => location.reload(), 800);
+  const reloadSoon = () => {
+    if (typeof window.refreshFilesState === "function") window.refreshFilesState();
+    setTimeout(() => location.reload(), 800);
+  };
   const clearAB = () => { sel.compareA = sel.compareB = null; save(); refresh(); };  // A / B のコミットは、操作のあとで変わることがある
   async function opHead(needBranch, mergeKey) {  // 途中の操作 (マージ・リベースなど) があれば止める
     const hd = await getJson("/api/head");
@@ -222,6 +225,7 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
   }
   // 対象のコミットを指しているブランチ / リモート追跡ブランチ / タグ (ブランチ・タグの操作の選択肢)。操作のあとは読み込み直すので、ページごとに 1 回だけ取る
   let labelsP = null;
+  window.invalidateMenubarRefLabels = () => { labelsP = null; };  // コミット / push 後に取り直す
   const refsOf = async h => {
     labelsP = labelsP || getJson("/api/ref-labels");
     const list = (await labelsP).labels[h] || [];

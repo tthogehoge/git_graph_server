@@ -2,8 +2,24 @@
 // ---- ブランチ / タグ / HEAD の表示 (グラフ画面と同じ名前・色)。コミット → 名前の一覧は、ページを開いたときに 1 回読む ----
 var refLabels = {};  // コミット → [{name, kind}] (var: 読み込み前に refChips が呼ばれても落ちないようにする)
 function refChips(h) { return CommitLog.chipsHtml((refLabels || {})[h], ""); }  // 札の描画はグラフ画面と共通 (commit_log.js)
-const refsReady = api("/api/ref-labels", {}).then(r => { refLabels = r.labels || {}; }).catch(() => { refLabels = {}; });  // 取れなくても、名前が出ないだけで他の表示は動く
-refsReady.then(() => { if (currentCommitMeta) renderCommitHeader(currentCommitMeta); });  // 左上のコミット情報にも、読み込み後に名前を出す
+function refreshRefLabels() {  // コミット / ブランチ操作のあと、左上のブランチ・タグ名を取り直す
+  return api("/api/ref-labels", {}).then(r => {
+    refLabels = r.labels || {};
+    if (currentCommitMeta) renderCommitHeader(currentCommitMeta);
+  }).catch(() => { /* 名前が出ないだけで他の表示は動く */ });
+}
+const refsReady = refreshRefLabels();  // ページを開いたときに 1 回読む
+// コミット・push / pull / fetch のあと: ブランチ名と HEAD の表示を更新する (ページ全体の再読み込みの代わり / 直前の反映)
+window.refreshFilesState = function () {
+  if (typeof window.invalidateMenubarRefLabels === "function") window.invalidateMenubarRefLabels();
+  return refreshRefLabels().then(() => {
+    if (!isWip) return;
+    // 作業ツリー表示中は HEAD が動いていることがあるので、ツリーと左上のコミット情報を読み直す
+    return loadTree(current, false);
+  }).then(() => {
+    if (typeof refreshWipCommitPanel === "function") return refreshWipCommitPanel();
+  }).catch(() => {});
+};
 function showError(e) {
   list.innerHTML = '<p class="hint">' + t("error") + esc(e.message) + '</p>';
   setStatus(t("error") + e.message, "error", true);

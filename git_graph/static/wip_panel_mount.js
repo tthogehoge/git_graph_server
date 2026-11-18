@@ -25,6 +25,8 @@ function mountWipPanel(root, opts) {
           history.replaceState(history.state, "", location.pathname + "?" + params + location.hash);
         }
       }
+      // 再読み込み前にブランチ名・HEAD を先に反映する (コミット直後の札の遅れを防ぐ)
+      if (typeof window.refreshFilesState === "function") window.refreshFilesState();
       setTimeout(() => location.reload(), 800);
     },
     onFiles: opts.onFiles,

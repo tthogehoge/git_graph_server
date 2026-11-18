@@ -89,7 +89,12 @@
       const r = await run(act, p.body);
       if (r.cancelled) { say(r.message, false); return; }
       say(r.message, r.ok !== false && !r.fetch_failed);
-      if (act === "pull") setTimeout(() => location.reload(), 800);  // 取り込んだ変更 (競合も) を一覧に反映する
+      if (act === "pull") {
+        setTimeout(() => location.reload(), 800);  // 取り込んだ変更 (競合も) を一覧に反映する
+      } else if (typeof window.refreshFilesState === "function") {
+        // push / fetch: リモート追跡ブランチなどの札を更新する
+        window.refreshFilesState();
+      }
     } catch (e) {
       say(e.message, false);
     } finally {
