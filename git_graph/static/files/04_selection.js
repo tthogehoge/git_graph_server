@@ -61,7 +61,6 @@ function updateSelBar() {
   const plan = stagePlan(), n = new Set(plan.stage_paths.concat(plan.unstage_paths)).size;
   const rmCount = checkedStagePaths().length;
   syncChangeGroupChecks();
-  selCount.textContent = n ? t("sel_count", {n: n}) : "";
   selAddBtn.disabled = !n;
   selRmBtn.disabled = selRmCachedBtn.disabled = !rmCount;
 }

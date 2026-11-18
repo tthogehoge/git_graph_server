@@ -42,7 +42,6 @@
   .sel-bar { margin: 4px 0; }
   .sel-bar[hidden] { display: none; }
   .sel-bar-btns { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 4px; }
-  .sel-bar .cnt { color: #666; }
   .entry input.ck { flex: none; margin: 0; align-self: center; cursor: pointer; }
   .log-head { display: flex; align-items: center; gap: 6px; margin: 4px 0; }  /* ログの件数と検索ボタン */
   table.log a.commit-graph { color: inherit; text-decoration: none; }  /* ハッシュは、グラフ画面で開くリンク */
