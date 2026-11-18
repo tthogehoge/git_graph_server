@@ -66,6 +66,8 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
   $("backBtn").addEventListener("click", () => history.back());
   $("wipBtn").addEventListener("click", () => go(viewUrl("WIP")));
   $("topBtn").addEventListener("click", () => headCommit().then(h => go(viewUrl(h))).catch(fail));
+  const dupBtn = $("dupWindowBtn");
+  if (dupBtn) dupBtn.addEventListener("click", () => { window.open(location.href, "_blank", "noopener,noreferrer"); });
 
   const hashButtons = [["actionTarget", () => T.target_label, "actionHash"], ["cmpA", () => "A", "compareA"], ["cmpB", () => "B", "compareB"]];
   hashButtons.forEach(([id, label, key]) => $(id).addEventListener("click", () => { if (sel[key]) go(viewUrl(sel[key])); }));

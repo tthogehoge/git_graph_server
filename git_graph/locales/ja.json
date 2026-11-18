@@ -949,5 +949,7 @@
   "side_tree": "ファイル一覧",
   "side_changes": "変更ファイル",
   "commit_mark_D": "このコミットで削除",
-  "binary_short": "バイナリ"
+  "binary_short": "バイナリ",
+  "tip_dup_window": "同じ画面を別ウインドウで開く",
+  "dup_window": "ウインドウを複製"
 }

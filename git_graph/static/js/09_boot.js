@@ -127,3 +127,7 @@ document.getElementById("reload").addEventListener("click", ev => {  // グラ�
 document.getElementById("topBtn").addEventListener("click", scrollToHead);
 document.getElementById("wipBtn").hidden = !WIP_ENABLED;
 document.getElementById("wipBtn").addEventListener("click", openWip);  // グラフの WIP ノードをクリックしたときと同じ (WIP ノードを選択して、前の選択は解除する)
+(function () {
+  const b = document.getElementById("dupWindowBtn");
+  if (b) b.addEventListener("click", () => { window.open(location.href, "_blank", "noopener,noreferrer"); });
+})();
