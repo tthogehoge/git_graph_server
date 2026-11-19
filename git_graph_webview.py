@@ -164,63 +164,84 @@ _GESTURE_NAV_JS = """
     if (window._gestureNavInstalled) return;
     window._gestureNavInstalled = true;
 
-    // 右ボタンドラッグ: 左右で戻る/進む、上下でリロード。
-    // 一度有意な横方向を取ったあと反対方向へ動いたら無効 (右→左→右 で進むになるのを防ぐ)。
-    // ドラッグだったときは contextmenu を出さない (開始直後・わずかな移動でも距離で判定)。
-    const MOVE_THRESH = 8;   // px: これ以上動いたらドラッグ扱い (メニュー抑制)
-    const DIR_THRESH = 40;   // px: 方向を確定する移動量
-    let startX = 0, startY = 0, active = false, moved = false;
-    let dir = 0, invalidated = false;  // dir: -1 左(戻る) / +1 右(進む) / 0 未確定。縦は別扱い
-    let didGesture = false;
+    // Right-button drag (webview only): left=back, right=forward, vertical=reload.
+    // If horizontal direction is locked then reversed, the gesture is cancelled.
+    // While the right button is down we suppress contextmenu; pure clicks re-fire it on mouseup
+    // so menus still work (fixes menu appearing at the start of a drag on WebKit).
+    var THRESHOLD = 50;
+    var startX = null, startY = null;
+    var moved = false, dir = 0, invalidated = false;
+    var pendingMenu = null;
 
-    document.addEventListener('pointerdown', (e) => {
+    document.addEventListener("mousedown", function (e) {
         if (e.button !== 2) return;
         startX = e.clientX;
         startY = e.clientY;
-        active = true;
         moved = false;
         dir = 0;
         invalidated = false;
-        didGesture = false;
+        pendingMenu = null;
     }, true);
 
-    document.addEventListener('pointermove', (e) => {
-        if (!active) return;
-        const dx = e.clientX - startX, dy = e.clientY - startY;
-        if (Math.hypot(dx, dy) >= MOVE_THRESH) moved = true;
-        if (Math.abs(dx) >= DIR_THRESH && Math.abs(dx) >= Math.abs(dy)) {
-            const d = dx > 0 ? 1 : -1;
+    document.addEventListener("mousemove", function (e) {
+        if (startX === null) return;
+        var dx = e.clientX - startX, dy = e.clientY - startY;
+        if (Math.max(Math.abs(dx), Math.abs(dy)) >= THRESHOLD) moved = true;
+        if (Math.abs(dx) >= THRESHOLD && Math.abs(dx) >= Math.abs(dy)) {
+            var d = dx > 0 ? 1 : -1;
             if (dir === 0) dir = d;
             else if (d !== dir) invalidated = true;
         }
     }, true);
 
-    document.addEventListener('pointerup', (e) => {
-        if (!active || e.button !== 2) return;
-        active = false;
-        const dx = e.clientX - startX, dy = e.clientY - startY;
-        const dist = Math.hypot(dx, dy);
-        if (dist < MOVE_THRESH && !moved) return;  // ほぼクリック → メニューを許す
-        didGesture = true;
-        if (invalidated) return;
-        if (Math.abs(dx) >= Math.abs(dy) && Math.abs(dx) >= DIR_THRESH) {
-            if (dir < 0 || (dir === 0 && dx < 0)) history.back();
-            else if (dir > 0 || (dir === 0 && dx > 0)) history.forward();
-        } else if (Math.abs(dy) >= DIR_THRESH) {
-            location.reload();
+    document.addEventListener("contextmenu", function (e) {
+        if (startX === null) return;
+        // Right button gesture in progress: never show menu now.
+        e.preventDefault();
+        e.stopPropagation();
+        if (!moved) {
+            pendingMenu = { x: e.clientX, y: e.clientY, target: e.target };
+        } else {
+            pendingMenu = null;
         }
     }, true);
 
-    document.addEventListener('pointercancel', () => { active = false; }, true);
+    document.addEventListener("mouseup", function (e) {
+        if (e.button !== 2 || startX === null) return;
+        var dx = e.clientX - startX, dy = e.clientY - startY;
+        var dist = Math.max(Math.abs(dx), Math.abs(dy));
+        var wasMoved = moved || dist >= THRESHOLD;
+        var menu = pendingMenu;
+        startX = null;
+        startY = null;
+        pendingMenu = null;
 
-    document.addEventListener('contextmenu', (e) => {
-        const dx = e.clientX - startX, dy = e.clientY - startY;
-        const wasDrag = didGesture || moved || active || Math.hypot(dx, dy) >= MOVE_THRESH;
-        if (wasDrag) {
-            e.preventDefault();
-            e.stopPropagation();
-            didGesture = false;
-            if (active) active = false;
+        if (wasMoved) {
+            if (!invalidated) {
+                if (Math.abs(dx) >= Math.abs(dy)) {
+                    if (dx < 0) history.back();
+                    else history.forward();
+                } else {
+                    location.reload();
+                }
+            }
+            return;
+        }
+
+        // Pure right-click: if we blocked contextmenu earlier, re-dispatch so app menus open.
+        if (menu && menu.target) {
+            setTimeout(function () {
+                var ev = new MouseEvent("contextmenu", {
+                    bubbles: true,
+                    cancelable: true,
+                    view: window,
+                    clientX: menu.x,
+                    clientY: menu.y,
+                    button: 2,
+                    buttons: 0
+                });
+                menu.target.dispatchEvent(ev);
+            }, 0);
         }
     }, true);
 })();
