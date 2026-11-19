@@ -952,5 +952,7 @@
   "commit_mark_D": "Deleted in this commit",
   "binary_short": "bin",
   "tip_dup_window": "Open the same view in a new window",
-  "dup_window": "Duplicate window"
+  "dup_window": "Duplicate window",
+  "dup_window_opened": "Opened the same view in a new window",
+  "dup_window_failed": "Could not open a new window: {error}"
 }

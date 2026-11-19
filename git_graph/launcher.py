@@ -161,4 +161,29 @@ def api_submodule_open(body):
             "message": tr("submodule_opened_window" if window else "submodule_opened", path=path)}
 
 
-__all__ = ["FLAG_OPTIONS", "api_submodule_open", "check_submodule", "forwarded_args", "free_port", "submodule_dir"]
+@route("/api/dup-window", method="POST")
+def api_dup_window(body):
+    """同じリポジトリを別ウインドウで開く。
+    pywebview (CHILD_CMD あり) では子プロセスが自分のウィンドウを開くのでポートは返さない。
+    ブラウザーでは現在のポートと start_path を返し、クライアントが window.open する。"""
+    start_path = body.get("start_path") if isinstance(body, dict) else None
+    if not isinstance(start_path, str) or not start_path.startswith("/"):
+        start_path = "/"
+    # ハッシュ断片はサーバ側のパスではないので捨てる
+    if "#" in start_path:
+        start_path = start_path.split("#", 1)[0] or "/"
+    window = state.CHILD_CMD is not None
+    if window:
+        argv = state.CHILD_CMD(state.REPO, start_path)
+        with tempfile.TemporaryFile() as errfile:
+            try:
+                proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=errfile)
+            except OSError as e:
+                raise UserError("dup_window_failed", error=e)
+            _wait_early_exit(proc, errfile)
+        return {"ok": True, "port": None, "start_path": start_path, "message": tr("dup_window_opened")}
+    # 同じサーバの別タブ。クライアントが location から組み立てる
+    return {"ok": True, "port": state.OPTS.port, "start_path": start_path, "message": ""}
+
+
+__all__ = ["FLAG_OPTIONS", "api_submodule_open", "api_dup_window", "check_submodule", "forwarded_args", "free_port", "submodule_dir"]

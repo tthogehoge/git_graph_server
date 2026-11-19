@@ -67,7 +67,16 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
   $("wipBtn").addEventListener("click", () => go(viewUrl("WIP")));
   $("topBtn").addEventListener("click", () => headCommit().then(h => go(viewUrl(h))).catch(fail));
   const dupBtn = $("dupWindowBtn");
-  if (dupBtn) dupBtn.addEventListener("click", () => { window.open(location.href, "_blank", "noopener,noreferrer"); });
+  if (dupBtn) dupBtn.addEventListener("click", () => {
+    const start_path = (location.pathname + location.search) || "/";
+    postJson("/api/dup-window", {start_path: start_path}).then(r => {
+      // port がある = ブラウザー。webview は子が自分のウインドウを開くので何もしない
+      if (r.port != null) {
+        const url = location.protocol + "//" + location.hostname + ":" + r.port + (r.start_path || "/");
+        window.open(url, "_blank", "noopener,noreferrer");
+      }
+    }).catch(e => mbSay(e.message, false));
+  });
 
   const hashButtons = [["actionTarget", () => T.target_label, "actionHash"], ["cmpA", () => "A", "compareA"], ["cmpB", () => "B", "compareB"]];
   hashButtons.forEach(([id, label, key]) => $(id).addEventListener("click", () => { if (sel[key]) go(viewUrl(sel[key])); }));

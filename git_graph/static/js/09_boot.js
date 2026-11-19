@@ -129,5 +129,15 @@ document.getElementById("wipBtn").hidden = !WIP_ENABLED;
 document.getElementById("wipBtn").addEventListener("click", openWip);  // グラフの WIP ノードをクリックしたときと同じ (WIP ノードを選択して、前の選択は解除する)
 (function () {
   const b = document.getElementById("dupWindowBtn");
-  if (b) b.addEventListener("click", () => { window.open(location.href, "_blank", "noopener,noreferrer"); });
+  if (!b) return;
+  b.addEventListener("click", () => {
+    const start_path = (location.pathname + location.search) || "/";
+    post("/api/dup-window", {start_path: start_path}).then(r => {
+      // port がある = ブラウザー。webview は子が自分のウインドウを開くので何もしない
+      if (r.port != null) {
+        const url = location.protocol + "//" + location.hostname + ":" + r.port + (r.start_path || "/");
+        window.open(url, "_blank", "noopener,noreferrer");
+      }
+    }).catch(e => setGraphStatus(e.message, "error"));
+  });
 })();

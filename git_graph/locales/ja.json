@@ -952,5 +952,7 @@
   "commit_mark_D": "このコミットで削除",
   "binary_short": "バイナリ",
   "tip_dup_window": "同じ画面を別ウインドウで開く",
-  "dup_window": "ウインドウを複製"
+  "dup_window": "ウインドウを複製",
+  "dup_window_opened": "同じ画面を別ウインドウで開きました",
+  "dup_window_failed": "別ウインドウを開けませんでした: {error}"
 }
