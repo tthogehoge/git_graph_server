@@ -12,10 +12,9 @@ from git_graph.i18n import client_translations
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC = os.path.join(ROOT, "git_graph", "static")
-# ページに直接書かれていて、pages.py が埋め込まないもの (メイン画面の骨格と CSS、/files と /merge ページの HTML、全画面共通のメニューバーの HTML、リポジトリ未選択のときの設定画面。いずれも i18n.py が読む)
+# Python 側で組み立てず、そのままのテンプレートとして i18n.py が読むもの (メイン画面・/files・/merge の HTML、全画面共通のメニューバーの HTML、リポジトリ未選択のときの設定画面)
 NOT_EMBEDDED = {os.path.join("graph", "index.html"), os.path.join("files", "files.html"), os.path.join("merge", "merge.html"),
                 os.path.join("common", "menubar.html"), os.path.join("setup", "setup.html")}
-
 
 def read(*parts):
     with open(os.path.join(ROOT, *parts), encoding="utf-8") as f:
@@ -23,7 +22,7 @@ def read(*parts):
 
 
 class StaticAssetTests(unittest.TestCase):
-    """static/ のファイルと、pages.py の埋め込み、DEVELOPMENT.md の説明が食い違わないこと。
+    """static/ のファイルと、各ページ・pages.py の配信、DEVELOPMENT.md の説明が食い違わないこと。
     読み込まれないファイルに CSS を足しても、ページに効かない (そのことで画面が崩れたことがある)。"""
 
     def assets(self):
@@ -34,7 +33,7 @@ class StaticAssetTests(unittest.TestCase):
         return sorted(out)
 
     def referenced(self):
-        """/static/ 下のファイルを参照する URL の集合。各ページのテンプレートと、pages.py / server.py に書かれた <script src> / <link href> / script_tag()。"""
+        """/static/ 下の .js / .css を参照する URL の集合。各ページのテンプレートと、pages.py / server.py に書かれた <script src> / <link href> / script_tag()。"""
         urls = set()
         templates = [read("git_graph", "static", *name.split("/"))
                      for name in ("graph/index.html", "files/files.html", "merge/merge.html", "setup/setup.html")]
@@ -43,21 +42,21 @@ class StaticAssetTests(unittest.TestCase):
             urls |= set(re.findall(r'script_tag\("([\w./-]+\.(?:js|css))"\)', src))
         return urls
 
+    def test_pages_reference_existing_files(self):
+        for rel in self.referenced():
+            self.assertTrue(os.path.isfile(os.path.join(STATIC, *rel.split("/"))), f"{rel} が static/ に無い")
+
     def test_every_asset_is_read_somewhere(self):
-        pages_py, i18n_py = read("git_graph", "pages.py"), read("git_graph", "i18n.py")
-        refs = self.referenced()
+        refs = self.referenced()  # ページが <script src> / <link> で読むもの
+        dynamic = set()
+        for src in (read("git_graph", "pages.py"), read("git_graph", "server.py")):  # pages.py が差し込む (文言の場所など、URL の形では立てないもの)
+            dynamic |= set(re.findall(r'read_asset\("([\w./-]+)"\)', src))
+        i18n_src = read("git_graph", "i18n.py")
+        dynamic |= {"/".join(m) for m in re.findall(r'STATIC_DIR / "(\w+)" / "([\w.-]+)"', i18n_src)}  # テンプレート (i18n.py)
         for name in self.assets():
-            rel, base = name.replace(os.sep, "/").rsplit("/", 1)
-            if rel + "/" + base in refs:  # ページが <script src> / <link> で読む
-                continue
-            m = re.search(r'^(\w+)\s*=\s*read_asset\("%s"\)' % re.escape(name), pages_py, re.M)
-            if m and len(re.findall(r"\b%s\b" % m.group(1), pages_py)) > 1:  # pages.py が埋め込む (定義の 1 回を除く)
-                continue
-            if rel in ("graph/js", "files/js"):  # 番号順の部品は i18n.py が glob で連結する (APP_JS / FILES_JS 従来分。Phase 4 で無くなる)
-                self.assertIn(f'STATIC_DIR / "{rel.split("/")[0]}" / "js").glob("*.js")', i18n_py, f"{name} はどこからも読まれていない (使わないファイルは消す)")
-                continue
-            # テンプレートと、従来の APP_JS / APP_CSS / FILES_JS に連結する共通部品は i18n.py が読む
-            self.assertIn(f'STATIC_DIR / "{rel}" / "{base}"', i18n_py, f"{name} はどこからも読まれていない (使わないファイルは消す)")
+            rel = name.replace(os.sep, "/")
+            self.assertTrue(rel in refs or rel in dynamic,
+                            f"{name} はどこからも読まれていない (使わないファイルは消す)")
 
     def test_pages_py_only_reads_assets_that_exist(self):
         for name in re.findall(r'read_asset\("([^"]+)"\)', read("git_graph", "pages.py")):
@@ -72,7 +71,7 @@ class StaticAssetTests(unittest.TestCase):
         for name in set(re.findall(r"`(?:git_graph/static/)?([\w/]+\.(?:css|js|html))`", doc)):
             if name.startswith(("tools/", "tests/")):  # ビルド元 (tools/merge_editor) と tests 下は static に無い
                 continue
-            if name.startswith("/"):  # URL (/static/app.js) は static 下のパスではない (配信経路はほかのテストが見る)
+            if name.startswith("/"):  # URL は static 下のパスではない (配信経路は StaticDeliveryTests が見る)
                 continue
             if name.startswith("static/"):  # `static/setup/setup.html` のような言及
                 name = name[len("static/"):]

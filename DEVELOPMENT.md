@@ -98,7 +98,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.test_git_graph_server.InputV
 | `git_graph/refops.py` | ブランチ・タグの作成/削除/rename、checkout、reset、stash、変更の破棄。 |
 | `git_graph/rebase.py` | merge、rebase、cherry-pick、revert、rebase 中断、競合解決と履歴上の対応コミット検索。 |
 | `git_graph/remote.py` | remote の一覧・管理、fetch、pull、push、タグ push。 |
-| `git_graph/i18n.py` | 翻訳辞書の読み込み、言語選択、HTML/JavaScript テンプレート展開、翻訳整合性の検査。 |
+| `git_graph/i18n.py` | 翻訳辞書の読み込み、言語選択、HTML テンプレートの展開 (`/static/i18n.js` の中身もここから作る)、翻訳整合性の検査。 |
 | `git_graph/locales/ja.json`、`git_graph/locales/en.json` | 日本語・英語の翻訳辞書。 |
 | `git_graph/static/graph/index.html` | メイン画面の HTML 骨格。 |
 | `git_graph/static/files/files.html`、`files/files.css`、`files/js/` (分割した JS)、`files/wip_mount.js` | ファイル表示ページ(`/files`)。`files/files.html` は HTML の骨組みで、`<link>` と `<script src>` で `files/files.css`・`files/js/` の番号付き JS・共通部品を個別に読み込みます (見た目は `files/files.css`、動作は `static/files/` の部品を直します)。翻訳は先の `/static/i18n.js`、`CAN_COPY` / `DESKTOP` は head の小さなインラインスクリプトです。`files/wip_mount.js` は、`hash=WIP` のとき右ペインに共通の WIP パネルを置くための数行の接続。`i18n.py` が `files/files.html` を読み込み、`pages.py` がメニューバーのダイアログ (文言 `T`) と、remote のときの `diff/wip_diff_remote.js` を差し込みます。左ペインは、ファイル一覧とそのコミットの変更ファイル (コミット表示だけ。`/api/commit` の `files`。項目を押すと右ペインの差分 `view=diff` で開く。選んだ表示は localStorage の `gitGraphFilesSide`。作業ツリーは「WIP の変更」= WIP パネル (変更のあるファイルの一覧とコミットフォーム)。パネルのファイル名を押すと、別ページへ移らず右ペインの差分で開く。同じファイルが staged と unstaged の両方にあるときの区別は、URL の `dwip` / `dold` に残す) を切り替えられます。ファイルごとの表示は内容・編集・blame・ログ・差分 (`view=diff`。「差分」ボタン。変更前 | 変更後の差分エディタを右ペインに出す) で、URL の `view` に残します。 |
@@ -144,7 +144,8 @@ GET は JSON を返し、POST も JSON オブジェクトを受け取って JSON
 - `{{translation_key}}` は HTML テンプレート用、JavaScript の `t("translation_key")` はブラウザー側の文言用です。
 - ユーザー向け文言を追加・変更したら `git_graph/locales/ja.json` と `git_graph/locales/en.json` の両方を更新し、`--check-i18n` を実行してください。
 - API のエラーには既存の `UserError` と翻訳キーを使い、画面に返すメッセージを一貫させてください。
-- `git_graph/i18n.py` は静的ファイルをモジュール読み込み時に読み込みます。画面テンプレートや翻訳を編集した後は、サーバーを再起動して反映を確認してください。
+- CSS / JavaScript は `static/` 下の個別ファイルで、各ページの `<link>` / `<script src>` で読み込みます (`{{...}}` の埋め込みとは別に、全画面共通の `static/common/menubar.html` だけは `i18n.py` が読むテンプレートです)。`server.py` は ETag 付きで配信し、`Cache-Control: no-cache` なので、JS / CSS を編集したあとはリロードだけで反映されます。
+- `git_graph/i18n.py` は画面の HTML テンプレートをモジュール読み込み時に読み込みます。テンプレートや翻訳を編集した後は、サーバーを再起動して反映を確認してください (`/static/i18n.js` の中身も、起動時の翻訳辞書から作ります)。
 - HTML に動的値を挿入するときは、既存の `html.escape` 等のエスケープ方法を使ってください。信頼できない値を `innerHTML` やテンプレートへそのまま連結しないでください。
 
 ### エディタ (CodeMirror 6) を変える

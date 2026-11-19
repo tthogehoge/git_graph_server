@@ -23,32 +23,7 @@ FILES_PAGE = (STATIC_DIR / "files" / "files.html").read_text(encoding="utf-8")
 MERGE_PAGE = (STATIC_DIR / "merge" / "merge.html").read_text(encoding="utf-8")
 SETUP_PAGE = (STATIC_DIR / "setup" / "setup.html").read_text(encoding="utf-8")  # リポジトリが決まっていないときの、開くパスとクローン元の入力画面
 MENUBAR_TEMPLATE = (STATIC_DIR / "common" / "menubar.html").read_text(encoding="utf-8")  # 全画面共通のメニューバー (pages.menubar_html が使う)
-# ブラウザ側の JavaScript は static/graph/js/ の部品 (番号順) を連結して、/static/app.js として配る。
-# 部品の境界を示すコメントを挟むので、ブラウザーのエラーに出る行番号から元のファイルを探せる。
-# 画面共通の WIP の一覧とコミットフォーム (wip_panel.js) と、パッチの作成・適用 (patch_ops.js) を先頭に置く
-APP_JS = "/* ---- log_select.js ---- */\n" + (STATIC_DIR / "common" / "log_select.js").read_text(encoding="utf-8") + \
-    "/* ---- commit_log.js ---- */\n" + (STATIC_DIR / "common" / "commit_log.js").read_text(encoding="utf-8") + \
-    "/* ---- log_graph.js ---- */\n" + (STATIC_DIR / "common" / "log_graph.js").read_text(encoding="utf-8") + \
-    "/* ---- wip_panel.js ---- */\n" + (STATIC_DIR / "common" / "wip_panel.js").read_text(encoding="utf-8") + \
-    "/* ---- patch_ops.js ---- */\n" + (STATIC_DIR / "common" / "patch_ops.js").read_text(encoding="utf-8") + \
-    "/* ---- other_lists.js ---- */\n" + (STATIC_DIR / "common" / "other_lists.js").read_text(encoding="utf-8") + \
-    "/* ---- toast.js ---- */\n" + (STATIC_DIR / "common" / "toast.js").read_text(encoding="utf-8") + "".join(
-    f"/* ---- js/{path.name} ---- */\n" + path.read_text(encoding="utf-8")
-    for path in sorted((STATIC_DIR / "graph" / "js").glob("*.js")))
-# 共通のメニューバーの CSS (menubar.css) を先頭に連結する。ファイル表示 / 差分ページは menubar.css だけを埋め込む
-# ファイル表示ページの JavaScript は static/files/js/ の部品 (番号順) を連結する。
-# 部品の境界を示すコメントを挟むので、ブラウザーのエラーに出る行番号から元のファイルを探せる。
-# 先頭の /*__FILE_I18N__*/ は 01_core.js にあり、pages.py が翻訳・CAN_COPY・DESKTOP の定義に置き換える。
-FILES_JS = (STATIC_DIR / "common" / "toast.js").read_text(encoding="utf-8") + "\n" + \
-    "/* ---- other_lists.js ---- */\n" + (STATIC_DIR / "common" / "other_lists.js").read_text(encoding="utf-8") + "\n" + "".join(
-    path.read_text(encoding="utf-8") for path in sorted((STATIC_DIR / "files" / "js").glob("*.js")))
-
-APP_CSS = ((STATIC_DIR / "common" / "menubar.css").read_text(encoding="utf-8") + (STATIC_DIR / "common" / "wip_panel.css").read_text(encoding="utf-8")
-           + (STATIC_DIR / "graph" / "app_base.css").read_text(encoding="utf-8")  # 旧 /static/app.css は app.css を3分割した順序と同じ内容 (Phase 4 で削除)
-           + (STATIC_DIR / "common" / "commit_log.css").read_text(encoding="utf-8")
-           + (STATIC_DIR / "graph" / "app_mid.css").read_text(encoding="utf-8")
-           + (STATIC_DIR / "common" / "log_select.css").read_text(encoding="utf-8")
-           + (STATIC_DIR / "graph" / "app_tail.css").read_text(encoding="utf-8"))
+# CSS / JavaScript は static/ 下の個別ファイルとして、各ページの <link> / <script src> で配信する (pages.menubar_html / render_main_page など)
 _FAVICON_SVG = ("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'>"
                 "<path d='M16 7V25M16 16C16 11 24 13 24 7' stroke='#889' stroke-width='3' fill='none'/>"
                 "<circle cx='16' cy='25' r='4' fill='#2c7be5'/><circle cx='16' cy='16' r='4' fill='#2c7be5'/>"
@@ -118,10 +93,6 @@ def render_setup_page():
             .replace('<html lang="ja">', f'<html lang="{state.UI_LANG}">')
             .replace("__FAVICON__", FAVICON_LINK)
             .replace("__PATH__", html.escape(state.SETUP_PATH, quote=True)))  # CSS / JS は setup/setup.html の <link> / <script src> (翻訳は /static/i18n.js)
-
-def render_app_js():
-    return APP_JS.replace("/*__I18N__*/", "const I18N = " + client_translations() + ";\n"
-                          + "const WIP_ENABLED = " + ("true" if state.WIP_ENABLED else "false") + ";")
 
 _CJK = re.compile(r"[\u3040-\u30ff\u3400-\u9fff\uff00-\uffef]")
 
@@ -211,8 +182,8 @@ def check_i18n():
 __all__ = [
     "read_asset",
     "FILES_PAGE", "MERGE_PAGE", "SETUP_PAGE",
-    "APP_CSS", "APP_JS", "DEFAULT_LANG", "FAVICON_LINK", "HTML_TEMPLATE", "MENUBAR_TEMPLATE",
+    "DEFAULT_LANG", "FAVICON_LINK", "HTML_TEMPLATE", "MENUBAR_TEMPLATE",
     "TRANSLATIONS", "UserError", "check_i18n", "client_translations",
-    "detect_language", "fill_template", "render_app_js", "render_main_page", "render_setup_page",
+    "detect_language", "fill_template", "render_main_page", "render_setup_page",
     "tr", "with_project",
 ]

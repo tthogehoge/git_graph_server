@@ -2017,8 +2017,9 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
                 self.assertIn(panel, page)  # 同じ実装 (wip_panel.js / wip_panel.css) が個別ファイルとして配信されている
                 self.assertNotIn('id="cbtn"', page)  # 画面ごとの作りかけのコミットフォームは無い
                 self.assertNotIn('class="wck"', page)
-        self.assertEqual(viewer.WIP_PANEL_CSS in pages["files"], True)
-        self.assertIn(viewer.WIP_PANEL_CSS, pages["diff"])
+        panel_css = viewer.read_asset("common/wip_panel.css")
+        self.assertIn(panel_css, pages["files"])
+        self.assertIn(panel_css, pages["diff"])
         for name in ("files", "diff", "diff-amend"):  # ファイル表示 / 差分は、パネルが使う文言を T に持つ (ページに置く動的な部分)
             for key in viewer.WIP_PANEL_TEXT_KEYS:
                 self.assertIn(f'"{key}":', raw[name], f"{name}: T に {key} が無い")
@@ -2028,8 +2029,8 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertIn('id="wipCommitPanel"', files_raw)
         self.assertIn('id="wipCommitView"', files_raw)
         self.assertIn('mountWipPanel(document.getElementById("wipCommitPanel"), {onFiles: wipFilesChanged})', pages["files"])  # 接続は files/wip_mount.js (動的な文言 T は、ページに置く)
-        self.assertIn('params.set("dfrom", change.hash)', viewer.WIP_PANEL_MOUNT_JS)
-        self.assertIn('params.get("dto") === "WIP"', viewer.WIP_PANEL_MOUNT_JS)
+        self.assertIn('params.set("dfrom", change.hash)', viewer.read_asset("common/wip_panel_mount.js"))
+        self.assertIn('params.get("dto") === "WIP"', viewer.read_asset("common/wip_panel_mount.js"))
         self.assertIn('get("hash") === "WIP"', pages["files"])  # 作業ツリーを開いているときだけ出す
         self.assertIn("wipPanel.render(detailView", pages["graph"])
 

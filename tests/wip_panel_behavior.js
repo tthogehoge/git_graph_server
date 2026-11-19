@@ -1,4 +1,4 @@
-// 3 画面共通の WIP の一覧とコミットフォーム (static/wip_panel.js) の振る舞いの検査。
+// 3 画面共通の WIP の一覧とコミットフォーム (static/common/wip_panel.js) の振る舞いの検査。
 // 実行: node tests/wip_panel_behavior.js (jsdom が require できること)。tests/test_wip_panel.py から呼ぶ。失敗は終了コード 1 と標準エラーへ。
 const fs = require("fs"), path = require("path");
 const {JSDOM} = require("jsdom");

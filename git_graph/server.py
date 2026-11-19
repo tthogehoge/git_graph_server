@@ -17,8 +17,8 @@ from .winproc import hide_console_windows
 # 未使用の警告 (F401) を抑止している。
 from .graph import CLUSTER_MIN_NODES, DEFAULT_MERGE_MAX_NODES, build_graph, dot_text_for_cli, graph_payload, warm_graph  # noqa: F401
 from .i18n import (
-    APP_CSS, STATIC_DIR, check_i18n, client_translations, detect_language, FILES_PAGE, fill_template, HTML_TEMPLATE,
-    render_app_js, render_main_page, render_setup_page, tr, TRANSLATIONS, UserError,
+    STATIC_DIR, check_i18n, client_translations, detect_language, FILES_PAGE, fill_template, HTML_TEMPLATE,
+    render_main_page, render_setup_page, tr, TRANSLATIONS, UserError,
 )
 from .rebase import (  # noqa: F401
     api_abort, api_cherry_pick, api_find_equivalent_branch, api_find_equivalent_parents, api_head,
@@ -46,7 +46,7 @@ from .launcher import api_submodule_open  # noqa: F401
 from .repo_setup import api_setup, open_repo  # noqa: F401
 from .submodules import api_submodule_add, api_submodule_fetch, api_submodule_update  # noqa: F401
 from . import engine, tmpdir
-from .pages import diff_page_url, diff_url, render_files_page, render_merge_page, TEXT_EDITOR_JS, wip_files
+from .pages import diff_page_url, diff_url, render_files_page, render_merge_page, wip_files
 from .wip import api_status, api_wip_commit  # noqa: F401
 
 
@@ -245,12 +245,6 @@ class Handler(BaseHTTPRequestHandler):
                     self.end_headers()
                     return
                 self._send(200, "text/html", render_main_page())
-            elif u.path == "/static/app.js":
-                self._send(200, "application/javascript", render_app_js())
-            elif u.path == "/static/vendor/text_editor.js":  # ファイルの編集画面のエディタ。編集を始めるときに読み込む
-                self._send(200, "application/javascript", TEXT_EDITOR_JS)
-            elif u.path == "/static/app.css":
-                self._send(200, "text/css", APP_CSS)
             elif u.path.startswith("/static/"):  # ページが <script src> / <link> で読む静的なファイル
                 self._send_static_file(u.path)
             elif u.path == "/api/tree-log" and q.get("stream"):  # 各項目の最終コミットを、見つかった分から順に送る

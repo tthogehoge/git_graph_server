@@ -299,10 +299,11 @@ class EditorBundleTests(unittest.TestCase):
 
     def test_merge_page_does_not_carry_the_text_editor(self):
         merge_editor = viewer.read_asset("vendor/merge_editor.js")
+        text_editor = viewer.read_asset("vendor/text_editor.js")
         self.assertNotIn("createTextEditor", merge_editor)
         self.assertIn("createMergeEditor", merge_editor)
-        self.assertIn("createTextEditor", viewer.TEXT_EDITOR_JS)
-        self.assertNotIn("createMergeEditor", viewer.TEXT_EDITOR_JS)
+        self.assertIn("createTextEditor", text_editor)
+        self.assertNotIn("createMergeEditor", text_editor)
 
     def test_bundle_route_serves_the_javascript(self):
         previous = (state.OPTS, state.WRITABLE)

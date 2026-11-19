@@ -24,13 +24,10 @@ def wip_file_exists(path):
     return os.path.isfile(target) and not os.path.islink(target)
 
 # (ファイル表示・差分ページの CSS / JS は、ページの HTML が /static/ 下の個別ファイルとして読む)
-WIP_PANEL_JS = read_asset("common/wip_panel.js")  # 作業ツリーの変更の一覧とコミットフォーム。グラフ・ファイル表示・差分で共通
-WIP_PANEL_MOUNT_JS = read_asset("common/wip_panel_mount.js")  # ファイル表示 / 差分ページへ置くための接続
-WIP_PANEL_CSS = read_asset("common/wip_panel.css")
+WIP_PANEL_JS = read_asset("common/wip_panel.js")  # 作業ツリーの変更の一覧とコミットフォーム。グラフ・ファイル表示・差分で共通 (テンプレートが <script src> で読む。文言はここから集める)
 # WIP パネルが使う文言は、パネルの中の t("...") から集める (書き足したときに、ここを直し忘れない)。t(f.label) は、ファイルの種類の表示
 WIP_PANEL_TEXT_KEYS = (*dict.fromkeys(re.findall(r'\bt\("([A-Za-z0-9_]+)"', WIP_PANEL_JS)), "label_conflict", "new_file")
 DIFF_DIALOG_JS = read_asset("common/diff_dialog.js")  # 入力ダイアログ (menubar_dialog_js が文言 T と共にページへ入れる)
-TEXT_EDITOR_JS = read_asset("vendor/text_editor.js")  # ファイル編集のエディタ (CodeMirror 6 + 言語 + Vim)。tools/merge_editor でビルド (server.py が配信する)
 # WIP の差分ページの push / pull / fetch ダイアログが使う文言
 REMOTE_TEXT_KEYS = (
     "cancel", "ok", "prune_label", "pull_mode", "pull_opt_ff", "pull_opt_merge", "pull_opt_rebase",
@@ -496,5 +493,5 @@ def render_merge_page(q):
 
 __all__ = [
     "diff_lines_html", "diff_url", "dir_of", "localized_wip_title",
-    "TEXT_EDITOR_JS", "render_diff_page", "render_files_page", "render_merge_page", "wip_files",
+    "render_diff_page", "render_files_page", "render_merge_page", "wip_files",
 ]
