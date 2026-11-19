@@ -10,7 +10,7 @@
   #mbmsg:empty { display: none; }
   #mbmsg.ok { color: #1a7f37; } #mbmsg.ng { color: #cf222e; }
   .abtn.unavailable, .abtn:disabled { opacity: .5; cursor: default; }
-  #compareControls { flex: 0 0 auto; position: relative; z-index: 6; padding: 4px 8px; border-bottom: 1px solid #ccc; background: #f4f5f7; }
+  #compareControls { flex: 0 0 auto; position: relative; z-index: 400; padding: 4px 8px; border-bottom: 1px solid #ccc; background: #f4f5f7; }
   #compareControls [hidden] { display: none; }
   #compareToolbar { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
   #graph:focus-visible, #listView:focus-visible, #detailView:focus-visible,
@@ -48,7 +48,7 @@
   .abtn.mbtn[aria-expanded="true"] { background: #cfdcf8; border-color: #9fb4e8; }
   .abtn.mbtn:disabled { background: transparent; border-color: transparent; }
   .menu-wrap { position: relative; display: inline-block; }
-  .dropdown { position: absolute; top: calc(100% + 2px); left: 0; z-index: 20; display: flex; flex-direction: column; gap: 4px; box-sizing: border-box; min-width: 220px; max-width: min(440px, calc(100vw - 24px)); max-height: calc(100vh - 90px); overflow: auto; padding: 6px; border: 1px solid #ccc; border-radius: 4px; background: #fff; box-shadow: 0 2px 8px #0003; }
+  .dropdown { position: absolute; top: calc(100% + 2px); left: 0; z-index: 500; display: flex; flex-direction: column; gap: 4px; box-sizing: border-box; min-width: 220px; max-width: min(440px, calc(100vw - 24px)); max-height: calc(100vh - 90px); overflow: auto; padding: 6px; border: 1px solid #ccc; border-radius: 4px; background: #fff; box-shadow: 0 2px 8px #0003; }
   /* 右端のメニューは右ペイン側へはみ出さないよう右端を基準に開く。 */
   #otherActionsWrap .dropdown { left: auto; right: 0; }  /* 一番右のメニューは、画面の右端からはみ出さないよう右端を基準に開く */
   #cmpActions.near-pointer, #abActions.near-pointer { position: fixed; top: var(--menu-top); left: var(--menu-left); right: auto; }
@@ -89,7 +89,7 @@
   .wbtn:hover { background: #176b30; } .wbtn:disabled { opacity: .5; cursor: default; }
   .wbtn.danger { background: #b42318; border-color: #912018; } .wbtn.danger:hover { background: #912018; }
   #dlg h3 { margin: 8px 0 2px; font-size: 13px; } #dlg ul { margin: 0 0 4px; padding-left: 20px; }
-  #dlgBg { position: fixed; inset: 0; background: rgba(0, 0, 0, .35); display: flex; align-items: center; justify-content: center; z-index: 50; }
+  #dlgBg { position: fixed; inset: 0; background: rgba(0, 0, 0, .35); display: flex; align-items: center; justify-content: center; z-index: 1000; }
   #dlg { background: #fff; padding: 14px 16px; border-radius: 6px; min-width: 300px; max-width: 90vw; box-shadow: 0 4px 16px rgba(0, 0, 0, .3); }
   #dlg h2 { margin: 0 0 8px; font-size: 15px; } #dlg label { display: block; margin: 6px 0; } #dlg input[type=text], #dlg select { width: 100%; box-sizing: border-box; }
   #dlg .dbtns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
