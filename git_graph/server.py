@@ -1,4 +1,5 @@
 import argparse
+import hashlib
 import html
 import json
 import os
@@ -8,7 +9,7 @@ import sys
 import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, quote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 from . import app_state as state
 from .gitrun import git, is_loopback, resolve_commit
 from .winproc import hide_console_windows
@@ -16,8 +17,8 @@ from .winproc import hide_console_windows
 # 未使用の警告 (F401) を抑止している。
 from .graph import CLUSTER_MIN_NODES, DEFAULT_MERGE_MAX_NODES, build_graph, dot_text_for_cli, graph_payload, warm_graph  # noqa: F401
 from .i18n import (
-    APP_CSS, check_i18n, detect_language, FILES_PAGE, fill_template, HTML_TEMPLATE, render_app_js,
-    render_main_page, render_setup_page, tr, TRANSLATIONS, UserError,
+    APP_CSS, STATIC_DIR, check_i18n, client_translations, detect_language, FILES_PAGE, fill_template, HTML_TEMPLATE,
+    render_app_js, render_main_page, render_setup_page, tr, TRANSLATIONS, UserError,
 )
 from .rebase import (  # noqa: F401
     api_abort, api_cherry_pick, api_find_equivalent_branch, api_find_equivalent_parents, api_head,
@@ -106,6 +107,8 @@ BODY_LIMITS = {
     "/api/patch-am": PATCH_BODY_LIMIT,
 }
 DEFAULT_BODY_LIMIT = 100000
+STATIC_TYPES = {".js": "application/javascript", ".css": "text/css"}
+_static_cache = {}  # 相対パス -> (更新時刻 ns, サイズ, 本文, ETag)。同じファイルを毎回読まないため
 
 def start_page_url():
     """最初に開く WIP 画面。一度きりで、2回目以降の / はグラフを出す。
@@ -134,6 +137,43 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(data)
+
+    def _send_static_content(self, ctype, body, etag):
+        """本文と ETag を送る。If-None-Match が同じなら 304。Cache-Control は no-cache (検証はするが、リロードで取り直す)。"""
+        matched = self.headers.get("If-None-Match") == etag
+        self.send_response(304 if matched else 200)
+        self.send_header("ETag", etag)
+        self.send_header("Cache-Control", "no-cache")
+        if not matched:
+            self.send_header("Content-Type", ctype + "; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        if not matched:
+            self.wfile.write(body)
+
+    def _send_static_file(self, path):
+        """static/ の下の .js / .css を配る (.html のテンプレートなどは出さない)。static/ の外 (.. など) は 404。
+        ファイルは更新時刻で読み分けるので、JS / CSS の編集はリロードだけで反映する。"""
+        rel = path[len("/static/"):]
+        if rel == "i18n.js":  # クライアント用の翻訳 (const I18N = ...)。テンプレートと同じく、サーバーの再起動で変わる
+            body = ("const I18N = " + client_translations() + ";\n").encode("utf-8")
+            self._send_static_content("application/javascript", body, '"' + hashlib.sha1(body).hexdigest() + '"')
+            return
+        real = STATIC_DIR.resolve()
+        target = (real / unquote(rel)).resolve()
+        if target.suffix not in STATIC_TYPES or not target.is_file() or not target.is_relative_to(real) or target == real:
+            self._send(404, "text/plain", "not found")
+            return
+        st = target.stat()
+        key = target.relative_to(real).as_posix()
+        entry = _static_cache.get(key)
+        if entry and (entry[0], entry[1]) == (st.st_mtime_ns, st.st_size):
+            body, etag = entry[2], entry[3]
+        else:
+            body = target.read_bytes()
+            etag = f'"{st.st_mtime_ns:x}-{st.st_size:x}"'
+            _static_cache[key] = (st.st_mtime_ns, st.st_size, body, etag)
+        self._send_static_content(STATIC_TYPES[target.suffix], body, etag)
 
     def _send_ndjson(self, events):
         """進行に合わせて、1 行ずつ JSON を送る (HTTP/1.0 なので、接続を閉じるまでが本文)。時間のかかる調べものを、できた分から画面に出させるため。
@@ -211,6 +251,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, "application/javascript", TEXT_EDITOR_JS)
             elif u.path == "/static/app.css":
                 self._send(200, "text/css", APP_CSS)
+            elif u.path.startswith("/static/"):  # ページが <script src> / <link> で読む静的なファイル
+                self._send_static_file(u.path)
             elif u.path == "/api/tree-log" and q.get("stream"):  # 各項目の最終コミットを、見つかった分から順に送る
                 self._send_ndjson(tree_log_stream(q))
             elif (handler := ROUTES.get(("GET", u.path))) is not None:
