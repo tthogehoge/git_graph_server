@@ -263,6 +263,10 @@ class SetupHttpTests(StateGuard):
         with self.post("/api/setup", {"path": dest, "url": self.source}) as res:
             self.assertEqual(json.loads(res.read()), {"ok": True, "cloned": True})
         self.assertFalse(state.NEED_REPO)
+        for _ in range(100):  # サーバーは応答を返したあとで warm_graph を呼ぶ (別スレッド)。呼ばれるのを待つ
+            if self.warm.called:
+                break
+            threading.Event().wait(0.01)
         self.warm.assert_called()
         with urlopen(self.base + "/") as res:  # 通常の画面 (WIP のファイル表示へ移る)
             self.assertNotIn('id="setupForm"', res.read().decode("utf-8"))
