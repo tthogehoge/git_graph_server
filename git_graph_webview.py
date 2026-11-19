@@ -164,41 +164,63 @@ _GESTURE_NAV_JS = """
     if (window._gestureNavInstalled) return;
     window._gestureNavInstalled = true;
 
-    const THRESHOLD = 50;   // ドラッグ判定の最小移動量 (px)
-    let startX = null;
-    let startY = null;
-    let didNavigate = false;
+    // 右ボタンドラッグ: 左右で戻る/進む、上下でリロード。
+    // 一度有意な横方向を取ったあと反対方向へ動いたら無効 (右→左→右 で進むになるのを防ぐ)。
+    // ドラッグだったときは contextmenu を出さない (開始直後・わずかな移動でも距離で判定)。
+    const MOVE_THRESH = 8;   // px: これ以上動いたらドラッグ扱い (メニュー抑制)
+    const DIR_THRESH = 40;   // px: 方向を確定する移動量
+    let startX = 0, startY = 0, active = false, moved = false;
+    let dir = 0, invalidated = false;  // dir: -1 左(戻る) / +1 右(進む) / 0 未確定。縦は別扱い
+    let didGesture = false;
 
-    document.addEventListener('mousedown', (e) => {
-        if (e.button === 2) {
-            startX = e.clientX;
-            startY = e.clientY;
-            didNavigate = false;
+    document.addEventListener('pointerdown', (e) => {
+        if (e.button !== 2) return;
+        startX = e.clientX;
+        startY = e.clientY;
+        active = true;
+        moved = false;
+        dir = 0;
+        invalidated = false;
+        didGesture = false;
+    }, true);
+
+    document.addEventListener('pointermove', (e) => {
+        if (!active) return;
+        const dx = e.clientX - startX, dy = e.clientY - startY;
+        if (Math.hypot(dx, dy) >= MOVE_THRESH) moved = true;
+        if (Math.abs(dx) >= DIR_THRESH && Math.abs(dx) >= Math.abs(dy)) {
+            const d = dx > 0 ? 1 : -1;
+            if (dir === 0) dir = d;
+            else if (d !== dir) invalidated = true;
         }
     }, true);
 
-    document.addEventListener('mouseup', (e) => {
-        if (e.button === 2 && startX !== null && startY !== null) {
-            const dx = e.clientX - startX;
-            const dy = e.clientY - startY;
-            if (Math.max(Math.abs(dx), Math.abs(dy)) >= THRESHOLD) {
-                didNavigate = true;
-                if (Math.abs(dx) > Math.abs(dy)) {
-                    if (dx < 0) history.back();
-                    else        history.forward();
-                } else {
-                    location.reload();
-                }
-            }
-            startX = null;
-            startY = null;
+    document.addEventListener('pointerup', (e) => {
+        if (!active || e.button !== 2) return;
+        active = false;
+        const dx = e.clientX - startX, dy = e.clientY - startY;
+        const dist = Math.hypot(dx, dy);
+        if (dist < MOVE_THRESH && !moved) return;  // ほぼクリック → メニューを許す
+        didGesture = true;
+        if (invalidated) return;
+        if (Math.abs(dx) >= Math.abs(dy) && Math.abs(dx) >= DIR_THRESH) {
+            if (dir < 0 || (dir === 0 && dx < 0)) history.back();
+            else if (dir > 0 || (dir === 0 && dx > 0)) history.forward();
+        } else if (Math.abs(dy) >= DIR_THRESH) {
+            location.reload();
         }
     }, true);
+
+    document.addEventListener('pointercancel', () => { active = false; }, true);
 
     document.addEventListener('contextmenu', (e) => {
-        if (didNavigate) {
+        const dx = e.clientX - startX, dy = e.clientY - startY;
+        const wasDrag = didGesture || moved || active || Math.hypot(dx, dy) >= MOVE_THRESH;
+        if (wasDrag) {
             e.preventDefault();
-            didNavigate = false;
+            e.stopPropagation();
+            didGesture = false;
+            if (active) active = false;
         }
     }, true);
 })();
