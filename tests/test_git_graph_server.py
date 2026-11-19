@@ -994,7 +994,7 @@ class WorkingTreeFilesTests(unittest.TestCase):
         button = '<button id="rld" class="sbtn iconbtn" title'
         wip = viewer.render_diff_page({"path": ["README.md"], "wip": ["unstaged"]})
         self.assertIn(button, wip)
-        self.assertIn("git-graph-diff-scroll", wip)  # スクロール位置を戻すスクリプトも入っている
+        self.assertIn("git-graph-diff-scroll", page_with_assets(wip, ("js",)))  # スクロール位置を戻すスクリプトも入っている
         self.assertIn(button, viewer.render_diff_page({"from": [self.head], "wip": ["compare"], "path": ["README.md"]}))
         commit_page = viewer.render_diff_page({"hash": [self.head], "path": ["README.md"]})
         self.assertNotIn(button, commit_page)
@@ -1785,13 +1785,14 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
             page = viewer.render_diff_page(query)
             for act in ("push", "pull", "fetch"):
                 self.assertIn(f'data-cact="{act}"', page)
-            self.assertIn('"/api/push-targets"', page)
+            self.assertIn('"/api/push-targets"', page_with_assets(page, ("js",)))  # push の部品 (wip_diff_remote.js) は、メニューバーと共に個別配信
             self.assertLess(page.index("const T = "), page.index("function openDialog"))
             self.assertEqual(page.count("const T = "), 1)
         state.WRITABLE = False  # 読み取り専用では、ボタンは出したまま (JS が無効にする)。push の部品は入れない
         page = viewer.render_diff_page({"wip": ["unstaged"]})
         self.assertIn('data-writable="0"', page)
         self.assertNotIn("/api/push-targets", page)
+        self.assertNotIn("/api/push-targets", page_with_assets(page, ("js",)))
 
     def toolbar_of(self, page):
         """ページ中の共通メニューバー (compareControls) の部分。"""
@@ -1836,11 +1837,10 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         for name, ids in id_sets.items():
             self.assertEqual(ids ^ graph_ids, set(), f"{name}: グラフのメニューバーと項目が違う")
         for name in ("files", "diff-commit", "diff-wip"):
-            # T はメニューバーのダイアログ (ページに入れる動的な部分)、mbSay は page_menubar.js (files では個別配信)
+            # T は共通ダイアログ (ページに入れる動的な部分)、mbSay は page_menubar.js (files / diff とも個別配信)
             self.assertEqual(pages[name].count("const T = "), 1)
             self.assertLess(pages[name].index("const T = "), pages[name].index("function openDialog"))  # T の定義は、使う側のダイアログより先
-            js = page_with_assets(pages[name], ("js",)) if name == "files" else pages[name]
-            self.assertIn("function mbSay", js)
+            self.assertIn("function mbSay", page_with_assets(pages[name], ("js",)))
         self.assertIn(f'data-commit="{head}"', pages["diff-commit"])
         self.assertIn('data-wip="1"', pages["diff-wip"])
         self.assertIn('data-page="files"', pages["files"])
@@ -1875,7 +1875,7 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         for rule in ("table.log tr.cmpA td", "table.log tr.cmpB td", "table.log tr.actionTarget td"):
             self.assertIn(rule, css_files)
         self.assertNotIn("file-log", css_files)
-        diff = viewer.render_diff_page({"wip": ["unstaged"]})  # page_menubar.js を使う、もう 1 つのページ
+        diff = page_with_assets(viewer.render_diff_page({"wip": ["unstaged"]}), ("js",))  # page_menubar.js を使う、もう 1 つのページ (log_select.js は共通ファイル)
         self.assertEqual(diff.count("const LogSel = "), 1)
         self.assertEqual(diff.count('"git_graph_ui_sel"'), 1)
         self.assertLess(diff.index("const LogSel = "), diff.index("const sel = LogSel.load() || {};"))
@@ -1919,7 +1919,7 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertIn('content.addEventListener("pointerdown", ev => {', files)
         self.assertIn("window.mbSetAB = (a, b) => {", files)
         diff = viewer.render_diff_page({"wip": ["unstaged"]})
-        self.assertIn("window.mbSetAB = (a, b) => {", diff)  # page_menubar.js は、差分ページにも同じものを埋め込む
+        self.assertIn("window.mbSetAB = (a, b) => {", page_with_assets(diff, ("js",)))  # page_menubar.js は、差分ページにも個別配信する
 
     def test_log_infinite_scroll_and_search_are_shared_by_the_graph_and_the_files_log(self):
         # ログの続きの読み込み (無限スクロール)・件数の表示・検索 (条件・入力欄・ボタン) は、グラフのログ画面とファイル表示のログで 1 つだけ持つ (commit_log.js)
@@ -2005,28 +2005,29 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         panel = viewer.WIP_PANEL_JS
         self.assertIn("const WipPanel", panel)
         files_raw = viewer.render_files_page()
-        pages = {
-            "graph": page_with_assets(render_main_page()),
-            "files": page_with_assets(files_raw),
+        raw = {
+            "graph": render_main_page(),
+            "files": files_raw,
             "diff": viewer.render_diff_page({"path": ["tracked.txt"], "wip": ["unstaged"]}),
             "diff-amend": viewer.render_diff_page({"path": ["tracked.txt"], "wip": ["amend"]}),
         }
+        pages = {name: page_with_assets(page) for name, page in raw.items()}
         for name, page in pages.items():
             with self.subTest(name):
-                self.assertIn(panel, page)  # 同じ実装がそのまま入っている
+                self.assertIn(panel, page)  # 同じ実装 (wip_panel.js / wip_panel.css) が個別ファイルとして配信されている
                 self.assertNotIn('id="cbtn"', page)  # 画面ごとの作りかけのコミットフォームは無い
                 self.assertNotIn('class="wck"', page)
         self.assertEqual(viewer.WIP_PANEL_CSS in pages["files"], True)
         self.assertIn(viewer.WIP_PANEL_CSS, pages["diff"])
-        for name in ("files", "diff", "diff-amend"):  # ファイル表示 / 差分は、パネルが使う文言を T に持つ
+        for name in ("files", "diff", "diff-amend"):  # ファイル表示 / 差分は、パネルが使う文言を T に持つ (ページに置く動的な部分)
             for key in viewer.WIP_PANEL_TEXT_KEYS:
-                self.assertIn(f'"{key}":', pages[name], f"{name}: T に {key} が無い")
+                self.assertIn(f'"{key}":', raw[name], f"{name}: T に {key} が無い")
         for name in ("diff", "diff-amend"):
-            self.assertIn('id="wipPanel"', pages[name])
-            self.assertIn('mountWipPanel(document.getElementById("wipPanel"), {diff: true})', pages[name])
+            self.assertIn('id="wipPanel"', raw[name])
+            self.assertIn('mountWipPanel(document.getElementById("wipPanel"), {diff: true});</script>', raw[name])
         self.assertIn('id="wipCommitPanel"', files_raw)
         self.assertIn('id="wipCommitView"', files_raw)
-        self.assertIn('mountWipPanel(document.getElementById("wipCommitPanel"), {onFiles: wipFilesChanged})', pages["files"])
+        self.assertIn('mountWipPanel(document.getElementById("wipCommitPanel"), {onFiles: wipFilesChanged})', pages["files"])  # 接続は files/wip_mount.js (動的な文言 T は、ページに置く)
         self.assertIn('params.set("dfrom", change.hash)', viewer.WIP_PANEL_MOUNT_JS)
         self.assertIn('params.get("dto") === "WIP"', viewer.WIP_PANEL_MOUNT_JS)
         self.assertIn('get("hash") === "WIP"', pages["files"])  # 作業ツリーを開いているときだけ出す
@@ -2160,8 +2161,9 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
 
         for element in ('id="sidePatchCreate"', 'id="sidePatchApply"', 'id="sidePatchAm"', 'id="sidePatchFile"'):
             self.assertIn(element, page)
-        self.assertIn('"/api/patch-apply"', page)
-        self.assertIn('"/api/patch-am"', page)
+        js = page_with_assets(page, ("js",))
+        self.assertIn('"/api/patch-apply"', js)  # 適用の呼び出しは diff/diff_patch.js (作成は HTML のボタンが data で持つ)
+        self.assertIn('"/api/patch-am"', js)
         self.assertNotIn('id="sidePatch"', amend)  # 右ペインと同じく、amend の表示にはパッチのボタンを出さない
         self.assertIn('id="sidePatchCreate"', read_only)  # 書き込めなくても作成はできる
         self.assertNotIn('id="sidePatchApply"', read_only)

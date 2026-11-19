@@ -34,12 +34,13 @@ class StaticAssetTests(unittest.TestCase):
         return sorted(out)
 
     def referenced(self):
-        """/static/ 下のファイルを参照する URL の集合。各ページのテンプレートと、pages.py / server.py に書かれた <script src> / <link href> など。"""
+        """/static/ 下のファイルを参照する URL の集合。各ページのテンプレートと、pages.py / server.py に書かれた <script src> / <link href> / script_tag()。"""
         urls = set()
         templates = [read("git_graph", "static", *name.split("/"))
                      for name in ("graph/index.html", "files/files.html", "merge/merge.html", "setup/setup.html")]
         for src in templates + [read("git_graph", "pages.py"), read("git_graph", "server.py")]:
             urls |= {m for m in re.findall(r"/static/([\w./-]+\.(?:js|css))", src) if m != "i18n.js"}
+            urls |= set(re.findall(r'script_tag\("([\w./-]+\.(?:js|css))"\)', src))
         return urls
 
     def test_every_asset_is_read_somewhere(self):

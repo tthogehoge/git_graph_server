@@ -203,11 +203,16 @@ class DiffEditorPageTests(unittest.TestCase):
 
     def test_button_and_box_are_on_a_file_diff_page_even_when_read_only(self):
         page = pages.render_diff_page({"hash": [self.head], "path": ["f.txt"]})
-        for needle in ('id="dedit"', 'id="dbox"', ">Diff editor<", "function createDiffEditorView", '"diff_editor_close"', '"diff_editor_prev"',
+        js = page_with_assets(page)
+        for needle in ('id="dedit"', 'id="dbox"', ">Diff editor<"):
+            self.assertIn(needle, page)
+        for needle in ("function createDiffEditorView", "/api/diff-sources"):
+            self.assertIn(needle, js)
+        for needle in ('"diff_editor_close"', '"diff_editor_prev"',  # 文言 T はページに置く動的な部分 (dialog)
                        '"diff_editor_collapse"', '"editor_find"', '"edit_vim"', '"vim_readonly_tip"'):
             self.assertIn(needle, page)
-        self.assertIn("/api/diff-sources", page)
-        self.assertIn("/static/vendor/text_editor.js", page)  # エディタ本体は、ボタンを押したときに読み込む
+        self.assertIn("/api/diff-sources", js)
+        self.assertIn("/static/vendor/text_editor.js", js)  # エディタ本体は、ボタンを押したときに読み込む
         self.assertNotIn("function createDiffEditor(", page)  # ページの HTML にはエディタ (1MB) を埋め込まない
 
     def test_the_files_page_css_and_js_live_in_their_own_files(self):
@@ -237,7 +242,7 @@ class DiffEditorPageTests(unittest.TestCase):
         self.assertIn("vim: {get: () => vimOn, set: setVimPref}", files_html)  # 差分エディタも、表示・編集と同じ設定
         self.assertNotIn("function createDiffEditor(", page)  # エディタ本体は埋め込まない
         diff_page = pages.render_diff_page({"hash": [self.head], "path": ["f.txt"], "editor": ["1"]})
-        self.assertIn('get("editor") === "1"', diff_page)  # /diff は、editor=1 でも最初から差分エディタで出す
+        self.assertIn('get("editor") === "1"', page_with_assets(diff_page, ("js",)))  # /diff は、editor=1 でも最初から差分エディタで出す
 
     def test_legacy_diff_urls_map_to_file_view_queries(self):
         self.assertEqual(

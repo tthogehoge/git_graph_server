@@ -23,24 +23,13 @@ def wip_file_exists(path):
         return False
     return os.path.isfile(target) and not os.path.islink(target)
 
-COPY_JS = read_asset("common/copy.js")
-DIFF_CSS = read_asset("diff/diff.css")
-DIFF_KEYBOARD_JS = read_asset("diff/diff_keyboard.js")
-DIFF_RELOAD_JS = read_asset("diff/diff_reload.js")
-DIFF_EDITOR_VIEW_JS = read_asset("diff/diff_editor_view.js")  # 差分エディタの表示 (/diff と /files の右ペインで共用)
-DIFF_EDITOR_JS = read_asset("diff/diff_editor.js")  # 差分エディタ (CodeMirror の MergeView) ボタン。エディタ本体は vendor/text_editor.js (ボタンを押したときに読み込む)
-PANE_RESIZE_JS = read_asset("common/pane_resize.js")
+# (ファイル表示・差分ページの CSS / JS は、ページの HTML が /static/ 下の個別ファイルとして読む)
 WIP_PANEL_JS = read_asset("common/wip_panel.js")  # 作業ツリーの変更の一覧とコミットフォーム。グラフ・ファイル表示・差分で共通
 WIP_PANEL_MOUNT_JS = read_asset("common/wip_panel_mount.js")  # ファイル表示 / 差分ページへ置くための接続
 WIP_PANEL_CSS = read_asset("common/wip_panel.css")
 # WIP パネルが使う文言は、パネルの中の t("...") から集める (書き足したときに、ここを直し忘れない)。t(f.label) は、ファイルの種類の表示
 WIP_PANEL_TEXT_KEYS = (*dict.fromkeys(re.findall(r'\bt\("([A-Za-z0-9_]+)"', WIP_PANEL_JS)), "label_conflict", "new_file")
-WIP_DIFF_REMOTE_JS = read_asset("diff/wip_diff_remote.js")
-DIFF_DIALOG_JS = read_asset("common/diff_dialog.js")
-MENUBAR_CSS = read_asset("common/menubar.css")
-PAGE_MENUBAR_JS = read_asset("common/page_menubar.js")
-LOG_SELECT_JS = read_asset("common/log_select.js")  # 対象 / A / B の選択の保存形式 (LogSel)。メニューバーとファイル表示のログが使う (グラフは index.html が読む)
-PATCH_OPS_JS = read_asset("common/patch_ops.js")  # パッチの作成・適用 (グラフ画面とファイル表示で共通)
+DIFF_DIALOG_JS = read_asset("common/diff_dialog.js")  # 入力ダイアログ (menubar_dialog_js が文言 T と共にページへ入れる)
 MERGE_JS = read_asset("merge/merge.js")
 MERGE_EDITOR_JS = read_asset("vendor/merge_editor.js")  # CodeMirror 6 をまとめたもの (tools/merge_editor でビルド)
 TEXT_EDITOR_JS = read_asset("vendor/text_editor.js")  # ファイル編集のエディタ (CodeMirror 6 + 言語 + Vim)。こちらも tools/merge_editor でビルド
@@ -124,10 +113,6 @@ def page_nav_html(current, files_href=None, graph_href="/"):
             + item("files", files_href, "nav_files", _ICON_FILES))
 
 
-EXT_DIFF_JS = read_asset("diff/ext_diff.js")
-DIFF_PATCH_JS = read_asset("diff/diff_patch.js")
-
-
 def menubar_html(page, *, files_href=None, graph_href="/", reload_id="reload", reload_enabled=False,
                  commit="", wip=False):
     """全画面 (グラフ / ファイル表示) 共通のメニューバー。static/menubar.html を 1 つの定義として使い、
@@ -148,6 +133,11 @@ def menubar_html(page, *, files_href=None, graph_href="/", reload_id="reload", r
 def bar_has_remote():
     """push / pull / fetch を使えるか (書き込めて、作業ツリーを扱えるとき)。使えないときは、メニューバーのボタンを無効にする。"""
     return bool(state.WRITABLE and state.WIP_ENABLED)
+
+
+def script_tag(path):
+    """/static/ 下のファイルを読むタグ。書いた順に実行されるので、条件付きの部品もこの順で足す。"""
+    return f'<script src="/static/{path}"></script>\n'
 
 
 def menubar_dialog_js(extra_keys=()):
@@ -406,11 +396,9 @@ def render_diff_page(q):
     side_head = "" if use_panel else (f'<div class="meta">{len(files)} {tr("files_changed")}</div>'
                                       + ("" if files else f'<div class="meta hint">{html.escape(tr("no_changes"))}</div>'))
     panel_box = '<div id="wipPanel"></div>' if use_panel else ""
-    panel_js = (WIP_PANEL_JS + "\n" + WIP_PANEL_MOUNT_JS + '\nmountWipPanel(document.getElementById("wipPanel"), {diff: true});') if use_panel else ""
     # 文言 T と共通のダイアログ部品は、メニューバー・コミット欄・push / pull で共通なので、1度だけ入れる
     dialog_js = menubar_dialog_js([*(WIP_PANEL_TEXT_KEYS if use_panel else ()), *(REMOTE_TEXT_KEYS if remote_bar else ()),
                                    *(DIFF_EDITOR_TEXT_KEYS if editor_btn else ())])
-    remote_js = WIP_DIFF_REMOTE_JS if remote_bar else ""
     # グラフへ戻るとき、この差分のコミットを選択状態で復元する。作業ツリーの WIP は、WIP ノードを選んだ状態に戻す (HEAD にしない)
     graph_href = "/"
     if wip == "compare":
@@ -429,11 +417,32 @@ def render_diff_page(q):
                   else "/files?" + urlencode({"hash": bar_commit or WIP_HASH}))
     menubar = menubar_html("diff", files_href=files_href, graph_href=graph_href, reload_id="rld", reload_enabled=bool(wip),
                            commit=bar_commit, wip=bool(wip and not is_wip_compare))
+    # JavaScript は /static/ 下の個別ファイル。順序が大事なので、かつての埋め込みの順序をそのまま保つ
+    scripts = (script_tag("common/copy.js") + script_tag("common/pane_resize.js")
+               + f"<script>{dialog_js}</script>\n"  # 文言 T と共通のダイアログ部品 (メニューバー・コミット欄・push / pull で共通)
+               + script_tag("common/patch_ops.js") + script_tag("common/log_select.js") + script_tag("common/page_menubar.js"))
+    if use_panel:  # 共通の WIP パネル (wip_panel.js) と、その接続
+        scripts += (script_tag("common/wip_panel.js") + script_tag("common/wip_panel_mount.js")
+                    + '<script>mountWipPanel(document.getElementById("wipPanel"), {diff: true});</script>\n')
+    if remote_bar:  # push / pull / fetch
+        scripts += script_tag("diff/wip_diff_remote.js")
+    if ext_diff:  # 外部の差分ツールで開く
+        scripts += script_tag("diff/ext_diff.js")
+    if patch_btn or patch_bar:  # パッチの作成・適用 (左ペイン)
+        scripts += script_tag("diff/diff_patch.js")
+    if editor_btn:  # 差分エディタ (表示部品と、テキスト差分との切り替え)
+        scripts += script_tag("diff/diff_editor_view.js") + script_tag("diff/diff_editor.js")
+    if wip:  # WIP の再読み込み
+        scripts += script_tag("diff/diff_reload.js")
+    scripts += script_tag("diff/diff_keyboard.js")
     return f"""<!DOCTYPE html>
 <html lang="{state.UI_LANG}"><head><meta charset="utf-8">
 <title>{html.escape(state.PROJECT_NAME)} - {html.escape(path)} @ {ref}</title>
 {FAVICON_LINK}
-<style>{DIFF_CSS}{MENUBAR_CSS}{WIP_PANEL_CSS}</style></head><body>
+<link rel="stylesheet" href="/static/diff/diff.css">
+<link rel="stylesheet" href="/static/common/menubar.css">
+<link rel="stylesheet" href="/static/common/wip_panel.css">
+</head><body>
 {menubar}
 <div id="panes">
 <div id="side">
@@ -455,19 +464,7 @@ def render_diff_page(q):
   {editor_box}
 </div>
 </div>
-<script>{COPY_JS}</script>
-<script>{PANE_RESIZE_JS}</script>
-<script>{dialog_js}</script>
-<script>{PATCH_OPS_JS}</script>
-<script>{LOG_SELECT_JS}</script>
-<script>{PAGE_MENUBAR_JS}</script>
-<script>{panel_js}</script>
-<script>{remote_js}</script>
-<script>{EXT_DIFF_JS if ext_diff else ""}</script>
-<script>{DIFF_PATCH_JS if patch_btn or patch_bar else ""}</script>
-<script>{DIFF_EDITOR_VIEW_JS + DIFF_EDITOR_JS if editor_btn else ""}</script>
-<script>{DIFF_RELOAD_JS if wip else ""}</script>
-<script>{DIFF_KEYBOARD_JS}</script>
+{scripts}
 </body></html>
 """
 
