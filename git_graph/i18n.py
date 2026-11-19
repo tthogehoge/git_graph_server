@@ -117,8 +117,7 @@ def render_setup_page():
     return (fill_template(SETUP_PAGE)
             .replace('<html lang="ja">', f'<html lang="{state.UI_LANG}">')
             .replace("__FAVICON__", FAVICON_LINK)
-            .replace("/*__SETUP_I18N__*/", "const I18N = " + client_translations() + ";")
-            .replace("__PATH__", html.escape(state.SETUP_PATH, quote=True)))
+            .replace("__PATH__", html.escape(state.SETUP_PATH, quote=True)))  # CSS / JS は setup/setup.html の <link> / <script src> (翻訳は /static/i18n.js)
 
 def render_app_js():
     return APP_JS.replace("/*__I18N__*/", "const I18N = " + client_translations() + ";\n"

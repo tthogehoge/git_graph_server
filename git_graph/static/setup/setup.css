@@ -1,0 +1,17 @@
+:root { color-scheme: light dark; --accent: #2c7be5; --muted: #888; --border: #8886; }
+* { box-sizing: border-box; }
+body { margin: 0; font: 14px/1.5 system-ui, "Yu Gothic UI", "Segoe UI", sans-serif; }
+main { max-width: 640px; margin: 8vh auto; padding: 0 20px; }
+h1 { font-size: 20px; margin: 0 0 8px; }
+.lead { color: var(--muted); margin: 0 0 20px; }
+label { display: block; font-weight: 600; margin: 16px 0 4px; }
+input[type=text], input[type=password] { width: 100%; padding: 7px 9px; font: inherit; border: 1px solid var(--border); border-radius: 4px; background: Canvas; color: CanvasText; }
+input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.hint { color: var(--muted); font-size: 12px; margin-top: 3px; }
+#setupAuth { margin-top: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 4px; }
+#setupAuth label:first-of-type { margin-top: 8px; }
+.err { color: #d33; margin-top: 14px; white-space: pre-wrap; word-break: break-word; }
+.actions { margin-top: 18px; display: flex; align-items: center; gap: 12px; }
+button { font: inherit; padding: 7px 22px; border: 1px solid var(--accent); border-radius: 4px; background: var(--accent); color: #fff; cursor: pointer; }
+button:disabled { opacity: .6; cursor: default; }
+#setupBusy { color: var(--muted); }
