@@ -34,7 +34,7 @@ from .remote import (  # noqa: F401
 from .routing import route, ROUTES
 from .files import (  # noqa: F401
     api_blame, api_file, api_file_copy, api_file_save, api_patch_am, api_patch_apply, api_tree, file_download, patch_download,
-    PATCH_BODY_LIMIT, SAVE_BODY_LIMIT, WIP_HASH,
+    PATCH_BODY_LIMIT, SAVE_BODY_LIMIT, tree_log_stream, WIP_HASH,
 )
 from .history import (  # noqa: F401
     api_branches, api_branches_containing, api_commit, api_compare, api_log, api_log_total, api_merge_base,
@@ -135,6 +135,34 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _send_ndjson(self, events):
+        """進行に合わせて、1 行ずつ JSON を送る (HTTP/1.0 なので、接続を閉じるまでが本文)。時間のかかる調べものを、できた分から画面に出させるため。
+        最初の 1 件を作るまでのエラー (パスの不正など) は、ふつうの応答と同じに返す。途中でクライアントが切れたら、続きは調べない。"""
+        events = iter(events)
+        try:
+            first = next(events, None)  # ここまでのエラーは、ヘッダーを送る前なので通常のエラー応答になる
+            self.send_response(200)
+            self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Accel-Buffering", "no")
+            self.end_headers()
+            try:
+                event = first
+                while event is not None:
+                    self.wfile.write((json.dumps(event, ensure_ascii=False) + "\n").encode("utf-8"))
+                    self.wfile.flush()
+                    event = next(events, None)
+            except (BrokenPipeError, ConnectionError):
+                pass  # 画面が別のディレクトリへ移るなどして、接続を切った
+            except Exception as e:  # 送り始めたあとは、エラー応答にできない。最後の行でエラーを知らせる
+                try:
+                    self.wfile.write((json.dumps({"error": str(e)}, ensure_ascii=False) + "\n").encode("utf-8"))
+                except OSError:
+                    pass
+        finally:
+            getattr(events, "close", lambda: None)()  # 調べものを止める (git log のプロセスを終わらせる)
+        self.close_connection = True
+
     def _send_command_error(self, error):
         output = error.stderr or error.stdout or ""
         if isinstance(output, bytes):
@@ -183,6 +211,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, "application/javascript", TEXT_EDITOR_JS)
             elif u.path == "/static/app.css":
                 self._send(200, "text/css", APP_CSS)
+            elif u.path == "/api/tree-log" and q.get("stream"):  # 各項目の最終コミットを、見つかった分から順に送る
+                self._send_ndjson(tree_log_stream(q))
             elif (handler := ROUTES.get(("GET", u.path))) is not None:
                 result = handler(q)
                 self._send(200, "application/json", json.dumps(result, ensure_ascii=False))

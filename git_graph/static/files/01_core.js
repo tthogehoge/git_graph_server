@@ -130,6 +130,7 @@ const isWip = hash === "WIP";  // 作業ツリーのファイルを表示する
 fileCopyBtn.disabled = !CAN_COPY || isWip;
 let current = "", currentFile = "", wipHead = null;
 let dirEntries = null, dirLogSeq = 0;  // dirEntries: 表示中のディレクトリの項目 (読み込み前は null), dirLogSeq: 古い応答を捨てるための通し番号
+let treeLogAbort = null;  // 項目ごとの最終コミットを受け取っている途中の接続 (別の表示に移ったら切る。サーバーも調べるのをやめる)
 let dirLogOn = false;  // ディレクトリの本文に、項目の一覧ではなく「このディレクトリのログ」(または通常のコミットログ) を出しているか
 let commitLogOn = false;  // dirLogOn のうち、パスで絞らない通常のコミットログ
 let wipFiles = [];  // 作業ツリーの変更の一覧 (WIP パネルが決める。パス・種類 wip・変更前のパス old_path)

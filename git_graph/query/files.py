@@ -2,9 +2,12 @@
 # HTTP や画面文言は知らない。path の検証と git / 作業ツリーからの取得を行う。
 import hashlib
 import os
+import queue
 import shutil
 import subprocess
+import threading
 import time
+from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
 from .. import app_state as state
 from .. import tmpdir
@@ -189,6 +192,17 @@ def tree(hash_, path=""):
 
 TREE_LOG_MAX_COMMITS = 20000  # 各項目の最終コミットを探すために、新しい方から調べるコミット数の上限
 TREE_LOG_MAX_SECONDS = 10     # 同、かかる時間の上限 (大きなリポジトリで、変更のない古い項目があっても画面を待たせすぎない)
+TREE_LOG_EVENT_INTERVAL = 0.05  # 見つかった項目を、画面へまとめて知らせる間隔 (秒)
+TREE_LOG_READ_SIZE = 65536      # git log の出力を 1 回に読む量 (読むたびに、見つかった項目を知らせるか判断する)
+TREE_LOG_HEARTBEAT = 0.5        # git log が何も出さないまま調べている間も、この間隔で合図 ({}) を返す (受け取る側が切れていたら、気づいて調べるのをやめられる)
+TREE_LOG_CACHE_SIZE = 64        # 調べ終えた結果を覚えておく数 (ディレクトリ × コミット)
+_TREE_LOG_CACHE = OrderedDict()  # (リポジトリ, コミット, パス) -> {項目名: コミットの情報}。調べ終えた結果だけ。コミットのハッシュは不変なので、古くなって無効にする必要はない
+_TREE_LOG_LOCK = threading.Lock()
+
+
+def clear_tree_log_cache():
+    with _TREE_LOG_LOCK:
+        _TREE_LOG_CACHE.clear()
 
 
 def _tree_log_untracked(entry):
@@ -196,31 +210,67 @@ def _tree_log_untracked(entry):
     return entry.get("st") == "?" or entry.get("xy", "")[:1] in ("?", "A")
 
 
-def tree_log(hash_, path=""):
-    """ディレクトリの各項目 (ファイル / サブディレクトリ) を最後に変更したコミットを返す。
-    {"commits": {項目名: [ハッシュ, 短縮ハッシュ, 作者, 日付, 件名]}, "complete": 上限に達せず調べ終えたか}。
+def tree_log_events(hash_, path=""):
+    """ディレクトリの各項目を最後に変更したコミットを、見つかった分から順に返す (画面が、全部が揃うのを待たずに出せる)。
+    {"commits": {項目名: [ハッシュ, 短縮ハッシュ, 作者, 日付, 件名]}} を何度か返し、最後に {"hash", "path", "complete"} を返す
+    (complete: 上限に達せず調べ終えたか)。
     項目ごとに git log を起動せず、git log --name-only を 1 回だけ新しい方から読み、全項目が見つかった時点で止める。
-    WIP (作業ツリー) は HEAD までの履歴で調べる。"""
+    新しい項目はすぐ見つかるので、大きなリポジトリで古い項目が残っていても、ほとんどの項目は最初の数十ミリ秒で出せる。
+    WIP (作業ツリー) は HEAD までの履歴で調べる。調べ終えた結果は覚えておき、同じコミットの同じディレクトリはすぐ返す。
+    何も見つからないまま調べている間も、TREE_LOG_HEARTBEAT ごとに {} を返す (受け取る側が切れたことに、すぐ気づいて止められる)。
+    受け取る側が途中でやめたら (close)、git log もそこで止める。"""
     path = validate_file_path(path)
     listing = tree(hash_, path)
     rev = wip_head() if listing["hash"] == WIP_HASH else listing["hash"]
     wanted = {e["name"] for e in listing["entries"] if not _tree_log_untracked(e)}
-    res = {"hash": listing["hash"], "path": path, "commits": {}, "complete": True}
+    done = {"hash": listing["hash"], "path": path, "complete": True}
     if not rev or not wanted:
-        return res
+        yield done
+        return
+    key = (state.REPO, rev, path)
+    with _TREE_LOG_LOCK:
+        cached = _TREE_LOG_CACHE.get(key)
+        if cached is not None and wanted <= cached.keys():
+            _TREE_LOG_CACHE.move_to_end(key)
+        else:
+            cached = None
+    if cached is not None:
+        yield {"commits": {name: cached[name] for name in wanted}}
+        yield done
+        return
     prefix = path + "/" if path else ""
     args = ["git", "-C", state.REPO, "log", "-z", "--cc", "--no-renames", "--name-only", "--date=short",
             "--format=%x01%H%x1f%h%x1f%an%x1f%ad%x1f%s", rev, "--"]
     if path:
         args.append(path)
-    found, cur, scanned, started = {}, None, 0, time.monotonic()
+    found, pending, cur, scanned, started = {}, {}, None, 0, time.monotonic()
+    last_event = started
     proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                             env=dict(os.environ, GIT_LITERAL_PATHSPECS="1"))
+    chunks = queue.Queue()  # git log の出力。別のスレッドで読み、出力が止まっている間も合図を返せるようにする
+
+    def read_output():
+        try:
+            while True:
+                data = proc.stdout.read(TREE_LOG_READ_SIZE)
+                chunks.put(data)
+                if not data:
+                    return
+        except (OSError, ValueError):  # こちらが kill / close した
+            chunks.put(b"")
+    threading.Thread(target=read_output, daemon=True).start()
     stopped = limited = False  # stopped: 読むのをやめた / limited: 全項目が見つからないまま上限でやめた
     try:
         buf, first_name = b"", False
         while not stopped:
-            chunk = proc.stdout.read(65536)
+            try:
+                chunk = chunks.get(timeout=TREE_LOG_HEARTBEAT)
+            except queue.Empty:  # 出力が止まっている (パスで絞った探索で、変更のないコミットが続くときなど)
+                if time.monotonic() - started > TREE_LOG_MAX_SECONDS:
+                    stopped = limited = True
+                    break
+                yield {}  # 合図。受け取る側が切れていれば、ここで書き込みに失敗して止まる
+                continue
             buf += chunk
             tokens = buf.split(b"\0")
             buf = b"" if not chunk else tokens.pop()  # 最後は途中で切れているかもしれない (終端ならすべて処理する)
@@ -244,19 +294,40 @@ def tree_log(hash_, path=""):
                     continue
                 entry = name[len(prefix):].split("/", 1)[0]
                 if entry in wanted and entry not in found:
-                    found[entry] = cur
+                    found[entry] = pending[entry] = cur
                     if len(found) == len(wanted):
                         stopped = True
                         break
+            now = time.monotonic()
+            if pending and (stopped or not chunk or now - last_event >= TREE_LOG_EVENT_INTERVAL):
+                batch, pending, last_event = pending, {}, now
+                yield {"commits": batch}
             if not chunk:
                 break
     finally:
         proc.kill()
         proc.stdout.close()
         proc.wait()
-    res["commits"] = found
-    res["complete"] = not limited
-    return res
+    if pending:
+        yield {"commits": pending}
+    if not limited:  # 上限でやめた結果は覚えない (時間の上限は、そのときの負荷で変わる)
+        with _TREE_LOG_LOCK:
+            _TREE_LOG_CACHE[key] = found
+            _TREE_LOG_CACHE.move_to_end(key)
+            while len(_TREE_LOG_CACHE) > TREE_LOG_CACHE_SIZE:
+                _TREE_LOG_CACHE.popitem(last=False)
+    done["complete"] = not limited
+    yield done
+
+
+def tree_log(hash_, path=""):
+    """ディレクトリの各項目を最後に変更したコミットを、全部まとめて返す。
+    {"hash", "path", "commits": {項目名: [ハッシュ, 短縮ハッシュ, 作者, 日付, 件名]}, "complete": 上限に達せず調べ終えたか}。"""
+    res = {"commits": {}}
+    for event in tree_log_events(hash_, path):
+        res["commits"].update(event.get("commits", {}))
+        res.update({k: v for k, v in event.items() if k != "commits"})
+    return {"hash": res["hash"], "path": res["path"], "commits": res["commits"], "complete": res["complete"]}
 
 
 def file_content(hash_, path):

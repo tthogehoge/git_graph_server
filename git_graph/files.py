@@ -52,6 +52,11 @@ def api_tree_log(q):
     return qf.tree_log(q.get("hash", [""])[0], q.get("path", [""])[0])
 
 
+def tree_log_stream(q):
+    """api_tree_log の途中経過 (見つかった項目から順に出すための、1 行ごとの JSON)。server.py が、?stream=1 のときにこちらを使う。"""
+    return qf.tree_log_events(q.get("hash", [""])[0], q.get("path", [""])[0])
+
+
 @route("/api/file")
 def api_file(q):
     return qf.file_content(q.get("hash", [""])[0], q.get("path", [""])[0])
@@ -145,7 +150,7 @@ def api_blame(q):
 
 
 __all__ = [
-    "FILE_CONTENT_LIMIT", "api_file", "api_file_copy", "api_tree", "api_tree_log", "decode_text", "api_blame",
+    "FILE_CONTENT_LIMIT", "api_file", "api_file_copy", "api_tree", "api_tree_log", "tree_log_stream", "decode_text", "api_blame",
     "validate_file_path", "WIP_HASH", "api_file_save", "SAVE_BODY_LIMIT", "file_download", "patch_download",
     "api_patch_apply", "api_patch_am", "api_merge_sources", "PATCH_BODY_LIMIT", "wip_patch", "worktree_target", "status_mark",
 ]

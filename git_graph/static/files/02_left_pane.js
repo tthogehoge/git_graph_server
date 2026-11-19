@@ -304,3 +304,31 @@ fileMergeBtn.onclick = () => {  // 競合ファイルをマージエディタで
 function logHash() { return isWip ? wipHead : hash; }  // ファイルのログの起点 (作業ツリーなら HEAD)
 function esc(s) { return String(s).replace(/[&<>\"]/g, c => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", "\"":"&quot;"}[c])); }
 function api(path, params) { return fetch(path + "?" + new URLSearchParams(params)).then(r => r.ok ? r.json() : r.text().then(t => { throw new Error(t || r.status); })); }
+// 時間のかかる調べものを、できた分から受け取る (サーバーが 1 行ずつ JSON を送る)。onEvent は 1 行ごとに呼ぶ。signal.abort() で受信をやめると、サーバーも調べるのをやめる
+async function apiStream(path, params, onEvent, signal) {
+  const res = await fetch(path + "?" + new URLSearchParams(Object.assign({stream: 1}, params)), {signal: signal});
+  if (!res.ok) throw new Error((await res.text()) || res.status);
+  let buf = "";
+  const feed = (text, last) => {
+    buf += text;
+    const lines = buf.split("\n");
+    buf = last ? "" : lines.pop();
+    lines.forEach(line => {
+      if (!line) return;
+      const ev = JSON.parse(line);
+      if (ev.error) throw new Error(ev.error);
+      onEvent(ev);
+    });
+  };
+  if (res.body && res.body.getReader) {
+    const reader = res.body.getReader(), dec = new TextDecoder("utf-8");
+    for (;;) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      feed(dec.decode(value, {stream: true}), false);
+    }
+    feed(dec.decode(), true);
+  } else {
+    feed(await res.text(), true);  // ストリームを読めない環境では、全部そろってからまとめて受け取る
+  }
+}

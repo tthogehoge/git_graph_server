@@ -69,6 +69,7 @@ function showDir() {  // ファイルを開いていないとき、ディレク�
   dirLogOn = commitLogOn = false;
   setDirActions();
   const seq = ++dirLogSeq, path = current, entries = dirEntries;
+  if (treeLogAbort) treeLogAbort.abort();
   setDocumentTitle(path || t("root"));
   title.innerHTML = pathCrumbHtml(path);
   bindPathCrumb(title);
@@ -78,22 +79,31 @@ function showDir() {  // ファイルを開いていないとき、ディレク�
     '</th><th class="dir-msg">' + esc(t("dir_log_message")) + '</th><th class="date">' + esc(t("dir_log_date")) + '</th></tr></thead><tbody>' +
     entries.map(e => '<tr class="dir-log-row" data-type="' + e.type + '" data-name="' + esc(e.name) + '" data-path="' +
       esc(path ? path + "/" + e.name : e.name) + '">' + dirNameCell(e, path ? path + "/" + e.name : e.name) + dirLogCells(null) + '</tr>').join("") + '</tbody></table><div id="dirLogNote"></div>';
-  api("/api/tree-log", {hash: hash, path: path}).then(r => {
-    if (seq !== dirLogSeq || currentFile) return;  // 別のディレクトリ / ファイルに移った
-    const byName = {};
-    entries.forEach(e => { byName[e.name] = e; });
-    content.querySelectorAll("tr.dir-log-row").forEach(row => {
-      const e = byName[row.dataset.name];
-      row.innerHTML = dirNameCell(e, row.dataset.path) + dirLogCells(r.commits[e.name]);
-    });
-    if (!r.complete) document.getElementById("dirLogNote").innerHTML = '<p class="hint">' + esc(t("dir_log_incomplete")) + '</p>';
-  }).catch(e => { if (seq === dirLogSeq && !currentFile) { content.className = "hint"; content.textContent = t("error") + e.message; } });
+  // 各項目の最終コミットは、見つかった行から順に埋める (古い項目を探すのに時間がかかっても、新しい項目はすぐ出る)
+  const ctl = treeLogAbort = new AbortController();
+  const byName = {};
+  entries.forEach(e => { byName[e.name] = e; });
+  const rowOf = {};
+  content.querySelectorAll("tr.dir-log-row").forEach(row => { rowOf[row.dataset.name] = row; });
+  const fill = (name, c) => {
+    const row = rowOf[name];
+    if (row) row.innerHTML = dirNameCell(byName[name], row.dataset.path) + dirLogCells(c);
+  };
+  apiStream("/api/tree-log", {hash: hash, path: path}, ev => {
+    if (seq !== dirLogSeq || currentFile) { ctl.abort(); return; }  // 別のディレクトリ / ファイルに移った
+    Object.keys(ev.commits || {}).forEach(name => fill(name, ev.commits[name]));
+    if (ev.complete === false) document.getElementById("dirLogNote").innerHTML = '<p class="hint">' + esc(t("dir_log_incomplete")) + '</p>';
+  }, ctl.signal).catch(e => {
+    if (ctl.signal.aborted) return;
+    if (seq === dirLogSeq && !currentFile) { content.className = "hint"; content.textContent = t("error") + e.message; }
+  });
 }
 function showDirLog(all) {  // ファイルを開いていないとき、このディレクトリの git log を本文に出す (all: パスで絞らない通常のコミットログ)
   closeEditor();
   const rev = logHash();
   if (currentFile || !rev) { showDir(); return; }  // 作業ツリーに HEAD が無いときは、ログが無い
   const seq = ++dirLogSeq, path = current, label = path || t("root");
+  if (treeLogAbort) treeLogAbort.abort();
   dirLogOn = true; commitLogOn = !!all;
   setDirActions();
   if (all) {
