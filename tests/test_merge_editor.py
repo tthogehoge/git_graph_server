@@ -210,24 +210,26 @@ class MergeEditorTests(unittest.TestCase):
     def test_merge_page_embeds_editor_and_script(self):
         self.conflict()
         page = viewer.render_merge_page({"path": ["f.txt"]})
-        self.assertIn("GGMerge", page)  # CodeMirror のバンドル
-        self.assertIn("createMergeEditor", page)
-        self.assertIn('const MERGE_PATH = "f.txt";', page)
-        self.assertIn("const I18N =", page)
+        js = page_with_assets(page)
+        self.assertIn("GGMerge", js)  # CodeMirror のバンドル (vendor/merge_editor.js)
+        self.assertIn("createMergeEditor", js)
+        self.assertIn('const MERGE_PATH = "f.txt";', page)  # 対象ファイルだけは、ページに置く小さなスクリプト
+        self.assertIn("const I18N =", js)
         self.assertIn('href="/files?hash=WIP&amp;path=&amp;file=f.txt&amp;view=diff&amp;dwip=conflict"', page)
-        for placeholder in ("/*__MERGE", "__PATH__", "__BACK__", "__PROJECT__", "__FAVICON__", "{{"):
+        for placeholder in ("/*__", "__MERGE", "__PATH__", "__BACK__", "__PROJECT__", "__FAVICON__", "{{"):
             self.assertNotIn(placeholder, page, placeholder)
-        self.assertEqual(page.count("</script>"), page.count("<script>"))  # 埋め込んだ JS の中に </script> が混ざっていない
 
     def test_merge_page_has_both_modes_with_resizable_panes(self):
         self.conflict()
         page = viewer.render_merge_page({"path": ["f.txt"]})
+        js = page_with_assets(page, ("js",))  # 画面の動作は merge/merge.js (個別配信)
         for needle in ('id="modeMarkersBtn"', 'id="modeBaseBtn"',            # 方式の切り替え
                        'id="markerMode"', 'id="baseMode"',
                        'id="oursPair"', 'id="theirsPair"',                   # ベース編集方式の 2 行 (ours | base と theirs | base)
-                       'id="markerSplitter"', 'id="baseSplitter"', 'role="separator"',  # 上下の高さを変える仕切り
-                       "createBaseMergeEditor", "createMergeEditor"):
+                       'id="markerSplitter"', 'id="baseSplitter"', 'role="separator"'):  # 上下の高さを変える仕切り
             self.assertIn(needle, page, needle)
+        for needle in ("createBaseMergeEditor", "createMergeEditor"):  # エディタの本体
+            self.assertIn(needle, js, needle)
         self.assertEqual(page.count('class="splitter"'), 2)
         # 競合のツールは両方の方式で共通 (方式ごとに別のボタンを持たない)。ベース編集方式にだけあるのは、差分の移動
         for needle in ('id="prevBtn"', 'id="nextBtn"', 'id="allOursBtn"', 'id="allTheirsBtn"', 'id="regenBtn"', 'id="reloadBtn"', 'id="basePrevBtn"', 'id="baseNextBtn"'):
@@ -235,7 +237,7 @@ class MergeEditorTests(unittest.TestCase):
         for gone in ('id="baseOursBtn"', 'id="baseTheirsBtn"', 'id="baseAutoBtn"', 'id="baseResetBtn"', 'id="baseCount"'):
             self.assertNotIn(gone, page, gone)
         self.assertIn("Alt+", page)  # ショートカットキー (ボタンの説明と、画面のヒント)
-        self.assertIn(".cm-merge-revert button", page)  # 矢印ボタンの見た目 (目立たせる)
+        self.assertIn(".cm-merge-revert button", page_with_assets(page, ("css",)))  # 矢印ボタンの見た目 (目立たせる)
         self.assertNotIn("resize: vertical", page)  # 高さは仕切りで変える
 
     def test_merge_page_escapes_the_path(self):
@@ -296,8 +298,9 @@ class EditorBundleTests(unittest.TestCase):
         self.assertNotIn("cdnjs.cloudflare.com", page)  # 外部の CDN に頼らない (オフラインでも同じように表示できる)
 
     def test_merge_page_does_not_carry_the_text_editor(self):
-        self.assertNotIn("createTextEditor", viewer.MERGE_EDITOR_JS)
-        self.assertIn("createMergeEditor", viewer.MERGE_EDITOR_JS)
+        merge_editor = viewer.read_asset("vendor/merge_editor.js")
+        self.assertNotIn("createTextEditor", merge_editor)
+        self.assertIn("createMergeEditor", merge_editor)
         self.assertIn("createTextEditor", viewer.TEXT_EDITOR_JS)
         self.assertNotIn("createMergeEditor", viewer.TEXT_EDITOR_JS)
 

@@ -7,7 +7,7 @@ from urllib.parse import urlencode
 from . import app_state as state
 from .history import api_commit, api_compare, api_diff
 from .i18n import (
-    client_translations, FAVICON_LINK, FILES_PAGE, fill_template, MENUBAR_TEMPLATE, MERGE_PAGE, read_asset, tr, UserError,
+    FAVICON_LINK, FILES_PAGE, fill_template, MENUBAR_TEMPLATE, MERGE_PAGE, read_asset, tr, UserError,
     with_project,
 )
 from .external import configured
@@ -30,9 +30,7 @@ WIP_PANEL_CSS = read_asset("common/wip_panel.css")
 # WIP パネルが使う文言は、パネルの中の t("...") から集める (書き足したときに、ここを直し忘れない)。t(f.label) は、ファイルの種類の表示
 WIP_PANEL_TEXT_KEYS = (*dict.fromkeys(re.findall(r'\bt\("([A-Za-z0-9_]+)"', WIP_PANEL_JS)), "label_conflict", "new_file")
 DIFF_DIALOG_JS = read_asset("common/diff_dialog.js")  # 入力ダイアログ (menubar_dialog_js が文言 T と共にページへ入れる)
-MERGE_JS = read_asset("merge/merge.js")
-MERGE_EDITOR_JS = read_asset("vendor/merge_editor.js")  # CodeMirror 6 をまとめたもの (tools/merge_editor でビルド)
-TEXT_EDITOR_JS = read_asset("vendor/text_editor.js")  # ファイル編集のエディタ (CodeMirror 6 + 言語 + Vim)。こちらも tools/merge_editor でビルド
+TEXT_EDITOR_JS = read_asset("vendor/text_editor.js")  # ファイル編集のエディタ (CodeMirror 6 + 言語 + Vim)。tools/merge_editor でビルド (server.py が配信する)
 # WIP の差分ページの push / pull / fetch ダイアログが使う文言
 REMOTE_TEXT_KEYS = (
     "cancel", "ok", "prune_label", "pull_mode", "pull_opt_ff", "pull_opt_merge", "pull_opt_rebase",
@@ -491,11 +489,9 @@ def render_merge_page(q):
     values = {"PATH": html.escape(path), "BACK": html.escape(back)}
     page = re.sub(r"__(PATH|BACK)__", lambda m: values[m.group(1)],  # 1 回の置換で済ませる (パスの中に __BACK__ があっても置き換えない)
                   with_project(fill_template(MERGE_PAGE)).replace('<html lang="ja">', f'<html lang="{state.UI_LANG}">'))
-    return (page
-            .replace("/*__MERGE_I18N__*/", "const I18N = " + client_translations() + ";\n"
-                     + "const MERGE_PATH = " + json.dumps(path, ensure_ascii=False).replace("</", "<\\/") + ";")
-            .replace("/*__MERGE_JS__*/", MERGE_JS)
-            .replace("/*__MERGE_EDITOR__*/", MERGE_EDITOR_JS))
+    # CSS と JS は merge.html の <link> / <script src>。動的にするのは、このページの対象ファイルだけ (JSON で渡す)
+    merge_path = json.dumps(path, ensure_ascii=False).replace("</", "<\\/")
+    return page.replace("/*__MERGE_PATH__*/", "const MERGE_PATH = " + merge_path + ";")
 
 
 __all__ = [
