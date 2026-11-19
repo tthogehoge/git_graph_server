@@ -210,12 +210,12 @@ class DiffEditorPageTests(unittest.TestCase):
         self.assertNotIn("function createDiffEditor(", page)  # ページの HTML にはエディタ (1MB) を埋め込まない
 
     def test_the_files_page_css_and_js_live_in_their_own_files(self):
-        # files.html はページの骨組みだけ。CSS (files.css) と JavaScript (static/files/ を連結した FILES_JS) は別で、pages.py が差し込む
-        html = pages.read_asset("files.html")
+        # files.html はページの骨組みだけ。CSS (files.css) と JavaScript (static/files/js/ を連結した FILES_JS) は別で、pages.py が差し込む
+        html = pages.read_asset("files/files.html")
         self.assertIn("<style>\n/*__FILES_CSS__*/</style>", html)
         self.assertIn("<script>\n/*__FILES_JS__*/</script>", html)
         self.assertLess(html.count("\n"), 60)
-        css, js = pages.read_asset("files.css"), pages.FILES_JS
+        css, js = pages.read_asset("files/files.css"), pages.FILES_JS
         # 翻訳などの定義に置き換える目印は 1 つだけ (01_core.js)。共通部品 (toast.js / other_lists.js) がその前に連結される
         self.assertEqual(js.count("/*__FILE_I18N__*/"), 1)
         page = pages.render_files_page()
@@ -226,7 +226,7 @@ class DiffEditorPageTests(unittest.TestCase):
         self.assertLess(page.index("const I18N = "), page.index("function t(key, values = {})"))  # 翻訳の定義が先
 
     def test_the_files_page_shows_the_diff_in_the_right_pane(self):
-        files_html = pages.read_asset("files.html") + pages.FILES_JS  # ページの骨組みと、画面の動作
+        files_html = pages.read_asset("files/files.html") + pages.FILES_JS  # ページの骨組みと、画面の動作
         self.assertIn('fileDiffBtn.onclick = () => { if (currentFile && diffParams(currentFile)) openView("diff"); };', files_html)
         self.assertIn('else if (view === "diff") loadFileDiff(currentFile);', files_html)  # view=diff は、再読み込み・戻る/進むでも復元する
         self.assertNotIn('location.href = "/diff?" + new URLSearchParams({...p', files_html)  # 別のページへは移らない
@@ -254,7 +254,7 @@ class DiffEditorPageTests(unittest.TestCase):
         page = pages.render_files_page()
         for needle in ('id="sideTabs"', 'id="sideTreeBtn"', 'id="sideChangesBtn"', 'id="changes"', "Files</button>", "Changed files</button>"):
             self.assertIn(needle, page)
-        files_html = pages.read_asset("files.html") + pages.FILES_JS  # ページの骨組みと、画面の動作
+        files_html = pages.read_asset("files/files.html") + pages.FILES_JS  # ページの骨組みと、画面の動作
         self.assertIn('sideTabs.hidden = !hash;', files_html)  # コミットも作業ツリーも出す
         self.assertIn('changesEl.hidden = !changes;', files_html)
         self.assertIn('openWipChange(from && to', files_html)  # WIP の比較差分は、右ペインで開く

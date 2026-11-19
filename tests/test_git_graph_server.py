@@ -1968,7 +1968,7 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertIn(f'href="/?select_hash={head}"', commit_page)
         self.assertNotIn("select_wip", commit_page)
         self.assertIn("select_wip", viewer.render_files_page())  # ファイル表示は JS で、表示中の hash が WIP のときに付け替える
-        boot = (Path(app.__file__).parent / "git_graph" / "static" / "js" / "09_boot.js").read_text(encoding="utf-8")
+        boot = (Path(app.__file__).parent / "git_graph" / "static" / "graph" / "js" / "09_boot.js").read_text(encoding="utf-8")
         self.assertIn('qs.get("select_wip")', boot)
 
     def test_diff_page_marks_files_current_and_keeps_graph_navigation_available(self):
@@ -2048,7 +2048,7 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
 
     def test_checkout_and_reset_are_enabled_in_the_menubar_script(self):
         # グラフ以外の画面でも、チェックアウトとリセットはできる (他のグラフ専用の操作は無効のまま)
-        script = (Path(viewer.__file__).parent / "static" / "page_menubar.js").read_text(encoding="utf-8")
+        script = (Path(viewer.__file__).parent / "static" / "common" / "page_menubar.js").read_text(encoding="utf-8")
         self.assertIn('enable(bar.querySelector(\'[data-cact="checkout"]\')', script)
         self.assertIn('enable($("resetBtn")', script)
         for key in ("checkout_detached_option", "confirm_reset_hard", "reset_submit", "confirm_checkout_branch"):
@@ -2059,7 +2059,7 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertIn('id="resetBtn"', page)
 
     def test_files_menubar_compares_the_target_with_wip_and_log_clicks_set_the_target(self):
-        static = Path(viewer.__file__).parent / "static"
+        static = Path(viewer.__file__).parent / "static" / "common"
         script = (static / "page_menubar.js").read_text(encoding="utf-8")
         self.assertIn('enable($("compareWipBtn")', script)  # 操作メニューの「WIPとの比較」は、ファイル表示でも押せる
         self.assertIn('hash: "WIP", dfrom: h, dto: "WIP"', script)  # 対象のコミットから作業ツリーまでの差分を、ファイル表示で出す
@@ -2109,7 +2109,7 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
     def test_files_menubar_git_operations_are_wired_and_their_texts_are_provided(self):
         import re
         from git_graph import pages
-        script = (Path(viewer.__file__).parent / "static" / "page_menubar.js").read_text(encoding="utf-8")
+        script = (Path(viewer.__file__).parent / "static" / "common" / "page_menubar.js").read_text(encoding="utf-8")
         for button in ("undoBtn", "redoBtn", "mergeBtn", "rebaseBtn", "cherryBtn", "revertBtn", "mergeIntoBtn", "cherryOntoBtn", "rebaseOntoBtn",
                        "rebaseRangeBtn", "rebaseDescendantsBtn", "rebaseEquivalentBtn", "resetBranchBtn", "renameBranchBtn", "deleteBranchBtn",
                        "deleteTagBtn", "deleteRemoteBranchBtn", "findEquivalentParentsBtn", "findEquivalentBranchBtn"):
@@ -3638,7 +3638,7 @@ class FilesLogMergeGraphTests(unittest.TestCase):
         from git_graph.i18n import APP_JS, render_app_js
         self.assertEqual(APP_JS.count("function logGraph(opts)"), 1)
         self.assertIn("logGraph({host: listView,", APP_JS)
-        src = (Path(__file__).resolve().parent.parent / "git_graph" / "static" / "log_graph.js").read_text(encoding="utf-8")
+        src = (Path(__file__).resolve().parent.parent / "git_graph" / "static" / "common" / "log_graph.js").read_text(encoding="utf-8")
         code = "\n".join(l for l in src.split("\n") if not l.lstrip().startswith("//"))
         self.assertNotIn("listView", code)  # 共通部は、画面ごとの変数 (listView / actionHash) を参照しない
         self.assertNotIn("actionHash", code)
@@ -3654,7 +3654,7 @@ class FilesLogMergeGraphTests(unittest.TestCase):
         self.assertLess(guard, page.index('const dirParams = new URLSearchParams({hash: rowHash});'))  # ディレクトリのログの項目でも同じ
 
     def test_only_the_plain_commit_log_gets_the_graph(self):
-        src = (Path(__file__).resolve().parent.parent / "git_graph" / "static" / "files" / "07_boot.js").read_text(encoding="utf-8")
+        src = (Path(__file__).resolve().parent.parent / "git_graph" / "static" / "files" / "js" / "07_boot.js").read_text(encoding="utf-8")
         self.assertIn("const graphRow = !path && !search", src)  # パスで絞ったログと検索結果には付けない
         self.assertIn("graphRow ? {graph: 1} : {}", src)  # 親を返させる
 

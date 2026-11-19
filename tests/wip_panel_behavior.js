@@ -2,7 +2,7 @@
 // 実行: node tests/wip_panel_behavior.js (jsdom が require できること)。tests/test_wip_panel.py から呼ぶ。失敗は終了コード 1 と標準エラーへ。
 const fs = require("fs"), path = require("path");
 const {JSDOM} = require("jsdom");
-const source = fs.readFileSync(path.join(__dirname, "..", "git_graph", "static", "wip_panel.js"), "utf8");
+const source = fs.readFileSync(path.join(__dirname, "..", "git_graph", "static", "common", "wip_panel.js"), "utf8");
 const failures = [];
 const check = (cond, msg) => { if (!cond) failures.push(msg); };
 const file = (p, extra) => Object.assign({path: p, st: "M", added: 2, deleted: 1}, extra || {});

@@ -18,35 +18,35 @@ def read_asset(name):
 
 TRANSLATIONS = {lang: json.loads((LOCALES_DIR / f"{lang}.json").read_text(encoding="utf-8"))
                 for lang in ("ja", "en")}
-HTML_TEMPLATE = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
-FILES_PAGE = (STATIC_DIR / "files.html").read_text(encoding="utf-8")
-MERGE_PAGE = (STATIC_DIR / "merge.html").read_text(encoding="utf-8")
-SETUP_PAGE = (STATIC_DIR / "setup.html").read_text(encoding="utf-8")  # リポジトリが決まっていないときの、開くパスとクローン元の入力画面
-MENUBAR_TEMPLATE = (STATIC_DIR / "menubar.html").read_text(encoding="utf-8")  # 全画面共通のメニューバー (pages.menubar_html が使う)
-# ブラウザ側の JavaScript は static/js/ の部品 (番号順) を連結して、/static/app.js として配る。
+HTML_TEMPLATE = (STATIC_DIR / "graph" / "index.html").read_text(encoding="utf-8")
+FILES_PAGE = (STATIC_DIR / "files" / "files.html").read_text(encoding="utf-8")
+MERGE_PAGE = (STATIC_DIR / "merge" / "merge.html").read_text(encoding="utf-8")
+SETUP_PAGE = (STATIC_DIR / "setup" / "setup.html").read_text(encoding="utf-8")  # リポジトリが決まっていないときの、開くパスとクローン元の入力画面
+MENUBAR_TEMPLATE = (STATIC_DIR / "common" / "menubar.html").read_text(encoding="utf-8")  # 全画面共通のメニューバー (pages.menubar_html が使う)
+# ブラウザ側の JavaScript は static/graph/js/ の部品 (番号順) を連結して、/static/app.js として配る。
 # 部品の境界を示すコメントを挟むので、ブラウザーのエラーに出る行番号から元のファイルを探せる。
 # 画面共通の WIP の一覧とコミットフォーム (wip_panel.js) と、パッチの作成・適用 (patch_ops.js) を先頭に置く
-APP_JS = "/* ---- log_select.js ---- */\n" + (STATIC_DIR / "log_select.js").read_text(encoding="utf-8") + \
-    "/* ---- commit_log.js ---- */\n" + (STATIC_DIR / "commit_log.js").read_text(encoding="utf-8") + \
-    "/* ---- log_graph.js ---- */\n" + (STATIC_DIR / "log_graph.js").read_text(encoding="utf-8") + \
-    "/* ---- wip_panel.js ---- */\n" + (STATIC_DIR / "wip_panel.js").read_text(encoding="utf-8") + \
-    "/* ---- patch_ops.js ---- */\n" + (STATIC_DIR / "patch_ops.js").read_text(encoding="utf-8") + \
-    "/* ---- other_lists.js ---- */\n" + (STATIC_DIR / "other_lists.js").read_text(encoding="utf-8") + \
-    "/* ---- toast.js ---- */\n" + (STATIC_DIR / "toast.js").read_text(encoding="utf-8") + "".join(
+APP_JS = "/* ---- log_select.js ---- */\n" + (STATIC_DIR / "common" / "log_select.js").read_text(encoding="utf-8") + \
+    "/* ---- commit_log.js ---- */\n" + (STATIC_DIR / "common" / "commit_log.js").read_text(encoding="utf-8") + \
+    "/* ---- log_graph.js ---- */\n" + (STATIC_DIR / "common" / "log_graph.js").read_text(encoding="utf-8") + \
+    "/* ---- wip_panel.js ---- */\n" + (STATIC_DIR / "common" / "wip_panel.js").read_text(encoding="utf-8") + \
+    "/* ---- patch_ops.js ---- */\n" + (STATIC_DIR / "common" / "patch_ops.js").read_text(encoding="utf-8") + \
+    "/* ---- other_lists.js ---- */\n" + (STATIC_DIR / "common" / "other_lists.js").read_text(encoding="utf-8") + \
+    "/* ---- toast.js ---- */\n" + (STATIC_DIR / "common" / "toast.js").read_text(encoding="utf-8") + "".join(
     f"/* ---- js/{path.name} ---- */\n" + path.read_text(encoding="utf-8")
-    for path in sorted((STATIC_DIR / "js").glob("*.js")))
+    for path in sorted((STATIC_DIR / "graph" / "js").glob("*.js")))
 # 共通のメニューバーの CSS (menubar.css) を先頭に連結する。ファイル表示 / 差分ページは menubar.css だけを埋め込む
-# ファイル表示ページの JavaScript は static/files/ の部品 (番号順) を連結する。
+# ファイル表示ページの JavaScript は static/files/js/ の部品 (番号順) を連結する。
 # 部品の境界を示すコメントを挟むので、ブラウザーのエラーに出る行番号から元のファイルを探せる。
 # 先頭の /*__FILE_I18N__*/ は 01_core.js にあり、pages.py が翻訳・CAN_COPY・DESKTOP の定義に置き換える。
-FILES_JS = (STATIC_DIR / "toast.js").read_text(encoding="utf-8") + "\n" + \
-    "/* ---- other_lists.js ---- */\n" + (STATIC_DIR / "other_lists.js").read_text(encoding="utf-8") + "\n" + "".join(
-    path.read_text(encoding="utf-8") for path in sorted((STATIC_DIR / "files").glob("*.js")))
+FILES_JS = (STATIC_DIR / "common" / "toast.js").read_text(encoding="utf-8") + "\n" + \
+    "/* ---- other_lists.js ---- */\n" + (STATIC_DIR / "common" / "other_lists.js").read_text(encoding="utf-8") + "\n" + "".join(
+    path.read_text(encoding="utf-8") for path in sorted((STATIC_DIR / "files" / "js").glob("*.js")))
 
-APP_CSS = ((STATIC_DIR / "menubar.css").read_text(encoding="utf-8") + (STATIC_DIR / "wip_panel.css").read_text(encoding="utf-8")
-           + (STATIC_DIR / "app.css").read_text(encoding="utf-8").replace(  # ログの行の強調 (log_select.css) とログの表 (commit_log.css) は、app.css の目印の位置へ
-               "/*__LOG_SELECT_CSS__*/", (STATIC_DIR / "log_select.css").read_text(encoding="utf-8")).replace(
-               "/*__COMMIT_LOG_CSS__*/", (STATIC_DIR / "commit_log.css").read_text(encoding="utf-8")))
+APP_CSS = ((STATIC_DIR / "common" / "menubar.css").read_text(encoding="utf-8") + (STATIC_DIR / "common" / "wip_panel.css").read_text(encoding="utf-8")
+           + (STATIC_DIR / "graph" / "app.css").read_text(encoding="utf-8").replace(  # ログの行の強調 (log_select.css) とログの表 (commit_log.css) は、app.css の目印の位置へ
+               "/*__LOG_SELECT_CSS__*/", (STATIC_DIR / "common" / "log_select.css").read_text(encoding="utf-8")).replace(
+               "/*__COMMIT_LOG_CSS__*/", (STATIC_DIR / "common" / "commit_log.css").read_text(encoding="utf-8")))
 _FAVICON_SVG = ("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'>"
                 "<path d='M16 7V25M16 16C16 11 24 13 24 7' stroke='#889' stroke-width='3' fill='none'/>"
                 "<circle cx='16' cy='25' r='4' fill='#2c7be5'/><circle cx='16' cy='16' r='4' fill='#2c7be5'/>"

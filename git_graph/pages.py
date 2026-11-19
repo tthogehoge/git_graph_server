@@ -23,31 +23,31 @@ def wip_file_exists(path):
         return False
     return os.path.isfile(target) and not os.path.islink(target)
 
-COPY_JS = read_asset("copy.js")
-DIFF_CSS = read_asset("diff.css")
-DIFF_KEYBOARD_JS = read_asset("diff_keyboard.js")
-DIFF_RELOAD_JS = read_asset("diff_reload.js")
-DIFF_EDITOR_VIEW_JS = read_asset("diff_editor_view.js")  # 差分エディタの表示 (/diff と /files の右ペインで共用)
-DIFF_EDITOR_JS = read_asset("diff_editor.js")  # 差分エディタ (CodeMirror の MergeView) ボタン。エディタ本体は vendor/text_editor.js (ボタンを押したときに読み込む)
-PANE_RESIZE_JS = read_asset("pane_resize.js")
-WIP_PANEL_JS = read_asset("wip_panel.js")  # 作業ツリーの変更の一覧とコミットフォーム。グラフ・ファイル表示・差分で共通
-WIP_PANEL_MOUNT_JS = read_asset("wip_panel_mount.js")  # ファイル表示 / 差分ページへ置くための接続
-WIP_PANEL_CSS = read_asset("wip_panel.css")
+COPY_JS = read_asset("common/copy.js")
+DIFF_CSS = read_asset("diff/diff.css")
+DIFF_KEYBOARD_JS = read_asset("diff/diff_keyboard.js")
+DIFF_RELOAD_JS = read_asset("diff/diff_reload.js")
+DIFF_EDITOR_VIEW_JS = read_asset("diff/diff_editor_view.js")  # 差分エディタの表示 (/diff と /files の右ペインで共用)
+DIFF_EDITOR_JS = read_asset("diff/diff_editor.js")  # 差分エディタ (CodeMirror の MergeView) ボタン。エディタ本体は vendor/text_editor.js (ボタンを押したときに読み込む)
+PANE_RESIZE_JS = read_asset("common/pane_resize.js")
+WIP_PANEL_JS = read_asset("common/wip_panel.js")  # 作業ツリーの変更の一覧とコミットフォーム。グラフ・ファイル表示・差分で共通
+WIP_PANEL_MOUNT_JS = read_asset("common/wip_panel_mount.js")  # ファイル表示 / 差分ページへ置くための接続
+WIP_PANEL_CSS = read_asset("common/wip_panel.css")
 # WIP パネルが使う文言は、パネルの中の t("...") から集める (書き足したときに、ここを直し忘れない)。t(f.label) は、ファイルの種類の表示
 WIP_PANEL_TEXT_KEYS = (*dict.fromkeys(re.findall(r'\bt\("([A-Za-z0-9_]+)"', WIP_PANEL_JS)), "label_conflict", "new_file")
-WIP_DIFF_REMOTE_JS = read_asset("wip_diff_remote.js")
-DIFF_DIALOG_JS = read_asset("diff_dialog.js")
-MENUBAR_CSS = read_asset("menubar.css")
-PAGE_MENUBAR_JS = read_asset("page_menubar.js")
-LOG_SELECT_JS = read_asset("log_select.js")  # 対象 / A / B の選択の保存形式 (LogSel)。メニューバーとファイル表示のログが使う (グラフは i18n.py が連結)
-COMMIT_LOG_JS = read_asset("commit_log.js")  # ログの行・ブランチ / タグの札・コミットのドラッグ&ドロップ (CommitLog)。ファイル表示のログが使う (グラフは i18n.py が連結)
-LOG_GRAPH_JS = read_asset("log_graph.js")  # ログの行の左に描くマージグラフ (logGraph)。ファイル表示のログが使う (グラフは i18n.py が連結)
-COMMIT_LOG_CSS = read_asset("commit_log.css")  # ログの表・札・コピー記号・ドラッグ中の見た目。ファイル表示用 (グラフは app.css に差し込む)
-LOG_SELECT_CSS = read_asset("log_select.css")  # ログの行 (対象 / A / B) の強調。ファイル表示のログ用 (グラフは app.css に差し込む)
-PATCH_OPS_JS = read_asset("patch_ops.js")  # パッチの作成・適用 (グラフ画面とファイル表示で共通)
-FILES_CSS = read_asset("files.css")  # ファイル表示ページ (/files) の CSS (files.html の <style> に差し込む)
+WIP_DIFF_REMOTE_JS = read_asset("diff/wip_diff_remote.js")
+DIFF_DIALOG_JS = read_asset("common/diff_dialog.js")
+MENUBAR_CSS = read_asset("common/menubar.css")
+PAGE_MENUBAR_JS = read_asset("common/page_menubar.js")
+LOG_SELECT_JS = read_asset("common/log_select.js")  # 対象 / A / B の選択の保存形式 (LogSel)。メニューバーとファイル表示のログが使う (グラフは i18n.py が連結)
+COMMIT_LOG_JS = read_asset("common/commit_log.js")  # ログの行・ブランチ / タグの札・コミットのドラッグ&ドロップ (CommitLog)。ファイル表示のログが使う (グラフは i18n.py が連結)
+LOG_GRAPH_JS = read_asset("common/log_graph.js")  # ログの行の左に描くマージグラフ (logGraph)。ファイル表示のログが使う (グラフは i18n.py が連結)
+COMMIT_LOG_CSS = read_asset("common/commit_log.css")  # ログの表・札・コピー記号・ドラッグ中の見た目。ファイル表示用 (グラフは app.css に差し込む)
+LOG_SELECT_CSS = read_asset("common/log_select.css")  # ログの行 (対象 / A / B) の強調。ファイル表示のログ用 (グラフは app.css に差し込む)
+PATCH_OPS_JS = read_asset("common/patch_ops.js")  # パッチの作成・適用 (グラフ画面とファイル表示で共通)
+FILES_CSS = read_asset("files/files.css")  # ファイル表示ページ (/files) の CSS (files.html の <style> に差し込む)
 # FILES_JS は i18n.py で static/files/ の部品を連結したもの
-MERGE_JS = read_asset("merge.js")
+MERGE_JS = read_asset("merge/merge.js")
 MERGE_EDITOR_JS = read_asset("vendor/merge_editor.js")  # CodeMirror 6 をまとめたもの (tools/merge_editor でビルド)
 TEXT_EDITOR_JS = read_asset("vendor/text_editor.js")  # ファイル編集のエディタ (CodeMirror 6 + 言語 + Vim)。こちらも tools/merge_editor でビルド
 # WIP の差分ページの push / pull / fetch ダイアログが使う文言
@@ -130,8 +130,8 @@ def page_nav_html(current, files_href=None, graph_href="/"):
             + item("files", files_href, "nav_files", _ICON_FILES))
 
 
-EXT_DIFF_JS = read_asset("ext_diff.js")
-DIFF_PATCH_JS = read_asset("diff_patch.js")
+EXT_DIFF_JS = read_asset("diff/ext_diff.js")
+DIFF_PATCH_JS = read_asset("diff/diff_patch.js")
 
 
 def menubar_html(page, *, files_href=None, graph_href="/", reload_id="reload", reload_enabled=False,

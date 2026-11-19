@@ -13,7 +13,8 @@ from git_graph.i18n import client_translations
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC = os.path.join(ROOT, "git_graph", "static")
 # ページに直接書かれていて、pages.py が埋め込まないもの (メイン画面の骨格と CSS、/files と /merge ページの HTML、全画面共通のメニューバーの HTML、リポジトリ未選択のときの設定画面。いずれも i18n.py が読む)
-NOT_EMBEDDED = {"index.html", "files.html", "merge.html", "menubar.html", "setup.html", "app.css"}
+NOT_EMBEDDED = {os.path.join("graph", "index.html"), os.path.join("files", "files.html"), os.path.join("merge", "merge.html"),
+                os.path.join("common", "menubar.html"), os.path.join("setup", "setup.html"), os.path.join("graph", "app.css")}
 
 
 def read(*parts):
@@ -26,32 +27,48 @@ class StaticAssetTests(unittest.TestCase):
     読み込まれないファイルに CSS を足しても、ページに効かない (そのことで画面が崩れたことがある)。"""
 
     def assets(self):
-        return sorted(f for f in os.listdir(STATIC) if os.path.isfile(os.path.join(STATIC, f)) and f not in NOT_EMBEDDED)
+        out = []
+        for base, dirs, files in os.walk(STATIC):
+            dirs[:] = [d for d in dirs if d != "vendor" and d != "__pycache__"]
+            out += [os.path.relpath(os.path.join(base, f), STATIC) for f in files]
+        return sorted(out)
 
     def test_every_asset_is_embedded_by_pages_py(self):
         pages = read("git_graph", "pages.py")
         i18n = read("git_graph", "i18n.py")
         for name in self.assets():
+            rel, base = name.replace(os.sep, "/").rsplit("/", 1)
             m = re.search(r'^(\w+)\s*=\s*read_asset\("%s"\)' % re.escape(name), pages, re.M)
-            if not m:
-                # 画面共通の部品 (toast.js / other_lists.js など) は i18n.py が APP_JS / FILES_JS に連結する
-                self.assertRegex(
-                    i18n, r'STATIC_DIR / "%s"\)' % re.escape(name),
-                    f"{name} は pages.py でも i18n.py でも読み込まれていない (使わないファイルは消す)")
+            if m:
+                uses = len(re.findall(r"\b%s\b" % m.group(1), pages)) - 1  # 定義の 1 回を除く
+                self.assertGreater(uses, 0, f"{name} は読み込んでいるが、ページに埋め込まれていない")
                 continue
-            uses = len(re.findall(r"\b%s\b" % m.group(1), pages)) - 1  # 定義の 1 回を除く
-            self.assertGreater(uses, 0, f"{name} は読み込んでいるが、ページに埋め込まれていない")
+            if rel in ("graph/js", "files/js"):  # 番号順の部品は i18n.py が glob で連結する (APP_JS / FILES_JS)
+                self.assertIn(f'STATIC_DIR / "{rel.split("/")[0]}" / "js").glob("*.js")', i18n,
+                              f"{name} は pages.py でも i18n.py でも読み込まれていない (使わないファイルは消す)")
+                continue
+            # テンプレートと、APP_JS / APP_CSS / FILES_JS に連結する共通部品は i18n.py が読む
+            self.assertIn(f'STATIC_DIR / "{rel}" / "{base}"', i18n,
+                          f"{name} は pages.py でも i18n.py でも読み込まれていない (使わないファイルは消す)")
 
     def test_pages_py_only_reads_assets_that_exist(self):
         for name in re.findall(r'read_asset\("([^"]+)"\)', read("git_graph", "pages.py")):
-            self.assertTrue(os.path.isfile(os.path.join(STATIC, name)), name)
+            self.assertTrue(os.path.isfile(os.path.join(STATIC, *name.split("/"))), name)
 
     def test_development_md_matches_the_assets(self):
         doc = read("DEVELOPMENT.md")
         for name in self.assets() + sorted(NOT_EMBEDDED):
-            self.assertTrue(name in doc, f"{name} が DEVELOPMENT.md に載っていない")  # assertIn は失敗時に文書全体を出してしまう
-        for name in set(re.findall(r"`(?:git_graph/static/)?([a-z_]+\.(?:css|js|html))`", doc)):
-            self.assertTrue(os.path.isfile(os.path.join(STATIC, name)), f"DEVELOPMENT.md にある {name} が static/ に無い")
+            rel = name.replace(os.sep, "/")
+            self.assertTrue(rel in doc or rel.rsplit("/", 1)[0] + "/" in doc,
+                            f"{name} が DEVELOPMENT.md に載っていない")  # assertIn は失敗時に文書全体を出してしまう
+        for name in set(re.findall(r"`(?:git_graph/static/)?([\w/]+\.(?:css|js|html))`", doc)):
+            if name.startswith(("tools/", "tests/")):  # ビルド元 (tools/merge_editor) と tests 下は static に無い
+                continue
+            if name.startswith("/"):  # URL (/static/app.js) は static 下のパスではない (配信経路はほかのテストが見る)
+                continue
+            if name.startswith("static/"):  # `static/setup/setup.html` のような言及
+                name = name[len("static/"):]
+            self.assertTrue(os.path.isfile(os.path.join(STATIC, *name.split("/"))), f"DEVELOPMENT.md にある {name} が static/ に無い")
 
 class StaticDeliveryTests(unittest.TestCase):
     """/static/<path> の汎用配信。ETag での 304、静的でないものや外への脱出の拒否。"""
@@ -77,19 +94,20 @@ class StaticDeliveryTests(unittest.TestCase):
                 return e.code, dict(e.headers), e.read()
 
     def test_serves_a_static_file_with_etag(self):
-        st, headers, body = self.get("/static/toast.js")
+        st, headers, body = self.get("/static/common/toast.js")
         self.assertEqual(st, 200)
         self.assertTrue(headers["Content-Type"].startswith("application/javascript"))
         self.assertEqual(headers["Cache-Control"], "no-cache")
         self.assertTrue(headers["ETag"])
-        with open(os.path.join(STATIC, "toast.js"), "rb") as f:
+        with open(os.path.join(STATIC, "common", "toast.js"), "rb") as f:
             self.assertEqual(body, f.read())
+
     def test_matching_etag_returns_304(self):
-        _, headers, _ = self.get("/static/toast.js")
-        st, _, body = self.get("/static/toast.js", {"If-None-Match": headers["ETag"]})
+        _, headers, _ = self.get("/static/common/toast.js")
+        st, _, body = self.get("/static/common/toast.js", {"If-None-Match": headers["ETag"]})
         self.assertEqual(st, 304)
         self.assertEqual(body, b"")
-        st, _, _ = self.get("/static/toast.js", {"If-None-Match": '"nope"'})
+        st, _, _ = self.get("/static/common/toast.js", {"If-None-Match": '"nope"'})
         self.assertEqual(st, 200)
 
     def test_serves_translations_dynamically(self):
@@ -105,8 +123,8 @@ class StaticDeliveryTests(unittest.TestCase):
         self.assertEqual(body_en, ("const I18N = " + client_translations() + ";\n").encode("utf-8"))
 
     def test_refuses_non_files_and_paths_outside_static(self):
-        for path in ("/static/index.html", "/static/nope.js", "/static/", "/static/menubar.html",
-                     "/static/" + ".." + "/server.py", "/static/js/" + "..%2F" + "server.py"):
+        for path in ("/static/graph/index.html", "/static/nope.js", "/static/", "/static/common/menubar.html",
+                     "/static/" + ".." + "/server.py", "/static/graph/js/" + "..%2F" + "server.py"):
             st, _, body = self.get(path)
             self.assertEqual(st, 404, path)
             self.assertEqual(body, b"not found")

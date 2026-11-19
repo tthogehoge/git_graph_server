@@ -19,7 +19,7 @@ class FilesLogKeyboardTests(unittest.TestCase):
     def test_up_down_move_the_selection_not_a_separate_cursor(self):
         self.assertIn("window.mbSetTarget(rows[next].dataset.h)", self.code)  # 移動と同時に、操作の対象にする
         self.assertNotIn("kbcur", self.code)
-        self.assertNotIn("kbcur", pages.read_asset("commit_log.css"))
+        self.assertNotIn("kbcur", pages.read_asset("common/commit_log.css"))
 
     def test_enter_opens_the_selected_commit_like_a_click(self):
         self.assertIn("rows[idx].click()", self.code)
@@ -31,7 +31,7 @@ class FilesLogKeyboardTests(unittest.TestCase):
         self.assertIn("input, textarea, select", self.code)
 
     def test_keyboard_help_lists_the_keys(self):
-        self.assertIn("{{keyboard_help_files_log}}", pages.read_asset("menubar.html"))
+        self.assertIn("{{keyboard_help_files_log}}", pages.read_asset("common/menubar.html"))
 
 
 if __name__ == "__main__":
