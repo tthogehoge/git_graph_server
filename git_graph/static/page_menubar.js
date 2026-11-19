@@ -848,3 +848,56 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
     }
   });
 })();
+
+// 右ボタンドラッグ左右で戻る / 進む。
+// ドラッグ（有意な移動）だった場合は contextmenu を止め、戻る/進む以外の右クリック機能を出さない。
+// 一度有意な横方向に動いたあと反対方向へ動いたらジェスチャを無効にする（右→左→右で進むになるのを防ぐ）。
+(function () {
+  if (window.__ggRightDragNav) return;
+  window.__ggRightDragNav = true;
+  const MOVE_THRESH = 6;   // px: これ以上動いたらドラッグ扱い（メニュー抑制・ナビ対象）
+  const DIR_THRESH = 40;   // px: 方向を確定する横移動量
+  let startX = 0, startY = 0, active = false, moved = false, dir = 0, invalidated = false;
+  let lastStartX = 0, lastStartY = 0;  // contextmenu 時にも距離判定できるように保持
+  document.addEventListener("pointerdown", ev => {
+    if (ev.button !== 2 || ev.pointerType === "touch") return;
+    startX = lastStartX = ev.clientX;
+    startY = lastStartY = ev.clientY;
+    active = true;
+    moved = false;
+    dir = 0;
+    invalidated = false;
+  }, true);
+  document.addEventListener("pointermove", ev => {
+    if (!active) return;
+    const dx = ev.clientX - startX, dy = ev.clientY - startY;
+    if (Math.hypot(dx, dy) >= MOVE_THRESH) moved = true;
+    if (Math.abs(dx) >= DIR_THRESH) {
+      const d = dx > 0 ? 1 : -1;  // +右=進む, -左=戻る
+      if (dir === 0) dir = d;
+      else if (d !== dir) invalidated = true;
+    }
+  }, true);
+  function endRightDrag() {
+    if (!active) return;
+    active = false;
+    if (invalidated || !moved || dir === 0) return;
+    if (dir < 0) history.back();
+    else history.forward();
+  }
+  document.addEventListener("pointerup", endRightDrag, true);
+  document.addEventListener("pointercancel", () => { active = false; }, true);
+  // ドラッグだったときは contextmenu を止め、他の右クリックメニュー等を出さない。
+  // 開始直後や pointermove が来ない環境でも、解放位置との距離で判定する。
+  document.addEventListener("contextmenu", ev => {
+    const dx = ev.clientX - lastStartX, dy = ev.clientY - lastStartY;
+    const dist = Math.hypot(dx, dy);
+    const wasDrag = moved || dist >= MOVE_THRESH || active;
+    if (wasDrag) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      // active のまま来た場合もナビしないようクリア
+      if (active) active = false;
+    }
+  }, true);
+})();
