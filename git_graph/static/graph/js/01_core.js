@@ -38,7 +38,6 @@ document.getElementById("confirmModal").addEventListener("keydown", ev => {
   else if (ev.key === "Enter") { ev.preventDefault(); closeConfirmModal(true); }
 });
 
-/*__I18N__*/
 function t(key, values = {}) {  // {name} を values[name] に置き換える (値の中の $ は特別扱いしない)
   let text = key in I18N ? I18N[key] : key;
   Object.entries(values).forEach(([name, value]) => { text = text.replaceAll("{" + name + "}", () => String(value)); });

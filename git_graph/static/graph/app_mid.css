@@ -1,0 +1,9 @@
+/* メイン画面のスタイル (中盤)。前半は app_base.css、続きは log_select.css → app_tail.css */
+  table.log tr.submodule-row { cursor: pointer; }
+  table.log tr.submodule-row:hover td { background: #eef; }
+  table.log tr.submodule-row.uninit { color: #888; }
+  table.log td.sel { width: 1%; text-align: center; }
+  .submodule-bar { margin: 6px 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .submodule-bar[hidden] { display: none; }
+  table.log tr.cur td { background: #ffe4e1; }
+  table.log tr.oph-undone td { opacity: .5; }

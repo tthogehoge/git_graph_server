@@ -27,6 +27,7 @@ from git_graph import tmpdir
 from git_graph.routing import ENGINE_ROUTES
 from git_graph.i18n import tr
 from git_graph.graph import MERGE_EDGE_COLOR as MERGE_COLOR
+from tests.helpers import page_with_assets
 
 
 class ParseStatusTests(unittest.TestCase):
@@ -401,8 +402,9 @@ class GitApiIntegrationTests(unittest.TestCase):
         self.assertIn('ev.target.closest("tr.clickable, .blame-line")', page)
         self.assertIn('ev.target.closest("a.commit-graph")', page)
         self.assertIn('type: "git-graph-commit"', page)
-        self.assertIn('showTargetLog(ev.data.hash)', app.render_app_js())
-        self.assertIn("showTargetLog(commitHash, true);", app.render_app_js())
+        graph_assets = page_with_assets(app.render_main_page())
+        self.assertIn('showTargetLog(ev.data.hash)', graph_assets)
+        self.assertIn("showTargetLog(commitHash, true);", graph_assets)
         self.assertIn('api("/api/blame"', page)
 
     def test_file_log_stays_in_file_view_and_can_open_graph(self):
@@ -420,7 +422,7 @@ class GitApiIntegrationTests(unittest.TestCase):
         self.assertIn('location.href = "/?file_log_hash="', page)
         self.assertIn("グラフ画面で表示", page)
         self.assertNotIn("function logInTab()", page)
-        app_js = app.render_app_js()
+        app_js = page_with_assets(app.render_main_page())
         self.assertIn("showFileLogInGraph(fileLogHash, fileLogPath, true);", app_js)
         self.assertIn("showTargetLog(commitHash, true);", app_js)
         self.assertIn("replaceHistory, 0, {path: \"/api/log\"", app_js)
@@ -436,13 +438,13 @@ class GitApiIntegrationTests(unittest.TestCase):
         self.assertEqual({item["path"] for item in result["files"]}, {"README.md", "new.txt"})
 
     def test_commit_detail_links_to_first_file_diff(self):
-        app_js = app.render_app_js()
+        app_js = page_with_assets(app.render_main_page())
 
         self.assertIn('diffUrl({hash: c.hash}, c.files[0])', app_js)
         self.assertIn('class="detail-files" href="\' + esc(diffUrl({hash: c.hash}, c.files[0]))', app_js)
 
     def test_wip_pane_links_to_first_file_diff(self):
-        app_js = app.render_app_js()
+        app_js = page_with_assets(app.render_main_page())
 
         self.assertIn('class="detail-files" href="\' + esc(diffUrl({}, files[0]))', app_js)
 
@@ -701,7 +703,7 @@ class LogSearchTests(unittest.TestCase):
                 state.REPO = previous
 
     def test_search_ui_is_part_of_the_app(self):
-        js = app.render_app_js()
+        js = page_with_assets(app.render_main_page())
         self.assertIn("log-search-btn", js)
         self.assertIn("searchParams", js)
         for lang in ("ja", "en"):
@@ -1138,18 +1140,23 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         try:
             with urlopen(base_url) as response:
                 page = response.read().decode("utf-8")
-            self.assertIn('href="/static/app.css"', page)
-            self.assertIn('src="/static/app.js"', page)
+            self.assertIn('href="/static/graph/app_tail.css"', page)
+            self.assertIn('src="/static/graph/js/01_core.js"', page)
+            self.assertIn("<script>const WIP_ENABLED = true;</script>", page)
             self.assertNotIn("<style>", page)
-            self.assertNotIn("<script>\n", page)
 
-            with urlopen(f"{base_url}/static/app.js") as response:
-                app_js = response.read().decode("utf-8")
+            with urlopen(f"{base_url}/static/i18n.js") as response:
+                i18n_js = response.read().decode("utf-8")
                 self.assertIn("application/javascript", response.headers.get("Content-Type"))
-            self.assertIn("const I18N = {", app_js)
-            self.assertNotIn("/*__I18N__*/", app_js)
+            self.assertIn("const I18N = {", i18n_js)
+            self.assertNotIn("/*__I18N__*/", i18n_js)
 
-            with urlopen(f"{base_url}/static/app.css") as response:
+            with urlopen(f"{base_url}/static/graph/js/01_core.js") as response:
+                core_js = response.read().decode("utf-8")
+                self.assertIn("application/javascript", response.headers.get("Content-Type"))
+            self.assertIn("function t(key, values = {})", core_js)
+
+            with urlopen(f"{base_url}/static/graph/app_base.css") as response:
                 app_css = response.read().decode("utf-8")
                 self.assertIn("text/css", response.headers.get("Content-Type"))
             self.assertIn("#graphWrap", app_css)
@@ -1683,13 +1690,12 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertIn("/api/patch-apply", page)
 
     def test_graph_page_patch_menu_items_share_patch_ops_with_the_files_page(self):
-        from git_graph.i18n import render_main_page, render_app_js
-        index = render_main_page()
+        index = app.render_main_page()
         other = index[index.index('id="otherActions"'):]
         other = other[:other.index("</div>")]
         for item in ('id="wipPatchCreateBtn"', 'id="wipPatchApplyBtn"', 'id="wipPatchAmBtn"'):
             self.assertIn(item, other)
-        js = render_app_js()
+        js = page_with_assets(index)
         self.assertEqual(js.count("const PatchOps = "), 1)
         self.assertNotIn("wipPatchBarHtml", js)  # 右ペインの WIP にはもう置かない
         self.assertNotIn("function downloadPatch", js)
@@ -1839,9 +1845,9 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
 
     def test_selection_highlight_is_shared_by_the_graph_and_the_files_log(self):
         # 対象 / A / B の保存形式と、ログの行の強調のスタイルは、グラフ・メニューバー・ファイル表示のログで 1 つだけ持つ (log_select.js / log_select.css)
-        from git_graph import i18n
-        app_js, app_css = i18n.render_app_js(), i18n.APP_CSS
-        self.assertLess(app_js.index("const LogSel = "), app_js.index("/* ---- js/01_core.js ---- */"))  # グラフの部品より先に定義する
+        page = app.render_main_page()
+        app_js, app_css = page_with_assets(page, ("js",)), page_with_assets(page, ("css",))
+        self.assertLess(page.index('src="/static/common/log_select.js"'), page.index('src="/static/graph/js/01_core.js"'))  # グラフの部品より先に定義する
         self.assertEqual(app_js.count('"git_graph_ui_sel"'), 1)  # 保存のキーは LogSel だけが持つ
         self.assertNotIn("UI_SEL_KEY", app_js)
         self.assertIn("LogSel.save({compareA: compareAHash, compareB: compareBHash, actionHash: actionHash})", app_js)
@@ -1870,9 +1876,9 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
 
     def test_commit_log_rows_chips_and_drag_and_drop_are_shared_by_the_graph_and_the_files_log(self):
         # ログの行・ブランチ / タグの札・コミットのドラッグ&ドロップは、グラフのログ画面とファイル表示のログで 1 つだけ持つ (commit_log.js / commit_log.css)
-        from git_graph import i18n
-        app_js, app_css = i18n.render_app_js(), i18n.APP_CSS
-        core, screens = "/* ---- js/01_core.js ---- */", "/* ---- js/07_screens.js ---- */"
+        page = app.render_main_page()
+        app_js, app_css = page_with_assets(page, ("js",)), page_with_assets(page, ("css",))
+        core, screens = "/* ---- /static/graph/js/01_core.js ---- */", "/* ---- /static/graph/js/07_screens.js ---- */"
         self.assertLess(app_js.index("const LogSel = "), app_js.index("const CommitLog = "))
         self.assertLess(app_js.index("const CommitLog = "), app_js.index(core))  # グラフの部品より先に定義する
         for call in ("CommitLog.rowHtml(c, {extraClass: extraClass, graphTd: graphTd, chips: chips(c[0])})",  # グラフの行の描画
@@ -1911,11 +1917,10 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
 
     def test_log_infinite_scroll_and_search_are_shared_by_the_graph_and_the_files_log(self):
         # ログの続きの読み込み (無限スクロール)・件数の表示・検索 (条件・入力欄・ボタン) は、グラフのログ画面とファイル表示のログで 1 つだけ持つ (commit_log.js)
-        from git_graph import i18n
-        app_js, app_css = i18n.render_app_js(), i18n.APP_CSS
+        app_js, app_css = page_with_assets(app.render_main_page(), ("js",)), page_with_assets(app.render_main_page(), ("css",))
         self.assertEqual(app_js.count("function createPager("), 1)
         self.assertEqual(app_js.count("const SEARCH_FIELDS = "), 1)
-        graph_part = app_js[app_js.index("/* ---- js/01_core.js ---- */"):]
+        graph_part = app_js[app_js.index("/* ---- /static/graph/js/01_core.js ---- */"):]
         log_screen = graph_part[graph_part.index("function showLog("):graph_part.index("function showTargetLog(")]
         self.assertIn("CommitLog.createPager({", log_screen)
         self.assertIn("count.textContent = CommitLog.countText(search, pg.done, pg.skip, pg.total);", log_screen)
@@ -1985,7 +1990,7 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
     def test_wip_commit_form_is_shared_between_graph_and_file_view(self):
         # グラフ・ファイル表示・差分は、WIP の一覧とコミットフォームに、同じ 1 つの実装 (wip_panel.js) を使う。
         # 画面ごとに作り直すと、amend や差分マークが画面によって違ってしまうため
-        from git_graph.i18n import render_app_js
+        from git_graph.i18n import render_main_page
         previous = (state.WRITABLE, state.WIP_ENABLED)
         self.addCleanup(setattr, state, "WRITABLE", previous[0])
         self.addCleanup(setattr, state, "WIP_ENABLED", previous[1])
@@ -1994,7 +1999,7 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         panel = viewer.WIP_PANEL_JS
         self.assertIn("const WipPanel", panel)
         pages = {
-            "graph": render_app_js(),
+            "graph": page_with_assets(render_main_page()),
             "files": viewer.render_files_page(),
             "diff": viewer.render_diff_page({"path": ["tracked.txt"], "wip": ["unstaged"]}),
             "diff-amend": viewer.render_diff_page({"path": ["tracked.txt"], "wip": ["amend"]}),
@@ -3635,9 +3640,10 @@ class FilesLogMergeGraphTests(unittest.TestCase):
         self.assertIn("svg.log-sel-overlay", page)  # 選択中の線を重ねる svg の CSS
 
     def test_graph_screen_uses_the_same_code_with_its_own_host(self):
-        from git_graph.i18n import APP_JS, render_app_js
-        self.assertEqual(APP_JS.count("function logGraph(opts)"), 1)
-        self.assertIn("logGraph({host: listView,", APP_JS)
+        from git_graph import i18n
+        app_js = page_with_assets(i18n.render_main_page(), ("js",))
+        self.assertEqual(app_js.count("function logGraph(opts)"), 1)
+        self.assertIn("logGraph({host: listView,", app_js)
         src = (Path(__file__).resolve().parent.parent / "git_graph" / "static" / "common" / "log_graph.js").read_text(encoding="utf-8")
         code = "\n".join(l for l in src.split("\n") if not l.lstrip().startswith("//"))
         self.assertNotIn("listView", code)  # 共通部は、画面ごとの変数 (listView / actionHash) を参照しない

@@ -44,9 +44,11 @@ FILES_JS = (STATIC_DIR / "common" / "toast.js").read_text(encoding="utf-8") + "\
     path.read_text(encoding="utf-8") for path in sorted((STATIC_DIR / "files" / "js").glob("*.js")))
 
 APP_CSS = ((STATIC_DIR / "common" / "menubar.css").read_text(encoding="utf-8") + (STATIC_DIR / "common" / "wip_panel.css").read_text(encoding="utf-8")
-           + (STATIC_DIR / "graph" / "app.css").read_text(encoding="utf-8").replace(  # ログの行の強調 (log_select.css) とログの表 (commit_log.css) は、app.css の目印の位置へ
-               "/*__LOG_SELECT_CSS__*/", (STATIC_DIR / "common" / "log_select.css").read_text(encoding="utf-8")).replace(
-               "/*__COMMIT_LOG_CSS__*/", (STATIC_DIR / "common" / "commit_log.css").read_text(encoding="utf-8")))
+           + (STATIC_DIR / "graph" / "app_base.css").read_text(encoding="utf-8")  # 旧 /static/app.css は app.css を3分割した順序と同じ内容 (Phase 4 で削除)
+           + (STATIC_DIR / "common" / "commit_log.css").read_text(encoding="utf-8")
+           + (STATIC_DIR / "graph" / "app_mid.css").read_text(encoding="utf-8")
+           + (STATIC_DIR / "common" / "log_select.css").read_text(encoding="utf-8")
+           + (STATIC_DIR / "graph" / "app_tail.css").read_text(encoding="utf-8"))
 _FAVICON_SVG = ("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'>"
                 "<path d='M16 7V25M16 16C16 11 24 13 24 7' stroke='#889' stroke-width='3' fill='none'/>"
                 "<circle cx='16' cy='25' r='4' fill='#2c7be5'/><circle cx='16' cy='16' r='4' fill='#2c7be5'/>"
@@ -105,8 +107,9 @@ def with_project(page):
 
 def render_main_page():
     from .pages import menubar_html  # pages は i18n を使うので、循環しないよう呼ぶときに読み込む
-    return with_project(fill_template(HTML_TEMPLATE.replace("<!--__MENUBAR__-->", menubar_html("graph")))
-            .replace('<html lang="ja">', f'<html lang="{state.UI_LANG}">'))
+    return (with_project((fill_template(HTML_TEMPLATE.replace("<!--__MENUBAR__-->", menubar_html("graph")))
+                          .replace('<html lang="ja">', f'<html lang="{state.UI_LANG}">'))
+                          .replace("/*__FLAGS__*/", "const WIP_ENABLED = " + ("true" if state.WIP_ENABLED else "false") + ";")))
 
 def render_setup_page():
     """開くリポジトリが決まっていないときの画面 (開くフォルダと、クローン元のアドレスの入力)。

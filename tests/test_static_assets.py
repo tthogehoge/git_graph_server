@@ -14,7 +14,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC = os.path.join(ROOT, "git_graph", "static")
 # ページに直接書かれていて、pages.py が埋め込まないもの (メイン画面の骨格と CSS、/files と /merge ページの HTML、全画面共通のメニューバーの HTML、リポジトリ未選択のときの設定画面。いずれも i18n.py が読む)
 NOT_EMBEDDED = {os.path.join("graph", "index.html"), os.path.join("files", "files.html"), os.path.join("merge", "merge.html"),
-                os.path.join("common", "menubar.html"), os.path.join("setup", "setup.html"), os.path.join("graph", "app.css")}
+                os.path.join("common", "menubar.html"), os.path.join("setup", "setup.html")}
 
 
 def read(*parts):

@@ -1,0 +1,59 @@
+/* メイン画面のスタイル (前半)。続きは commit_log.css → app_mid.css → log_select.css → app_tail.css の順に読む (元の app.css の差し込み位置を保つ) */
+html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; font-size: 13px; color: #222; }
+  #graphWrap { flex: 1; min-width: 0; position: relative; background: #fff; display: flex; flex-direction: column; }
+  #graph { flex: 1 1 auto; min-height: 0; position: relative; overflow: auto; padding: 12px; box-sizing: border-box; }
+  #reload.busy svg { animation: spin 1s linear infinite; }
+  body.node-dragging svg g.node { cursor: grabbing; user-select: none; -webkit-user-select: none; }
+  g.node.drag-src { opacity: .55; }
+  g.node.drop-target { filter: drop-shadow(0 0 3px #e67e00); }
+  #splitter { flex: 0 0 6px; cursor: col-resize; background: #eee; border-left: 1px solid #ccc; border-right: 1px solid #ccc; box-sizing: border-box; touch-action: none; }
+  #splitter:hover, body.resizing #splitter { background: #c8d8f0; }
+  body.resizing { cursor: col-resize; user-select: none; }
+  #panel { flex: 0 0 var(--panel-width, 480px); min-width: 240px; display: flex; flex-direction: column; border-left: 1px solid #ccc; background: #fafafa; box-sizing: border-box; }
+  body.compare-logs-mode #panel { flex-basis: min(var(--compare-panel-width, 760px), 68vw); }
+  #listView, #detailView { flex: 1; min-height: 0; overflow: auto; padding: 14px; box-sizing: border-box; }
+  #listView { position: relative; }
+  #detailView { display: none; background: #fff; }
+  h2 { font-size: 14px; margin: 0 0 8px; }
+  pre { white-space: pre-wrap; word-break: break-word; background: #fff; border: 1px solid #ddd; padding: 8px; margin: 6px 0; font-size: 12px; }
+  code { background: #eee; padding: 1px 4px; border-radius: 3px; user-select: all; }
+  .chip .ref-delete { border: 0; background: transparent; color: #555; cursor: pointer; font: inherit; font-weight: normal; line-height: inherit; margin-left: 4px; padding: 0 2px; }
+  .ref-delete:hover { color: #cf222e; }
+  .tag { display: inline-block; padding: 0 6px; border-radius: 3px; margin-right: 4px; font-weight: bold; color: #fff; }
+  .tagA { background: #06c; } .tagB { background: #e8590c; }
+  .meta { color: #555; margin: 2px 0; }
+  .hint { color: #777; }
+  .actions { border: 1px solid #ddd; background: #fafafa; border-radius: 4px; padding: 8px; margin: 8px 0; }
+  .actions .arow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0; }
+  .actions input[type=text] { padding: 3px 6px; border: 1px solid #bbb; border-radius: 3px; min-width: 0; flex: 1; }
+  .detail-actions { display: flex; flex-wrap: wrap; gap: 2px 12px; margin: 0 0 8px; }
+  .detail-files, .detail-patch { color: #06c; font-size: 13px; font-weight: normal; text-decoration: none; }
+  .detail-files:hover, .detail-patch:hover { text-decoration: underline; }
+  .confirm-msg { white-space: pre-wrap; margin-bottom: 8px; }
+  #confirmModalInput { width: 100%; box-sizing: border-box; margin-bottom: 8px; }
+  .action-dialog { background: #fff; border-radius: 6px; padding: 14px 16px; width: min(420px, calc(100vw - 48px)); max-height: 80vh; overflow: auto; box-shadow: 0 4px 20px rgba(0,0,0,.3); }
+  .action-dialog h2 { font-size: 16px; margin: 0 0 12px; }
+  .action-fields { display: flex; flex-direction: column; gap: 10px; }
+  .action-fields label { display: flex; flex-direction: column; gap: 4px; }
+  .action-fields label[hidden] { display: none; }
+  .action-fields label.check { flex-direction: row; align-items: center; }
+  .action-fields input[type=text], .action-fields select { box-sizing: border-box; width: 100%; padding: 5px 7px; }
+  .dialog-buttons { display: flex; justify-content: flex-end; gap: 6px; margin-top: 14px; }
+  .dialog-buttons button { margin: 0; }
+  .action-dialog.wide { width: min(760px, calc(100vw - 48px)); }
+  .ri-note { color: #555; margin-bottom: 4px; }
+  .ri-list { display: flex; flex-direction: column; gap: 4px; }
+  .ri-row { border: 1px solid #ddd; border-radius: 4px; padding: 4px 6px; background: #fff; }
+  .ri-main { display: flex; align-items: center; gap: 6px; }
+  .ri-main select { flex: none; width: 90px; padding: 2px; }
+  .ri-main code { flex: none; color: #555; }
+  .ri-subj { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ri-author { flex: none; color: #888; font-size: 11px; }
+  .ri-main button { flex: none; padding: 0 6px; cursor: pointer; }
+  .ri-row textarea { box-sizing: border-box; width: 100%; margin-top: 4px; font: inherit; padding: 4px 6px; }
+  .ri-row textarea[hidden] { display: none; }
+  .ri-row.edit { background: #fffbe8; border-color: #e8d98a; }
+  .ri-row.drop { background: #f6f6f6; } .ri-row.drop .ri-subj { text-decoration: line-through; color: #999; }
+  .ri-row.squash, .ri-row.fixup { margin-left: 22px; background: #f3f8ff; }
+  #actionError { margin-top: 8px; white-space: pre-wrap; } #actionError:empty { display: none; }
+  h3 { font-size: 13px; margin: 10px 0 2px; }
