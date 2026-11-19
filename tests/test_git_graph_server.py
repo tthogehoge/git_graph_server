@@ -392,35 +392,37 @@ class GitApiIntegrationTests(unittest.TestCase):
 
     def test_files_page_includes_blame_action(self):
         page = viewer.render_files_page()
+        js, css = page_with_assets(page, ("js",)), page_with_assets(page, ("css",))
 
         self.assertIn('id="fileBlameBtn"', page)
-        self.assertIn(".blame { display: table;", page)
-        self.assertIn(".blame-author", page)
-        self.assertIn(".blame-subject", page)
-        self.assertIn('class="blame-commit commit-graph"', page)
-        self.assertIn('class="blame-line" data-hash="', page)
-        self.assertIn('ev.target.closest("tr.clickable, .blame-line")', page)
-        self.assertIn('ev.target.closest("a.commit-graph")', page)
-        self.assertIn('type: "git-graph-commit"', page)
+        self.assertIn(".blame { display: table;", css)
+        self.assertIn(".blame-author", css)
+        self.assertIn(".blame-subject", css)
+        self.assertIn('class="blame-commit commit-graph"', js)
+        self.assertIn('class="blame-line" data-hash="', js)
+        self.assertIn('ev.target.closest("tr.clickable, .blame-line")', js)
+        self.assertIn('ev.target.closest("a.commit-graph")', js)
+        self.assertIn('type: "git-graph-commit"', js)
         graph_assets = page_with_assets(app.render_main_page())
         self.assertIn('showTargetLog(ev.data.hash)', graph_assets)
         self.assertIn("showTargetLog(commitHash, true);", graph_assets)
-        self.assertIn('api("/api/blame"', page)
+        self.assertIn('api("/api/blame"', page_with_assets(page, ("js",)))
 
     def test_file_log_stays_in_file_view_and_can_open_graph(self):
         page = viewer.render_files_page()
+        js = page_with_assets(page, ("js",))
 
         self.assertIn('id="fileGraphLogBtn" hidden', page)
-        self.assertIn("fileLogBtn.onclick = () => { if (currentFile) openView(\"log\"); };", page)
-        self.assertIn('showLogList(path, () => currentFile === path && currentView === "log");', page)  # このファイルのログ (パスで絞る)
-        self.assertIn('api("/api/log", Object.assign({rev: rev, path: path, skip: skip, limit: CommitLog.CHUNK}, searchP, graphRow ? {graph: 1} : {}))', page)  # 続きは skip で読む。検索の条件を付けられる
-        self.assertIn("CommitLog.rowHtml(c, {extraClass: LogSel.kinds(c[0], LogSel.load()), chips: refChips(c[0]), graphLink: true, graphTd: graphTd})", page)  # グラフのログと同じ行。対象 / A / B の行には、強調のクラスが付く
-        self.assertIn('class="commit-graph" href="/?commit_hash=', page)
-        self.assertIn('new URLSearchParams({hash: rowHash, file: currentFile})', page)
-        self.assertIn('const dir = slash < 0 ? "" : currentFile.slice(0, slash);', page)
-        self.assertIn('location.href = "/files?" + params', page)
-        self.assertIn('location.href = "/?file_log_hash="', page)
-        self.assertIn("グラフ画面で表示", page)
+        self.assertIn("fileLogBtn.onclick = () => { if (currentFile) openView(\"log\"); };", js)
+        self.assertIn('showLogList(path, () => currentFile === path && currentView === "log");', js)  # このファイルのログ (パスで絞る)
+        self.assertIn('api("/api/log", Object.assign({rev: rev, path: path, skip: skip, limit: CommitLog.CHUNK}, searchP, graphRow ? {graph: 1} : {}))', js)  # 続きは skip で読む。検索の条件を付けられる
+        self.assertIn("CommitLog.rowHtml(c, {extraClass: LogSel.kinds(c[0], LogSel.load()), chips: refChips(c[0]), graphLink: true, graphTd: graphTd})", js)  # グラフのログと同じ行。対象 / A / B の行には、強調のクラスが付く
+        self.assertIn('class="commit-graph" href="/?commit_hash=', js)
+        self.assertIn('new URLSearchParams({hash: rowHash, file: currentFile})', js)
+        self.assertIn('const dir = slash < 0 ? "" : currentFile.slice(0, slash);', js)
+        self.assertIn('location.href = "/files?" + params', js)
+        self.assertIn('location.href = "/?file_log_hash="', js)
+        self.assertIn("グラフ画面で表示", js)
         self.assertNotIn("function logInTab()", page)
         app_js = page_with_assets(app.render_main_page())
         self.assertIn("showFileLogInGraph(fileLogHash, fileLogPath, true);", app_js)
@@ -825,7 +827,7 @@ class WorkingTreeFilesTests(unittest.TestCase):
     def test_files_page_has_a_reload_button_that_is_shown_only_for_the_working_tree(self):
         page = viewer.render_files_page()
         self.assertIn('id="reloadBtn" class="sbtn iconbtn" disabled', page)  # 最初は無効にしておき、WIP 表示のときだけスクリプトが有効にする
-        self.assertIn("reloadBtn.disabled = !isWip", page)
+        self.assertIn("reloadBtn.disabled = !isWip", page_with_assets(page, ("js",)))
         self.assertNotIn("{{", page)  # 翻訳キーの置き換え漏れがない
 
     def test_blame_marks_uncommitted_lines(self):
@@ -1440,8 +1442,8 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
             self.assertIn(element, page)
         self.assertLess(page.index('id="selCommitBtn"'), page.index('id="selAddBtn"'))  # コミットボタンはステージボタンの左
         self.assertNotIn('id="selAll"', page)
-        self.assertIn('"/api/stage"', page)
-        self.assertIn("recursive: true", page)
+        self.assertIn('"/api/stage"', page_with_assets(page, ("js",)))
+        self.assertIn("recursive: true", page_with_assets(page, ("js",)))
 
     def test_wip_patch_includes_staged_unstaged_and_untracked_without_touching_index(self):
         self.write_file("tracked.txt", "staged\n")
@@ -1684,10 +1686,11 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         other = other[:other.index("</div>")]
         for item in ('id="wipPatchCreateBtn"', 'id="wipPatchApplyBtn"', 'id="wipPatchAmBtn"'):
             self.assertIn(item, other)
-        self.assertIn('commit: () => (page === "files" && here', page)  # 表示中のコミットでパッチ作成の対象を判定する
-        self.assertEqual(page.count("const PatchOps = "), 1)  # 共通部品は 1 度だけ入る
-        self.assertIn("/api/patch-am", page)
-        self.assertIn("/api/patch-apply", page)
+        js = page_with_assets(page, ("js",))
+        self.assertIn('commit: () => (page === "files" && here', js)  # 表示中のコミットでパッチ作成の対象を判定する
+        self.assertEqual(js.count("const PatchOps = "), 1)  # 共通部品は 1 度だけ入る
+        self.assertIn("/api/patch-am", js)
+        self.assertIn("/api/patch-apply", js)
 
     def test_graph_page_patch_menu_items_share_patch_ops_with_the_files_page(self):
         index = app.render_main_page()
@@ -1833,9 +1836,11 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         for name, ids in id_sets.items():
             self.assertEqual(ids ^ graph_ids, set(), f"{name}: グラフのメニューバーと項目が違う")
         for name in ("files", "diff-commit", "diff-wip"):
+            # T はメニューバーのダイアログ (ページに入れる動的な部分)、mbSay は page_menubar.js (files では個別配信)
             self.assertEqual(pages[name].count("const T = "), 1)
-            self.assertLess(pages[name].index("const T = "), pages[name].index("function openDialog"))
-            self.assertIn("function mbSay", pages[name])
+            self.assertLess(pages[name].index("const T = "), pages[name].index("function openDialog"))  # T の定義は、使う側のダイアログより先
+            js = page_with_assets(pages[name], ("js",)) if name == "files" else pages[name]
+            self.assertIn("function mbSay", js)
         self.assertIn(f'data-commit="{head}"', pages["diff-commit"])
         self.assertIn('data-wip="1"', pages["diff-wip"])
         self.assertIn('data-page="files"', pages["files"])
@@ -1857,7 +1862,8 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
             self.assertIn(rule, app_css)
         self.assertNotIn("file-log", app_css)
         self.assertLess(app_css.index("table.log tr.clickable.cmpA td"), app_css.index(".compare-log-col table.log tr.log-common td"))  # 差し込む位置は、元のルールの位置 (log-common の背景が A / B より優先される順序を変えない)
-        files = viewer.render_files_page()
+        files = page_with_assets(viewer.render_files_page(), ("js",))  # ファイル表示の JS (page_menubar / log_select を含む)
+        css_files = page_with_assets(viewer.render_files_page(), ("css",))
         self.assertEqual(files.count("const LogSel = "), 1)
         self.assertEqual(files.count('"git_graph_ui_sel"'), 1)  # メニューバー (page_menubar.js) も、キーを自前で持たない
         self.assertLess(files.index("const LogSel = "), files.index("function fileLogRow("))
@@ -1867,8 +1873,8 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertIn("LogSel.onChange(sel => {", files)  # メニューでの変更に追従する
         self.assertIn("LogSel.markRows(content, sel);\n  if (logGraphCur) logGraphCur.sync();", files)  # 強調と、マージグラフの選択中の線
         for rule in ("table.log tr.cmpA td", "table.log tr.cmpB td", "table.log tr.actionTarget td"):
-            self.assertIn(rule, files)
-        self.assertNotIn("file-log", files)
+            self.assertIn(rule, css_files)
+        self.assertNotIn("file-log", css_files)
         diff = viewer.render_diff_page({"wip": ["unstaged"]})  # page_menubar.js を使う、もう 1 つのページ
         self.assertEqual(diff.count("const LogSel = "), 1)
         self.assertEqual(diff.count('"git_graph_ui_sel"'), 1)
@@ -1896,7 +1902,7 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertEqual(app_css.count(".chip { display: inline-block"), 1)
         self.assertEqual(app_css.count("table.log td.h { width: 1%"), 1)
         self.assertLess(app_css.index("table.log td.h { width: 1%"), app_css.index(".compare-log-col table.log td.h"))  # 比較ログの幅の指定が、共通の指定より後 (優先される順序)
-        files = viewer.render_files_page()
+        files = page_with_assets(viewer.render_files_page())
         self.assertEqual(files.count("const CommitLog = "), 1)
         self.assertLess(files.index("const CommitLog = "), files.index("function fileLogRow("))
         self.assertIn("CommitLog.rowHtml(c, {extraClass: LogSel.kinds(c[0], LogSel.load()), chips: refChips(c[0]), graphLink: true, graphTd: graphTd})", files)
@@ -1905,7 +1911,7 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertEqual(files.count('{branch: "#b7e4a7"'), 1)  # ファイル表示にも、色の定義を別に持たない (CommitLog の 1 か所だけ)
         self.assertIn("function copyText(", files)  # 行のコピー記号 (.copy) の処理
         for rule in ("table.log td.h { width: 1%", ".log-host { container: loglist / inline-size; }", "#dragTip {", "tr.drop-target {"):
-            self.assertIn(rule, files)
+            self.assertIn(rule, page_with_assets(viewer.render_files_page(), ("css",)))
         self.assertIn("table.dir-log td { border-bottom: 1px solid #e3e3e3;", files)  # ディレクトリ一覧は、自分の表のスタイルを持つ
         # ドラッグ&ドロップ: 動きは共通。落としたときに、メニューバーの AB操作メニューを開く
         self.assertIn("CommitLog.createDrag({", files)
@@ -1929,7 +1935,7 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertIn("CommitLog.bindSearch(listView, {", graph_part)
         self.assertIn("const CHUNK = CommitLog.CHUNK;", graph_part)
         self.assertEqual(app_css.count(".log-search {"), 1)  # 検索欄のスタイルも 1 か所
-        files = viewer.render_files_page()
+        files = page_with_assets(viewer.render_files_page())
         self.assertEqual(files.count("function createPager("), 1)
         self.assertEqual(files.count("const SEARCH_FIELDS = "), 1)
         self.assertIn("CommitLog.bindSearch(content, {", files)
@@ -1972,7 +1978,7 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         commit_page = viewer.render_diff_page({"hash": [head]})
         self.assertIn(f'href="/?select_hash={head}"', commit_page)
         self.assertNotIn("select_wip", commit_page)
-        self.assertIn("select_wip", viewer.render_files_page())  # ファイル表示は JS で、表示中の hash が WIP のときに付け替える
+        self.assertIn("select_wip", page_with_assets(viewer.render_files_page()))  # ファイル表示は JS で、表示中の hash が WIP のときに付け替える
         boot = (Path(app.__file__).parent / "git_graph" / "static" / "graph" / "js" / "09_boot.js").read_text(encoding="utf-8")
         self.assertIn('qs.get("select_wip")', boot)
 
@@ -1998,9 +2004,10 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.write_file("tracked.txt", "working tree change\n")
         panel = viewer.WIP_PANEL_JS
         self.assertIn("const WipPanel", panel)
+        files_raw = viewer.render_files_page()
         pages = {
             "graph": page_with_assets(render_main_page()),
-            "files": viewer.render_files_page(),
+            "files": page_with_assets(files_raw),
             "diff": viewer.render_diff_page({"path": ["tracked.txt"], "wip": ["unstaged"]}),
             "diff-amend": viewer.render_diff_page({"path": ["tracked.txt"], "wip": ["amend"]}),
         }
@@ -2017,8 +2024,8 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         for name in ("diff", "diff-amend"):
             self.assertIn('id="wipPanel"', pages[name])
             self.assertIn('mountWipPanel(document.getElementById("wipPanel"), {diff: true})', pages[name])
-        self.assertIn('id="wipCommitPanel"', pages["files"])
-        self.assertIn('id="wipCommitView"', pages["files"])
+        self.assertIn('id="wipCommitPanel"', files_raw)
+        self.assertIn('id="wipCommitView"', files_raw)
         self.assertIn('mountWipPanel(document.getElementById("wipCommitPanel"), {onFiles: wipFilesChanged})', pages["files"])
         self.assertIn('params.set("dfrom", change.hash)', viewer.WIP_PANEL_MOUNT_JS)
         self.assertIn('params.get("dto") === "WIP"', viewer.WIP_PANEL_MOUNT_JS)
@@ -2059,8 +2066,8 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         for key in ("checkout_detached_option", "confirm_reset_hard", "reset_submit", "confirm_checkout_branch"):
             self.assertIn(f'"{key}"', (Path(viewer.__file__).read_text(encoding="utf-8")))  # T に入る文言
         page = viewer.render_files_page()
-        self.assertIn("async function doCheckout()", page)
-        self.assertIn("async function doReset()", page)
+        self.assertIn("async function doCheckout()", page_with_assets(page, ("js",)))
+        self.assertIn("async function doReset()", page_with_assets(page, ("js",)))
         self.assertIn('id="resetBtn"', page)
 
     def test_files_menubar_compares_the_target_with_wip_and_log_clicks_set_the_target(self):
@@ -2071,18 +2078,19 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertIn("window.mbSetTarget", script)
         page = viewer.render_files_page()
         self.assertIn('id="compareWipBtn"', page)
-        self.assertIn("window.mbSetTarget(rowHash)", page)  # ログ / blame の行のクリックで、メニューの対象を更新する
+        self.assertIn("window.mbSetTarget(rowHash)", page_with_assets(page, ("js",)))  # ログ / blame の行のクリックで、メニューの対象を更新する
 
     def test_files_page_diff_view_keeps_the_file_log_button(self):
-        page = viewer.render_files_page()
-        start = page.index("function loadFileDiff(path)")
-        body = page[start:page.index("function loadFileLog(path)", start)]
+        js = page_with_assets(viewer.render_files_page(), ("js",))
+        start = js.index("function loadFileDiff(path)")
+        body = js[start:js.index("function loadFileLog(path)", start)]
         self.assertIn("fileLogBtn.hidden = !logHash();", body)  # 差分表示でも「このファイルのログ」を出す
         self.assertNotIn("fileLogBtn.hidden = true;", body)
 
     def test_files_page_has_a_plain_commit_log_button_at_the_left_that_shows_the_log_in_the_right_pane(self):
         import re
         page = viewer.render_files_page()
+        js = page_with_assets(page, ("js",))
         files = re.search(r'<div id="fileActions"[^>]*>(.*?)</div>', page, re.S).group(1)
         order = re.findall(r'<button id="(\w+)"', files)
         self.assertEqual(order[:5], ["fileCommitLogBtn", "fileLogBtn", "fileBlameBtn", "fileDiffBtn", "fileContentBtn"])  # ログ → このファイルのログ → blame → 今まで通り
@@ -2091,22 +2099,22 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         dirs = re.search(r'<div id="dirActions"[^>]*>(.*?)</div>', page, re.S).group(1)
         self.assertEqual(re.findall(r'<button id="(\w+)"', dirs)[:2], ["dirCommitLogBtn", "dirLogBtn"])  # ディレクトリも左端がログ
         # グラフ画面へは移らず、右ペインに出す (ファイルは view=clog、ディレクトリは dirlog の一種)
-        self.assertIn('fileCommitLogBtn.onclick = () => { if (currentFile) openView("clog"); };', page)
-        self.assertIn("dirCommitLogBtn.onclick = openCommitLogView;", page)
-        self.assertIn('else if (view === "clog") loadFileCommitLog();', page)
-        self.assertIn('else if (v === "clog") showDirLog(true);', page)
-        self.assertIn('p.set("view", dirlog === "clog" ? "clog" : "log")', page)
-        start = page.index("function showLogList(path, alive, search)")
-        body = page[start:page.index("CommitLog.bindSearch(content", start)]
-        self.assertIn('showLogList("", () => currentFile === path && currentView === "clog");', page)  # パスで絞らない (path が空)
+        self.assertIn('fileCommitLogBtn.onclick = () => { if (currentFile) openView("clog"); };', js)
+        self.assertIn("dirCommitLogBtn.onclick = openCommitLogView;", js)
+        self.assertIn('else if (view === "clog") loadFileCommitLog();', js)
+        self.assertIn('else if (v === "clog") showDirLog(true);', js)
+        self.assertIn('p.set("view", dirlog === "clog" ? "clog" : "log")', js)
+        start = js.index("function showLogList(path, alive, search)")
+        body = js[start:js.index("CommitLog.bindSearch(content", start)]
+        self.assertIn('showLogList("", () => currentFile === path && currentView === "clog");', js)  # パスで絞らない (path が空)
         self.assertIn('api("/api/log", Object.assign({rev: rev, path: path, skip: skip, limit: CommitLog.CHUNK}, searchP, graphRow ? {graph: 1} : {}))', body)  # 続きは skip で読む
         self.assertIn("CommitLog.createPager({", body)
         self.assertNotIn("location.href", body)
-        self.assertEqual(page.count("fileCommitLogBtn.hidden = !logHash();"), 6)  # 内容 / 内容に戻る / 差分 / 差分編集を抜けた後 / blame / ファイルのログ
-        self.assertIn("fileCommitLogBtn.hidden = true;", page[page.index("function loadFileCommitLog()"):start])  # 表示中のログのボタンは出さない
-        self.assertIn("dirCommitLogBtn.hidden = commitLogOn || !canLog;", page)
-        start = page.index("function startEdit()")
-        self.assertIn("[fileCommitLogBtn, fileLogBtn,", page[start:page.index("function saveEdit()", start)])  # 編集中は他のボタンと同じく隠す
+        self.assertEqual(js.count("fileCommitLogBtn.hidden = !logHash();"), 6)  # 内容 / 内容に戻る / 差分 / 差分編集を抜けた後 / blame / ファイルのログ
+        self.assertIn("fileCommitLogBtn.hidden = true;", js[js.index("function loadFileCommitLog()"):start])  # 表示中のログのボタンは出さない
+        self.assertIn("dirCommitLogBtn.hidden = commitLogOn || !canLog;", js)
+        start = js.index("function startEdit()")
+        self.assertIn("[fileCommitLogBtn, fileLogBtn,", js[start:js.index("function saveEdit()", start)])  # 編集中は他のボタンと同じく隠す
         for key in ("log", "commit_log_title"):
             for lang in ("en", "ja"):
                 self.assertIn('"%s":' % key, (Path(viewer.__file__).parent / "locales" / (lang + ".json")).read_text(encoding="utf-8"))
@@ -3635,9 +3643,9 @@ class FilesLogMergeGraphTests(unittest.TestCase):
         from git_graph import pages
         page = pages.render_files_page() if hasattr(pages, "render_files_page") else None
         self.assertIsNotNone(page)
-        self.assertEqual(page.count("function logGraph(opts)"), 1)
+        self.assertEqual(page_with_assets(page).count("function logGraph(opts)"), 1)
         self.assertNotIn("/*__LOG_GRAPH__*/", page)
-        self.assertIn("svg.log-sel-overlay", page)  # 選択中の線を重ねる svg の CSS
+        self.assertIn("svg.log-sel-overlay", page_with_assets(page, ("css",)))  # 選択中の線を重ねる svg の CSS
 
     def test_graph_screen_uses_the_same_code_with_its_own_host(self):
         from git_graph import i18n
@@ -3651,13 +3659,13 @@ class FilesLogMergeGraphTests(unittest.TestCase):
 
     def test_clicking_the_graph_column_only_selects_the_commit(self):
         from git_graph import pages
-        page = pages.render_files_page()
-        select = page.index("window.mbSetTarget(rowHash)")
-        guard = page.index('if (ev.target.closest("td.graph")) return;')
-        navigate = page.index('location.href = "/files?" + params;', guard)
+        js = page_with_assets(pages.render_files_page(), ("js",))
+        select = js.index("window.mbSetTarget(rowHash)")
+        guard = js.index('if (ev.target.closest("td.graph")) return;')
+        navigate = js.index('location.href = "/files?" + params;', guard)
         self.assertLess(select, guard)  # 対象にはする
         self.assertLess(guard, navigate)  # そのコミットの表示へ移る前に止める
-        self.assertLess(guard, page.index('const dirParams = new URLSearchParams({hash: rowHash});'))  # ディレクトリのログの項目でも同じ
+        self.assertLess(guard, js.index('const dirParams = new URLSearchParams({hash: rowHash});'))  # ディレクトリのログの項目でも同じ
 
     def test_only_the_plain_commit_log_gets_the_graph(self):
         src = (Path(__file__).resolve().parent.parent / "git_graph" / "static" / "files" / "js" / "07_boot.js").read_text(encoding="utf-8")

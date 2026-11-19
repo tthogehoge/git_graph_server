@@ -7,7 +7,7 @@ from urllib.parse import urlencode
 from . import app_state as state
 from .history import api_commit, api_compare, api_diff
 from .i18n import (
-    client_translations, FAVICON_LINK, FILES_JS, FILES_PAGE, fill_template, MENUBAR_TEMPLATE, MERGE_PAGE, read_asset, tr, UserError,
+    client_translations, FAVICON_LINK, FILES_PAGE, fill_template, MENUBAR_TEMPLATE, MERGE_PAGE, read_asset, tr, UserError,
     with_project,
 )
 from .external import configured
@@ -39,14 +39,8 @@ WIP_DIFF_REMOTE_JS = read_asset("diff/wip_diff_remote.js")
 DIFF_DIALOG_JS = read_asset("common/diff_dialog.js")
 MENUBAR_CSS = read_asset("common/menubar.css")
 PAGE_MENUBAR_JS = read_asset("common/page_menubar.js")
-LOG_SELECT_JS = read_asset("common/log_select.js")  # 対象 / A / B の選択の保存形式 (LogSel)。メニューバーとファイル表示のログが使う (グラフは i18n.py が連結)
-COMMIT_LOG_JS = read_asset("common/commit_log.js")  # ログの行・ブランチ / タグの札・コミットのドラッグ&ドロップ (CommitLog)。ファイル表示のログが使う (グラフは i18n.py が連結)
-LOG_GRAPH_JS = read_asset("common/log_graph.js")  # ログの行の左に描くマージグラフ (logGraph)。ファイル表示のログが使う (グラフは i18n.py が連結)
-COMMIT_LOG_CSS = read_asset("common/commit_log.css")  # ログの表・札・コピー記号・ドラッグ中の見た目。ファイル表示用 (グラフは app.css に差し込む)
-LOG_SELECT_CSS = read_asset("common/log_select.css")  # ログの行 (対象 / A / B) の強調。ファイル表示のログ用 (グラフは app.css に差し込む)
+LOG_SELECT_JS = read_asset("common/log_select.js")  # 対象 / A / B の選択の保存形式 (LogSel)。メニューバーとファイル表示のログが使う (グラフは index.html が読む)
 PATCH_OPS_JS = read_asset("common/patch_ops.js")  # パッチの作成・適用 (グラフ画面とファイル表示で共通)
-FILES_CSS = read_asset("files/files.css")  # ファイル表示ページ (/files) の CSS (files.html の <style> に差し込む)
-# FILES_JS は i18n.py で static/files/ の部品を連結したもの
 MERGE_JS = read_asset("merge/merge.js")
 MERGE_EDITOR_JS = read_asset("vendor/merge_editor.js")  # CodeMirror 6 をまとめたもの (tools/merge_editor でビルド)
 TEXT_EDITOR_JS = read_asset("vendor/text_editor.js")  # ファイル編集のエディタ (CodeMirror 6 + 言語 + Vim)。こちらも tools/merge_editor でビルド
@@ -480,30 +474,17 @@ def render_diff_page(q):
 
 def render_files_page():
     remote = bar_has_remote()
-    # 作業ツリー (hash=WIP) のコミット関連操作は、ファイル表示の右ペインに共通 WIP パネルを置く。
-    mount = ('if (new URLSearchParams(location.search).get("hash") === "WIP") {\n'
-             '  wipCommitPanel = mountWipPanel(document.getElementById("wipCommitPanel"), {onFiles: wipFilesChanged});\n'
-             '}')
-    menubar_js = "\n".join((menubar_dialog_js([*WIP_PANEL_TEXT_KEYS, *(REMOTE_TEXT_KEYS if remote else ())]), PATCH_OPS_JS, PAGE_MENUBAR_JS,
-                            WIP_PANEL_JS, WIP_PANEL_MOUNT_JS, WIP_DIFF_REMOTE_JS if remote else "", mount))
+    # メニューバーのダイアログの文言と、push / pull / fetch の本体 (remote のときだけ) は、ページごとの動的な部分
+    dialog_js = menubar_dialog_js([*WIP_PANEL_TEXT_KEYS, *(REMOTE_TEXT_KEYS if remote else ())])
     # グラフへ戻るリンクと差分ボタンは、ページの JS が表示中のコミット / ファイルに合わせて付け替える
     menubar = menubar_html("files", reload_id="reloadBtn")
-    return with_project(fill_template(FILES_PAGE)
-            .replace("/*__FILES_CSS__*/", FILES_CSS)  # 以降の置換 (目印) が、CSS / JS の中にも効くように、最初に差し込む
-            .replace("/*__FILES_JS__*/", FILES_JS)
+    return (with_project(fill_template(FILES_PAGE))
             .replace('<html lang="ja">', f'<html lang="{state.UI_LANG}">')
-            .replace("/*__MENUBAR_CSS__*/", MENUBAR_CSS + WIP_PANEL_CSS + COMMIT_LOG_CSS + LOG_SELECT_CSS)
+            .replace("/*__FLAGS__*/", "const CAN_COPY = " + ("true" if state.WRITABLE and state.HAS_WORKTREE else "false")
+                     + "; const DESKTOP = " + ("true" if state.DESKTOP and state.WRITABLE and state.HAS_WORKTREE else "false") + ";")
             .replace("<!--__MENUBAR__-->", menubar)
-            .replace("/*__PANE_RESIZE__*/", PANE_RESIZE_JS)
-            .replace("/*__LOG_SELECT__*/", LOG_SELECT_JS)
-            .replace("/*__COMMIT_LOG__*/", COMMIT_LOG_JS)
-            .replace("/*__LOG_GRAPH__*/", LOG_GRAPH_JS)
-            .replace("/*__COPY__*/", COPY_JS)
-            .replace("/*__DIFF_EDITOR_VIEW__*/", DIFF_EDITOR_VIEW_JS)
-            .replace("/*__FILE_I18N__*/", "const I18N = " + client_translations() + ";\n"
-                     + "const CAN_COPY = " + ("true" if state.WRITABLE and state.HAS_WORKTREE else "false") + ";\n"
-                     + "const DESKTOP = " + ("true" if state.DESKTOP and state.WRITABLE and state.HAS_WORKTREE else "false") + ";")
-            .replace("/*__MENUBAR_JS__*/", menubar_js))
+            .replace("/*__MENUBAR_DIALOG__*/", dialog_js)
+            .replace("<!--__WIP_DIFF_REMOTE__-->", '<script src="/static/diff/wip_diff_remote.js"></script>' if remote else ""))
 
 
 def render_merge_page(q):

@@ -12,6 +12,7 @@ from git_graph import app_state as state
 from git_graph import pages as viewer
 from git_graph.i18n import UserError
 from git_graph.query import merge as qm
+from tests.helpers import page_with_assets
 
 BASE = "one\ntwo\nthree\nfour\nfive\n"
 MAIN = "one\nTWO main\nthree\nfour\nfive\n"
@@ -279,7 +280,7 @@ class EditorBundleTests(unittest.TestCase):
     /static/vendor/ から読み込ませる。"""
 
     def test_files_page_uses_codemirror_for_viewing_and_editing(self):
-        page = viewer.render_files_page()
+        page = page_with_assets(viewer.render_files_page(), ("js",))
         self.assertEqual(page.count("GGText.createTextEditor"), 2)  # 表示 (readOnly) と編集
         self.assertIn("readOnly: true", page)
         self.assertIn("/static/vendor/text_editor.js", page)

@@ -1,4 +1,3 @@
-/*__FILE_I18N__*/
 function t(key, values = {}) {
   let text = key in I18N ? I18N[key] : key;
   Object.entries(values).forEach(([name, value]) => { text = text.replaceAll("{" + name + "}", () => String(value)); });

@@ -33,23 +33,30 @@ class StaticAssetTests(unittest.TestCase):
             out += [os.path.relpath(os.path.join(base, f), STATIC) for f in files]
         return sorted(out)
 
-    def test_every_asset_is_embedded_by_pages_py(self):
-        pages = read("git_graph", "pages.py")
-        i18n = read("git_graph", "i18n.py")
+    def referenced(self):
+        """/static/ 下のファイルを参照する URL の集合。各ページのテンプレートと、pages.py / server.py に書かれた <script src> / <link href> など。"""
+        urls = set()
+        templates = [read("git_graph", "static", *name.split("/"))
+                     for name in ("graph/index.html", "files/files.html", "merge/merge.html", "setup/setup.html")]
+        for src in templates + [read("git_graph", "pages.py"), read("git_graph", "server.py")]:
+            urls |= {m for m in re.findall(r"/static/([\w./-]+\.(?:js|css))", src) if m != "i18n.js"}
+        return urls
+
+    def test_every_asset_is_read_somewhere(self):
+        pages_py, i18n_py = read("git_graph", "pages.py"), read("git_graph", "i18n.py")
+        refs = self.referenced()
         for name in self.assets():
             rel, base = name.replace(os.sep, "/").rsplit("/", 1)
-            m = re.search(r'^(\w+)\s*=\s*read_asset\("%s"\)' % re.escape(name), pages, re.M)
-            if m:
-                uses = len(re.findall(r"\b%s\b" % m.group(1), pages)) - 1  # 定義の 1 回を除く
-                self.assertGreater(uses, 0, f"{name} は読み込んでいるが、ページに埋め込まれていない")
+            if rel + "/" + base in refs:  # ページが <script src> / <link> で読む
                 continue
-            if rel in ("graph/js", "files/js"):  # 番号順の部品は i18n.py が glob で連結する (APP_JS / FILES_JS)
-                self.assertIn(f'STATIC_DIR / "{rel.split("/")[0]}" / "js").glob("*.js")', i18n,
-                              f"{name} は pages.py でも i18n.py でも読み込まれていない (使わないファイルは消す)")
+            m = re.search(r'^(\w+)\s*=\s*read_asset\("%s"\)' % re.escape(name), pages_py, re.M)
+            if m and len(re.findall(r"\b%s\b" % m.group(1), pages_py)) > 1:  # pages.py が埋め込む (定義の 1 回を除く)
                 continue
-            # テンプレートと、APP_JS / APP_CSS / FILES_JS に連結する共通部品は i18n.py が読む
-            self.assertIn(f'STATIC_DIR / "{rel}" / "{base}"', i18n,
-                          f"{name} は pages.py でも i18n.py でも読み込まれていない (使わないファイルは消す)")
+            if rel in ("graph/js", "files/js"):  # 番号順の部品は i18n.py が glob で連結する (APP_JS / FILES_JS 従来分。Phase 4 で無くなる)
+                self.assertIn(f'STATIC_DIR / "{rel.split("/")[0]}" / "js").glob("*.js")', i18n_py, f"{name} はどこからも読まれていない (使わないファイルは消す)")
+                continue
+            # テンプレートと、従来の APP_JS / APP_CSS / FILES_JS に連結する共通部品は i18n.py が読む
+            self.assertIn(f'STATIC_DIR / "{rel}" / "{base}"', i18n_py, f"{name} はどこからも読まれていない (使わないファイルは消す)")
 
     def test_pages_py_only_reads_assets_that_exist(self):
         for name in re.findall(r'read_asset\("([^"]+)"\)', read("git_graph", "pages.py")):

@@ -1,6 +1,7 @@
 import unittest
 
 from git_graph import pages
+from tests.helpers import page_with_assets
 
 
 class FilesLogKeyboardTests(unittest.TestCase):
@@ -8,7 +9,7 @@ class FilesLogKeyboardTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        page = pages.render_files_page()
+        page = page_with_assets(pages.render_files_page(), ("js",))
         start = page.index("// ---- ログの行のキーボード操作 (右ペイン)")
         cls.code = page[start:page.index("function loadFileDiff(path)", start)]
 

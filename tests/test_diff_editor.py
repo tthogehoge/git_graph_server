@@ -9,6 +9,7 @@ from git_graph import history
 from git_graph import pages
 from git_graph.i18n import UserError
 from git_graph.routing import ROUTES
+from tests.helpers import page_with_assets
 
 ONE = "one\ntwo\nthree\n"
 TWO = "one\nTWO\nthree\n"
@@ -210,28 +211,26 @@ class DiffEditorPageTests(unittest.TestCase):
         self.assertNotIn("function createDiffEditor(", page)  # ページの HTML にはエディタ (1MB) を埋め込まない
 
     def test_the_files_page_css_and_js_live_in_their_own_files(self):
-        # files.html はページの骨組みだけ。CSS (files.css) と JavaScript (static/files/js/ を連結した FILES_JS) は別で、pages.py が差し込む
+        # files.html はページの骨組みだけ。CSS と JavaScript は /static/ 下の個別ファイル (page_with_assets が配信と同じ経路で集める)
         html = pages.read_asset("files/files.html")
-        self.assertIn("<style>\n/*__FILES_CSS__*/</style>", html)
-        self.assertIn("<script>\n/*__FILES_JS__*/</script>", html)
+        self.assertIn('<link rel="stylesheet" href="/static/files/files.css">', html)
+        self.assertIn('<script src="/static/files/js/01_core.js">', html)
         self.assertLess(html.count("\n"), 60)
-        css, js = pages.read_asset("files/files.css"), pages.FILES_JS
-        # 翻訳などの定義に置き換える目印は 1 つだけ (01_core.js)。共通部品 (toast.js / other_lists.js) がその前に連結される
-        self.assertEqual(js.count("/*__FILE_I18N__*/"), 1)
         page = pages.render_files_page()
-        for marker in ("/*__FILES_CSS__*/", "/*__FILES_JS__*/", "/*__FILE_I18N__*/", "/*__MENUBAR_CSS__*/"):
+        for marker in ("/*__FLAGS__*/", "/*__MENUBAR_DIALOG__*/", "<!--__WIP_DIFF_REMOTE__-->"):
             self.assertNotIn(marker, page)
-        self.assertIn(css.split("/*__MENUBAR_CSS__*/")[0], page)  # CSS の本体は、そのままページに入る
-        self.assertIn(js[js.index("/*__FILE_I18N__*/\n") + len("/*__FILE_I18N__*/\n"):], page)  # JS の本体 (目印の行より後) も、そのまま入る (目印の行は翻訳に置き換わる)
-        self.assertLess(page.index("const I18N = "), page.index("function t(key, values = {})"))  # 翻訳の定義が先
+        self.assertIn(pages.read_asset("files/files.css"), page_with_assets(page, ("css",)))  # CSS の本体は、そのまま配信される
+        assets = page_with_assets(page)
+        self.assertIn(pages.read_asset("files/js/01_core.js"), assets)  # JS の本体も、そのまま配信される
+        self.assertLess(assets.index("const I18N = "), assets.index("function t(key, values = {})"))  # 翻訳の定義が先
 
     def test_the_files_page_shows_the_diff_in_the_right_pane(self):
-        files_html = pages.read_asset("files/files.html") + pages.FILES_JS  # ページの骨組みと、画面の動作
+        files_html = page_with_assets(pages.render_files_page())  # ページが読む JavaScript (画面の動作)
         self.assertIn('fileDiffBtn.onclick = () => { if (currentFile && diffParams(currentFile)) openView("diff"); };', files_html)
         self.assertIn('else if (view === "diff") loadFileDiff(currentFile);', files_html)  # view=diff は、再読み込み・戻る/進むでも復元する
         self.assertNotIn('location.href = "/diff?" + new URLSearchParams({...p', files_html)  # 別のページへは移らない
         page = pages.render_files_page()
-        self.assertIn("function createDiffEditorView", page)  # 共通の表示部品が、files ページにも入る
+        self.assertIn("function createDiffEditorView", files_html)  # 共通の表示部品が、files ページにも入る
         self.assertNotIn("/*__DIFF_EDITOR_VIEW__*/", page)
         self.assertIn('id="viewVim"', files_html)  # ファイルの表示 (読み取り専用) にも Vim モードの切り替えがある
         self.assertIn("readOnly: true, vim: vimOn", files_html)
@@ -254,7 +253,7 @@ class DiffEditorPageTests(unittest.TestCase):
         page = pages.render_files_page()
         for needle in ('id="sideTabs"', 'id="sideTreeBtn"', 'id="sideChangesBtn"', 'id="changes"', "Files</button>", "Changed files</button>"):
             self.assertIn(needle, page)
-        files_html = pages.read_asset("files/files.html") + pages.FILES_JS  # ページの骨組みと、画面の動作
+        files_html = page_with_assets(pages.render_files_page())  # ページが読む JavaScript (画面の動作)
         self.assertIn('sideTabs.hidden = !hash;', files_html)  # コミットも作業ツリーも出す
         self.assertIn('changesEl.hidden = !changes;', files_html)
         self.assertIn('openWipChange(from && to', files_html)  # WIP の比較差分は、右ペインで開く
@@ -284,7 +283,7 @@ class DiffEditorPageTests(unittest.TestCase):
         self.assertIn("desiredStageChecked(f.wip, f.path)", files_html)
         self.assertIn('runSel("/api/stage", plan', files_html)
         self.assertNotIn("function activeSelectionBoxes()", files_html)  # すべて選択チェックは削除した
-        self.assertIn('id="wipCommitView"', files_html)
+        self.assertIn('id="wipCommitView"', page)
         self.assertNotIn('id="wipCommitOpen"', files_html)
         self.assertIn("return wipCommitPanel.render(document.getElementById(\"wipCommitPanel\"), {});", files_html)
         self.assertIn("}).then(refreshWipCommitPanel);", files_html)
@@ -296,7 +295,7 @@ class DiffEditorPageTests(unittest.TestCase):
         self.assertNotIn("hidden", commit_menu)
         self.assertIn("wipCommitMenuBtn.disabled = !CAN_COPY;", files_html)
         self.assertIn('else location.href = "/files?hash=WIP&wip_commit=1";', files_html)
-        self.assertIn('wipCommitPanel = mountWipPanel(document.getElementById("wipCommitPanel"), {onFiles: wipFilesChanged})', page)
+        self.assertIn('wipCommitPanel = mountWipPanel(document.getElementById("wipCommitPanel"), {onFiles: wipFilesChanged})', files_html)
         self.assertIn('history.pushState({path: dir, file: path, view: "diff"}', files_html)  # 変更ファイルは、右ペインの差分で開く
         self.assertIn("gitGraphFilesSide", files_html)  # 選んだ表示は引き継ぐ
         self.assertIn("const rows = sideNavRows();", files_html)  # ↑↓ Enter は、出している方の一覧で働く

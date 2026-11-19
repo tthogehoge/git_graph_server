@@ -1,8 +1,13 @@
 <!DOCTYPE html>
 <html lang="ja"><head><meta charset="utf-8"><title>__PROJECT__ - {{file_view}}</title>
 __FAVICON__
-<style>
-/*__FILES_CSS__*/</style></head>
+<script>/*__FLAGS__*/</script>
+<link rel="stylesheet" href="/static/files/files.css">
+<link rel="stylesheet" href="/static/common/menubar.css">
+<link rel="stylesheet" href="/static/common/wip_panel.css">
+<link rel="stylesheet" href="/static/common/commit_log.css">
+<link rel="stylesheet" href="/static/common/log_select.css">
+</head>
 <body>
 <!--__MENUBAR__-->
 <div id="panes">
@@ -15,12 +20,27 @@ __FAVICON__
 <div id="fileActions" class="file-actions" hidden><button id="fileCommitLogBtn">{{log}}</button><button id="fileLogBtn">{{file_log}}</button><button id="fileBlameBtn">{{file_blame}}</button><button id="fileDiffBtn">{{file_diff}}</button><button id="fileContentBtn" hidden>{{file_content}}</button><button id="fileEditBtn">{{file_edit}}</button><button id="fileMergeBtn" title="{{tip_merge_editor}}" hidden>{{merge_editor}}</button><button id="fileExtEditBtn" title="{{tip_open_editor}}">{{open_editor}}</button><button id="fileExtDiffBtn" title="{{tip_open_diff_tool}}" hidden>{{open_diff_tool}}</button><button id="fileGraphLogBtn" hidden>{{file_log_graph}}</button><button id="fileCopyBtn">{{copy_to_work}}</button><button id="fileDownloadBtn">{{file_download}}</button><button id="fileRmBtn" title="{{tip_rm_file}}">{{rm_button}}</button><button id="fileRmCachedBtn" title="{{tip_rm_cached_file}}">{{rm_cached_button}}</button><span id="fileMsg" class="msg"></span></div>
 <div id="content" class="hint">{{select_file_hint}}</div></div><section id="wipCommitView" hidden><h2>{{wip_title}} <button type="button" class="sbtn" id="wipCommitBack">{{back_history}}</button></h2><div id="wipCommitPanel"></div></section></main>
 </div>
-<script>/*__LOG_SELECT__*/</script>
-<script>/*__COMMIT_LOG__*/</script>
-<script>/*__LOG_GRAPH__*/</script>
-<script>/*__COPY__*/</script>
-<script>/*__PANE_RESIZE__*/</script>
-<script>/*__DIFF_EDITOR_VIEW__*/</script>
-<script>
-/*__FILES_JS__*/</script>
-<script>/*__MENUBAR_JS__*/</script></body></html>
+<script src="/static/i18n.js"></script>
+<script src="/static/common/log_select.js"></script>
+<script src="/static/common/commit_log.js"></script>
+<script src="/static/common/log_graph.js"></script>
+<script src="/static/common/copy.js"></script>
+<script src="/static/common/pane_resize.js"></script>
+<script src="/static/diff/diff_editor_view.js"></script>
+<script src="/static/common/toast.js"></script>
+<script src="/static/common/other_lists.js"></script>
+<script src="/static/files/js/01_core.js"></script>
+<script src="/static/files/js/02_left_pane.js"></script>
+<script src="/static/files/js/03_tree_nav.js"></script>
+<script src="/static/files/js/04_selection.js"></script>
+<script src="/static/files/js/05_dir_file.js"></script>
+<script src="/static/files/js/06_edit.js"></script>
+<script src="/static/files/js/07_boot.js"></script>
+<script>/*__MENUBAR_DIALOG__*/</script>
+<script src="/static/common/patch_ops.js"></script>
+<script src="/static/common/page_menubar.js"></script>
+<script src="/static/common/wip_panel.js"></script>
+<script src="/static/common/wip_panel_mount.js"></script>
+<!--__WIP_DIFF_REMOTE__-->
+<script src="/static/files/wip_mount.js"></script>
+</body></html>

@@ -96,4 +96,3 @@
   .edit-bar button:disabled { opacity: .5; cursor: default; }
   .file-actions button:disabled { opacity: .5; cursor: default; }
   .wip-box { margin: 8px 0; } .wip-box > summary { cursor: pointer; font-weight: bold; margin-bottom: 4px; }
-/*__MENUBAR_CSS__*/

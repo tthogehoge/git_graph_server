@@ -12,6 +12,7 @@ import git_graph_server as app
 from git_graph import app_state as state
 from git_graph import pages
 from git_graph.query import files as qf
+from tests.helpers import page_with_assets
 
 
 def git(*args, cwd=None):
@@ -249,7 +250,7 @@ class TreeLogStreamHttpTests(RepoCase):
 
 class FilesPageUsesTheStreamTests(unittest.TestCase):
     def test_directory_view_fills_rows_as_they_arrive_and_cancels_stale_requests(self):
-        page = pages.render_files_page()
+        page = page_with_assets(pages.render_files_page(), ("js",))
         self.assertIn("async function apiStream(path, params, onEvent, signal)", page)
         self.assertIn('apiStream("/api/tree-log", {hash: hash, path: path}', page)
         self.assertIn("if (treeLogAbort) treeLogAbort.abort();", page)  # 別のディレクトリ / ログへ移るとき
