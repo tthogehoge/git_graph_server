@@ -286,6 +286,14 @@ content.addEventListener("click", ev => {
   if (!rowHash) return;
   if (window.mbSetTarget) window.mbSetTarget(rowHash);  // ログ / blame の行をクリックしたコミットを、メニューの「対象」にする
   if (ev.target.closest("td.graph")) return;  // マージグラフの列は、対象にするだけ (そのコミットの表示へは移らない。線の強調は対象の変更で付く)
+  // ログから別コミットのファイル画面へ遷移する前に、現在のログ表示を履歴に確実に残す。
+  // 初期表示で開いたログ (viaPush なし) だと、location.href 後の戻るでログに戻れないことがあるため。
+  if (!history.state || !history.state.viaPush) {
+    const st = currentFile
+      ? {path: current, file: currentFile, view: currentView || "log", viaPush: true}
+      : {path: current, dirlog: true, viaPush: true};
+    history.pushState(st, "", location.href);
+  }
   if (!currentFile) {  // ディレクトリのログの項目: そのコミットでのディレクトリを開く
     if (!dirLogOn) return;
     const dirParams = new URLSearchParams({hash: rowHash});

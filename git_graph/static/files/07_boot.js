@@ -244,6 +244,9 @@ function showOtherList(kind, titleKey, helpKey, apiPath, params, opts) {
     const tr = ev.target.closest("tr.clickable");
     if (!tr || !tr.dataset.h || ev.target.closest("a, .copy")) return;
     if (ev.detail > 1) return;
+    if (!history.state || !history.state.viaPush) {
+      history.pushState({path: current, viaPush: true}, "", location.href);
+    }
     location.href = "/files?hash=" + encodeURIComponent(tr.dataset.h);
   };
 }
@@ -322,6 +325,9 @@ window.showOtherReflog = function (branch) {
     const tr = ev.target.closest("tr.clickable");
     if (!tr || !tr.dataset.h || ev.target.closest("a, .copy")) return;
     if (ev.detail > 1) return;
+    if (!history.state || !history.state.viaPush) {
+      history.pushState({path: current, viaPush: true}, "", location.href);
+    }
     location.href = "/files?hash=" + encodeURIComponent(tr.dataset.h);
   };
 };
