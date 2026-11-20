@@ -228,6 +228,8 @@ class Handler(BaseHTTPRequestHandler):
             if state.NEED_REPO:  # 開くリポジトリが決まるまでは、設定画面しか出さない (ほかのページは / へ戻す)
                 if u.path == "/":
                     self._send(200, "text/html", render_setup_page())
+                elif u.path.startswith("/static/"):  # 設定画面が <link> / <script src> で読む CSS / JS と翻訳 (これも / へ戻すと、設定画面が崩れて動かない)
+                    self._send_static_file(u.path)
                 else:
                     self.send_response(302)
                     self.send_header("Location", "/")

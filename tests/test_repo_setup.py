@@ -252,6 +252,21 @@ class SetupHttpTests(StateGuard):
             self.assertEqual(res.geturl(), self.base + "/")
             self.assertIn('id="setupForm"', res.read().decode("utf-8"))
 
+    def test_setup_page_assets_are_served_before_a_repository_is_chosen(self):
+        # 設定画面は CSS / JS / 翻訳を /static/ から読む。リポジトリが決まる前でも、/ へ戻されずに配られる
+        with urlopen(self.base + "/") as res:
+            page = res.read().decode("utf-8")
+        for url in ("/static/setup/setup.css", "/static/i18n.js", "/static/setup/setup.js"):
+            self.assertIn(url, page)
+            with urlopen(self.base + url) as res:
+                self.assertEqual(res.geturl(), self.base + url)  # 302 で / に飛ばされていない
+                self.assertGreater(len(res.read()), 0)
+        for url in ("/static/graph/index.html", "/static/nope.js"):  # 配らないもの (テンプレート・無いファイル) は、/ へ戻さず静的配信の判断で 404
+            with self.assertRaises(HTTPError) as cm:
+                urlopen(self.base + url)
+            self.assertEqual(cm.exception.code, 404)
+            cm.exception.close()
+
     def test_other_write_apis_are_refused_until_a_repository_is_chosen(self):
         with self.assertRaises(HTTPError) as cm:
             self.post("/api/fetch", {})
