@@ -109,8 +109,10 @@
 .status-toast-message { flex: 1; min-width: 0; }
 /* メッセージ一覧 (その他メニュー。common/message_log.js) */
 .msglog-bar { margin: 6px 0; display: flex; gap: 8px; }
-.msglog-mark { width: 1.5em; text-align: center; }
-.msglog-time { white-space: nowrap; color: #666; font-size: 12px; }
+/* 印・時刻・コピーは中身の幅だけ (width: 1%)、残りをメッセージに割り当てる (table.log td.log-cell の max-width: 0 は使わない) */
+table.log td.msglog-mark, table.log td.msglog-time, table.log td.msglog-copy { width: 1%; white-space: nowrap; }
+.msglog-mark { text-align: center; }
+.msglog-time { color: #666; font-size: 12px; }
 .msglog-msg { white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
 .msglog-row.success .msglog-mark { color: #1a7f37; }
 .msglog-row.error .msglog-mark, .msglog-row.error .msglog-msg { color: #cf222e; }

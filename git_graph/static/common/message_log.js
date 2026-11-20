@@ -43,8 +43,8 @@ const MessageLog = (function () {
     const list = load().slice().reverse();  // 新しい順
     if (!list.length) return '<div class="hint">' + esc(t("message_log_empty")) + "</div>";
     const rows = list.map(m => '<tr class="msglog-row ' + esc(m.type) + '"><td class="msglog-mark">' + (MARK[m.type] || MARK.info) +
-      '</td><td class="msglog-time">' + esc(stamp(m.time)) + '</td><td class="log-cell msglog-msg">' + esc(m.message) +
-      '</td><td><a class="copy" data-copy="' + esc(m.message) + '" title="' + esc(t("message_log_copy")) + '">📋</a></td></tr>').join("");
+      '</td><td class="msglog-time">' + esc(stamp(m.time)) + '</td><td class="msglog-msg">' + esc(m.message) +
+      '</td><td class="msglog-copy"><a class="copy" data-copy="' + esc(m.message) + '" title="' + esc(t("message_log_copy")) + '">📋</a></td></tr>').join("");
     return '<div class="msglog-bar"><button type="button" class="sbtn" id="msgLogCopyAll">' + esc(t("message_log_copy_all")) +
       '</button><button type="button" class="sbtn" id="msgLogClear">' + esc(t("message_log_clear")) + "</button></div>" +
       '<table class="log"><tbody>' + rows + "</tbody></table>";
