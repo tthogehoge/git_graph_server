@@ -142,7 +142,7 @@ class LibgitReviewTests(unittest.TestCase):
         self.write("c.txt", "main\n")
         run(self.repo, "add", "c.txt")
         run(self.repo, "commit", "-qm", "main")
-        subprocess.run(["git", "-C", self.repo, "merge", "side"], capture_output=True)  # c.txt が競合する
+        subprocess.run(["git", "-C", self.repo, "merge", "side"], capture_output=True, check=False)  # c.txt が競合する
         self.write("edit.txt", "staged\n" * 30)
         run(self.repo, "add", "edit.txt")
         self.write("edit.txt", "staged\nunstaged\n" * 15)  # ステージ済み + 未ステージ
@@ -281,5 +281,5 @@ class GitstateReadParityTests(unittest.TestCase):
         with open(os.path.join(self.repo, "a.txt"), "w") as f:
             f.write("main\n")
         run(self.repo, "commit", "-qam", "main")
-        subprocess.run(["git", "-C", self.repo, "merge", "side"], capture_output=True)
+        subprocess.run(["git", "-C", self.repo, "merge", "side"], capture_output=True, check=False)
         self.assertTrue(libgit.has_conflicts())

@@ -18,7 +18,7 @@ def apply_patch(data):
         raise UserError("patch_empty")
 
     def run_apply(*opts):
-        r = subprocess.run(["git", "-C", state.REPO, "apply", "--whitespace=nowarn", *opts, "-"], input=data, capture_output=True)
+        r = subprocess.run(["git", "-C", state.REPO, "apply", "--whitespace=nowarn", *opts, "-"], input=data, capture_output=True, check=False)
         if r.returncode != 0:
             raise ValueError(r.stderr.decode("utf-8", "replace").strip() or tr("git_command_failed"))
         return r.stdout.decode("utf-8", "replace")
@@ -43,9 +43,9 @@ def am_patch(data):
     if is_operation_in_progress():
         raise UserError("patch_am_busy")  # rebase-apply が残っていると、am --abort が別の操作を中断してしまう
     old = git("rev-parse", "HEAD").strip() if has_head() else ""
-    r = subprocess.run(["git", "-C", state.REPO, "am", "--quiet", "--whitespace=nowarn"], input=data, capture_output=True)
+    r = subprocess.run(["git", "-C", state.REPO, "am", "--quiet", "--whitespace=nowarn"], input=data, capture_output=True, check=False)
     if r.returncode != 0:
-        subprocess.run(["git", "-C", state.REPO, "am", "--abort"], capture_output=True)
+        subprocess.run(["git", "-C", state.REPO, "am", "--abort"], capture_output=True, check=False)
         text = (r.stderr + r.stdout).decode("utf-8", "replace").strip()
         raise ValueError(text or tr("git_command_failed"))
     return {"commits": int(git("rev-list", "--count", f"{old}..HEAD" if old else "HEAD").strip() or 0)}

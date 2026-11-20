@@ -912,10 +912,10 @@ class WorkingTreeFilesTests(unittest.TestCase):
 
     def test_edit_restores_encoding_bom_and_line_endings(self):
         cases = [
-            ("utf8.txt", "あ\nい\n".encode("utf-8"), "う\n".encode("utf-8")),
+            ("utf8.txt", "あ\nい\n".encode(), "う\n".encode()),
             ("sjis.txt", "あ\r\nい\r\n".encode("cp932"), "う\r\n".encode("cp932")),
             ("euc.txt", "あ\nい\n".encode("euc_jp"), "う\n".encode("euc_jp")),
-            ("bom.txt", codecs.BOM_UTF8 + "あ\r\nい\r\n".encode("utf-8"), "う\r\n".encode("utf-8")),
+            ("bom.txt", codecs.BOM_UTF8 + "あ\r\nい\r\n".encode(), "う\r\n".encode()),
             ("u16.txt", codecs.BOM_UTF16_LE + "あ\r\nい\r\n".encode("utf-16-le"), "う\r\n".encode("utf-16-le")),
             ("cr.txt", b"a\rb\r", b"c\r"),
         ]
@@ -1081,7 +1081,7 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertNotEqual(
             subprocess.run(
                 ["git", "-C", self.repo, "show-ref", "--verify", "--quiet", "refs/heads/old-name"],
-                capture_output=True,
+                capture_output=True, check=False,
             ).returncode,
             0,
         )
@@ -1095,7 +1095,7 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertNotEqual(
             subprocess.run(
                 ["git", "-C", self.repo, "show-ref", "--verify", "--quiet", "refs/tags/temporary"],
-                capture_output=True,
+                capture_output=True, check=False,
             ).returncode,
             0,
         )
@@ -2093,12 +2093,12 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         import re
         page = viewer.render_files_page()
         js = page_with_assets(page, ("js",))
-        files = re.search(r'<div id="fileActions"[^>]*>(.*?)</div>', page, re.S).group(1)
+        files = re.search(r'<div id="fileActions"[^>]*>(.*?)</div>', page, re.DOTALL).group(1)
         order = re.findall(r'<button id="(\w+)"', files)
         self.assertEqual(order[:5], ["fileCommitLogBtn", "fileLogBtn", "fileBlameBtn", "fileDiffBtn", "fileContentBtn"])  # ログ → このファイルのログ → blame → 今まで通り
         self.assertEqual(order.count("fileLogBtn"), 1)
         self.assertEqual(order.count("fileBlameBtn"), 1)
-        dirs = re.search(r'<div id="dirActions"[^>]*>(.*?)</div>', page, re.S).group(1)
+        dirs = re.search(r'<div id="dirActions"[^>]*>(.*?)</div>', page, re.DOTALL).group(1)
         self.assertEqual(re.findall(r'<button id="(\w+)"', dirs)[:2], ["dirCommitLogBtn", "dirLogBtn"])  # ディレクトリも左端がログ
         # グラフ画面へは移らず、右ペインに出す (ファイルは view=clog、ディレクトリは dirlog の一種)
         self.assertIn('fileCommitLogBtn.onclick = () => { if (currentFile) openView("clog"); };', js)
@@ -2177,7 +2177,7 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.git("checkout", "-q", "-")
         self.write_file("tracked.txt", "main\n")
         self.git("commit", "-q", "-am", "main change")
-        subprocess.run(["git", "-C", self.repo, "merge", "side"], capture_output=True)  # 競合して止まる
+        subprocess.run(["git", "-C", self.repo, "merge", "side"], capture_output=True, check=False)  # 競合して止まる
         out = app.wip_diff("conflict", "tracked.txt", ["tracked.txt"]).decode()
         self.assertIn("diff --cc tracked.txt", out)
         self.assertIn("<<<<<<<", out)
@@ -2192,7 +2192,7 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.git("checkout", "-q", "-")
         self.write_file("tracked.txt", "main\n")
         self.git("commit", "-q", "-am", "main change")
-        subprocess.run(["git", "-C", self.repo, "merge", "side"], capture_output=True)  # 競合して止まる
+        subprocess.run(["git", "-C", self.repo, "merge", "side"], capture_output=True, check=False)  # 競合して止まる
         self.write_file("tracked.txt", "main\n")  # ours と同じ内容にした (combined diff だと中身が空になる)
         out = app.wip_diff("conflict", "tracked.txt", ["tracked.txt"]).decode()
         self.assertIn("@@", out)

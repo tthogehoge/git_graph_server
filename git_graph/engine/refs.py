@@ -16,7 +16,7 @@ from .remote import Auth
 
 
 def _git_ok(*args):
-    return subprocess.run(["git", "-C", state.REPO, *args], capture_output=True).returncode == 0
+    return subprocess.run(["git", "-C", state.REPO, *args], capture_output=True, check=False).returncode == 0
 
 
 @operation("branch", touches_worktree=False, detail=lambda commit, name, *_, **__: name)
@@ -33,7 +33,7 @@ def create_branch(commit, name, *, checkout=False, upstream=None, on_conflict=No
         if not isinstance(upstream, str) or upstream.startswith("-") or "\0" in upstream:
             raise UserError("remote_branch_not_found")
         r = subprocess.run(["git", "-C", state.REPO, "rev-parse", "--verify", "--quiet", "refs/remotes/" + upstream + "^{commit}"],
-                           capture_output=True, text=True, encoding="utf-8", errors="replace")
+                           capture_output=True, text=True, encoding="utf-8", errors="replace", check=False)
         if r.returncode != 0 or r.stdout.strip() != h:
             raise UserError("remote_branch_not_found")
         args = ["-b", name, "--track", upstream]
@@ -76,9 +76,9 @@ def delete_ref(kind, name, *, force=False):
         run_git_write("branch", "-D", "--", name)
     else:
         r = subprocess.run(["git", "-C", state.REPO, "branch", "-d", "--", name],
-                           capture_output=True, text=True, encoding="utf-8", errors="replace")
+                           capture_output=True, text=True, encoding="utf-8", errors="replace", check=False)
         if r.returncode != 0:
-            if subprocess.run(["git", "-C", state.REPO, "merge-base", "--is-ancestor", name, "HEAD"]).returncode == 1:
+            if subprocess.run(["git", "-C", state.REPO, "merge-base", "--is-ancestor", name, "HEAD"], check=False).returncode == 1:
                 return {"needs_force": True}
             raise ValueError((r.stderr or r.stdout).strip() or tr("branch_delete_failed"))
     return {"kind": kind, "name": name}

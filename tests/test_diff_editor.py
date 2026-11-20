@@ -36,7 +36,7 @@ class DiffSourcesTests(unittest.TestCase):
         self.temp_dir.cleanup()
 
     def git(self, *args):
-        r = subprocess.run(["git", "-C", self.repo, *args], capture_output=True)
+        r = subprocess.run(["git", "-C", self.repo, *args], capture_output=True, check=False)
         if r.returncode != 0:
             raise AssertionError(r.stderr.decode("utf-8", "replace"))
         return r.stdout.decode("utf-8", "replace")
@@ -140,7 +140,7 @@ class DiffSourcesTests(unittest.TestCase):
         self.write("f.txt", "side\n")
         self.commit("side")
         self.git("checkout", "-q", "main")
-        r = subprocess.run(["git", "-C", self.repo, "merge", "side"], capture_output=True)
+        r = subprocess.run(["git", "-C", self.repo, "merge", "side"], capture_output=True, check=False)
         self.assertNotEqual(r.returncode, 0)
         r = self.sources(wip="conflict", path="f.txt")
         self.assertEqual(r["old"]["content"], TWO)
@@ -195,7 +195,7 @@ class DiffEditorPageTests(unittest.TestCase):
             f.write(TWO)
         run("add", "-A")
         run("commit", "-q", "-m", "second")
-        self.head = subprocess.run(["git", "-C", self.repo, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+        self.head = subprocess.run(["git", "-C", self.repo, "rev-parse", "HEAD"], capture_output=True, text=True, check=False).stdout.strip()
 
     def tearDown(self):
         state.REPO, state.WIP_ENABLED, state.HAS_WORKTREE, state.WRITABLE, state.UI_LANG = self.saved

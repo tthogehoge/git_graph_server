@@ -124,7 +124,7 @@ def wip_diff(kind, path, specs):
         if libgit.available():
             return libgit.unified_diff_no_index(path)
         r = subprocess.run(["git", "-C", state.REPO, "diff", "--no-index", "--no-color", "--", "/dev/null", path],
-                           capture_output=True)
+                           capture_output=True, check=False)
         if r.returncode not in (0, 1):  # 1 は「差分あり」
             raise ValueError(r.stderr.decode("utf-8", errors="replace").strip() or tr("git_diff_failed"))
         return r.stdout

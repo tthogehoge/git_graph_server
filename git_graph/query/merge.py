@@ -38,7 +38,7 @@ def three_way_merge(ours, base, theirs):
             with open(files[-1], "wb") as f:
                 f.write(data)
         r = subprocess.run(["git", "-C", state.REPO, "merge-file", "-p", "--diff3", "-L", "ours", "-L", "base", "-L", "theirs", *files],
-                           capture_output=True)
+                           capture_output=True, check=False)
     finally:
         shutil.rmtree(work, ignore_errors=True)
     if r.returncode < 0 or r.returncode > 127:  # 255 は git merge-file の失敗 (競合の数ではない)

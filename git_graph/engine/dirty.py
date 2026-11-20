@@ -41,7 +41,7 @@ def parse_checkout_blockers(text):
 
 def stash_top():
     r = subprocess.run(["git", "-C", state.REPO, "rev-parse", "-q", "--verify", "refs/stash"],
-                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+                       capture_output=True, text=True, encoding="utf-8", errors="replace", check=False)
     return r.stdout.strip()
 
 def stash_push(message, paths=None, untracked=True):
@@ -235,7 +235,7 @@ def clear_rebase_msgs():
 def unmerged_files():
     """競合している (未マージの) ファイルの一覧 (改行区切り)。無ければ空文字。"""
     return subprocess.run(["git", "-C", state.REPO, "-c", "core.quotepath=false", "diff", "--name-only", "--diff-filter=U"],
-                          capture_output=True, text=True, encoding="utf-8", errors="replace").stdout.strip()
+                          capture_output=True, text=True, encoding="utf-8", errors="replace", check=False).stdout.strip()
 
 
 def git_run(args, c_locale=False, env=None):
@@ -244,4 +244,4 @@ def git_run(args, c_locale=False, env=None):
     if c_locale:
         env.update(LC_ALL="C", LANGUAGE="C")
     return subprocess.run(["git", "-C", state.REPO, *args], capture_output=True, text=True,
-                          encoding="utf-8", errors="replace", env=env)
+                          encoding="utf-8", errors="replace", env=env, check=False)

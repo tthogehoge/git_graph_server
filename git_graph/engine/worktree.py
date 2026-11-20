@@ -56,7 +56,7 @@ def stash_apply(commit, action, *, on_conflict=None):
         if r.returncode == 0:
             return done
         unmerged = subprocess.run(["git", "-C", state.REPO, "-c", "core.quotepath=false", "diff", "--name-only", "--diff-filter=U"],
-                                  capture_output=True, text=True, encoding="utf-8", errors="replace").stdout.strip()
+                                  capture_output=True, text=True, encoding="utf-8", errors="replace", check=False).stdout.strip()
         if unmerged:
             write_stash_marker(h, action)  # 競合を残したまま止まる。WIP の「中断」で適用前の状態に戻せるようにする
             raise ValueError(tr("stash_conflict_pop" if action == "pop" else "stash_conflict", sel=sel) + "\n" + unmerged)

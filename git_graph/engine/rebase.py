@@ -37,12 +37,12 @@ def _current_branch():
 
 
 def _abort_rebase():
-    subprocess.run(["git", "-C", state.REPO, "rebase", "--abort"], capture_output=True)
+    subprocess.run(["git", "-C", state.REPO, "rebase", "--abort"], capture_output=True, check=False)
 
 
 def _unused_temp_branch(prefix):
     temp = f"{prefix}-{os.getpid()}-{threading.get_ident()}"
-    while subprocess.run(["git", "-C", state.REPO, "show-ref", "--verify", "--quiet", f"refs/heads/{temp}"]).returncode == 0:
+    while subprocess.run(["git", "-C", state.REPO, "show-ref", "--verify", "--quiet", f"refs/heads/{temp}"], check=False).returncode == 0:
         temp += "-x"
     return temp
 
@@ -77,7 +77,7 @@ def rebase_tag_only_tips(base, onto, tips):
     original_branch = head_state()["branch"]
     temp = f"git-graph-tag-rebase-{os.getpid()}-{threading.get_ident()}"
     while subprocess.run(["git", "-C", state.REPO, "show-ref", "--verify", "--quiet",
-                          f"refs/heads/{temp}"]).returncode == 0:
+                          f"refs/heads/{temp}"], check=False).returncode == 0:
         temp += "-x"
 
     mapping = {base: onto}
@@ -96,10 +96,10 @@ def rebase_tag_only_tips(base, onto, tips):
                 old_segment = git("rev-list", "--reverse", f"{old_base}..{old_tip}").splitlines()
                 run_git_write("checkout", "-B", temp, old_tip)
                 r = subprocess.run(["git", "-C", state.REPO, "rebase", "--onto", new_base, old_base],
-                                   capture_output=True, text=True, encoding="utf-8", errors="replace")
+                                   capture_output=True, text=True, encoding="utf-8", errors="replace", check=False)
                 if r.returncode != 0:
                     if is_rebasing():
-                        subprocess.run(["git", "-C", state.REPO, "rebase", "--abort"], capture_output=True)
+                        subprocess.run(["git", "-C", state.REPO, "rebase", "--abort"], capture_output=True, check=False)
                         raise UserError("rebase_conflict", target=new_base[:7], cmd="git rebase --onto")
                     raise ValueError((r.stdout + r.stderr).strip() or tr("rebase_failed"))
                 new_tip = git("rev-parse", "HEAD").strip()
@@ -114,10 +114,10 @@ def rebase_tag_only_tips(base, onto, tips):
         temp_exists = False
     except Exception:
         if is_rebasing():
-            subprocess.run(["git", "-C", state.REPO, "rebase", "--abort"], capture_output=True)
+            subprocess.run(["git", "-C", state.REPO, "rebase", "--abort"], capture_output=True, check=False)
         if temp_exists:
-            subprocess.run(["git", "-C", state.REPO, "checkout", original_branch], capture_output=True)
-            subprocess.run(["git", "-C", state.REPO, "branch", "-D", temp], capture_output=True)
+            subprocess.run(["git", "-C", state.REPO, "checkout", original_branch], capture_output=True, check=False)
+            subprocess.run(["git", "-C", state.REPO, "branch", "-D", temp], capture_output=True, check=False)
         raise
     return {old: new for old, new in mapping.items() if old != base}
 
@@ -176,7 +176,7 @@ def rebase_onto(a, b, *, on_conflict=None):
     stashed = stashed or stashed_co
     if blocked:
         if original and original != branch:
-            subprocess.run(["git", "-C", state.REPO, "checkout", original], capture_output=True)
+            subprocess.run(["git", "-C", state.REPO, "checkout", original], capture_output=True, check=False)
         return blocked
     if r.returncode != 0:
         if is_rebasing():
@@ -184,10 +184,10 @@ def rebase_onto(a, b, *, on_conflict=None):
                 return {"conflict": True, "branch": branch, "from": a, "to": b, "stashed": stashed}
             _abort_rebase()  # 競合以外で止まった (空のコミットなど) ときは、元に戻す
             if original and original != branch:
-                subprocess.run(["git", "-C", state.REPO, "checkout", original], capture_output=True)
+                subprocess.run(["git", "-C", state.REPO, "checkout", original], capture_output=True, check=False)
             raise UserError("rebase_conflict", target=b[:7], cmd="git rebase")
         if original and original != branch:
-            subprocess.run(["git", "-C", state.REPO, "checkout", original], capture_output=True)
+            subprocess.run(["git", "-C", state.REPO, "checkout", original], capture_output=True, check=False)
         raise ValueError(with_stash_note({"stashed": stashed}, (r.stdout + r.stderr).strip() or tr("rebase_failed")))
     return {"branch": branch, "from": a, "to": b, "noop": git("rev-parse", "HEAD").strip() == before, "stashed": stashed}
 
@@ -209,16 +209,16 @@ def rebase_range(a, b, *, on_conflict=None):
     all_branch_commits = set(git("rev-list", "--branches").split())
     tag_tips = set()
     a_is_ancestor_of_b = subprocess.run(
-        ["git", "-C", state.REPO, "merge-base", "--is-ancestor", a, b], capture_output=True
+        ["git", "-C", state.REPO, "merge-base", "--is-ancestor", a, b], capture_output=True, check=False,
     ).returncode == 0
     for tag in tag_targets():
         tip = tag["commit"]
         if (tip in all_branch_commits
                 or subprocess.run(["git", "-C", state.REPO, "merge-base", "--is-ancestor", a, tip],
-                                  capture_output=True).returncode != 0
+                                  capture_output=True, check=False).returncode != 0
                 or (a_is_ancestor_of_b
                     and subprocess.run(["git", "-C", state.REPO, "merge-base", "--is-ancestor", b, tip],
-                                       capture_output=True).returncode == 0)):
+                                       capture_output=True, check=False).returncode == 0)):
             continue
         path_commits = set(git("rev-list", f"{a}..{tip}").split())
         if path_commits.isdisjoint(before_commits):
@@ -263,7 +263,7 @@ def rebase_descendants(a, b, *, on_conflict=None):
         return fields[1:]
 
     def is_ancestor(ancestor, descendant):
-        return subprocess.run(["git", "-C", state.REPO, "merge-base", "--is-ancestor", ancestor, descendant]).returncode == 0
+        return subprocess.run(["git", "-C", state.REPO, "merge-base", "--is-ancestor", ancestor, descendant], check=False).returncode == 0
 
     # A を祖先に持つローカルブランチだけを対象にする。B が A の
     # 子孫側にある場合は、B を含む系統（通常は main など）を土台として
@@ -338,7 +338,7 @@ def rebase_descendants(a, b, *, on_conflict=None):
                 old_segment = git("rev-list", "--reverse", f"{old_base}..{old_tip}").splitlines()
                 run_git_write("checkout", "-B", temp, old_tip)
                 r = subprocess.run(["git", "-C", state.REPO, "rebase", "--onto", new_base, old_base],
-                                   capture_output=True, text=True, encoding="utf-8", errors="replace")
+                                   capture_output=True, text=True, encoding="utf-8", errors="replace", check=False)
                 if r.returncode != 0:
                     conflicted = is_rebasing()
                     if conflicted:
@@ -363,7 +363,7 @@ def rebase_descendants(a, b, *, on_conflict=None):
         lines = [f"update {ref} {new_tip} {old_tip}" for ref, old_tip, new_tip in updates if new_tip != old_tip]
         if lines:
             r = subprocess.run(["git", "-C", state.REPO, "update-ref", "--stdin"], input="\n".join(lines) + "\n",
-                               capture_output=True, text=True, encoding="utf-8", errors="replace")
+                               capture_output=True, text=True, encoding="utf-8", errors="replace", check=False)
             if r.returncode != 0:
                 raise ValueError((r.stderr or r.stdout).strip() or tr("rebase_failed"))
         run_git_write("checkout", original_branch)
@@ -373,8 +373,8 @@ def rebase_descendants(a, b, *, on_conflict=None):
         if is_rebasing():
             _abort_rebase()
         if temp_exists:
-            subprocess.run(["git", "-C", state.REPO, "checkout", original_branch], capture_output=True)
-            subprocess.run(["git", "-C", state.REPO, "branch", "-D", temp], capture_output=True)
+            subprocess.run(["git", "-C", state.REPO, "checkout", original_branch], capture_output=True, check=False)
+            subprocess.run(["git", "-C", state.REPO, "branch", "-D", temp], capture_output=True, check=False)
         raise
     changed = len([1 for _, old_tip, new_tip in updates if old_tip != new_tip])
     moved = move_tags({old: new for old, new in mapping.items() if old != a})  # A は土台なので、A に付いたタグは動かさない
@@ -422,11 +422,11 @@ def rebase_equivalent(a, b, *, on_conflict=None):
         if (tip in branch_commits
                 or tip == matched_a
                 or subprocess.run(["git", "-C", state.REPO, "merge-base", "--is-ancestor", tip, a],
-                                  capture_output=True).returncode == 0
+                                  capture_output=True, check=False).returncode == 0
                 or subprocess.run(["git", "-C", state.REPO, "merge-base", "--is-ancestor", tip, b],
-                                  capture_output=True).returncode == 0
+                                  capture_output=True, check=False).returncode == 0
                 or subprocess.run(["git", "-C", state.REPO, "merge-base", "--is-ancestor", matched_a, tip],
-                                  capture_output=True).returncode != 0):
+                                  capture_output=True, check=False).returncode != 0):
             continue
         path_commits = set(git("rev-list", f"{matched_a}..{tip}").split())
         if path_commits.isdisjoint(replay_hashes):
@@ -440,7 +440,7 @@ def rebase_equivalent(a, b, *, on_conflict=None):
                 run_git_write("update-ref", ref, new_tip, old_tip)
             run_git_write("checkout", branch)
         except Exception:
-            subprocess.run(["git", "-C", state.REPO, "checkout", branch], capture_output=True)
+            subprocess.run(["git", "-C", state.REPO, "checkout", branch], capture_output=True, check=False)
             raise
         moved = move_tags(tag_only_mapping)
         return {"from": a, "to": new_tip, "noop": False, "stashed": stashed, "moved_tags": moved}
@@ -456,7 +456,7 @@ def rebase_equivalent(a, b, *, on_conflict=None):
         run_git_write("checkout", "--detach", a)
         run_git_write("checkout", "-b", temp, a)
         r = subprocess.run(["git", "-C", state.REPO, "rebase", "--onto", matched_b, matched_a],
-                           capture_output=True, text=True, encoding="utf-8", errors="replace")
+                           capture_output=True, text=True, encoding="utf-8", errors="replace", check=False)
         if r.returncode != 0:
             if is_rebasing():
                 _abort_rebase()
@@ -470,8 +470,8 @@ def rebase_equivalent(a, b, *, on_conflict=None):
     except Exception:
         if is_rebasing():
             _abort_rebase()
-        subprocess.run(["git", "-C", state.REPO, "checkout", branch], capture_output=True)
-        subprocess.run(["git", "-C", state.REPO, "branch", "-D", temp], capture_output=True)
+        subprocess.run(["git", "-C", state.REPO, "checkout", branch], capture_output=True, check=False)
+        subprocess.run(["git", "-C", state.REPO, "branch", "-D", temp], capture_output=True, check=False)
         raise
     mapping = tag_mapping(old_ids, f"{matched_b}..{new_tip}") if old_ids else {}
     mapping.update(tag_only_mapping)
@@ -494,7 +494,7 @@ def rebase_todo_hashes(base):
 def check_rebase_i_range(base):
     """対話的リベースできる範囲か調べて、対象コミットのハッシュ (古い順) を返す。"""
     r = subprocess.run(["git", "-C", state.REPO, "rev-list", "--count", "--merges", base + "..HEAD"],
-                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+                       capture_output=True, text=True, encoding="utf-8", errors="replace", check=False)
     if r.returncode == 0 and r.stdout.strip() not in ("", "0"):
         raise UserError("ri_merges")
     hashes = rebase_todo_hashes(base)

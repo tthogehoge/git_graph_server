@@ -36,7 +36,7 @@ def is_wip(q):
 def wip_head():
     """作業ツリー表示でファイルのログに使う HEAD のハッシュ。コミットがまだなければ None。"""
     r = subprocess.run(["git", "-C", state.REPO, "rev-parse", "--verify", "--quiet", "HEAD^{commit}"],
-                       capture_output=True, text=True)
+                       capture_output=True, text=True, check=False)
     return r.stdout.strip() or None
 
 def worktree_target(path):
@@ -366,7 +366,7 @@ def blame(hash_, path):
         h = WIP_HASH
         r = subprocess.run(["git", "-C", state.REPO, "blame", "--line-porcelain", "--", path],
                            capture_output=True, text=True, encoding="utf-8", errors="replace",
-                           env=dict(os.environ, GIT_LITERAL_PATHSPECS="1"))
+                           env=dict(os.environ, GIT_LITERAL_PATHSPECS="1"), check=False)
         if r.returncode != 0:
             raise UserError("wip_blame_untracked", path=path)
         out = r.stdout
@@ -440,7 +440,7 @@ def blame(hash_, path):
 
 
 def _git_raw(*args, env=None):
-    r = subprocess.run(["git", "-C", state.REPO, *args], capture_output=True, env=env)
+    r = subprocess.run(["git", "-C", state.REPO, *args], capture_output=True, env=env, check=False)
     if r.returncode != 0:
         raise ValueError(r.stderr.decode("utf-8", "replace").strip() or tr("git_command_failed"))
     return r.stdout
@@ -540,7 +540,7 @@ def file_exists_at(commit, path):
         target = worktree_target(path)
         return os.path.isfile(target) or os.path.islink(target)
     r = subprocess.run(
-        ["git", "-C", state.REPO, "cat-file", "-e", f"{commit}:{path}"], capture_output=True
+        ["git", "-C", state.REPO, "cat-file", "-e", f"{commit}:{path}"], capture_output=True, check=False,
     )
     return r.returncode == 0
 
@@ -559,7 +559,7 @@ def blob_or_empty(spec):
 def rev_or_none(rev):
     r = subprocess.run(
         ["git", "-C", state.REPO, "rev-parse", "--verify", "--quiet", rev + "^{commit}"],
-        capture_output=True, text=True,
+        capture_output=True, text=True, check=False,
     )
     return r.stdout.strip() or None
 
@@ -595,9 +595,9 @@ def require_blob(commit, path):
 def blob_for_worktree(commit, path):
     """commit の path の内容を、作業ツリーに置くときの形 (改行コードなど。autocrlf など) で返す。--filters が使えない git では素のまま。"""
     spec = commit + ":" + path
-    r = subprocess.run(["git", "-C", state.REPO, "cat-file", "--filters", spec], capture_output=True)
+    r = subprocess.run(["git", "-C", state.REPO, "cat-file", "--filters", spec], capture_output=True, check=False)
     if r.returncode != 0:
-        r = subprocess.run(["git", "-C", state.REPO, "cat-file", "blob", spec], capture_output=True)
+        r = subprocess.run(["git", "-C", state.REPO, "cat-file", "blob", spec], capture_output=True, check=False)
         if r.returncode != 0:
             raise ValueError(r.stderr.decode("utf-8", errors="replace").strip() or tr("git_command_failed"))
     return r.stdout

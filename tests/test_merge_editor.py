@@ -35,7 +35,7 @@ class MergeEditorTests(unittest.TestCase):
         self.temp_dir.cleanup()
 
     def git(self, *args, check=True):
-        r = subprocess.run(["git", "-C", self.repo, *args], capture_output=True)
+        r = subprocess.run(["git", "-C", self.repo, *args], capture_output=True, check=False)
         if check and r.returncode != 0:
             raise AssertionError(r.stderr.decode("utf-8", "replace"))
         return r.stdout.decode("utf-8", "replace")

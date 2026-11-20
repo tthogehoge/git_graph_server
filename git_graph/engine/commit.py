@@ -20,7 +20,7 @@ def _switch_branch(branch):
     if branch == head_state().get("branch"):
         return
     exists = subprocess.run(["git", "-C", state.REPO, "rev-parse", "--verify", "--quiet", "refs/heads/" + branch],
-                            capture_output=True).returncode == 0
+                            capture_output=True, check=False).returncode == 0
     if exists:
         res = checkout_resolving([branch], None)
         if res and res.get("blocked"):

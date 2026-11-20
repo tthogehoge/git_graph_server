@@ -113,7 +113,7 @@ def files_start_path(target, files_hash):
     if not isinstance(files_hash, str) or not (files_hash == WIP_HASH or FILES_HASH_RE.fullmatch(files_hash)):
         raise ValueError("bad hash")
     if files_hash != WIP_HASH:
-        r = subprocess.run(["git", "-C", target, "cat-file", "-e", files_hash + "^{commit}"], capture_output=True)
+        r = subprocess.run(["git", "-C", target, "cat-file", "-e", files_hash + "^{commit}"], capture_output=True, check=False)
         if r.returncode != 0:
             raise UserError("submodule_commit_missing", hash=files_hash[:7])
     return "/files?" + urlencode({"hash": files_hash})

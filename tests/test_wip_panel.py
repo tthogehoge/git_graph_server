@@ -11,7 +11,7 @@ NODE = shutil.which("node")
 def jsdom_available():
     if not NODE:
         return False
-    return subprocess.run([NODE, "-e", 'require("jsdom")'], capture_output=True, env=os.environ).returncode == 0
+    return subprocess.run([NODE, "-e", 'require("jsdom")'], capture_output=True, env=os.environ, check=False).returncode == 0
 
 
 class WipPanelBehaviorTests(unittest.TestCase):
@@ -20,7 +20,7 @@ class WipPanelBehaviorTests(unittest.TestCase):
 
     @unittest.skipUnless(jsdom_available(), "node と jsdom が必要")
     def test_shared_panel_behaviour(self):
-        r = subprocess.run([NODE, str(HERE / "wip_panel_behavior.js")], capture_output=True, text=True, encoding="utf-8", env=os.environ)
+        r = subprocess.run([NODE, str(HERE / "wip_panel_behavior.js")], capture_output=True, text=True, encoding="utf-8", env=os.environ, check=False)
         self.assertEqual(r.returncode, 0, r.stderr or r.stdout)
 
 

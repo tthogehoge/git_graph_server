@@ -78,7 +78,7 @@ def cherry_pick(commit, *, on_conflict=None):
         if is_cherry_picking():
             if _unmerged_files():  # 競合 → 途中の状態で止める
                 return {"conflict": True, "hash": h, "stashed": stashed}
-            subprocess.run(["git", "-C", state.REPO, "cherry-pick", "--abort"], capture_output=True)
+            subprocess.run(["git", "-C", state.REPO, "cherry-pick", "--abort"], capture_output=True, check=False)
             raise UserError("cherry_empty", hash=h[:7])  # 競合ではなく、変更が空になった
         raise ValueError(with_stash_note({"stashed": stashed}, (r.stdout + r.stderr).strip() or tr("cherry_failed")))
     return {"hash": h, "noop": git("rev-parse", "HEAD").strip() == before, "stashed": stashed}
@@ -117,18 +117,18 @@ def cherry_pick_onto(a, b, *, on_conflict=None):
     if blocked:
         # checkout 済みなら元ブランチへ戻せるときだけ戻す
         if original and original != branch:
-            subprocess.run(["git", "-C", state.REPO, "checkout", original], capture_output=True)
+            subprocess.run(["git", "-C", state.REPO, "checkout", original], capture_output=True, check=False)
         return blocked
     if r.returncode != 0:
         if is_cherry_picking():
             if _unmerged_files():  # 競合 → 途中の状態で止める (B のブランチにいるまま、解決してコミットする)
                 return {"conflict": True, "hash": a, "branch": branch, "stashed": stashed}
-            subprocess.run(["git", "-C", state.REPO, "cherry-pick", "--abort"], capture_output=True)
+            subprocess.run(["git", "-C", state.REPO, "cherry-pick", "--abort"], capture_output=True, check=False)
             if original and original != branch:
-                subprocess.run(["git", "-C", state.REPO, "checkout", original], capture_output=True)
+                subprocess.run(["git", "-C", state.REPO, "checkout", original], capture_output=True, check=False)
             raise UserError("cherry_empty", hash=a[:7])
         if original and original != branch:
-            subprocess.run(["git", "-C", state.REPO, "checkout", original], capture_output=True)
+            subprocess.run(["git", "-C", state.REPO, "checkout", original], capture_output=True, check=False)
         raise ValueError(with_stash_note({"stashed": stashed}, (r.stdout + r.stderr).strip() or tr("cherry_failed")))
     return {"hash": a, "branch": branch, "noop": git("rev-parse", "HEAD").strip() == before, "stashed": stashed}
 
@@ -153,7 +153,7 @@ def merge_into(a, b, *, no_ff=False, on_conflict=None):
 
     def back_to_original():
         if original and original != branch:
-            subprocess.run(["git", "-C", state.REPO, "checkout", original], capture_output=True)
+            subprocess.run(["git", "-C", state.REPO, "checkout", original], capture_output=True, check=False)
 
     stashed_co = None
     if original != branch:  # B のブランチへ切り替え (既にそこにいれば何もしない)
@@ -198,7 +198,7 @@ def revert(commit, *, on_conflict=None):
         if is_reverting():
             if _unmerged_files():  # 競合 → 途中の状態で止める
                 return {"conflict": True, "hash": h, "merge": is_merge, "stashed": stashed}
-            subprocess.run(["git", "-C", state.REPO, "revert", "--abort"], capture_output=True)
+            subprocess.run(["git", "-C", state.REPO, "revert", "--abort"], capture_output=True, check=False)
             raise UserError("revert_empty", hash=h[:7])  # 競合ではなく、変更が空になった
         raise ValueError(with_stash_note({"stashed": stashed}, (r.stdout + r.stderr).strip() or tr("revert_failed")))
     return {"hash": h, "merge": is_merge, "stashed": stashed}
@@ -253,10 +253,10 @@ def _abort_stash_apply(stash):
     stash が触るファイルを HEAD の内容に戻せば、適用前の状態に戻る。stash 自体は残る (pop が競合したときも消えていない)。"""
     names = set()
     for rev in (f"{stash}^1", f"{stash}"):
-        if subprocess.run(["git", "-C", state.REPO, "rev-parse", "-q", "--verify", rev + "^{commit}"], capture_output=True).returncode != 0:
+        if subprocess.run(["git", "-C", state.REPO, "rev-parse", "-q", "--verify", rev + "^{commit}"], capture_output=True, check=False).returncode != 0:
             raise UserError("stash_not_found")
     names.update(p for p in git("diff", "--name-only", "-z", "--no-renames", f"{stash}^1", stash).split("\0") if p)
-    if subprocess.run(["git", "-C", state.REPO, "rev-parse", "-q", "--verify", f"{stash}^3"], capture_output=True).returncode == 0:
+    if subprocess.run(["git", "-C", state.REPO, "rev-parse", "-q", "--verify", f"{stash}^3"], capture_output=True, check=False).returncode == 0:
         names.update(p for p in git("ls-tree", "-r", "--name-only", "-z", f"{stash}^3").split("\0") if p)  # 未追跡ファイルの分
     paths = sorted(names)
     in_head = paths_in_head(paths)
@@ -266,7 +266,7 @@ def _abort_stash_apply(stash):
         run_git_write("checkout", "HEAD", "--", *restore[i:i + _STEP], literal=True)
     for i in range(0, len(remove), _STEP):
         part = remove[i:i + _STEP]
-        subprocess.run(["git", "-C", state.REPO, "rm", "-q", "-f", "--ignore-unmatch", "--", *part], capture_output=True)
+        subprocess.run(["git", "-C", state.REPO, "rm", "-q", "-f", "--ignore-unmatch", "--", *part], capture_output=True, check=False)
         for p in part:  # 未追跡のまま作られたファイルは git rm では消えない
             full = os.path.join(state.REPO, p)
             if os.path.isfile(full):

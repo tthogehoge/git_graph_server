@@ -72,7 +72,7 @@ def _scope_revs(rev):
 
 def _is_ancestor(h, rev):
     return subprocess.run(["git", "-C", state.REPO, "merge-base", "--is-ancestor", h, rev],
-                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False).returncode == 0
 
 
 def _hash_candidates(prefix, rev, everywhere):
@@ -538,7 +538,7 @@ def reflog(branch="", skip=0, limit=500):
         if libgit.available():
             exists = libgit.repo().references.get(ref) is not None
         else:
-            exists = subprocess.run(["git", "-C", state.REPO, "show-ref", "--verify", "--quiet", ref]).returncode == 0
+            exists = subprocess.run(["git", "-C", state.REPO, "show-ref", "--verify", "--quiet", ref], check=False).returncode == 0
         if not exists:
             raise UserError("branch_not_found")
     else:

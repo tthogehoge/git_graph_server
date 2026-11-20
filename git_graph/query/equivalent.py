@@ -111,7 +111,7 @@ def nearest_equivalent_parent(a, b):
             comparison = subprocess.run(
                 ["git", "-C", state.REPO, "diff", "--quiet", "--no-ext-diff",
                  a_commit["hash"], b_commit["hash"]],
-                capture_output=True
+                capture_output=True, check=False,
             )
             if comparison.returncode == 0:
                 return a_commits, b_commits, a_index, b_index
@@ -162,7 +162,7 @@ def find_equivalent_branches(a, b):
         name = ref.removeprefix("refs/heads/")
         tip = git("rev-parse", ref + "^{commit}").strip()
         if subprocess.run(["git", "-C", state.REPO, "merge-base", "--is-ancestor", b, tip],
-                          capture_output=True).returncode != 0:
+                          capture_output=True, check=False).returncode != 0:
             continue
         if tip == a:
             continue

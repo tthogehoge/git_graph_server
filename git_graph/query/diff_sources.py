@@ -17,7 +17,7 @@ def _blob(spec):
     if libgit.available() and not spec.startswith(":"):
         kind, data = libgit.blob_at(spec)
         return data if kind == "blob" and data is not None else None
-    r = subprocess.run(["git", "-C", state.REPO, "cat-file", "blob", spec], capture_output=True)  # 無いファイル (追加 / 削除) は普通なので、git のエラーは出さない
+    r = subprocess.run(["git", "-C", state.REPO, "cat-file", "blob", spec], capture_output=True, check=False)  # 無いファイル (追加 / 削除) は普通なので、git のエラーは出さない
     return r.stdout if r.returncode == 0 else None
 
 

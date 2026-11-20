@@ -40,7 +40,7 @@ def check_ref_name(kind, name):
              "tag": ("tag_name_invalid", "tag_name_unusable")}[kind]
     if not name or name.startswith("-") or "\0" in name:
         raise UserError(label[0])
-    r = subprocess.run(["git", "-C", state.REPO, "check-ref-format", prefix + name], capture_output=True)
+    r = subprocess.run(["git", "-C", state.REPO, "check-ref-format", prefix + name], capture_output=True, check=False)
     if r.returncode != 0:
         raise UserError(label[1], name=repr(name))
 
@@ -51,7 +51,7 @@ def run_git_write(*args, literal=False, cwd=None):
     """git を実行し、失敗したら git のエラーメッセージを ValueError にして返す。"""
     env = dict(os.environ, GIT_LITERAL_PATHSPECS="1") if literal else None  # パスをglobとして解釈しない
     r = subprocess.run(["git", "-C", cwd or state.REPO, *args], capture_output=True, text=True,
-                       encoding="utf-8", errors="replace", env=env)
+                       encoding="utf-8", errors="replace", env=env, check=False)
     if r.returncode != 0:
         raise ValueError((r.stderr or r.stdout).strip() or tr("git_command_failed"))
     return (r.stdout + r.stderr).strip()
@@ -60,7 +60,7 @@ def git_c_locale(*args, cwd=None):
     """メッセージを解析するため、ロケールを C にして git を実行する (失敗しても例外にしない)。"""
     env = dict(os.environ, LC_ALL="C", LANGUAGE="C")
     return subprocess.run(["git", "-C", cwd or state.REPO, *args], capture_output=True, text=True,
-                          encoding="utf-8", errors="replace", env=env)
+                          encoding="utf-8", errors="replace", env=env, check=False)
 
 NET_TIMEOUT = 300
 
@@ -117,7 +117,7 @@ def run_git_net(*args, timeout=None, auth=None, auth_host=None, c_locale=False, 
     try:
         return subprocess.run(["git", "-C", cwd or state.REPO, *args], capture_output=True, text=True,
                               encoding="utf-8", errors="replace", env=env, timeout=timeout,
-                              stdin=subprocess.DEVNULL, start_new_session=True)  # 制御端末を切り離し ssh が /dev/tty に尋ねないように
+                              stdin=subprocess.DEVNULL, start_new_session=True, check=False)  # 制御端末を切り離し ssh が /dev/tty に尋ねないように
     except subprocess.TimeoutExpired:
         raise UserError("net_timeout", cmd=args[0], sec=timeout)
     finally:

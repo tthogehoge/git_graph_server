@@ -364,7 +364,7 @@ def refs_snapshot():
     if libgit.available():
         return libgit.refs_snapshot(("refs/remotes", "refs/tags"))
     r = subprocess.run(["git", "-C", state.REPO, "for-each-ref", "--format=%(objectname) %(refname)", "refs/remotes", "refs/tags"],
-                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+                       capture_output=True, text=True, encoding="utf-8", errors="replace", check=False)
     return {name: oid for oid, _, name in (ln.partition(" ") for ln in r.stdout.splitlines())}
 
 def count_changed_refs(before, after):
@@ -375,7 +375,7 @@ def upstream_of_head():
     if libgit.available():
         return libgit.upstream_of_head()
     r = subprocess.run(["git", "-C", state.REPO, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
-                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+                       capture_output=True, text=True, encoding="utf-8", errors="replace", check=False)
     return r.stdout.strip() if r.returncode == 0 else None
 
 def list_remotes():
@@ -403,7 +403,7 @@ def git_config(key):
         value = libgit.config_get(key)
         return value.strip() if value is not None else None
     r = subprocess.run(["git", "-C", state.REPO, "config", "--get", key],
-                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+                       capture_output=True, text=True, encoding="utf-8", errors="replace", check=False)
     return r.stdout.strip() if r.returncode == 0 else None
 
 STASH_MARKER = "git_graph_stash_apply"  # 以前の版が .git に作っていた目印のファイル名 (いまはメモリ上だけで持つ。古いものを消すためだけに残す)
@@ -436,7 +436,7 @@ def stash_conflict_state():
     if libgit.available():
         return marker if libgit.has_conflicts() else None
     unmerged = subprocess.run(["git", "-C", state.REPO, "diff", "--name-only", "--diff-filter=U"],
-                              capture_output=True, text=True, encoding="utf-8", errors="replace").stdout.strip()
+                              capture_output=True, text=True, encoding="utf-8", errors="replace", check=False).stdout.strip()
     return marker if unmerged else None
 
 

@@ -32,13 +32,13 @@ def open_repo(path):
     if not os.path.isdir(path):
         raise UserError("setup_path_not_found", path=path)
     try:
-        found = subprocess.run(["git", "-C", path, "rev-parse", "--git-dir"], capture_output=True)
+        found = subprocess.run(["git", "-C", path, "rev-parse", "--git-dir"], capture_output=True, check=False)
     except FileNotFoundError:
         raise UserError("setup_git_missing")
     if found.returncode != 0:
         raise UserError("setup_not_a_repo", path=path)
     top = subprocess.run(["git", "-C", path, "rev-parse", "--show-toplevel"], capture_output=True, text=True,
-                         encoding="utf-8", errors="replace")
+                         encoding="utf-8", errors="replace", check=False)
     has_worktree = top.returncode == 0
     repo = top.stdout.strip() if has_worktree else path
     state.REPO = repo

@@ -243,7 +243,7 @@ class StartPathProcessTests(unittest.TestCase):
     def test_invalid_start_paths_are_rejected(self):
         for bad in ("http://evil.example/", "//evil.example/x", "files", "/a\nb", "javascript:alert(1)"):
             r = subprocess.run([sys.executable, app.__file__, self.repo, "--start-path", bad], capture_output=True, text=True,
-                               timeout=30)
+                               timeout=30, check=False)
             self.assertEqual(r.returncode, 2, bad)
             self.assertIn("--start-path", r.stderr)
 

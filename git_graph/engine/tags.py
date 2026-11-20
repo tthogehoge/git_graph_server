@@ -20,10 +20,10 @@ def tag_targets():
 def commit_patch_ids(rev_range):
     """rev_range のマージ以外のコミットを古い順に [(コミット, patch-id)] で返す (空のコミットは含まれない)。"""
     log = subprocess.run(["git", "-C", state.REPO, "log", "--reverse", "--no-merges", "-p", "--format=commit %H", rev_range],
-                         capture_output=True)
+                         capture_output=True, check=False)
     if log.returncode != 0:
         return []
-    pid = subprocess.run(["git", "-C", state.REPO, "patch-id", "--stable"], input=log.stdout, capture_output=True)
+    pid = subprocess.run(["git", "-C", state.REPO, "patch-id", "--stable"], input=log.stdout, capture_output=True, check=False)
     result = []
     for line in pid.stdout.decode("utf-8", "replace").splitlines():
         patch_id, _, commit = line.partition(" ")
@@ -69,19 +69,19 @@ def move_tags(mapping):
             continue
         new_obj = new
         if tag["annotated"]:
-            raw = subprocess.run(["git", "-C", state.REPO, "cat-file", "tag", tag["sha"]], capture_output=True)
+            raw = subprocess.run(["git", "-C", state.REPO, "cat-file", "tag", tag["sha"]], capture_output=True, check=False)
             first, newline, rest = raw.stdout.partition(b"\n")
             if raw.returncode != 0 or first != b"object " + tag["commit"].encode():
                 continue
             made = subprocess.run(["git", "-C", state.REPO, "mktag"], input=b"object " + new.encode() + newline + rest,
-                                  capture_output=True)
+                                  capture_output=True, check=False)
             if made.returncode != 0:
                 continue
             new_obj = made.stdout.decode().strip()
         lines.append(f"update {tag['ref']} {new_obj} {tag['sha']}")
     if lines:
         r = subprocess.run(["git", "-C", state.REPO, "update-ref", "--stdin"], input="\n".join(lines) + "\n",
-                           capture_output=True, text=True, encoding="utf-8", errors="replace")
+                           capture_output=True, text=True, encoding="utf-8", errors="replace", check=False)
         if r.returncode != 0:
             raise ValueError((r.stderr or r.stdout).strip() or tr("rebase_failed"))
     return len(lines)

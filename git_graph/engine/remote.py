@@ -37,7 +37,7 @@ class Auth:
 def check_remote_name(name):
     if not isinstance(name, str) or not name or name.startswith("-") or "\0" in name or name != name.strip():
         raise UserError("remote_name_invalid")
-    r = subprocess.run(["git", "-C", state.REPO, "check-ref-format", "refs/remotes/" + name + "/HEAD"], capture_output=True)
+    r = subprocess.run(["git", "-C", state.REPO, "check-ref-format", "refs/remotes/" + name + "/HEAD"], capture_output=True, check=False)
     if r.returncode != 0:
         raise UserError("remote_name_unusable", name=repr(name))
 
@@ -139,7 +139,7 @@ def pull(*, mode="ff-only", on_conflict=None, auth=None):
         if is_merging():  # 競合 (自動マージできなかった)
             return {"conflict": True, "up": up, "stashed": stashed}
         if is_rebasing():  # 競合 → 元に戻す
-            subprocess.run(["git", "-C", state.REPO, "rebase", "--abort"], capture_output=True)
+            subprocess.run(["git", "-C", state.REPO, "rebase", "--abort"], capture_output=True, check=False)
             raise ValueError(with_stash_note(stash, tr("rebase_conflict", target=up, cmd="git pull --rebase")))
         raise ValueError(with_stash_note(stash, net_error(r, tr("pull_failed")) + (tr("pull_diverged_hint") if mode == "ff-only" else "")))
     if remote and remote != ".":
@@ -161,7 +161,7 @@ def push(*, branch=None, remote=None, remote_branch=None, force=False, push_tags
         if not isinstance(branch, str) or branch.startswith("-"):
             raise UserError("branch_name_invalid")
         if subprocess.run(["git", "-C", state.REPO, "rev-parse", "-q", "--verify", f"refs/heads/{branch}"],
-                          capture_output=True).returncode != 0:
+                          capture_output=True, check=False).returncode != 0:
             raise UserError("local_branch_missing", branch=branch)
     else:
         branch = head_state()["branch"]
@@ -227,7 +227,7 @@ def push_tag(tag, *, remote=None, auth=None):
     if not isinstance(tag, str) or not tag or tag.startswith("-"):
         raise UserError("tag_name_invalid")
     if subprocess.run(["git", "-C", state.REPO, "rev-parse", "-q", "--verify", f"refs/tags/{tag}"],
-                      capture_output=True).returncode != 0:
+                      capture_output=True, check=False).returncode != 0:
         raise UserError("tag_missing", tag=tag)
     remotes = [x["name"] for x in list_remotes()]
     if not remotes:

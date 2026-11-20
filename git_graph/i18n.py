@@ -100,8 +100,8 @@ def _strip_comments(text):
     """JS / HTML / CSS のコメントを除く (コメントは日本語のままでよい)。URL の // は残す。行数は変えない。"""
     def blank(m):
         return "\n" * m.group(0).count("\n")  # 行番号がずれないよう、改行は残す
-    text = re.sub(r"/\*.*?\*/", blank, text, flags=re.S)
-    text = re.sub(r"<!--.*?-->", blank, text, flags=re.S)
+    text = re.sub(r"/\*.*?\*/", blank, text, flags=re.DOTALL)
+    text = re.sub(r"<!--.*?-->", blank, text, flags=re.DOTALL)
     return re.sub(r"(?<![:\w'\"])//[^\n]*", "", text)
 
 def check_i18n():

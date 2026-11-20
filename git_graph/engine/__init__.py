@@ -98,7 +98,7 @@ def _object_env():
 def _run(args, *, env=None, input=None, check=True):
     """git を実行する。書き込まれるオブジェクトは一時ディレクトリに入り、.git/objects には入らない。"""
     env = dict(os.environ if env is None else env, **_object_env())
-    r = subprocess.run(["git", "-C", state.REPO, *args], capture_output=True, input=input, env=env)
+    r = subprocess.run(["git", "-C", state.REPO, *args], capture_output=True, input=input, env=env, check=False)
     if check and r.returncode != 0:
         raise RuntimeError((r.stderr or r.stdout).decode("utf-8", errors="replace").strip() or "git failed")
     return r

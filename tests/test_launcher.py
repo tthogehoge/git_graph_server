@@ -64,7 +64,7 @@ class ForwardedArgsTests(unittest.TestCase):
         # サーバーの引数解析が受け付けない名前を転送していないこと (オプション名の打ち間違いの検出)
         state.OPTS = make_opts(**{name: True for name in launcher.FLAG_OPTIONS}, config="x.json")
         r = subprocess.run([sys.executable, app.__file__, "--check-i18n", *launcher.forwarded_args()],
-                           capture_output=True, text=True)
+                           capture_output=True, text=True, check=False)
         self.assertNotIn("unrecognized arguments", r.stderr)
         self.assertNotIn("invalid", r.stderr)
 

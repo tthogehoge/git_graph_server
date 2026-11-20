@@ -86,7 +86,7 @@ class EngineTests(unittest.TestCase):
         return os.path.exists(os.path.join(self.repo, path))
 
     def ref_exists(self, ref):
-        return subprocess.run(["git", "-C", self.repo, "show-ref", "--verify", "--quiet", ref]).returncode == 0
+        return subprocess.run(["git", "-C", self.repo, "show-ref", "--verify", "--quiet", ref], check=False).returncode == 0
 
     def do(self, path, body):
         """server.do_POST と同じく engine.run を通して API を実行する。"""
@@ -294,7 +294,7 @@ class EngineTests(unittest.TestCase):
         blob = subprocess.check_output(["git", "-C", self.repo, "hash-object", "junk.bin"], text=True).strip()
         self.write("tracked.txt", "edit\n")
         self.do("/api/discard", {"paths": ["tracked.txt"]})
-        missing = subprocess.run(["git", "-C", self.repo, "cat-file", "-e", blob]).returncode != 0
+        missing = subprocess.run(["git", "-C", self.repo, "cat-file", "-e", blob], check=False).returncode != 0
         self.assertTrue(missing)  # 管理外ファイルの blob は .git に書かれない
         entry = engine._load()["entries"][0]
         for w in entry["wt"]:
@@ -416,7 +416,7 @@ class EngineTests(unittest.TestCase):
         self.git("checkout", "-q", "main")
         target = self.commit_file("tracked.txt", "main side\n", "main change")
         self.git("checkout", "-q", "topic")
-        subprocess.run(["git", "-C", self.repo, "rebase", target], capture_output=True)
+        subprocess.run(["git", "-C", self.repo, "rebase", target], capture_output=True, check=False)
         self.assertTrue(os.path.isdir(os.path.join(self.repo, ".git", "rebase-merge")))
 
     def test_continue_operation_finishes_a_rebase_stopped_by_conflict(self):
@@ -444,7 +444,7 @@ class EngineTests(unittest.TestCase):
         self.commit_file("tracked.txt", "main 1\n", "main 1")
         target = self.commit_file("other.txt", "main 2\n", "main 2")
         self.git("checkout", "-q", "topic")
-        subprocess.run(["git", "-C", self.repo, "rebase", target], capture_output=True)
+        subprocess.run(["git", "-C", self.repo, "rebase", target], capture_output=True, check=False)
         self.write("tracked.txt", "resolved 1\n")
         integrate.resolve_conflicts("current", ["tracked.txt"])
 
@@ -493,7 +493,7 @@ class EngineTests(unittest.TestCase):
         blob = subprocess.check_output(["git", "-C", self.repo, "hash-object", "tracked.txt"], text=True).strip()
         self.do("/api/discard", {"paths": ["tracked.txt"]})
         self.assertEqual(self.read("tracked.txt"), "initial\n")
-        self.assertNotEqual(subprocess.run(["git", "-C", self.repo, "cat-file", "-e", blob]).returncode, 0)  # .git には無い
+        self.assertNotEqual(subprocess.run(["git", "-C", self.repo, "cat-file", "-e", blob], check=False).returncode, 0)  # .git には無い
         self.assertTrue(self.undo()["ok"])                     # それでも元に戻せる (一時ディレクトリから読む)
         self.assertEqual(self.read("tracked.txt"), "modified content unique 91cf\n")
         self.assertTrue(self.redo()["ok"])
@@ -796,7 +796,7 @@ class EngineOperationTests(EngineTests):
 
         self.assertEqual((done["remote"], done["up_to_date"]), ("backup", False))
         self.assertEqual(subprocess.run(["git", f"--git-dir={b}", "tag", "--list"],
-                                        capture_output=True, text=True).stdout.strip(), "v1")
+                                        capture_output=True, text=True, check=False).stdout.strip(), "v1")
         self.assertTrue(remote.push_tag("v1", remote="backup")["up_to_date"])
         with self.assertRaises(UserError):
             remote.push_tag("-x")
@@ -904,7 +904,7 @@ class EngineOperationTests(EngineTests):
         current_commit = self.commit_file("tracked.txt", "current side\n", "current commit")
         failed = subprocess.run(
             ["git", "-C", self.repo, "am", "--3way"],
-            input=patch, capture_output=True,
+            input=patch, capture_output=True, check=False,
         )
 
         self.assertNotEqual(failed.returncode, 0)
@@ -1308,7 +1308,7 @@ class EngineOperationTests(EngineTests):
     def cli_git(self, *args):
         """アプリの外 (コマンドライン) で git を実行する。エディタは開かない。"""
         env = dict(os.environ, GIT_EDITOR="true")
-        r = subprocess.run(["git", "-C", self.repo, *args], capture_output=True, text=True, env=env)
+        r = subprocess.run(["git", "-C", self.repo, *args], capture_output=True, text=True, env=env, check=False)
         return r.stdout + r.stderr
 
     def stopped_reword_rebase(self):
@@ -1392,7 +1392,7 @@ class EngineOperationTests(EngineTests):
         self.do("/api/branch", {"hash": self.head, "name": "earlier"})  # 履歴を1件作っておく
         side = self.make_conflict()
         self.assertTrue(api_undo_history({})["can_undo"])
-        subprocess.run(["git", "-C", self.repo, "merge", side], capture_output=True)  # コマンドラインで始めて、競合で止まる
+        subprocess.run(["git", "-C", self.repo, "merge", side], capture_output=True, check=False)  # コマンドラインで始めて、競合で止まる
 
         history = api_undo_history({})
 
