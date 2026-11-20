@@ -1,9 +1,10 @@
 // 画面共通のトースト通知。#statusToasts に積み上げて表示する (グラフ画面・ファイル画面で同じ見た目・同じ API)。
-// 前提: ページに t() と esc() がある。
+// 前提: ページに t() と esc() があり、common/message_log.js (MessageLog) を先に読み込んでいる。
 const statusToastTimers = new Map();
 function setStatus(message, type, clearProgress) {
   // type: "success" | "error" | "progress" | "info"(省略時)
   // clearProgress: true のとき進行中トーストを先に消す (明示的に進捗以外を出すとき)
+  if (message && type !== "progress") MessageLog.add(message, type || "info");  // あとから見返せるよう、消えるトーストもログに残す (その他 → メッセージ一覧)
   const container = document.getElementById("statusToasts");
   if (!container) return;
   const progress = type === "progress";  // 進捗かどうかは表示文言ではなく type で明示する (文言は翻訳で変わる)

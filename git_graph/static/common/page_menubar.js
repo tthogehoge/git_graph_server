@@ -400,7 +400,7 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
   enable($("wipPatchApplyBtn"), () => writable && worktree); enable($("wipPatchAmBtn"), () => writable && worktree);
   // その他メニューの一覧系: ファイル画面では右ペインに同じ一覧を出す (グラフの showRefList 等と同じ API)
   enable($("branchListBtn")); enable($("tagListBtn")); enable($("stashListBtn")); enable($("reflogBtn"));
-  enable($("submoduleListBtn")); enable($("opHistoryBtn"));
+  enable($("submoduleListBtn")); enable($("opHistoryBtn")); enable($("messageLogBtn"));
   enable($("commitGraphBtn"), () => writable);  // 書き込み可能なときだけ
   // remote 追加 / 削除 (その他メニュー)
   enable(bar.querySelector('[data-cact="remote-add"]'), () => writable);
@@ -517,6 +517,7 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
   on("stashListBtn", () => { closeMenus(); if (window.showOtherStashList) window.showOtherStashList(); });
   on("reflogBtn", () => { closeMenus(); if (window.showOtherReflog) window.showOtherReflog(""); });
   on("opHistoryBtn", () => { closeMenus(); if (window.showOtherOpHistory) window.showOtherOpHistory(); });
+  on("messageLogBtn", () => { closeMenus(); if (window.showOtherMessageLog) window.showOtherMessageLog(); });
   on("submoduleListBtn", () => { closeMenus(); if (window.showOtherSubmoduleList) window.showOtherSubmoduleList(); });
   on("commitGraphBtn", async () => {
     closeMenus();

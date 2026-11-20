@@ -227,6 +227,7 @@ document.getElementById("compareToolbar").addEventListener("click", ev => {  // 
   if (ev.target.closest("#stashDropBtn")) { doStash("drop"); return; }
   if (ev.target.closest("#reflogBtn")) { showReflog(""); return; }
   if (ev.target.closest("#opHistoryBtn")) { showOpHistory(); return; }
+  if (ev.target.closest("#messageLogBtn")) { showMessageLog(); return; }
   if (ev.target.closest("#commitGraphBtn")) {
     if (!confirm(t("confirm_commit_graph_optimize"))) return;
     const btn = ev.target.closest("#commitGraphBtn");

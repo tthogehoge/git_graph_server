@@ -107,4 +107,11 @@
 .status-toast.error { color: #cf222e; border-color: #e7a0a4; }
 .status-toast.progress { color: #555; border-color: #ccc; }
 .status-toast-message { flex: 1; min-width: 0; }
+/* メッセージ一覧 (その他メニュー。common/message_log.js) */
+.msglog-bar { margin: 6px 0; display: flex; gap: 8px; }
+.msglog-mark { width: 1.5em; text-align: center; }
+.msglog-time { white-space: nowrap; color: #666; font-size: 12px; }
+.msglog-msg { white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.msglog-row.success .msglog-mark { color: #1a7f37; }
+.msglog-row.error .msglog-mark, .msglog-row.error .msglog-msg { color: #cf222e; }
 .status-toast-close { flex: none; border: 0; background: transparent; color: inherit; cursor: pointer; font: inherit; padding: 0 2px; }

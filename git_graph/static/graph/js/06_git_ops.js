@@ -489,6 +489,15 @@ function updateUndoButtons() {  // 元に戻す先 / やり直す先が無いと
   }).catch(() => {});
 }
 
+function showMessageLog() {  // その他 → メッセージ一覧 (トーストで出た通知のログ。common/message_log.js)
+  closeMenus();
+  listView.innerHTML = "<h2>" + esc(t("message_log_title")) + "</h2>" +
+    '<div class="meta">' + esc(t("message_log_help")) + "</div>" + MessageLog.html();
+  setDocumentTitleFromHtml(esc(t("message_log_title")));
+  showView("list");
+  listView.dataset.src = "";
+}
+
 function showOpHistory() {
   closeMenus();
   api("/api/undo-history", {}).then(h => {

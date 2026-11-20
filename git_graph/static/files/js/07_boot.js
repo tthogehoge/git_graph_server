@@ -356,6 +356,22 @@ window.showOtherOpHistory = function () {
   });
 };
 
+// ---- メッセージ一覧 (その他メニュー)。トーストで出た通知のログ (common/message_log.js。グラフと共通) ----
+window.showOtherMessageLog = function () {
+  closeEditor();
+  if (logPager) logPager.stop();
+  ++otherListSeq;
+  if (currentFile) clearFile();
+  dirLogOn = commitLogOn = false;
+  dirActions.hidden = true;
+  fileActions.hidden = true;
+  title.textContent = t("message_log_title");
+  setDocumentTitle(t("message_log_title"));
+  content.className = "";
+  content.innerHTML = '<div class="meta">' + esc(t("message_log_help")) + "</div>" + MessageLog.html();
+  document.getElementById("main").scrollTop = 0;
+};
+
 // ---- submodule 一覧 (その他メニュー)。行 HTML・バー・認証は OtherLists 共通 ----
 function filesSubmoduleAuthDeps() {
   return {
