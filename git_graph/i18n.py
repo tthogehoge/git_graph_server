@@ -98,7 +98,8 @@ _CJK = re.compile(r"[\u3040-\u30ff\u3400-\u9fff\uff00-\uffef]")
 
 def _strip_comments(text):
     """JS / HTML / CSS のコメントを除く (コメントは日本語のままでよい)。URL の // は残す。行数は変えない。"""
-    blank = lambda m: "\n" * m.group(0).count("\n")  # 行番号がずれないよう、改行は残す
+    def blank(m):
+        return "\n" * m.group(0).count("\n")  # 行番号がずれないよう、改行は残す
     text = re.sub(r"/\*.*?\*/", blank, text, flags=re.S)
     text = re.sub(r"<!--.*?-->", blank, text, flags=re.S)
     return re.sub(r"(?<![:\w'\"])//[^\n]*", "", text)
@@ -111,7 +112,8 @@ def check_i18n():
     4. 日本語以外の言語でテンプレートを展開しても、日本語や未置換のキーが残らないか"""
     problems = []
     base = TRANSLATIONS["en"]
-    params_of = lambda s: sorted(set(re.findall(r"\{(\w+)\}", s)))
+    def params_of(s):
+        return sorted(set(re.findall(r"\{(\w+)\}", s)))
     for lang, table in TRANSLATIONS.items():
         problems += [f"[{lang}] missing key: {k}" for k in sorted(set(base) - set(table))]
         problems += [f"[{lang}] key not in en: {k}" for k in sorted(set(table) - set(base))]
@@ -168,7 +170,7 @@ def check_i18n():
             state.UI_LANG = lang
             for name, page in (("main page", HTML_TEMPLATE), ("files page", FILES_PAGE), ("merge page", MERGE_PAGE), ("setup page", SETUP_PAGE)):
                 text = _strip_comments(fill_template(page))
-                problems += [f"[{lang}] {name}: untranslated text: {l.strip()[:80]}" for l in text.split("\n") if _CJK.search(l)]
+                problems += [f"[{lang}] {name}: untranslated text: {ln.strip()[:80]}" for ln in text.split("\n") if _CJK.search(ln)]
                 problems += [f"[{lang}] {name}: unresolved key: {k}" for k in re.findall(r"\{\{(\w+)\}\}", text)]
     finally:
         state.UI_LANG = saved

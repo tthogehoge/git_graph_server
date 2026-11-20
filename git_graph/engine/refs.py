@@ -173,7 +173,8 @@ def rename_branch(old, new):
     if not old or "\0" in old:
         raise UserError("branch_name_invalid")
     check_ref_name("branch", new)
-    exists = lambda name: _git_ok("show-ref", "--verify", "--quiet", "refs/heads/" + name)
+    def exists(name):
+        return _git_ok("show-ref", "--verify", "--quiet", "refs/heads/" + name)
     if not exists(old):
         raise UserError("ref_not_exist", name=repr(old))
     if old == new:

@@ -162,7 +162,8 @@ class MergeEditorTests(unittest.TestCase):
         self.assertEqual(d["theirs"], SIDE)
 
     def test_shift_jis_file_is_decoded_and_saved_back_in_its_encoding(self):
-        sjis = lambda s: s.encode("cp932")
+        def sjis(s):
+            return s.encode("cp932")
         self.conflict("j.txt", base="あ\nい\nう\n".encode("cp932").decode("cp932"), main="あ\nい main\nう\n", side="あ\nい side\nう\n")
         # conflict() は UTF-8 で書くので、作業ツリーを Shift_JIS に書き直して保存の往復を確かめる
         self.write("j.txt", sjis("あ\n<<<<<<< HEAD\nい main\n=======\nい side\n>>>>>>> side\nう\n"), binary=True)

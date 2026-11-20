@@ -70,7 +70,8 @@ def require_desktop():
 
 def expand(command, values):
     """コマンドの {名前} を values で置き換える。値にない {名前} はそのまま残す (str.format は使わない)。"""
-    sub = lambda m: values.get(m.group(1), m.group(0))
+    def sub(m):
+        return values.get(m.group(1), m.group(0))
     return [re.sub(r"\{(\w+)\}", sub, part) for part in command]
 
 

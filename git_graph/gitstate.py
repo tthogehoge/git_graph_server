@@ -4,9 +4,9 @@ import os
 import re
 import subprocess
 from . import app_state as state
+from .gitrun import git, git_bytes, HASH_RE, resolve_commit
 
 CONFLICT_CODES = {"DD", "AU", "UD", "UA", "DU", "AA", "UU"}
-from .gitrun import git, git_bytes, HASH_RE, resolve_commit
 
 # git-dir の解決結果を REPO ごとにキャッシュし、MERGE_HEAD などの存在確認を
 # プロセス起動なしのファイルチェックにする (Windows で効く)。
@@ -365,7 +365,7 @@ def refs_snapshot():
         return libgit.refs_snapshot(("refs/remotes", "refs/tags"))
     r = subprocess.run(["git", "-C", state.REPO, "for-each-ref", "--format=%(objectname) %(refname)", "refs/remotes", "refs/tags"],
                        capture_output=True, text=True, encoding="utf-8", errors="replace")
-    return {name: oid for oid, _, name in (l.partition(" ") for l in r.stdout.splitlines())}
+    return {name: oid for oid, _, name in (ln.partition(" ") for ln in r.stdout.splitlines())}
 
 def count_changed_refs(before, after):
     return sum(1 for k in set(before) | set(after) if before.get(k) != after.get(k))

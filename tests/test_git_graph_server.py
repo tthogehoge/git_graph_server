@@ -634,7 +634,7 @@ class LogSearchTests(unittest.TestCase):
 
     def test_graph_log_pages_match_git_log_topo_order_and_are_cached(self):
         # マージグラフ付きのログは、覚えておいた一覧から取る。git log --topo-order と同じ並び・同じ親になる
-        expected = [l.strip() for l in self.git("log", "--topo-order", "--parents", "--format=%H %P", self.c3).splitlines()]
+        expected = [ln.strip() for ln in self.git("log", "--topo-order", "--parents", "--format=%H %P", self.c3).splitlines()]
         got = []
         for skip in (0, 1, 2):
             res = app.api_log({"rev": [self.c3], "graph": ["1"], "skip": [str(skip)], "limit": ["1"]})
@@ -2482,7 +2482,6 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertEqual(self.git("rev-parse", "target").strip(), target)
 
     def test_rebase_onto_checks_out_a_branch_and_rebases_onto_b(self):
-        base = self.head
         self.git("checkout", "-q", "-b", "topic")
         self.write_file("topic.txt", "topic change\n")
         self.git("add", "topic.txt")
@@ -2720,7 +2719,6 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertIn(tr("rebase_tags_moved", n=2), result["message"])
 
     def test_rebase_equivalent_moves_tags_of_replayed_commits(self):
-        base = self.head
         # A (topic): base -> E -> P1 -> P2、B (main): base -> E' (E と同じ変更) -> M2
         self.git("checkout", "-q", "-b", "topic")
         self.commit_file("e.txt", "equivalent\n", "E")
@@ -2742,7 +2740,6 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertEqual(self.git("show", "p1tag:p1.txt"), "p1\n")
 
     def test_rebase_equivalent_moves_tags_on_commits_without_branches(self):
-        base = self.head
         self.git("checkout", "-q", "-b", "topic")
         equivalent = self.commit_file("e.txt", "equivalent\n", "E")
         self.commit_file("p1.txt", "p1\n", "P1")
@@ -2819,7 +2816,7 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
 
         self.assertTrue(result["ok"])
         self.assertEqual(self.read_file("tracked.txt"), "initial\n")
-        self.assertEqual(self.git("log", "-1", "--format=%s").strip(), f"Revert \"change tracked file\"")
+        self.assertEqual(self.git("log", "-1", "--format=%s").strip(), "Revert \"change tracked file\"")
         self.assertEqual(self.git("rev-parse", "HEAD^").strip(), changed)
         self.assertEqual(self.git("status", "--porcelain"), "")
 
@@ -3442,7 +3439,8 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
             self.assertEqual(app.resolve_open(clusters, "c", ["a", "b"]), ["b"])  # 1 つは必ず開く
 
     def test_cluster_for_time_prefers_matching_period_then_nearest(self):
-        day = lambda d: calendar.timegm(time.strptime(d, "%Y-%m-%d")) + 43200
+        def day(d):
+            return calendar.timegm(time.strptime(d, "%Y-%m-%d")) + 43200
         clusters = {"c:2021": {"start": day("2021-02-01"), "end": day("2021-11-01")},
                     "c:2023-03": {"start": day("2023-03-02"), "end": day("2023-03-20")}}
         self.assertEqual(graph_module.cluster_for_time(clusters, day("2021-06-15")), "c:2021")
@@ -3656,7 +3654,7 @@ class FilesLogMergeGraphTests(unittest.TestCase):
         self.assertEqual(app_js.count("function logGraph(opts)"), 1)
         self.assertIn("logGraph({host: listView,", app_js)
         src = (Path(__file__).resolve().parent.parent / "git_graph" / "static" / "common" / "log_graph.js").read_text(encoding="utf-8")
-        code = "\n".join(l for l in src.split("\n") if not l.lstrip().startswith("//"))
+        code = "\n".join(ln for ln in src.split("\n") if not ln.lstrip().startswith("//"))
         self.assertNotIn("listView", code)  # 共通部は、画面ごとの変数 (listView / actionHash) を参照しない
         self.assertNotIn("actionHash", code)
 
@@ -3742,7 +3740,8 @@ class ExternalAppsTests(unittest.TestCase):
 
     def test_diff_sides_for_each_kind_of_diff_page(self):
         from git_graph import external
-        sides = lambda **q: external.diff_sides({k: [v] for k, v in q.items()})
+        def sides(**q):
+            return external.diff_sides({k: [v] for k, v in q.items()})
         self.assertEqual(sides(hash=self.second, path="a.txt")[0][1], self.first + ":a.txt")
         self.assertEqual(sides(hash=self.second, path="a.txt")[1][1], self.second + ":a.txt")
         self.assertEqual(sides(hash=self.first, path="a.txt")[0][0], "empty")  # 最初のコミットは親がない

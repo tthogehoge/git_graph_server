@@ -10,7 +10,6 @@ from .i18n import (
     FAVICON_LINK, FILES_PAGE, fill_template, MENUBAR_TEMPLATE, MERGE_PAGE, read_asset, tr, UserError,
     with_project,
 )
-from .external import configured
 from .wip import api_status
 from .files import validate_file_path, WIP_HASH, worktree_target
 from .query.files import file_exists_at
@@ -159,30 +158,30 @@ def diff_lines_html(text):
     if lines and lines[-1] == "":
         lines.pop()
     in_hunk, combined, out = False, False, []  # combined: 競合の差分 (diff --cc)。行頭が親の数だけ並ぶ (" +" "+ " "++" など)
-    for l in lines:
+    for ln in lines:
         cls = ""
-        if l.startswith("diff "):
-            in_hunk, combined, cls = False, l.startswith("diff --cc") or l.startswith("diff --combined"), "hd"
+        if ln.startswith("diff "):
+            in_hunk, combined, cls = False, ln.startswith("diff --cc") or ln.startswith("diff --combined"), "hd"
         elif not in_hunk:
-            if l.startswith("@@"):
+            if ln.startswith("@@"):
                 in_hunk, cls = True, "hk"
             else:
                 cls = "hd"
-        elif l.startswith("@@"):
+        elif ln.startswith("@@"):
             cls = "hk"
-        elif combined and "+" in l[:2]:
+        elif combined and "+" in ln[:2]:
             cls = "ad"
-        elif combined and "-" in l[:2]:
+        elif combined and "-" in ln[:2]:
             cls = "de"
         elif combined:
             cls = ""
-        elif l.startswith("+"):
+        elif ln.startswith("+"):
             cls = "ad"
-        elif l.startswith("-"):
+        elif ln.startswith("-"):
             cls = "de"
-        elif l.startswith("\\"):
+        elif ln.startswith("\\"):
             cls = "hd"
-        out.append(f'<div class="dl {cls}">{html.escape(l) or " "}</div>')
+        out.append(f'<div class="dl {cls}">{html.escape(ln) or " "}</div>')
     return "".join(out)
 
 
@@ -358,7 +357,8 @@ def render_diff_page(q):
 
     patch_bar = ""
     if patch and wip and not is_wip_compare and wip != "amend":  # 右ペインの WIP と同じ: パッチ作成と、書き込めるときの適用 (git apply / git am)
-        attr_t = lambda key: html.escape(tr(key), quote=True)
+        def attr_t(key):
+            return html.escape(tr(key), quote=True)
         apply_btns = (f'<button class="wbtn" id="sidePatchApply" title="{attr_t("tip_patch_apply")}">{html.escape(tr("patch_apply"))}</button>'
                       f'<button class="wbtn" id="sidePatchAm" title="{attr_t("tip_patch_am")}">{html.escape(tr("patch_am"))}</button>'
                       '<input type="file" id="sidePatchFile" hidden>') if state.WRITABLE else ""

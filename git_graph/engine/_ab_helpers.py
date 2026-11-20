@@ -1,8 +1,7 @@
 # A/B 操作で「このコミットを先端に持つローカルブランチ」を選ぶ共通処理。
-import subprocess
 from ..gitrun import git
 from ..gitstate import head_state
-from ..i18n import tr, UserError
+from ..i18n import UserError
 
 
 def local_branches_at(commit):

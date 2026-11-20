@@ -5,8 +5,7 @@ from .. import app_state as state
 from ..gitrun import git, git_bytes
 from ..gitstate import (
     amend_base, amend_head_changes, commit_info, diff_name_numstat, is_applying, is_cherry_picking,
-    is_merging, is_rebasing, is_reverting, parse_numstat, parse_status, read_head, read_status_raw,
-    status_lists,
+    is_merging, is_rebasing, is_reverting, parse_numstat, read_head, status_lists,
     stash_conflict_state,
 )
 from ..i18n import tr, UserError

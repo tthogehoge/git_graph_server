@@ -76,7 +76,8 @@ def diff_sources(path, old="", hash_="", from_hash="", to_hash="", wip="", betwe
     kind: parent / commit / a / b / head / index / worktree / amend_base。ref はその側のコミット (短縮ハッシュ)。"""
     path = validate_file_path(path, allow_empty=False)
     old_path = validate_file_path(old) if old else path
-    short = lambda h: h[:7]
+    def short(h):
+        return h[:7]
     if wip == "compare":  # コミットと作業ツリー
         base = _hash(from_hash)
         _need_worktree(compare=True)

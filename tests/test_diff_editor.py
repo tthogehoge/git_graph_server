@@ -5,7 +5,6 @@ import tempfile
 import unittest
 
 from git_graph import app_state as state
-from git_graph import history
 from git_graph import pages
 from git_graph.i18n import UserError
 from git_graph.routing import ROUTES
@@ -183,7 +182,8 @@ class DiffEditorPageTests(unittest.TestCase):
         self.repo = self.temp_dir.name
         self.saved = (state.REPO, state.WIP_ENABLED, state.HAS_WORKTREE, state.WRITABLE, state.UI_LANG)
         state.REPO, state.WIP_ENABLED, state.HAS_WORKTREE, state.WRITABLE, state.UI_LANG = self.repo, True, True, False, "en"
-        run = lambda *a: subprocess.run(["git", "-C", self.repo, *a], capture_output=True, check=True)
+        def run(*a):
+            return subprocess.run(["git", "-C", self.repo, *a], capture_output=True, check=True)
         run("init", "-q")
         run("config", "user.name", "Test User")
         run("config", "user.email", "test@example.com")

@@ -15,7 +15,7 @@ import time
 from pathlib import Path
 from urllib.parse import urlencode
 from . import app_state as state
-from .gitrun import git, is_loopback
+from .gitrun import git
 from .i18n import tr, UserError
 from .query.files import WIP_HASH, validate_file_path
 from .routing import route

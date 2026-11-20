@@ -9,7 +9,7 @@ from .engine.dirty import (  # noqa: F401  (他の route や git_graph_server.py
 )
 from .engine import refs, worktree
 from .engine.remote import Auth
-from .i18n import tr, UserError
+from .i18n import tr
 from .routing import route
 
 

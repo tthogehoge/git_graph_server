@@ -43,7 +43,8 @@ class LibgitReviewTests(unittest.TestCase):
         run(self.repo, "commit", "-qm", "c1")
         run(self.repo, "branch", "topic")
         run(self.repo, "tag", "-a", "-m", "t", "v1")
-        names = lambda prefixes=None: sorted(r[0] for r in libgit.list_ref_infos(prefixes))
+        def names(prefixes=None):
+            return sorted(r[0] for r in libgit.list_ref_infos(prefixes))
         self.assertEqual(names(), ["refs/heads/main", "refs/heads/topic", "refs/tags/v1"])
         self.assertEqual(names(("refs/heads/",)), ["refs/heads/main", "refs/heads/topic"])
         self.assertEqual(names(("refs/tags/",)), ["refs/tags/v1"])
@@ -55,7 +56,7 @@ class LibgitReviewTests(unittest.TestCase):
         run(self.repo, "add", "f.txt")
         run(self.repo, "commit", "-qm", "c1")
         lines = libgit.blame_lines("f.txt")
-        self.assertEqual([l["line"] for l in lines], [1, 2])
+        self.assertEqual([ln["line"] for ln in lines], [1, 2])
         self.assertEqual(lines[0]["content"], "a\fb")
 
     def test_blame_has_commit_subject(self):
@@ -154,7 +155,8 @@ class LibgitReviewTests(unittest.TestCase):
         mine = libgit.status_lists(limit=10 ** 9)
         cli = parse_status(read_status_raw(), limit=10 ** 9)
         for key in ("staged", "unstaged", "untracked", "conflicts"):
-            norm = lambda rows: sorted((f["path"], f["st"], f.get("old_path")) for f in rows)
+            def norm(rows):
+                return sorted((f["path"], f["st"], f.get("old_path")) for f in rows)
             self.assertEqual(norm(mine[key]), norm(cli[key]), key)
         self.assertEqual([f["path"] for f in mine["conflicts"]], ["c.txt"])
 
@@ -270,7 +272,6 @@ class GitstateReadParityTests(unittest.TestCase):
         gs._git_dir_cache = (None, None)
 
     def test_stash_conflict_state_needs_a_marker_and_an_unresolved_conflict(self):
-        from git_graph import gitstate as gs
         self.assertFalse(libgit.has_conflicts())
         run(self.repo, "checkout", "-qb", "side")
         with open(os.path.join(self.repo, "a.txt"), "w") as f:

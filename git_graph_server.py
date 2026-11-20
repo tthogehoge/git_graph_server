@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 """Git graph server entry point and compatibility exports."""
+# ruff: noqa: F403, F405  (互換用の re-export。git_graph.* の公開名を import * で受け渡す)
 import os
 import sys
 

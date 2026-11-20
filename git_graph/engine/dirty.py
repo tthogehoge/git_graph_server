@@ -196,7 +196,7 @@ def run_resolving(run, mode, rebase_dirty=False):
         if r.returncode == 0 or is_operation_in_progress():
             return r, None, stashed
         text = (r.stderr + r.stdout)
-        if is_http_auth_error(r) or not (rebase_dirty or any(l.startswith("\t") for l in text.splitlines())):
+        if is_http_auth_error(r) or not (rebase_dirty or any(ln.startswith("\t") for ln in text.splitlines())):
             return r, None, stashed  # 止めているファイルの一覧 (タブ字下げ) がない失敗は、再実行して調べるまでもない
         c = run(True)  # 止めているファイルを解析するため、C ロケールで再実行する (止まる失敗は何も変更していない)
         if c.returncode == 0:

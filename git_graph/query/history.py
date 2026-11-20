@@ -81,7 +81,7 @@ def _hash_candidates(prefix, rev, everywhere):
     if not full:
         return []
     kinds = git("cat-file", "--batch-check=%(objectname) %(objecttype)", input="\n".join(full) + "\n")
-    commits = [l.split()[0] for l in kinds.splitlines() if l.endswith(" commit")]
+    commits = [ln.split()[0] for ln in kinds.splitlines() if ln.endswith(" commit")]
     if everywhere:
         return commits
     pos, neg = _scope_revs(rev)
@@ -227,10 +227,10 @@ def log_position(rev, h):
 
 def _parse_log_lines(out):
     commits = []
-    for l in out.splitlines():
-        if not l:
+    for ln in out.splitlines():
+        if not ln:
             continue
-        h, short, author, date, parents, subj = (l.split("\x1f", 5) + [""] * 6)[:6]
+        h, short, author, date, parents, subj = (ln.split("\x1f", 5) + [""] * 6)[:6]
         commits.append([h, short, author, date, subj, parents.split()])
     return commits
 
@@ -324,10 +324,10 @@ def log(rev, path="", skip=0, limit=500, graph=False, search=None):
         args.append(path)
     out = git(*args, literal=bool(path))
     commits = []
-    for l in out.splitlines():
-        if not l:
+    for ln in out.splitlines():
+        if not ln:
             continue
-        h, short, author, date, parents, subj = (l.split("\x1f", 5) + [""] * 6)[:6]
+        h, short, author, date, parents, subj = (ln.split("\x1f", 5) + [""] * 6)[:6]
         commits.append([h, short, author, date, subj, parents.split()])
     if graph and ".." in rev and commits:
         _filter_range_parents(rev, commits, set(git("rev-list", *rev_args(rev), "--").split()))
@@ -359,8 +359,8 @@ def stash_list():
     except subprocess.CalledProcessError:
         out = ""
     commits = []
-    for l in out.splitlines():
-        h, short, sel, date, subj = (l.split("") + ["", "", "", "", ""])[:5]
+    for ln in out.splitlines():
+        h, short, sel, date, subj = (ln.split("") + ["", "", "", "", ""])[:5]
         commits.append([h, short, sel, date[:16], subj])
     return {"commits": commits, "has_more": False, "total": len(commits)}
 
@@ -374,8 +374,8 @@ def _ref_list(refs, fmt, sort=None):
     args += ["--format=" + fmt, *refs]
     out = git(*args)
     rows = []
-    for l in out.splitlines():
-        parts = (l.split("\x1f") + [""] * 6)[:6]
+    for ln in out.splitlines():
+        parts = (ln.split("\x1f") + [""] * 6)[:6]
         rows.append(parts)
     return rows
 
@@ -519,8 +519,8 @@ def tags():
     fmt = "%(refname)%1f%(creatordate:short)%1f%(*subject)%1f%(subject)"
     out = git("for-each-ref", "--sort=-creatordate", "--format=" + fmt, "refs/tags")
     commits = []
-    for l in out.splitlines():
-        ref, date, psubj, subj = (l.split("\x1f") + [""] * 4)[:4]
+    for ln in out.splitlines():
+        ref, date, psubj, subj = (ln.split("\x1f") + [""] * 4)[:4]
         try:
             h = git("rev-parse", "--verify", "--quiet", ref + "^{commit}").strip()
         except subprocess.CalledProcessError:
@@ -550,8 +550,8 @@ def reflog(branch="", skip=0, limit=500):
     except subprocess.CalledProcessError:  # コミットがまだない / reflog がない
         out = ""
     commits = []
-    for i, l in enumerate(x for x in out.splitlines() if x):
-        h, short, gd, subj = (l.split("\x1f") + [""] * 4)[:4]
+    for i, ln in enumerate(x for x in out.splitlines() if x):
+        h, short, gd, subj = (ln.split("\x1f") + [""] * 4)[:4]
         when = gd[gd.find("@{") + 2:-1][:16] if "@{" in gd else ""
         commits.append([h, short, f"{label}@{{{skip + i}}}", when, subj])
     res = {"commits": commits, "has_more": len(commits) == limit}

@@ -126,7 +126,7 @@ def run_git_net(*args, timeout=None, auth=None, auth_host=None, c_locale=False, 
 
 def net_error(r, fallback):
     text = (r.stderr or r.stdout).strip()
-    text = "\n".join(l for l in text.splitlines() if not l.startswith("hint:")).strip()  # 長い hint は省く
+    text = "\n".join(ln for ln in text.splitlines() if not ln.startswith("hint:")).strip()  # 長い hint は省く
     return text or fallback
 
 def is_http_auth_error(r):
