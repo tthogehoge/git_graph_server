@@ -60,7 +60,7 @@ function showWip(fromHistory, okMsg) {
     okMsg: okMsg,
     top: (s, files) => btns + "<h2>" + t("wip_title") +
       ' <a class="detail-files" href="/files?hash=WIP" title="' + esc(t("tip_wip_files")) + '">' + esc(t("files")) + "</a>" +
-      (files.length ? ' <a class="detail-files" href="' + esc(diffUrl({}, files[0])) + '">' + esc(t("file_diff")) + "</a>" : "") + "</h2>",
+      (files.length ? ' <a class="detail-files" href="/files?hash=WIP&side=changes" title="' + esc(t("file_diff")) + '">' + esc(t("file_diff")) + "</a>" : "") + "</h2>",
     mid: s => '<div class="meta">HEAD: ' + (s.head ? chips(s.head) + esc(s.head.slice(0, 7)) : t("no_commits_yet")) + "</div>",
     error: e => btns + '<p class="hint">' + esc(t("error")) + esc(e.message) + "</p>",
   });

@@ -4,6 +4,8 @@ const SIDE_KEY = "gitGraphFilesSide";
 let sideMode = "tree";  // "tree" | "changes"。保存先 (localStorage) が使えなくても切り替わるよう、メモリ上の値を正とする
 try { sideMode = localStorage.getItem(SIDE_KEY) === "changes" ? "changes" : "tree"; } catch (e) { sideMode = "tree"; }
 if (compareFrom && compareTo) sideMode = "changes";
+// ファイル差分「全体」リンク (side=changes) では特定ファイルを選ばず変更一覧を開く
+if (new URLSearchParams(location.search).get("side") === "changes") sideMode = "changes";
 function activeList() { return sideMode === "changes" ? changesEl : list; }  // ↑↓ Enter の対象
 function syncTreeSelection() {
   if (activeList() !== list) return;

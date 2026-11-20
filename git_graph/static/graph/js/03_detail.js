@@ -323,7 +323,9 @@ function detailActionLinksHtml(c) {
   let links = '<a class="detail-files" href="/files?hash=' + encodeURIComponent(c.hash) +
     '" title="' + esc(t("tip_files")) + '">' + esc(t("files")) + "</a>";
   if (c.files && c.files.length) {
-    links += '<a class="detail-files" href="' + esc(diffUrl({hash: c.hash}, c.files[0])) + '">' +
+    // ファイル差分「全体」へのリンク: 特定ファイルは選ばず、変更ファイル一覧を開く
+    links += '<a class="detail-files" href="/files?hash=' + encodeURIComponent(c.hash) +
+      '&side=changes" title="' + esc(t("file_diff")) + '">' +
       esc(t("file_diff")) + "</a>";
   }
   links += '<a class="detail-patch" href="#" data-hash="' + esc(c.hash) +
