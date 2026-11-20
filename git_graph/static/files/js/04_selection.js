@@ -21,8 +21,15 @@ function stagePlan() {
   stage.forEach(path => unstage.delete(path));
   return {stage_paths: [...stage].sort(), unstage_paths: [...unstage].sort()};
 }
-function checkedStagePaths() {
-  return [...new Set(wipStatusFiles.filter(f => f.wip !== "conflict" && desiredStageChecked(f.wip, f.path)).map(f => f.path))];
+function checkedStagePaths() {  // チェックしたパス。変更のあるファイルは状態ごとの選択から、変更のない追跡中のファイル / ディレクトリは左ペインのチェック (tree) から
+  const out = new Set(wipStatusFiles.filter(f => f.wip !== "conflict" && desiredStageChecked(f.wip, f.path)).map(f => f.path));
+  stageOverrides.forEach((checked, key) => {
+    if (!checked || !key.startsWith("tree\0")) return;
+    const path = key.slice(5);
+    if (wipStatusFiles.some(f => f.path === path || f.path.startsWith(path + "/"))) return;  // 変更のあるものは、上の個別の選択で決まる
+    out.add(path);
+  });
+  return [...out];
 }
 function setStageFromBox(c, checked) {
   if (c.dataset.kind === "tree") {
