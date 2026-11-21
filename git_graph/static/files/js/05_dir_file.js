@@ -146,10 +146,11 @@ function openDir(path) {  // ディレクトリを選ぶ: 開いているファ�
 
 const MD_EXT = /\.(md|markdown|mdown|mkd|mkdn)$/i;
 const HTML_EXT = /\.(html?)$/i;
-const MD_PREVIEW_KEY = "gg-md-preview", MD_BREAKS_KEY = "gg-md-breaks", HTML_PREVIEW_KEY = "gg-html-preview";
+const MD_PREVIEW_KEY = "gg-md-preview", MD_BREAKS_KEY = "gg-md-breaks", HTML_PREVIEW_KEY = "gg-html-preview", HTML_JS_KEY = "gg-html-js";
 let mdPreviewOn = true;  // Markdown を整形表示するか (オフならソース = テキスト表示)
 let mdBreaksOn = false;  // 単独改行を <br> にするか (marked の breaks)
 let htmlPreviewOn = true;  // HTML をプレビューするか (オフならソース)
+let htmlJsOn = false;  // HTML プレビューで script を動かすか (動かすときは親ページに触れないサンドボックスにする)
 try { const v = localStorage.getItem(MD_PREVIEW_KEY); if (v === "0") mdPreviewOn = false; else if (v === "1") mdPreviewOn = true; } catch (e) { mdPreviewOn = true; }
 try { const v = localStorage.getItem(MD_BREAKS_KEY); if (v === "1") mdBreaksOn = true; else if (v === "0") mdBreaksOn = false; } catch (e) { mdBreaksOn = false; }
 try { const v = localStorage.getItem(HTML_PREVIEW_KEY); if (v === "0") htmlPreviewOn = false; else if (v === "1") htmlPreviewOn = true; } catch (e) { htmlPreviewOn = true; }
@@ -164,6 +165,15 @@ function setMdBreaksPref(on) {
 function setHtmlPreviewPref(on) {
   htmlPreviewOn = on;
   try { localStorage.setItem(HTML_PREVIEW_KEY, htmlPreviewOn ? "1" : "0"); } catch (e) { /* 保存できなくても切り替わる */ }
+}
+try { const v = localStorage.getItem(HTML_JS_KEY); if (v === "1") htmlJsOn = true; else if (v === "0") htmlJsOn = false; } catch (e) { htmlJsOn = false; }
+function setHtmlJsPref(on) {
+  htmlJsOn = on;
+  try { localStorage.setItem(HTML_JS_KEY, htmlJsOn ? "1" : "0"); } catch (e) { /* 保存できなくても切り替わる */ }
+}
+function htmlSandboxAttr() {  // sandbox 属性の値。script を動かすときは allow-same-origin を外す
+  // (allow-scripts + allow-same-origin の組合せは、script が自分で sandbox を外せるので親ページに触れてしまう)
+  return htmlJsOn ? "allow-scripts" : "allow-same-origin";
 }
 function isMarkdownPath(path) {
   return MD_EXT.test(path || "");
@@ -273,14 +283,24 @@ function bindMarkdownRepoLinks(root, fromFile) {
 function htmlViewBarHtml() {
   return '<div class="view-bar">' +
     '<label class="edit-vim" title="' + esc(t("html_preview_tip")) + '"><input type="checkbox" id="viewHtmlPreview"' +
-    (htmlPreviewOn ? " checked" : "") + '> ' + esc(t("html_preview")) + '</label></div>';
+    (htmlPreviewOn ? " checked" : "") + '> ' + esc(t("html_preview")) + '</label>' +
+    '<label class="edit-vim" title="' + esc(t("html_preview_js_tip")) + '"' + (htmlPreviewOn ? "" : " hidden") +
+    ' id="viewHtmlJsLabel"><input type="checkbox" id="viewHtmlJs"' +
+    (htmlJsOn ? " checked" : "") + '> ' + esc(t("html_preview_js")) + '</label></div>';
 }
 function bindHtmlViewBar(r) {
   const prev = document.getElementById("viewHtmlPreview");
+  const js = document.getElementById("viewHtmlJs");
+  const jsLab = document.getElementById("viewHtmlJsLabel");
   if (prev) prev.onchange = ev => {
     setHtmlPreviewPref(ev.target.checked);
     showFileBody(r);
   };
+  if (js) js.onchange = ev => {
+    setHtmlJsPref(ev.target.checked);
+    if (htmlPreviewOn) showHtml(r);  // sandbox を付け替えてプレビューを作り直す
+  };
+  if (jsLab) jsLab.hidden = !htmlPreviewOn;
 }
 function fitHtmlPreviewFrame(frame) {
   if (!frame) return;
@@ -288,11 +308,11 @@ function fitHtmlPreviewFrame(frame) {
   const top = frame.getBoundingClientRect().top - main.getBoundingClientRect().top + main.scrollTop;
   frame.style.height = Math.max(200, main.clientHeight - top - 14 - 2) + "px";
 }
-function showHtml(r) {  // HTML は sandbox iframe でプレビュー (script は動かさない)
+function showHtml(r) {  // HTML は sandbox iframe でプレビュー (script はオプションで有効にする)
   closeEditor();
   content.className = "html-preview";
   content.innerHTML = htmlViewBarHtml() +
-    '<div class="html-body"><iframe class="html-preview-frame" sandbox="allow-same-origin" title="HTML preview"></iframe></div>';
+    '<div class="html-body"><iframe class="html-preview-frame" sandbox="' + htmlSandboxAttr() + '" title="HTML preview"></iframe></div>';
   bindHtmlViewBar(r);
   const frame = content.querySelector("iframe.html-preview-frame");
   fitHtmlPreviewFrame(frame);

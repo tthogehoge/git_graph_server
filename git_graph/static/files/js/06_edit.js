@@ -182,6 +182,7 @@ function updateHtmlEditPreview() {
   const scroller = mdEditScroller();
   const ratio = scroller && (scroller.scrollHeight - scroller.clientHeight) > 0
     ? scroller.scrollTop / (scroller.scrollHeight - scroller.clientHeight) : 0;
+  frame.setAttribute("sandbox", typeof htmlSandboxAttr === "function" ? htmlSandboxAttr() : "allow-same-origin");
   frame.onload = () => {
     try {
       const doc = frame.contentDocument;
