@@ -23,6 +23,9 @@ function clearFile() {  // ファイルを選ぶ前の表示に戻す
   content.className = "hint";
   content.textContent = t("select_file_hint");
 }
+function updateUploadBtn() {  // 「アップロードして上書き」は、作業ツリーのファイルの内容表示だけに出す
+  fileUploadBtn.hidden = !CAN_EDIT || !currentFile || (currentView !== "" && currentView !== "content");
+}
 function fileLogRow(c, graphTd) {  // ログの 1 行。グラフ画面のログと同じ行 (commit_log.js): (マージグラフ +) ハッシュ (グラフ画面で開くリンク)・(ブランチ / タグ +) 件名・作者 / 日付。操作の対象 / A / B の行は強調する (log_select.js)
   return CommitLog.rowHtml(c, {extraClass: LogSel.kinds(c[0], LogSel.load()), chips: refChips(c[0]), graphLink: true, graphTd: graphTd});
 }
@@ -390,6 +393,7 @@ function loadFile(path, push) {
   fileDownloadBtn.hidden = false;
   fileDownloadBtn.disabled = false;
   fileCopyBtn.disabled = !CAN_COPY || isWip;
+  updateUploadBtn();
   updateDiffBtn();
   fileData = null;
   return api("/api/file", {hash: hash, path: path}).then(r => {
@@ -419,6 +423,7 @@ function renderView(view) {
   else if (view === "clog") loadFileCommitLog();
   else if (view === "diff") loadFileDiff(currentFile);
   else showFileContentView();  // ファイル内容 (履歴に積んで戻れる)
+  updateUploadBtn();
   markWipCurrent();
 }
 function showFileContentView() {  // 差分 / ログ / blame から内容表示へ (API 再取得なし)

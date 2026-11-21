@@ -701,6 +701,8 @@
   "file_edit": "Edit",
   "file_edit_title": "Edit {path}",
   "file_download": "Download",
+  "file_upload_overwrite": "Upload & overwrite",
+  "tip_file_upload": "Pick a file and overwrite the working tree file at this path with it",
   "patch_create": "Create patch",
   "patch_create_wip": "Create patch (WIP)",
   "patch_apply": "Apply patch (apply)",

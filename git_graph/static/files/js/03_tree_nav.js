@@ -295,6 +295,38 @@ function loadTree(path, push) {
 fileDownloadBtn.onclick = () => {  // Content-Disposition: attachment なので、画面は移動せず保存される
   if (currentFile) location.href = "/download?" + new URLSearchParams({hash: hash, path: currentFile});
 };
+fileUploadBtn.onclick = () => {  // ファイルを選んで、その内容でこのパスの作業ツリーのファイルを上書きする
+  if (!currentFile || !CAN_EDIT || editing) return;
+  let input = document.getElementById("fileUploadInput");
+  if (!input) {
+    input = document.createElement("input");
+    input.type = "file"; input.id = "fileUploadInput"; input.hidden = true;
+    document.body.appendChild(input);
+  }
+  input.value = "";
+  input.onchange = async () => {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    fileUploadBtn.disabled = true;
+    setFileMsg(t("upload_running", {n: 1}), "");
+    try {
+      const r = await fetch("/api/file-upload", {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({path: currentFile, data: await fileToBase64(file), overwrite: true}),
+      });
+      if (!r.ok) throw new Error(await r.text() || r.status);
+      setFileMsg((await r.json()).message, true);
+      await loadTree(current, false);  // 変更の印を作り直す
+      if (typeof loadWipChanges === "function") loadWipChanges();
+      if (currentFile && (currentView === "" || currentView === "content")) loadFile(currentFile, false);  // 表示中なら内容を作り直す
+    } catch (e) {
+      setFileMsg(t("upload_failed", {error: e.message || String(e)}), false);
+    } finally {
+      fileUploadBtn.disabled = false;
+    }
+  };
+  input.click();
+};
 fileExtEditBtn.onclick = () => {  // OS の標準のエディタ、または設定ファイルの editor で開く
   if (!currentFile) return;
   fileExtEditBtn.disabled = true;

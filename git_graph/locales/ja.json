@@ -701,6 +701,8 @@
   "file_edit": "編集",
   "file_edit_title": "{path} を編集",
   "file_download": "ダウンロード",
+  "file_upload_overwrite": "アップロードして上書き",
+  "tip_file_upload": "ファイルを選んで、その内容でこのパスの作業ツリーのファイルを上書きします",
   "patch_create": "パッチ作成",
   "patch_create_wip": "パッチ作成 (WIP)",
   "patch_apply": "パッチ適用 (apply)",

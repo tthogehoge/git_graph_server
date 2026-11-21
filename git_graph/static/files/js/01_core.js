@@ -20,7 +20,7 @@ const fileGraphLogBtn = document.getElementById("fileGraphLogBtn");
 const dirActions = document.getElementById("dirActions"), dirLogBtn = document.getElementById("dirLogBtn"), dirCommitLogBtn = document.getElementById("dirCommitLogBtn");
 const fileCommitLogBtn = document.getElementById("fileCommitLogBtn");
 const dirListBtn = document.getElementById("dirListBtn"), dirGraphLogBtn = document.getElementById("dirGraphLogBtn");
-const fileDownloadBtn = document.getElementById("fileDownloadBtn"), fileExtEditBtn = document.getElementById("fileExtEditBtn");
+const fileDownloadBtn = document.getElementById("fileDownloadBtn"), fileExtEditBtn = document.getElementById("fileExtEditBtn"), fileUploadBtn = document.getElementById("fileUploadBtn");
 const fileRmBtn = document.getElementById("fileRmBtn"), fileRmCachedBtn = document.getElementById("fileRmCachedBtn");
 const fileCopyBtn = document.getElementById("fileCopyBtn"), fileMsg = document.getElementById("fileMsg");
 const fileDiffBtn = document.getElementById("fileDiffBtn"), fileEditBtn = document.getElementById("fileEditBtn");
