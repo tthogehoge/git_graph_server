@@ -145,3 +145,6 @@
   .html-preview .view-bar { padding: 6px 12px; border: 1px solid #ddd; border-bottom: none; background: #f8f9fb; border-radius: 4px 4px 0 0; }
   .html-preview .html-body { border: 1px solid #ddd; border-radius: 0 0 4px 4px; background: #fff; }
   .html-preview-frame { display: block; width: 100%; border: 0; background: #fff; }
+
+  /* HTML 編集プレビュー (左右分割の右ペイン) */
+  #htmlEditPreview.html-preview-frame { flex: 1 1 auto; min-height: 0; border: 1px solid #bbb; box-sizing: border-box; }

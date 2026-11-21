@@ -29,7 +29,7 @@ function fitEditor(host) {  // エディタの高さを本文の領域に合わ�
   const top = host.getBoundingClientRect().top - main.getBoundingClientRect().top + main.scrollTop;
   host.style.height = Math.max(200, main.clientHeight - top - 14 - 2) + "px";  // 14: #main の下の余白、2: 枠線
 }
-window.addEventListener("resize", () => { if (document.getElementById("mdEditPreview")) fitMdEditSplit(); else if (document.querySelector("iframe.html-preview-frame")) fitHtmlPreviewFrame(document.querySelector("iframe.html-preview-frame")); else { const host = document.querySelector(".cm-host"); if (host) fitEditor(host); } });
+window.addEventListener("resize", () => { if (document.getElementById("mdEditPreview") || document.getElementById("htmlEditPreview")) fitMdEditSplit(); else if (document.querySelector("iframe.html-preview-frame")) fitHtmlPreviewFrame(document.querySelector("iframe.html-preview-frame")); else { const host = document.querySelector(".cm-host"); if (host) fitEditor(host); } });
 let keepViewerScroll = null;  // 更新ボタンで読み直すとき、表示のスクロール位置を引き継ぐ ({path, top})
 function jumpToHashLine() {  // URL の #L12 で、その行を出す
   const m = /^#L(\d+)$/.exec(location.hash);
@@ -172,9 +172,55 @@ function updateMdEditPreview() {
 }
 function fitMdEditSplit() {
   const left = document.getElementById("editor");
-  const right = document.getElementById("mdEditPreview");
+  const right = document.getElementById("mdEditPreview") || document.getElementById("htmlEditPreview");
   if (left) fitEditor(left);
   if (right && left) right.style.height = left.style.height;
+}
+function updateHtmlEditPreview() {
+  const frame = document.getElementById("htmlEditPreview");
+  if (!frame || !textEditor) return;
+  const scroller = mdEditScroller();
+  const ratio = scroller && (scroller.scrollHeight - scroller.clientHeight) > 0
+    ? scroller.scrollTop / (scroller.scrollHeight - scroller.clientHeight) : 0;
+  frame.onload = () => {
+    try {
+      const doc = frame.contentDocument;
+      if (doc && doc.body) bindMarkdownRepoLinks(doc.body, currentFile);
+      const prev = doc && (doc.scrollingElement || doc.documentElement);
+      if (prev) {
+        const tMax = prev.scrollHeight - prev.clientHeight;
+        prev.scrollTop = tMax > 0 ? ratio * tMax : 0;
+      }
+      bindHtmlEditScrollSync();
+    } catch (e) { /* sandbox */ }
+  };
+  frame.srcdoc = textEditor.getText();
+}
+function bindHtmlEditScrollSync() {
+  if (mdScrollCleanup) { mdScrollCleanup(); mdScrollCleanup = null; }
+  const scroller = mdEditScroller();
+  const frame = document.getElementById("htmlEditPreview");
+  const doc = frame && frame.contentDocument;
+  const prev = doc && (doc.scrollingElement || doc.documentElement);
+  if (!scroller || !prev) return;
+  const onLeft = () => {
+    if (mdScrollSyncing) return;
+    mdScrollSyncing = true;
+    syncScrollRatio(scroller, prev);
+    requestAnimationFrame(() => { mdScrollSyncing = false; });
+  };
+  const onRight = () => {
+    if (mdScrollSyncing) return;
+    mdScrollSyncing = true;
+    syncScrollRatio(prev, scroller);
+    requestAnimationFrame(() => { mdScrollSyncing = false; });
+  };
+  scroller.addEventListener("scroll", onLeft, {passive: true});
+  prev.addEventListener("scroll", onRight, {passive: true});
+  mdScrollCleanup = () => {
+    scroller.removeEventListener("scroll", onLeft);
+    prev.removeEventListener("scroll", onRight);
+  };
 }
 function startEdit() {
   if (!fileData || !fileData.editable || !currentFile) return;
@@ -186,6 +232,8 @@ function startEdit() {
   title.textContent = t("file_edit_title", {path: currentFile});
   content.className = "";
   const mdEdit = typeof isMarkdownPath === "function" && isMarkdownPath(currentFile);
+  const htmlEdit = !mdEdit && typeof isHtmlPath === "function" && isHtmlPath(currentFile);
+  const splitEdit = mdEdit || htmlEdit;
   const breaksLabel = mdEdit
     ? '<label class="edit-vim" title="' + esc(t("md_breaks_tip")) + '"><input type="checkbox" id="editMdBreaks"' +
       (mdBreaksOn ? " checked" : "") + '> ' + esc(t("md_breaks")) + '</label>'
@@ -193,7 +241,10 @@ function startEdit() {
   const editorBlock = mdEdit
     ? '<div class="md-edit-split"><div class="md-edit-left"><div id="editor" class="cm-host"></div></div>' +
       '<div class="md-edit-right"><div id="mdEditPreview" class="md-preview md-edit-preview"></div></div></div>'
-    : '<div id="editor" class="cm-host"></div>';
+    : htmlEdit
+      ? '<div class="md-edit-split"><div class="md-edit-left"><div id="editor" class="cm-host"></div></div>' +
+        '<div class="md-edit-right"><iframe id="htmlEditPreview" class="html-preview-frame md-edit-preview" sandbox="allow-same-origin" title="HTML preview"></iframe></div></div>'
+      : '<div id="editor" class="cm-host"></div>';
   content.innerHTML = '<div class="edit-info">' + esc(t("edit_format", {encoding: fileData.encoding, eol: eol})) + '</div>' +
     (fileData.eol_mixed ? '<div class="edit-info warn">' + esc(t("edit_eol_mixed", {eol: eol})) + '</div>' : "") +
     '<div class="edit-bar"><button class="primary" id="editSave">' + esc(t("edit_save")) + '</button><button id="editCancel">' +
@@ -201,7 +252,7 @@ function startEdit() {
     '> ' + esc(t("edit_wrap")) + '</label><label class="edit-vim" title="' + esc(t("edit_vim_tip")) + '"><input type="checkbox" id="editVim"' + (vimOn ? " checked" : "") +
     '> ' + esc(t("edit_vim")) + '</label>' + breaksLabel + '</div>' + editorBlock;
   document.getElementById("main").scrollTop = 0;
-  if (mdEdit) fitMdEditSplit();
+  if (splitEdit) fitMdEditSplit();
   else fitEditor(document.getElementById("editor"));
   const loaded = fileData;
   let mdPreviewTimer = null;
@@ -212,9 +263,9 @@ function startEdit() {
       parent: host, text: loaded.content, path: currentFile, vim: vimOn, wrap: wrapOn, phrases: editorPhrases(),
       onChange: () => {
         editDirty = true;
-        if (!mdEdit) return;
+        if (!splitEdit) return;
         if (mdPreviewTimer) clearTimeout(mdPreviewTimer);
-        mdPreviewTimer = setTimeout(updateMdEditPreview, 120);
+        mdPreviewTimer = setTimeout(mdEdit ? updateMdEditPreview : updateHtmlEditPreview, 120);
       }, onSave: saveEdit,
       onQuit: force => { if (force) editDirty = false; if (leaveEdit()) backToContent(); },  // Vim の :q / :q!
     });
@@ -222,6 +273,9 @@ function startEdit() {
       updateMdEditPreview();
       fitMdEditSplit();
       bindMdEditScrollSync();
+    } else if (htmlEdit) {
+      fitMdEditSplit();
+      updateHtmlEditPreview();
     }
     textEditor.focus();
   }).catch(e => {

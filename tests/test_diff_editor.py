@@ -281,6 +281,8 @@ class DiffEditorPageTests(unittest.TestCase):
         self.assertIn("/static/vendor/marked.js", page_with_assets(pages.render_files_page()))
         self.assertIn("function showMarkdown(r)", files_html)
         self.assertIn("function showHtml(r)", files_html)
+        self.assertIn("function updateHtmlEditPreview()", files_html)
+        self.assertIn("htmlEditPreview", files_html)
         self.assertIn("function isHtmlPath(path)", files_html)
         self.assertIn("html-preview-frame", files_html)
         self.assertIn("function bindMarkdownRepoLinks(", files_html)
