@@ -152,3 +152,10 @@
   /* PDF プレビュー (ブラウザ内蔵ビューア。/raw は Range 対応) */
   .pdf-preview { margin: 8px 0; }
   .pdf-preview-frame { display: block; width: 100%; border: 1px solid #ddd; border-radius: 4px; background: #525659; }
+
+  /* WIP へのファイルドロップ */
+  #list.drop-target, #changes.drop-target, #main.drop-target {
+    outline: 2px dashed #2c7be5;
+    outline-offset: -4px;
+    background: #eef5ff;
+  }

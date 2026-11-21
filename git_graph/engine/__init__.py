@@ -57,7 +57,7 @@ LABEL_KEYS = {
     "branch_rename": "op_label_branch_rename", "checkout": "op_label_checkout", "reset": "op_label_reset", "reset_branch": "op_label_reset",
     "discard": "op_label_discard", "add": "op_label_add", "stage": "op_label_stage", "rm": "op_label_rm", "commit": "op_label_commit", "fetch": "op_label_fetch",
     "pull": "op_label_pull", "remote_add": "op_label_remote_add", "remote_remove": "op_label_remote_remove",
-    "patch_apply": "op_label_patch_apply", "patch_am": "op_label_patch_am", "file_save": "op_label_file_save",
+    "patch_apply": "op_label_patch_apply", "patch_am": "op_label_patch_am", "file_save": "op_label_file_save", "file_upload": "op_label_file_upload",
     "submodule_add": "op_label_submodule_add",
 }
 

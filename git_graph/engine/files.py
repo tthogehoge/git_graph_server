@@ -50,3 +50,41 @@ def save_file(path, content, base_sha):
             pass
         raise ValueError(str(e))
     return {"path": path, "sha": hashlib.sha256(data).hexdigest(), "unchanged": False}
+
+
+UPLOAD_LIMIT = 40_000_000  # 1 ファイルの上限 (バイト)
+
+
+@operation("file_upload", touches_worktree=True, detail=lambda path, *_, **__: path if isinstance(path, str) else "")
+def upload_file(path, data, overwrite=False):
+    """ブラウザからドロップしたファイルを作業ツリーに書く。
+    data は生の bytes。ディレクトリは必要なら作る。既存ファイルは overwrite が真のときだけ上書き。"""
+    if not isinstance(path, str) or not isinstance(data, (bytes, bytearray)):
+        raise ValueError("bad body")
+    data = bytes(data)
+    if len(data) > UPLOAD_LIMIT:
+        raise UserError("upload_too_large")
+    path = validate_file_path(path, allow_empty=False)
+    # パス区切りを含む name をそのまま書かない (クライアントは basename を渡す想定だが防御)
+    if path.endswith("/") or path.endswith("\\"):
+        raise UserError("not_a_file")
+    target = worktree_target(path)
+    if os.path.isdir(target):
+        raise UserError("upload_is_dir", path=path)
+    if os.path.lexists(target) and not overwrite:
+        raise UserError("upload_exists", path=path)
+    parent = os.path.dirname(target)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=parent or ".", prefix=".git_graph_upload_")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        os.replace(tmp, target)
+    except OSError as e:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise ValueError(str(e))
+    return {"path": path, "size": len(data), "sha": hashlib.sha256(data).hexdigest()}

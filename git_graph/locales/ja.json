@@ -976,5 +976,17 @@
   "archive_bad_format": "アーカイブ形式は zip または tar.gz です",
   "archive_failed": "アーカイブを作成できませんでした: {error}",
   "archive_tgz": "プロジェクトを tar.gz で取得",
-  "tip_archive_tgz": "このコミットの内容を tar.gz でダウンロードします (git archive)。未コミットの変更は含みません"
+  "tip_archive_tgz": "このコミットの内容を tar.gz でダウンロードします (git archive)。未コミットの変更は含みません",
+  "upload_running": "{n} 件のファイルをアップロード中…",
+  "upload_done": "{n} 件をアップロードしました",
+  "upload_none": "アップロードしたファイルはありません",
+  "upload_failed": "アップロードに失敗しました: {error}",
+  "upload_saved": "{path} を保存しました",
+  "upload_exists": "既に存在します: {path}",
+  "upload_overwrite_confirm": "{path} は既にあります。上書きしますか？",
+  "upload_too_large": "ファイルが大きすぎます",
+  "upload_invalid": "アップロードデータが不正です",
+  "upload_is_dir": "ディレクトリには上書きできません: {path}",
+  "op_label_file_upload": "ファイルのアップロード",
+  "upload_done_skip": "{n} 件をアップロードしました（{skip} 件スキップ）"
 }

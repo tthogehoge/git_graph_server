@@ -304,3 +304,99 @@ fileExtEditBtn.onclick = () => {  // OS の標準のエディタ、または設�
     .catch(e => setFileMsg(e.message, false))
     .finally(() => { fileExtEditBtn.disabled = false; });
 };
+
+
+// ---- WIP: ファイルをドラッグ&ドロップで作業ツリーへアップロード ----
+function wipUploadDir() {
+  // いま見ているディレクトリ。ファイルを開いているときはその親
+  if (currentFile) return parentDir(currentFile);
+  return current || "";
+}
+function safeUploadName(name) {
+  // パス区切りや .. を落として basename だけ使う
+  name = String(name || "").replace(/\\/g, "/");
+  const base = name.split("/").pop() || "";
+  if (!base || base === "." || base === "..") return "";
+  return base;
+}
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => {
+      const s = String(r.result || "");
+      const i = s.indexOf(",");
+      resolve(i >= 0 ? s.slice(i + 1) : s);
+    };
+    r.onerror = () => reject(r.error || new Error("read failed"));
+    r.readAsDataURL(file);
+  });
+}
+async function uploadDroppedFiles(fileList) {
+  if (!isWip || !CAN_EDIT) return;
+  const files = [...fileList].filter(f => f && f.name);
+  if (!files.length) return;
+  const dir = wipUploadDir();
+  let okN = 0, skipN = 0, errMsg = "";
+  setStatus(t("upload_running", {n: files.length}), "progress");
+  for (const file of files) {
+    const base = safeUploadName(file.name);
+    if (!base) { skipN++; continue; }
+    const path = dir ? dir + "/" + base : base;
+    try {
+      const data = await fileToBase64(file);
+      let body = {path: path, data: data, overwrite: false};
+      let r = await fetch("/api/file-upload", {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) {
+        const msg = await r.text();
+        // 既存ファイル (メッセージにパスが含まれる) なら上書き確認
+        if (r.status === 400 && msg.indexOf(path) >= 0) {
+          if (!confirm(t("upload_overwrite_confirm", {path: path}))) { skipN++; continue; }
+          body.overwrite = true;
+          r = await fetch("/api/file-upload", {
+            method: "POST", headers: {"Content-Type": "application/json"},
+            body: JSON.stringify(body),
+          });
+          if (!r.ok) { errMsg = await r.text() || r.status; break; }
+        } else {
+          errMsg = msg || r.status;
+          break;
+        }
+      }
+      okN++;
+    } catch (e) {
+      errMsg = e.message || String(e);
+      break;
+    }
+  }
+  await loadTree(current, false);
+  if (typeof loadWipChanges === "function") loadWipChanges();
+  if (errMsg) setStatus(t("upload_failed", {error: errMsg}), "error", true);
+  else if (okN) setStatus(skipN ? t("upload_done_skip", {n: okN, skip: skipN}) : t("upload_done", {n: okN}), "success");
+  else setStatus(t("upload_none"), "error", true);
+}
+function bindWipFileDrop() {
+  const zones = [document.getElementById("list"), document.getElementById("changes"), document.getElementById("main")].filter(Boolean);
+  zones.forEach(zone => {
+    zone.addEventListener("dragover", ev => {
+      if (!isWip || !CAN_EDIT) return;
+      if (![...ev.dataTransfer.types].includes("Files")) return;
+      ev.preventDefault();
+      ev.dataTransfer.dropEffect = "copy";
+      zone.classList.add("drop-target");
+    });
+    zone.addEventListener("dragleave", ev => {
+      if (!zone.contains(ev.relatedTarget)) zone.classList.remove("drop-target");
+    });
+    zone.addEventListener("drop", ev => {
+      zone.classList.remove("drop-target");
+      if (!isWip || !CAN_EDIT) return;
+      if (!ev.dataTransfer || !ev.dataTransfer.files || !ev.dataTransfer.files.length) return;
+      ev.preventDefault();
+      uploadDroppedFiles(ev.dataTransfer.files);
+    });
+  });
+}
+bindWipFileDrop();

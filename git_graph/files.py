@@ -24,6 +24,7 @@ wip_file = qf.wip_file
 
 PATCH_BODY_LIMIT = 40_000_000  # /api/patch-apply の JSON の上限 (base64 にするので、パッチ本体は約 30MB まで)
 SAVE_BODY_LIMIT = 16_000_000  # /api/file-save の JSON の上限 (FILE_CONTENT_LIMIT の文字列をエスケープしても収まる大きさ)
+UPLOAD_BODY_LIMIT = 55_000_000  # /api/file-upload の JSON の上限 (base64 化で約 40MB のファイル)
 
 
 @route("/api/file-save", method="POST", engine=True)
@@ -33,6 +34,20 @@ def api_file_save(body):
     if r["unchanged"]:
         return {"ok": True, "unchanged": True, "sha": r["sha"], "message": tr("edit_unchanged")}
     return {"ok": True, "sha": r["sha"], "message": tr("edit_saved", path=r["path"])}
+
+
+@route("/api/file-upload", method="POST", engine=True)
+def api_file_upload(body):
+    """ドラッグ&ドロップで受け取ったファイルを作業ツリーに書く。data は base64。"""
+    path = body.get("path", "")
+    try:
+        data = base64.b64decode(body.get("data") or "", validate=True)
+    except (ValueError, TypeError):
+        raise UserError("upload_invalid")
+    overwrite = bool(body.get("overwrite"))
+    r = files.upload_file(path, data, overwrite=overwrite)
+    return {"ok": True, "path": r["path"], "size": r["size"], "sha": r["sha"],
+            "message": tr("upload_saved", path=r["path"])}
 
 
 @route("/api/merge-sources")

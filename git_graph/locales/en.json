@@ -976,5 +976,17 @@
   "archive_bad_format": "Archive format must be zip or tar.gz",
   "archive_failed": "Could not create archive: {error}",
   "archive_tgz": "Download project (tar.gz)",
-  "tip_archive_tgz": "Download this commit as a tar.gz archive (git archive). Uncommitted changes are not included"
+  "tip_archive_tgz": "Download this commit as a tar.gz archive (git archive). Uncommitted changes are not included",
+  "upload_running": "Uploading {n} file(s)…",
+  "upload_done": "Uploaded {n} file(s)",
+  "upload_none": "No files were uploaded",
+  "upload_failed": "Upload failed: {error}",
+  "upload_saved": "Saved {path}",
+  "upload_exists": "File already exists: {path}",
+  "upload_overwrite_confirm": "{path} already exists. Overwrite?",
+  "upload_too_large": "File is too large to upload",
+  "upload_invalid": "Invalid upload data",
+  "upload_is_dir": "Cannot overwrite a directory: {path}",
+  "op_label_file_upload": "Upload file",
+  "upload_done_skip": "Uploaded {n} file(s) ({skip} skipped)"
 }

@@ -35,7 +35,7 @@ from .remote import (  # noqa: F401
 from .routing import route, ROUTES
 from .files import (  # noqa: F401
     api_blame, api_file, api_file_copy, api_file_save, api_patch_am, api_patch_apply, api_tree, archive_download, file_download, patch_download,
-    PATCH_BODY_LIMIT, SAVE_BODY_LIMIT, tree_log_stream, WIP_HASH,
+    PATCH_BODY_LIMIT, SAVE_BODY_LIMIT, UPLOAD_BODY_LIMIT, tree_log_stream, WIP_HASH,
 )
 from .history import (  # noqa: F401
     api_branches, api_branches_containing, api_commit, api_compare, api_log, api_log_total, api_merge_base,
@@ -105,6 +105,7 @@ def cleanup_engine():
 POST_ROUTES = {path: handler for (method, path), handler in ROUTES.items() if method == "POST"}
 BODY_LIMITS = {
     "/api/file-save": SAVE_BODY_LIMIT,
+    "/api/file-upload": UPLOAD_BODY_LIMIT,
     "/api/patch-apply": PATCH_BODY_LIMIT,
     "/api/patch-am": PATCH_BODY_LIMIT,
 }
