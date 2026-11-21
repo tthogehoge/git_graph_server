@@ -964,5 +964,9 @@
   "tip_toggle_side": "Show / hide the left pane",
   "toggle_side": "Toggle left pane",
   "dup_window_opened": "Opened the same view in a new window",
-  "dup_window_failed": "Could not open a new window: {error}"
+  "dup_window_failed": "Could not open a new window: {error}",
+  "md_preview": "Markdown preview",
+  "md_preview_tip": "Render Markdown as formatted text. Turn off to view the source",
+  "md_breaks": "Soft line breaks",
+  "md_breaks_tip": "Treat single newlines as line breaks (GFM)"
 }

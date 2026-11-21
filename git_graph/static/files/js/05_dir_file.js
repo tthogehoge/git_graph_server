@@ -145,6 +145,19 @@ function openDir(path) {  // ディレクトリを選ぶ: 開いているファ�
 }
 
 const MD_EXT = /\.(md|markdown|mdown|mkd|mkdn)$/i;
+const MD_PREVIEW_KEY = "gg-md-preview", MD_BREAKS_KEY = "gg-md-breaks";
+let mdPreviewOn = true;  // Markdown を整形表示するか (オフならソース = テキスト表示)
+let mdBreaksOn = false;  // 単独改行を <br> にするか (marked の breaks)
+try { const v = localStorage.getItem(MD_PREVIEW_KEY); if (v === "0") mdPreviewOn = false; else if (v === "1") mdPreviewOn = true; } catch (e) { mdPreviewOn = true; }
+try { const v = localStorage.getItem(MD_BREAKS_KEY); if (v === "1") mdBreaksOn = true; else if (v === "0") mdBreaksOn = false; } catch (e) { mdBreaksOn = false; }
+function setMdPreviewPref(on) {
+  mdPreviewOn = on;
+  try { localStorage.setItem(MD_PREVIEW_KEY, mdPreviewOn ? "1" : "0"); } catch (e) { /* 保存できなくても切り替わる */ }
+}
+function setMdBreaksPref(on) {
+  mdBreaksOn = on;
+  try { localStorage.setItem(MD_BREAKS_KEY, mdBreaksOn ? "1" : "0"); } catch (e) { /* 保存できなくても切り替わる */ }
+}
 function isMarkdownPath(path) {
   return MD_EXT.test(path || "");
 }
@@ -155,6 +168,28 @@ function ensureMarked() {
   marked.use({ renderer: { html() { return ""; } } });
   markedReady = true;
 }
+function mdViewBarHtml() {
+  return '<div class="view-bar">' +
+    '<label class="edit-vim" title="' + esc(t("md_preview_tip")) + '"><input type="checkbox" id="viewMdPreview"' +
+    (mdPreviewOn ? " checked" : "") + '> ' + esc(t("md_preview")) + '</label>' +
+    '<label class="edit-vim" title="' + esc(t("md_breaks_tip")) + '"' + (mdPreviewOn ? "" : " hidden") +
+    ' id="viewMdBreaksLabel"><input type="checkbox" id="viewMdBreaks"' +
+    (mdBreaksOn ? " checked" : "") + '> ' + esc(t("md_breaks")) + '</label></div>';
+}
+function bindMdViewBar(r) {
+  const prev = document.getElementById("viewMdPreview");
+  const brk = document.getElementById("viewMdBreaks");
+  const brkLab = document.getElementById("viewMdBreaksLabel");
+  if (prev) prev.onchange = ev => {
+    setMdPreviewPref(ev.target.checked);
+    showFileBody(r);  // プレビュー / テキストを切り替える
+  };
+  if (brk) brk.onchange = ev => {
+    setMdBreaksPref(ev.target.checked);
+    if (mdPreviewOn) showMarkdown(r);
+  };
+  if (brkLab) brkLab.hidden = !mdPreviewOn;
+}
 function showMarkdown(r) {  // Markdown は marked.js で HTML 化してプレビュー (編集は元テキスト)
   closeEditor();
   const src = (r && r.content != null) ? r.content : "";
@@ -162,7 +197,7 @@ function showMarkdown(r) {  // Markdown は marked.js で HTML 化してプレ�
   try {
     ensureMarked();
     if (window.marked && typeof marked.parse === "function") {
-      html = marked.parse(src, { async: false });
+      html = marked.parse(src, { async: false, breaks: !!mdBreaksOn });
     } else {
       html = "<pre>" + esc(src) + "</pre>";
     }
@@ -170,7 +205,19 @@ function showMarkdown(r) {  // Markdown は marked.js で HTML 化してプレ�
     html = "<pre>" + esc(src) + "</pre>";
   }
   content.className = "md-preview";
-  content.innerHTML = html;
+  content.innerHTML = mdViewBarHtml() + '<div class="md-body">' + html + "</div>";
+  bindMdViewBar(r);
+}
+function showFileBody(r) {  // 内容表示: Markdown ならプレビュー / テキストを選べる
+  if (r.image) return showImage(r);
+  if (r.binary) { content.className = "binary"; content.textContent = t("binary_file"); return; }
+  if (isMarkdownPath(r.path || currentFile) && mdPreviewOn) return showMarkdown(r);
+  if (isMarkdownPath(r.path || currentFile) && !mdPreviewOn) {
+    // テキスト表示でも Markdown 用の切り替えバーを出す
+    showCode(r, true);
+    return;
+  }
+  showCode(r, false);
 }
 
 function showImage(r) {  // 画像ファイルは <img> でプレビュー (中身は /raw から)
@@ -216,10 +263,7 @@ function loadFile(path, push) {
     fileEditBtn.disabled = !CAN_EDIT || r.binary || !r.editable;
     fileEditBtn.title = (!CAN_EDIT || r.binary) ? "" : (r.editable ? "" : t(r.edit_reason || "edit_bad_encoding"));
     title.textContent = fileTitle(r, "");
-    if (r.image) showImage(r);
-    else if (r.binary) { content.className = "binary"; content.textContent = t("binary_file"); }
-    else if (isMarkdownPath(path)) showMarkdown(r);
-    else showCode(r);
+    showFileBody(r);
     fileBlameBtn.hidden = false;
     fileBlameBtn.disabled = r.binary || (isWip && !wipHead);
   }).catch(e => { title.textContent = path; content.className = "hint"; content.textContent = t("error") + e.message; });
@@ -262,10 +306,7 @@ function showFileContentView() {  // 差分 / ログ / blame から内容表示�
     fileEditBtn.disabled = !CAN_EDIT || fileData.binary || !fileData.editable;
     fileEditBtn.title = (!CAN_EDIT || fileData.binary) ? "" : (fileData.editable ? "" : t(fileData.edit_reason || "edit_bad_encoding"));
     title.textContent = fileTitle(fileData, "");
-    if (fileData.image) showImage(fileData);
-    else if (fileData.binary) { content.className = "binary"; content.textContent = t("binary_file"); }
-    else if (isMarkdownPath(currentFile)) showMarkdown(fileData);
-    else showCode(fileData);
+    showFileBody(fileData);
   } else if (currentFile) {
     loadFile(currentFile, false);
     return;

@@ -964,5 +964,9 @@
   "tip_toggle_side": "左ペインを開く / 閉じる",
   "toggle_side": "左ペインの開閉",
   "dup_window_opened": "同じ画面を別ウインドウで開きました",
-  "dup_window_failed": "別ウインドウを開けませんでした: {error}"
+  "dup_window_failed": "別ウインドウを開けませんでした: {error}",
+  "md_preview": "Markdown 表示",
+  "md_preview_tip": "Markdown を整形して表示します。オフにするとソースをそのまま表示します",
+  "md_breaks": "改行を反映",
+  "md_breaks_tip": "単独の改行を改行として表示します (GFM)"
 }

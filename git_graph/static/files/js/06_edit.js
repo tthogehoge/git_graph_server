@@ -35,14 +35,17 @@ function jumpToHashLine() {  // URL の #L12 で、その行を出す
   if (m && textEditor && !editing) textEditor.scrollToLine(parseInt(m[1], 10));
 }
 window.addEventListener("hashchange", jumpToHashLine);
-function showCode(r) {  // ファイルの内容を、読み取り専用のエディタで出す (編集画面と同じ CodeMirror。行番号・構文ハイライト・検索 Ctrl+F)
+function showCode(r, withMdBar) {  // ファイルの内容を、読み取り専用のエディタで出す (編集画面と同じ CodeMirror。行番号・構文ハイライト・検索 Ctrl+F)
+  // withMdBar: Markdown ファイルでプレビューをオフにしたとき、テキスト側でも Markdown 切替を出す
   content.className = "";
-  content.innerHTML = (r.truncated ? '<p class="hint">' + esc(t("large_file_head")) + '</p>' : "") +
+  const mdBar = withMdBar ? mdViewBarHtml() : "";
+  content.innerHTML = (r.truncated ? '<p class="hint">' + esc(t("large_file_head")) + '</p>' : "") + mdBar +
     '<div class="view-bar"><label class="edit-vim" title="' + esc(t("edit_wrap_tip")) + '"><input type="checkbox" id="viewWrap"' + (wrapOn ? " checked" : "") +
     '> ' + esc(t("edit_wrap")) + '</label><label class="edit-vim" title="' + esc(t("vim_readonly_tip")) + '"><input type="checkbox" id="viewVim"' + (vimOn ? " checked" : "") +
     '> ' + esc(t("edit_vim")) + '</label></div><div class="cm-host" id="viewer"></div>';
   document.getElementById("main").scrollTop = 0;
   const host = document.getElementById("viewer");
+  if (withMdBar) bindMdViewBar(r);
   document.getElementById("viewWrap").onchange = ev => {
     setWrapPref(ev.target.checked);
     if (textEditor) { textEditor.setWrap(wrapOn); textEditor.focus(); }
