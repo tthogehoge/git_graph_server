@@ -200,12 +200,73 @@ function renderMarkdownHtml(src) {  // Markdown 文字列 → HTML (失敗時は
   } catch (e) { /* fall through */ }
   return "<pre>" + esc(src) + "</pre>";
 }
+function resolveMdRepoPath(fromFile, href) {
+  // Markdown の相対リンクをリポジトリ内パスにする。外部 URL や # だけなら null
+  if (href == null) return null;
+  href = String(href).trim();
+  if (!href || /^(https?:|mailto:|data:|javascript:)/i.test(href)) return null;
+  if (href.charAt(0) === "#") return null;
+  let path = href.split("#")[0].split("?")[0];
+  if (!path) return null;
+  try { path = decodeURIComponent(path); } catch (e) { /* keep raw */ }
+  if (path.charAt(0) === "/") path = path.slice(1);
+  const base = (fromFile && fromFile.indexOf("/") >= 0) ? fromFile.slice(0, fromFile.lastIndexOf("/") + 1) : "";
+  const parts = (base + path).split("/");
+  const out = [];
+  for (let i = 0; i < parts.length; i++) {
+    const p = parts[i];
+    if (!p || p === ".") continue;
+    if (p === "..") {
+      if (!out.length) return null;  // リポジトリの外へは出さない
+      out.pop();
+      continue;
+    }
+    if (p.indexOf("\\") >= 0 || p.indexOf("\0") >= 0) return null;
+    out.push(p);
+  }
+  return out.join("/");
+}
+function mdFilePageUrl(repoPath) {
+  const dir = parentDir(repoPath);
+  return pageUrl(dir, repoPath);
+}
+function bindMarkdownRepoLinks(root, fromFile) {
+  // 相対リンクを /files?...&file=... にし、クリックで同じ画面内で開く
+  if (!root) return;
+  root.querySelectorAll("a[href]").forEach(a => {
+    const raw = a.getAttribute("href");
+    const repoPath = resolveMdRepoPath(fromFile || currentFile, raw);
+    if (!repoPath) {
+      if (raw && /^(https?:)/i.test(raw)) a.setAttribute("target", "_blank");
+      return;
+    }
+    const frag = (raw.indexOf("#") >= 0) ? raw.slice(raw.indexOf("#")) : "";
+    a.setAttribute("href", mdFilePageUrl(repoPath) + frag);
+    a.setAttribute("data-md-file", repoPath);
+    a.onclick = ev => {
+      if (ev.defaultPrevented || ev.button || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
+      ev.preventDefault();
+      if (!leaveEdit()) return;
+      const dir = parentDir(repoPath);
+      const open = () => loadFile(repoPath, true);
+      if (dir !== current) loadTree(dir, false).then(open);
+      else open();
+    };
+  });
+  // 相対パスの画像は /raw で出す
+  root.querySelectorAll("img[src]").forEach(img => {
+    const repoPath = resolveMdRepoPath(fromFile || currentFile, img.getAttribute("src"));
+    if (!repoPath) return;
+    img.setAttribute("src", "/raw?" + new URLSearchParams({hash: hash, path: repoPath}).toString());
+  });
+}
 function showMarkdown(r) {  // Markdown は marked.js で HTML 化してプレビュー (編集は元テキスト)
   closeEditor();
   const src = (r && r.content != null) ? r.content : "";
   content.className = "md-preview";
   content.innerHTML = mdViewBarHtml() + '<div class="md-body">' + renderMarkdownHtml(src) + "</div>";
   bindMdViewBar(r);
+  bindMarkdownRepoLinks(content.querySelector(".md-body"), r.path || currentFile);
 }
 function showFileBody(r) {  // 内容表示: Markdown ならプレビュー / テキストを選べる
   if (r.image) return showImage(r);

@@ -163,6 +163,7 @@ function updateMdEditPreview() {
   const ratio = scroller && (scroller.scrollHeight - scroller.clientHeight) > 0
     ? scroller.scrollTop / (scroller.scrollHeight - scroller.clientHeight) : 0;
   pane.innerHTML = renderMarkdownHtml(textEditor.getText());
+  bindMarkdownRepoLinks(pane, currentFile);
   // プレビュー再描画後も、左のスクロール割合に合わせる
   const tMax = pane.scrollHeight - pane.clientHeight;
   if (tMax > 0) pane.scrollTop = ratio * tMax;
