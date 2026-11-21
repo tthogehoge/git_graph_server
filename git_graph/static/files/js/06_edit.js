@@ -19,6 +19,7 @@ function setWrapPref(on) {  // 折り返しの設定 (表示・編集・差分�
 const EOL_LABEL = {crlf: "CRLF", lf: "LF", cr: "CR"};
 let diffView = null;  // 右ペインの差分エディタ (view=diff)
 function closeEditor() {
+  if (mdScrollCleanup) { mdScrollCleanup(); mdScrollCleanup = null; }
   if (textEditor) { textEditor.destroy(); textEditor = null; }
   if (diffView) { diffView.close(); diffView = null; }
 }
@@ -118,10 +119,54 @@ function editorPhrases() {  // 検索パネルなどの文言 (CodeMirror 側の
           "Go to line": t("editor_goto_line"), "go": t("editor_go")};
 }
 window.addEventListener("beforeunload", ev => { if (editing && editDirty) { ev.preventDefault(); ev.returnValue = ""; } });
+let mdScrollCleanup = null;  // Markdown 編集の左右スクロール同期を外す関数
+let mdScrollSyncing = false;
+function mdEditScroller() {  // 左エディタのスクロール要素 (CodeMirror の .cm-scroller)
+  const host = document.getElementById("editor");
+  return host && host.querySelector(".cm-scroller");
+}
+function syncScrollRatio(from, to) {  // スクロール位置を割合で合わせる (行高が違うため)
+  if (!from || !to) return;
+  const fMax = from.scrollHeight - from.clientHeight;
+  const tMax = to.scrollHeight - to.clientHeight;
+  if (fMax <= 0 || tMax <= 0) { to.scrollTop = 0; return; }
+  to.scrollTop = (from.scrollTop / fMax) * tMax;
+}
+function bindMdEditScrollSync() {
+  if (mdScrollCleanup) { mdScrollCleanup(); mdScrollCleanup = null; }
+  const scroller = mdEditScroller();
+  const prev = document.getElementById("mdEditPreview");
+  if (!scroller || !prev) return;
+  const onLeft = () => {
+    if (mdScrollSyncing) return;
+    mdScrollSyncing = true;
+    syncScrollRatio(scroller, prev);
+    requestAnimationFrame(() => { mdScrollSyncing = false; });
+  };
+  const onRight = () => {
+    if (mdScrollSyncing) return;
+    mdScrollSyncing = true;
+    syncScrollRatio(prev, scroller);
+    requestAnimationFrame(() => { mdScrollSyncing = false; });
+  };
+  scroller.addEventListener("scroll", onLeft, {passive: true});
+  prev.addEventListener("scroll", onRight, {passive: true});
+  mdScrollCleanup = () => {
+    scroller.removeEventListener("scroll", onLeft);
+    prev.removeEventListener("scroll", onRight);
+  };
+}
 function updateMdEditPreview() {
   const pane = document.getElementById("mdEditPreview");
   if (!pane || !textEditor) return;
+  const scroller = mdEditScroller();
+  const ratio = scroller && (scroller.scrollHeight - scroller.clientHeight) > 0
+    ? scroller.scrollTop / (scroller.scrollHeight - scroller.clientHeight) : 0;
   pane.innerHTML = renderMarkdownHtml(textEditor.getText());
+  // プレビュー再描画後も、左のスクロール割合に合わせる
+  const tMax = pane.scrollHeight - pane.clientHeight;
+  if (tMax > 0) pane.scrollTop = ratio * tMax;
+  else pane.scrollTop = 0;
 }
 function fitMdEditSplit() {
   const left = document.getElementById("editor");
@@ -174,6 +219,7 @@ function startEdit() {
     if (mdEdit) {
       updateMdEditPreview();
       fitMdEditSplit();
+      bindMdEditScrollSync();
     }
     textEditor.focus();
   }).catch(e => {
