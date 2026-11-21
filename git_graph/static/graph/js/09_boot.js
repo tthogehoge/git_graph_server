@@ -127,6 +127,10 @@ document.getElementById("reload").addEventListener("click", ev => {  // グラ�
 document.getElementById("topBtn").addEventListener("click", scrollToHead);
 document.getElementById("wipBtn").hidden = !WIP_ENABLED;
 document.getElementById("wipBtn").addEventListener("click", openWip);  // グラフの WIP ノードをクリックしたときと同じ (WIP ノードを選択して、前の選択は解除する)
+(function () {  // 左ペインの開閉は /files と /diff の左ペイン用。グラフ画面には無いので、隠さず無効にする (他の画面のメニューと同じ)
+  const side = document.getElementById("sidePaneBtn");
+  if (side) { side.disabled = true; side.title = t("mb_unavailable"); }
+})();
 (function () {
   const b = document.getElementById("dupWindowBtn");
   if (!b) return;

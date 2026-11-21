@@ -961,6 +961,8 @@
   "binary_short": "バイナリ",
   "tip_dup_window": "同じ画面を別ウインドウで開く",
   "dup_window": "ウインドウを複製",
+  "tip_toggle_side": "左ペインを開く / 閉じる",
+  "toggle_side": "左ペインの開閉",
   "dup_window_opened": "同じ画面を別ウインドウで開きました",
   "dup_window_failed": "別ウインドウを開けませんでした: {error}"
 }

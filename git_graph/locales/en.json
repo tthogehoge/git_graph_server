@@ -961,6 +961,8 @@
   "binary_short": "bin",
   "tip_dup_window": "Open the same view in a new window",
   "dup_window": "Duplicate window",
+  "tip_toggle_side": "Show / hide the left pane",
+  "toggle_side": "Toggle left pane",
   "dup_window_opened": "Opened the same view in a new window",
   "dup_window_failed": "Could not open a new window: {error}"
 }

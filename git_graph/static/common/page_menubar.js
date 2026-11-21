@@ -162,6 +162,8 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
   enable($("quitBtn")); enable($("keyboardHelpBtn")); enable($("clearCmpBtn")); enable($("swapAbBtn")); enable($("backBtn"));
   enable($("wipBtn"), () => worktree); enable($("topBtn"));
   enable($("dupWindowBtn"));  // 別ウインドウで同じ画面を開く (常に使える)
+  // 左ペインを開閉できるのは、左ペイン (#side / #tree) と、幅の仕切り (pane_resize.js が開閉の処理を付ける) がある画面
+  enable($("sidePaneBtn"), () => !!((document.getElementById("side") || document.getElementById("tree")) && document.getElementById("sideSplitter")));
   enable($("wipCommitMenuBtn"), () => writable && worktree);
   enable(bar.querySelector('[data-cact="branch"]'), () => writable); enable(bar.querySelector('[data-cact="tag"]'), () => writable);
   enable(bar.querySelector('[data-cact="checkout"]'), () => writable && worktree); enable($("resetBtn"), () => writable && worktree);
@@ -613,13 +615,14 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
     ev.preventDefault();
     closeMenus();
     const active = document.activeElement;
-    const current = regions.findIndex(region => region.contains(active) ||
+    const shown = regions.filter(region => region.getClientRects().length > 0);  // 畳んだ左ペイン (display: none) は飛ばす
+    const current = shown.findIndex(region => region.contains(active) ||
       (region === leftPane && active.id === "sideSplitter"));
     const direction = ev.shiftKey ? -1 : 1;
     const next = current < 0
-      ? (direction > 0 ? 0 : regions.length - 1)
-      : (current + direction + regions.length) % regions.length;
-    focusRegion(regions[next]);
+      ? (direction > 0 ? 0 : shown.length - 1)
+      : (current + direction + shown.length) % shown.length;
+    focusRegion(shown[next]);
   });
   menus.forEach(([b, m]) => $(b).addEventListener("click", ev => {
     ev.stopPropagation();

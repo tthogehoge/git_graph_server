@@ -32,6 +32,12 @@
     width: 30px; height: 26px; padding: 0; margin: 0; box-sizing: border-box;
     background: #e8eefc; border: 1px solid #b8c7ee; border-radius: 3px; color: #06c;
   }
+  /* 左ペイン (/diff は #side、/files は #tree) を畳む。body.side-collapsed は pane_resize.js が付け外しする */
+  body.side-collapsed #side, body.side-collapsed #tree, body.side-collapsed #sideSplitter { display: none; }
+  #sidePaneBtn[aria-pressed="true"] { background: #c5d4f7; }
+  #sidePaneBtn[aria-pressed="true"]:hover { background: #b4c7f2; }
+  #sidePaneBtn:disabled { background: #ddd; }
+  body.side-collapsed #sidePaneBtn .side-fill { display: none; }
   .menubar-left { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; order: 0; min-width: 0; }  /* 幅が狭いときは折り返して、右ペインにはみ出さない */
   .menubar-group { display: flex; align-items: center; gap: 2px; }
   .menubar-spacer { flex: 0 0 8px; order: 1; }  /* 全幅のメニューバーなので、メニューは左に寄せて並べる */

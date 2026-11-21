@@ -1,6 +1,7 @@
-// 左ペイン (/diff は #side、/files は #tree) の幅をドラッグで変える。
+// 左ペイン (/diff は #side、/files は #tree) の幅をドラッグで変える。メニューバーの #sidePaneBtn で開閉もできる。
 // 幅は localStorage に残し、別のページへ移っても (差分 <-> ファイル表示 など) 保つ。
 // ダブルクリックで初期の幅に戻す。ハンドルにフォーカスして ←/→ キーでも変えられる。
+// 閉じているかどうかも localStorage に残し、別のページへ移っても保つ (CSS は menubar.css の body.side-collapsed)。
 (function () {
   const pane = document.getElementById("side") || document.getElementById("tree");
   const bar = document.getElementById("sideSplitter");
@@ -52,6 +53,23 @@
     apply(pane.getBoundingClientRect().width + (ev.key === "ArrowRight" ? STEP : -STEP));
     save();
   });
+  // ---- 左ペインの開閉 (メニューバーのボタン)。畳んだ幅は保ち、開き直すと元の幅で出る ----
+  const COLLAPSE_KEY = "git-graph-side-collapsed";
+  const toggle = document.getElementById("sidePaneBtn");
+  function setCollapsed(on, remember) {
+    document.body.classList.toggle("side-collapsed", on);
+    if (toggle) toggle.setAttribute("aria-pressed", on ? "false" : "true");  // pressed = 左ペインが開いている
+    if (on) {  // 畳むペインの中にフォーカスがあると、キー操作の行き先が無くなる。本文へ移す
+      const main = document.getElementById("main");
+      if (main && pane.contains(document.activeElement)) { main.setAttribute("tabindex", "-1"); main.focus({preventScroll: true}); }
+    } else if (pane.style.width) {
+      apply(parseFloat(pane.style.width));  // 閉じている間にウィンドウが狭くなっていても、本文が潰れないようにする
+    }
+    if (!remember) return;
+    try { if (on) localStorage.setItem(COLLAPSE_KEY, "1"); else localStorage.removeItem(COLLAPSE_KEY); } catch (e) { /* 保存できなくても動作には影響しない */ }
+  }
+  try { if (localStorage.getItem(COLLAPSE_KEY) === "1") setCollapsed(true, false); } catch (e) { /* 読めなければ開いたまま */ }
+  if (toggle) toggle.addEventListener("click", () => setCollapsed(!document.body.classList.contains("side-collapsed"), true));
   window.addEventListener("resize", () => {  // ウィンドウが狭くなったとき、本文が潰れないようにする
     if (pane.style.width) apply(parseFloat(pane.style.width));
   });
