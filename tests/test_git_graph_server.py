@@ -1716,7 +1716,7 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         state.START_WIP = state.WRITABLE = True
         self.write_file("tracked.txt", "changed\n")
 
-        self.assertEqual(server.start_page_url(), "/files?hash=WIP&path=&file=tracked.txt&view=diff&dwip=unstaged")
+        self.assertEqual(server.start_page_url(), "/files?hash=WIP&side=changes")
         self.assertIsNone(server.start_page_url())  # 一度だけ。2回目以降の / (topボタンなど) はグラフ
 
         state.START_WIP = True
@@ -4027,7 +4027,7 @@ class EmptyRepoTests(unittest.TestCase):
                 state.START_WIP = True
                 with open(os.path.join(tmpdir, "f.txt"), "w") as f:
                     f.write("x\n")
-                self.assertEqual(server.start_page_url(), "/files?hash=WIP&path=&file=f.txt&view=diff&dwip=untracked")
+                self.assertEqual(server.start_page_url(), "/files?hash=WIP&side=changes")
                 diff = app.api_diff({"path": ["f.txt"], "wip": ["untracked"]})
                 self.assertIn("+x\n", diff["diff"])
                 page = viewer.render_diff_page({"path": ["f.txt"], "wip": ["untracked"]})
@@ -4035,7 +4035,7 @@ class EmptyRepoTests(unittest.TestCase):
 
                 subprocess.run(["git", "-C", tmpdir, "add", "f.txt"], check=True)
                 state.START_WIP = True
-                self.assertEqual(server.start_page_url(), "/files?hash=WIP&path=&file=f.txt&view=diff&dwip=staged")
+                self.assertEqual(server.start_page_url(), "/files?hash=WIP&side=changes")
                 staged_diff = app.api_diff({"path": ["f.txt"], "wip": ["staged"]})
                 self.assertIn("+x\n", staged_diff["diff"])
             finally:

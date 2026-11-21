@@ -124,7 +124,8 @@ def start_page_url():
     except (subprocess.CalledProcessError, UserError):
         return None
     if files:
-        return diff_url({}, files[0])
+        # 特定ファイルは選ばず、変更ファイル一覧を開く (先頭ファイルの差分には飛ばない)
+        return "/files?hash=WIP&side=changes"
     return "/files?hash=WIP"  # 変更がなくてもグラフではなくファイル表示を開く
 
 
