@@ -535,7 +535,9 @@ def archive_bytes(hash_, fmt):
     """git archive でコミットのツリーを tar / zip にする。(ファイル名, バイト列)。
     hash_ が WIP または空なら HEAD。作業ツリーの未コミット変更は含まない。"""
     fmt = (fmt or "zip").lower()
-    if fmt not in ("zip", "tar"):
+    if fmt in ("tgz", "tar.gz"):
+        fmt = "tar.gz"
+    if fmt not in ("zip", "tar.gz"):
         raise UserError("archive_bad_format")
     h = (hash_ or "").strip() or "HEAD"
     if h == WIP_HASH:
@@ -561,7 +563,7 @@ def archive_bytes(hash_, fmt):
     except subprocess.CalledProcessError as e:
         msg = (e.stderr or b"").decode("utf-8", "replace").strip() or tr("git_command_failed")
         raise UserError("archive_failed", error=msg)
-    name = root + "-" + commit[:7] + ("." + fmt)
+    name = root + "-" + commit[:7] + ("." + ("tar.gz" if fmt == "tar.gz" else fmt))
     return name, raw
 
 

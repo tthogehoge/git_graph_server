@@ -404,6 +404,7 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
   enable($("branchListBtn")); enable($("tagListBtn")); enable($("stashListBtn")); enable($("reflogBtn"));
   enable($("submoduleListBtn")); enable($("opHistoryBtn")); enable($("messageLogBtn"));
   enable($("commitGraphBtn"), () => writable);  // 書き込み可能なときだけ
+  enable($("archiveZipBtn")); enable($("archiveTgzBtn"));  // 読み取り専用でも可
   // remote 追加 / 削除 (その他メニュー)
   enable(bar.querySelector('[data-cact="remote-add"]'), () => writable);
   enable(bar.querySelector('[data-cact="remote-remove"]'), () => writable);
@@ -528,7 +529,7 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
     return "/archive?" + new URLSearchParams({format: fmt, hash: h}).toString();
   }
   on("archiveZipBtn", () => { closeMenus(); location.href = archiveHref("zip"); });
-  on("archiveTarBtn", () => { closeMenus(); location.href = archiveHref("tar"); });
+  on("archiveTgzBtn", () => { closeMenus(); location.href = archiveHref("tar.gz"); });
   on("commitGraphBtn", async () => {
     closeMenus();
     if (!confirm(T.confirm_commit_graph_optimize || "Optimize commit-graph?")) return;

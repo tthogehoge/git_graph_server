@@ -972,9 +972,9 @@
   "html_preview": "HTML 表示",
   "html_preview_tip": "HTML をサンドボックス内で表示します。スクリプトは動きません。オフにするとソースを表示します",
   "archive_zip": "プロジェクトを ZIP で取得",
-  "archive_tar": "プロジェクトを tar で取得",
   "tip_archive_zip": "このコミットの内容を ZIP でダウンロードします (git archive)。未コミットの変更は含みません",
-  "tip_archive_tar": "このコミットの内容を tar でダウンロードします (git archive)。未コミットの変更は含みません",
-  "archive_bad_format": "アーカイブ形式は zip または tar です",
-  "archive_failed": "アーカイブを作成できませんでした: {error}"
+  "archive_bad_format": "アーカイブ形式は zip または tar.gz です",
+  "archive_failed": "アーカイブを作成できませんでした: {error}",
+  "archive_tgz": "プロジェクトを tar.gz で取得",
+  "tip_archive_tgz": "このコミットの内容を tar.gz でダウンロードします (git archive)。未コミットの変更は含みません"
 }

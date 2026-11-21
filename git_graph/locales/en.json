@@ -972,9 +972,9 @@
   "html_preview": "HTML preview",
   "html_preview_tip": "Render HTML in a sandbox. Scripts are disabled. Turn off to view the source",
   "archive_zip": "Download project (ZIP)",
-  "archive_tar": "Download project (tar)",
   "tip_archive_zip": "Download this commit as a ZIP (git archive). Uncommitted changes are not included",
-  "tip_archive_tar": "Download this commit as a tar archive (git archive). Uncommitted changes are not included",
-  "archive_bad_format": "Archive format must be zip or tar",
-  "archive_failed": "Could not create archive: {error}"
+  "archive_bad_format": "Archive format must be zip or tar.gz",
+  "archive_failed": "Could not create archive: {error}",
+  "archive_tgz": "Download project (tar.gz)",
+  "tip_archive_tgz": "Download this commit as a tar.gz archive (git archive). Uncommitted changes are not included"
 }
