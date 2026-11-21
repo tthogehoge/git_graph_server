@@ -1912,6 +1912,11 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertIn("CommitLog.rowHtml(c, {extraClass: LogSel.kinds(c[0], LogSel.load()), chips: refChips(c[0]), graphLink: true, graphTd: graphTd})", files)
         self.assertEqual(files.count("CommitLog.tableHtml("), 3)  # コミットログ / ファイルのログ / ディレクトリのログ (showLogList) と、その他メニューの一覧 (showOtherList / showOtherReflog) は、同じ表 (CommitLog.tableHtml) を使う
         self.assertIn("function refChips(h) { return CommitLog.chipsHtml((refLabels || {})[h], \"\"); }", files)
+        # push / fetch 後: ref-labels を取り直したうえで、表示中のログ行のブランチ / タグも更新する
+        self.assertIn("function refreshVisibleRefChips()", files)
+        self.assertIn("refreshVisibleRefChips();  // 表示中のログ行のブランチ / タグも更新する", files)
+        self.assertIn('rc.innerHTML = refChips(tr.getAttribute("data-h"));', files)
+        self.assertIn("window.refreshFilesState = function ()", files)
         self.assertEqual(files.count('{branch: "#b7e4a7"'), 1)  # ファイル表示にも、色の定義を別に持たない (CommitLog の 1 か所だけ)
         self.assertIn("function copyText(", files)  # 行のコピー記号 (.copy) の処理
         for rule in ("table.log td.h { width: 1%", ".log-host { container: loglist / inline-size; }", "#dragTip {", "tr.drop-target {"):

@@ -277,6 +277,14 @@ class DiffEditorPageTests(unittest.TestCase):
         self.assertIn('if (compareFrom && compareTo === "WIP")', files_html)
         self.assertIn('wip: "compare"', files_html)
         self.assertIn('if (compareFrom && compareTo && compareTo !== "WIP")', files_html)
+        # Markdown プレビュー (marked.js)
+        self.assertIn("/static/vendor/marked.js", page_with_assets(pages.render_files_page()))
+        self.assertIn("function showMarkdown(r)", files_html)
+        self.assertIn("function renderMarkdownHtml(src)", files_html)
+        self.assertIn("function isMarkdownPath(path)", files_html)
+        self.assertIn("md_preview", files_html)
+        self.assertIn("md-edit-split", files_html)
+        self.assertIn("bindMdEditScrollSync", files_html)
         open_wip_change = files_html[files_html.index("function openWipChange"):files_html.index("let pendingWipOpen")]
         self.assertLess(open_wip_change.index("if (currentFile === sel.path"), open_wip_change.index("if (!leaveEdit())"))
         open_change = files_html[files_html.index("function openChange"):files_html.index("fileDiffBtn.onclick")]
