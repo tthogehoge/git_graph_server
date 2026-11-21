@@ -7,21 +7,29 @@ if (compareFrom && compareTo) sideMode = "changes";
 // ファイル差分「全体」リンク (side=changes) では特定ファイルを選ばず変更一覧を開く
 if (new URLSearchParams(location.search).get("side") === "changes") sideMode = "changes";
 function activeList() { return sideMode === "changes" ? changesEl : list; }  // ↑↓ Enter の対象
-function syncTreeSelection() {
+function syncTreeSelection(keepScroll) {
   if (activeList() !== list) return;
-  selectEntry([...list.querySelectorAll(".entry")].find(r => r.dataset.path === currentFile) || null);
+  selectEntry([...list.querySelectorAll(".entry")].find(r => r.dataset.path === currentFile) || null, keepScroll);
 }
+// タブを切り替えたとき、「ファイル一覧」「変更ファイル」のそれぞれのスクロール位置を覚えておき、
+// 戻ってきたときに元の位置へ戻す (2 つの表は同じ #tree スクロールコンテナーの中にあるため、
+// 片方を隠すだけで位置が失われてしまう)
+const sideScroll = { tree: 0, changes: 0 };
 function applySideMode() {
   const changes = sideMode === "changes";
+  const scroller = list.parentElement;
+  sideScroll[changes ? "tree" : "changes"] = scroller.scrollTop;  // 切り替え元の一覧の位置
   list.hidden = changes;
   changesEl.hidden = !changes;
   selBar.hidden = !wipSelectionEnabled();
   sideTreeBtn.classList.toggle("on", !changes);
   sideChangesBtn.classList.toggle("on", changes);
+  scroller.scrollTop = sideScroll[changes ? "changes" : "tree"];  // 切り替え先の一覧の位置へ戻す
   selectEntry(null);
   updateSelBar();
-  if (changes) syncChangesSelection();
-  else syncTreeSelection();
+  // タブのクリックでは選択行へのスクロールをしない (ユーザーが覚えていた位置を勝手に動かさない)
+  if (changes) syncChangesSelection(true);
+  else syncTreeSelection(true);
 }
 function setSideMode(mode) {
   sideMode = mode;
@@ -263,10 +271,10 @@ changesEl.addEventListener("click", ev => {
     ? {path: path, from: from, to: to, wip: "compare", old: q.get("dold") || ""}
     : {path: path, wip: q.get("dwip") || "unstaged", old: q.get("dold") || ""});
 });
-function syncChangesSelection() {  // いま開いているファイルが、変更ファイルの一覧にあれば選択する
+function syncChangesSelection(keepScroll) {  // いま開いているファイルが、変更ファイルの一覧にあれば選択する
   if (activeList() !== changesEl) return;
   const byEntry = [...changesEl.querySelectorAll(".entry")].find(r => r.dataset.path === currentFile);
-  if (byEntry) { selectEntry(byEntry); return; }
+  if (byEntry) { selectEntry(byEntry, keepScroll); return; }
   // WIP の tr.frow（同一パスが staged/unstaged など複数あるときは diffSel の wip を優先）
   const rows = [...changesEl.querySelectorAll("tr.frow")].filter(r => pathOfNavRow(r) === currentFile);
   let byFrow = rows[0] || null;
@@ -274,7 +282,7 @@ function syncChangesSelection() {  // いま開いているファイルが、変
     const match = rows.find(r => (r.dataset.kind || "") === diffSel.wip);
     if (match) byFrow = match;
   }
-  selectEntry(byFrow);
+  selectEntry(byFrow, keepScroll);
 }
 function openChange(path) {  // 変更ファイルを、右ペインの差分エディタで開く (ファイルを開いて差分の表示にするまで、履歴は 1 つ)
   const f = commitChanges && commitChanges[path];

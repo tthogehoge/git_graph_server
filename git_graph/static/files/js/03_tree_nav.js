@@ -119,13 +119,13 @@ function openEntry(path, type) { return type === "change" ? openChange(path) : t
 // 左ペインのキーボード操作: ↑↓ で選択、Enter で右ペイン表示、← で親へ、→ でディレクトリに入る
 // ファイル一覧は .entry、変更ファイル (コミット) も .entry、WIP 変更は table.files の tr.frow
 let selectedEntry = null;
-function selectEntry(el) {
+function selectEntry(el, keepScroll) {  // keepScroll はタブ切替など、ユーザーが覚えているスクロール位置を動かしたくないときに使う
   // 再描画や同一パスの複数行（staged/unstaged）などで複数に .selected が付くのを防ぐ
   document.querySelectorAll("#list .entry.selected, #changes .entry.selected, #changes tr.frow.selected").forEach(e => e.classList.remove("selected"));
   selectedEntry = el || null;
   if (selectedEntry) {
     selectedEntry.classList.add("selected");
-    selectedEntry.scrollIntoView({block: "nearest"});
+    if (!keepScroll) selectedEntry.scrollIntoView({block: "nearest"});
   }
 }
 function toggleSelectedCheck() {
