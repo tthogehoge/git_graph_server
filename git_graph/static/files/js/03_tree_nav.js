@@ -6,7 +6,19 @@ function refreshRefLabels() {  // コミット / ブランチ操作のあと、�
   return api("/api/ref-labels", {}).then(r => {
     refLabels = r.labels || {};
     if (currentCommitMeta) renderCommitHeader(currentCommitMeta);
+    refreshVisibleRefChips();  // 表示中のログ行のブランチ / タグも更新する
   }).catch(() => { /* 名前が出ないだけで他の表示は動く */ });
+}
+function refreshVisibleRefChips() {
+  // ファイル / コミットログの行 (CommitLog.rowHtml の .rc)
+  document.querySelectorAll("#content table.log tr.clickable[data-h]").forEach(tr => {
+    const rc = tr.querySelector(".log-subj .rc");
+    if (rc) rc.innerHTML = refChips(tr.getAttribute("data-h"));
+  });
+  // blame は行ごとにチップを埋め込んでいるので、表示中なら読み直す
+  if (typeof currentView !== "undefined" && currentView === "blame" && currentFile && typeof loadFileBlame === "function") {
+    loadFileBlame(currentFile);
+  }
 }
 const refsReady = refreshRefLabels();  // ページを開いたときに 1 回読む
 // コミット・push / pull / fetch のあと: ブランチ名と HEAD の表示を更新する (ページ全体の再読み込みの代わり / 直前の反映)
