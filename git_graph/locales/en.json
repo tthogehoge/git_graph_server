@@ -968,5 +968,7 @@
   "md_preview": "Markdown preview",
   "md_preview_tip": "Render Markdown as formatted text. Turn off to view the source",
   "md_breaks": "Soft line breaks",
-  "md_breaks_tip": "Treat single newlines as line breaks (GFM)"
+  "md_breaks_tip": "Treat single newlines as line breaks (GFM)",
+  "html_preview": "HTML preview",
+  "html_preview_tip": "Render HTML in a sandbox. Scripts are disabled. Turn off to view the source"
 }

@@ -145,11 +145,14 @@ function openDir(path) {  // ディレクトリを選ぶ: 開いているファ�
 }
 
 const MD_EXT = /\.(md|markdown|mdown|mkd|mkdn)$/i;
-const MD_PREVIEW_KEY = "gg-md-preview", MD_BREAKS_KEY = "gg-md-breaks";
+const HTML_EXT = /\.(html?)$/i;
+const MD_PREVIEW_KEY = "gg-md-preview", MD_BREAKS_KEY = "gg-md-breaks", HTML_PREVIEW_KEY = "gg-html-preview";
 let mdPreviewOn = true;  // Markdown を整形表示するか (オフならソース = テキスト表示)
 let mdBreaksOn = false;  // 単独改行を <br> にするか (marked の breaks)
+let htmlPreviewOn = true;  // HTML をプレビューするか (オフならソース)
 try { const v = localStorage.getItem(MD_PREVIEW_KEY); if (v === "0") mdPreviewOn = false; else if (v === "1") mdPreviewOn = true; } catch (e) { mdPreviewOn = true; }
 try { const v = localStorage.getItem(MD_BREAKS_KEY); if (v === "1") mdBreaksOn = true; else if (v === "0") mdBreaksOn = false; } catch (e) { mdBreaksOn = false; }
+try { const v = localStorage.getItem(HTML_PREVIEW_KEY); if (v === "0") htmlPreviewOn = false; else if (v === "1") htmlPreviewOn = true; } catch (e) { htmlPreviewOn = true; }
 function setMdPreviewPref(on) {
   mdPreviewOn = on;
   try { localStorage.setItem(MD_PREVIEW_KEY, mdPreviewOn ? "1" : "0"); } catch (e) { /* 保存できなくても切り替わる */ }
@@ -158,8 +161,15 @@ function setMdBreaksPref(on) {
   mdBreaksOn = on;
   try { localStorage.setItem(MD_BREAKS_KEY, mdBreaksOn ? "1" : "0"); } catch (e) { /* 保存できなくても切り替わる */ }
 }
+function setHtmlPreviewPref(on) {
+  htmlPreviewOn = on;
+  try { localStorage.setItem(HTML_PREVIEW_KEY, htmlPreviewOn ? "1" : "0"); } catch (e) { /* 保存できなくても切り替わる */ }
+}
 function isMarkdownPath(path) {
   return MD_EXT.test(path || "");
+}
+function isHtmlPath(path) {
+  return HTML_EXT.test(path || "");
 }
 let markedReady = false;
 function ensureMarked() {
@@ -260,6 +270,40 @@ function bindMarkdownRepoLinks(root, fromFile) {
     img.setAttribute("src", "/raw?" + new URLSearchParams({hash: hash, path: repoPath}).toString());
   });
 }
+function htmlViewBarHtml() {
+  return '<div class="view-bar">' +
+    '<label class="edit-vim" title="' + esc(t("html_preview_tip")) + '"><input type="checkbox" id="viewHtmlPreview"' +
+    (htmlPreviewOn ? " checked" : "") + '> ' + esc(t("html_preview")) + '</label></div>';
+}
+function bindHtmlViewBar(r) {
+  const prev = document.getElementById("viewHtmlPreview");
+  if (prev) prev.onchange = ev => {
+    setHtmlPreviewPref(ev.target.checked);
+    showFileBody(r);
+  };
+}
+function fitHtmlPreviewFrame(frame) {
+  if (!frame) return;
+  const main = document.getElementById("main");
+  const top = frame.getBoundingClientRect().top - main.getBoundingClientRect().top + main.scrollTop;
+  frame.style.height = Math.max(200, main.clientHeight - top - 14 - 2) + "px";
+}
+function showHtml(r) {  // HTML は sandbox iframe でプレビュー (script は動かさない)
+  closeEditor();
+  content.className = "html-preview";
+  content.innerHTML = htmlViewBarHtml() +
+    '<div class="html-body"><iframe class="html-preview-frame" sandbox="allow-same-origin" title="HTML preview"></iframe></div>';
+  bindHtmlViewBar(r);
+  const frame = content.querySelector("iframe.html-preview-frame");
+  fitHtmlPreviewFrame(frame);
+  frame.srcdoc = (r && r.content != null) ? r.content : "";
+  frame.onload = () => {
+    try {
+      const doc = frame.contentDocument;
+      if (doc && doc.body) bindMarkdownRepoLinks(doc.body, r.path || currentFile);
+    } catch (e) { /* sandbox */ }
+  };
+}
 function showMarkdown(r) {  // Markdown は marked.js で HTML 化してプレビュー (編集は元テキスト)
   closeEditor();
   const src = (r && r.content != null) ? r.content : "";
@@ -268,13 +312,15 @@ function showMarkdown(r) {  // Markdown は marked.js で HTML 化してプレ�
   bindMdViewBar(r);
   bindMarkdownRepoLinks(content.querySelector(".md-body"), r.path || currentFile);
 }
-function showFileBody(r) {  // 内容表示: Markdown ならプレビュー / テキストを選べる
+function showFileBody(r) {  // 内容表示: Markdown / HTML ならプレビュー / テキストを選べる
   if (r.image) return showImage(r);
   if (r.binary) { content.className = "binary"; content.textContent = t("binary_file"); return; }
-  if (isMarkdownPath(r.path || currentFile) && mdPreviewOn) return showMarkdown(r);
-  if (isMarkdownPath(r.path || currentFile) && !mdPreviewOn) {
-    // テキスト表示でも Markdown 用の切り替えバーを出す
-    showCode(r, true);
+  const path = r.path || currentFile;
+  if (isMarkdownPath(path) && mdPreviewOn) return showMarkdown(r);
+  if (isHtmlPath(path) && htmlPreviewOn) return showHtml(r);
+  if (isMarkdownPath(path) || isHtmlPath(path)) {
+    // テキスト表示でもプレビュー切替バーを出す
+    showCode(r, isMarkdownPath(path) ? "md" : "html");
     return;
   }
   showCode(r, false);

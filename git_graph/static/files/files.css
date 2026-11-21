@@ -139,3 +139,9 @@
   .md-edit-left .cm-host { flex: 1 1 auto; }
   .md-edit-preview { margin: 0; flex: 1 1 auto; overflow: auto; border-radius: 0; }
   .md-edit-preview.md-preview { padding: 12px 16px; }
+
+  /* HTML プレビュー (sandbox iframe。script は動かない) */
+  .html-preview { margin: 8px 0; }
+  .html-preview .view-bar { padding: 6px 12px; border: 1px solid #ddd; border-bottom: none; background: #f8f9fb; border-radius: 4px 4px 0 0; }
+  .html-preview .html-body { border: 1px solid #ddd; border-radius: 0 0 4px 4px; background: #fff; }
+  .html-preview-frame { display: block; width: 100%; border: 0; background: #fff; }
