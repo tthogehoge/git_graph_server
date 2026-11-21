@@ -143,6 +143,13 @@ function openDir(path) {  // ディレクトリを選ぶ: 開いているファ�
   if (currentFile) clearFile();
   loadTree(path, true).then(showDir);
 }
+function showImage(r) {  // 画像ファイルは <img> でプレビュー (中身は /raw から)
+  closeEditor();
+  const params = new URLSearchParams({hash: r.hash || hash, path: r.path || currentFile});
+  content.className = "image-preview";
+  content.innerHTML = '<img src="/raw?' + params.toString() + '" alt="' + esc(r.path || currentFile) + '">';
+}
+
 function loadFile(path, push) {
   if (!leaveEdit()) return;
   showFilePane();
@@ -179,7 +186,8 @@ function loadFile(path, push) {
     fileEditBtn.disabled = !CAN_EDIT || r.binary || !r.editable;
     fileEditBtn.title = (!CAN_EDIT || r.binary) ? "" : (r.editable ? "" : t(r.edit_reason || "edit_bad_encoding"));
     title.textContent = fileTitle(r, "");
-    if (r.binary) { content.className = "binary"; content.textContent = t("binary_file"); }
+    if (r.image) showImage(r);
+    else if (r.binary) { content.className = "binary"; content.textContent = t("binary_file"); }
     else showCode(r);
     fileBlameBtn.hidden = false;
     fileBlameBtn.disabled = r.binary || (isWip && !wipHead);
@@ -223,7 +231,8 @@ function showFileContentView() {  // 差分 / ログ / blame から内容表示�
     fileEditBtn.disabled = !CAN_EDIT || fileData.binary || !fileData.editable;
     fileEditBtn.title = (!CAN_EDIT || fileData.binary) ? "" : (fileData.editable ? "" : t(fileData.edit_reason || "edit_bad_encoding"));
     title.textContent = fileTitle(fileData, "");
-    if (fileData.binary) { content.className = "binary"; content.textContent = t("binary_file"); }
+    if (fileData.image) showImage(fileData);
+    else if (fileData.binary) { content.className = "binary"; content.textContent = t("binary_file"); }
     else showCode(fileData);
   } else if (currentFile) {
     loadFile(currentFile, false);

@@ -47,6 +47,7 @@ from .repo_setup import api_setup, open_repo  # noqa: F401
 from .submodules import api_submodule_add, api_submodule_fetch, api_submodule_update  # noqa: F401
 from . import engine, tmpdir
 from .pages import diff_page_url, diff_url, render_files_page, render_merge_page, wip_files
+from .query.files import image_mime
 from .wip import api_status, api_wip_commit  # noqa: F401
 
 
@@ -222,6 +223,17 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _send_raw(self, name, data, path=""):
+        """画像プレビュー用に、正しい Content-Type でインライン表示する。画像以外は octet-stream。"""
+        mime = image_mime(path or name) or "application/octet-stream"
+        self.send_response(200)
+        self.send_header("Content-Type", mime)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+        self.wfile.write(data)
+
     def do_GET(self):
         u = urlparse(self.path)
         q = parse_qs(u.query)
@@ -262,6 +274,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, "text/html", render_files_page().replace("__HASH__", html.escape(h)))
             elif u.path == "/download":
                 self._send_download(*file_download(q))
+            elif u.path == "/raw":
+                self._send_raw(*file_download(q), path=q.get("path", [""])[0])
             elif u.path == "/patch":
                 self._send_download(*patch_download(q))
             elif u.path == "/diff":

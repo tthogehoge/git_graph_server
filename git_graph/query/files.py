@@ -21,6 +21,41 @@ FILE_CONTENT_LIMIT = 2_000_000
 WIP_HASH = "WIP"  # /files?hash=WIP で作業ツリーのファイルを表示する
 
 
+# 画像として表示できる拡張子 → MIME (内容表示用。SVG はスクリプトを含み得るので除外)
+_IMAGE_MIME = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".bmp": "image/bmp",
+    ".ico": "image/x-icon",
+    ".avif": "image/avif",
+}
+
+
+def image_mime(path):
+    """path が画像なら MIME タイプ、そうでなければ None。"""
+    if not path:
+        return None
+    i = path.rfind(".")
+    if i < 0:
+        return None
+    return _IMAGE_MIME.get(path[i:].lower())
+
+
+def attach_image_info(res, path):
+    """バイナリの画像なら image / mime を付ける (表示側が /raw で読み出す)。"""
+    if not res.get("binary"):
+        return res
+    mime = image_mime(path)
+    if mime:
+        res["image"] = True
+        res["mime"] = mime
+    return res
+
+
+
 def validate_file_path(path, allow_empty=True):
     """リポジトリルートからの相対パスとして安全な形にする。"""
     if "\0" in path or (not allow_empty and not path) or path.startswith("/"):
@@ -147,7 +182,7 @@ def wip_file(path):
         res.update(editable=False, edit_reason="edit_symlink")
     else:
         res.update(edit_info(raw, text, encoding, truncated))
-    return res
+    return attach_image_info(res, path)
 
 
 def not_a_file(commit, path):
@@ -350,8 +385,9 @@ def file_content(hash_, path):
     truncated = len(raw) > FILE_CONTENT_LIMIT
     data = raw[:FILE_CONTENT_LIMIT]
     text, encoding = decode_text(data, truncated)
-    return {"hash": h, "path": path, "content": text or "", "encoding": encoding,
-            "binary": text is None, "truncated": truncated, "size": len(raw)}
+    res = {"hash": h, "path": path, "content": text or "", "encoding": encoding,
+           "binary": text is None, "truncated": truncated, "size": len(raw)}
+    return attach_image_info(res, path)
 
 
 def blame(hash_, path):
@@ -565,7 +601,7 @@ def rev_or_none(rev):
 
 
 __all__ = [
-    "FILE_CONTENT_LIMIT", "WIP_HASH", "blame", "blob_or_empty", "file_bytes", "file_content",
+    "FILE_CONTENT_LIMIT", "WIP_HASH", "blame", "blob_or_empty", "file_bytes", "file_content", "image_mime",
     "file_exists_at", "is_wip", "patch_bytes", "rev_or_none", "status_mark", "tree",
     "validate_file_path", "wip_file", "wip_head", "wip_patch", "wip_status_marks", "wip_tree",
     "worktree_target",
