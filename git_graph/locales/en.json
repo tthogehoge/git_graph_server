@@ -970,5 +970,11 @@
   "md_breaks": "Soft line breaks",
   "md_breaks_tip": "Treat single newlines as line breaks (GFM)",
   "html_preview": "HTML preview",
-  "html_preview_tip": "Render HTML in a sandbox. Scripts are disabled. Turn off to view the source"
+  "html_preview_tip": "Render HTML in a sandbox. Scripts are disabled. Turn off to view the source",
+  "archive_zip": "Download project (ZIP)",
+  "archive_tar": "Download project (tar)",
+  "tip_archive_zip": "Download this commit as a ZIP (git archive). Uncommitted changes are not included",
+  "tip_archive_tar": "Download this commit as a tar archive (git archive). Uncommitted changes are not included",
+  "archive_bad_format": "Archive format must be zip or tar",
+  "archive_failed": "Could not create archive: {error}"
 }

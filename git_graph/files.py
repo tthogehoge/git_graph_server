@@ -69,6 +69,12 @@ def file_download(q):
     return qf.file_bytes(h, q.get("path", [""])[0])
 
 
+def archive_download(q):
+    """コミット時点のプロジェクト一式を tar / zip で返す (git archive)。
+    hash=WIP のときは HEAD。未コミットの変更は含まない。"""
+    return qf.archive_bytes(q.get("hash", ["HEAD"])[0], q.get("format", ["zip"])[0])
+
+
 def wip_patch(base=None):
     return qf.wip_patch(base)
 

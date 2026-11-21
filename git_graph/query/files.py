@@ -531,6 +531,40 @@ def file_bytes(hash_, path):
     return path.rsplit("/", 1)[-1], raw
 
 
+def archive_bytes(hash_, fmt):
+    """git archive でコミットのツリーを tar / zip にする。(ファイル名, バイト列)。
+    hash_ が WIP または空なら HEAD。作業ツリーの未コミット変更は含まない。"""
+    fmt = (fmt or "zip").lower()
+    if fmt not in ("zip", "tar"):
+        raise UserError("archive_bad_format")
+    h = (hash_ or "").strip() or "HEAD"
+    if h == WIP_HASH:
+        h = "HEAD"
+    # HEAD やブランチ名も許す (resolve_commit はフルハッシュ専用)
+    try:
+        if len(h) >= 7 and all(c in "0123456789abcdef" for c in h.lower()):
+            commit = resolve_commit(h)
+        else:
+            commit = git("rev-parse", "--verify", "--quiet", h + "^{commit}").strip()
+    except Exception as e:
+        raise UserError("archive_failed", error=str(e))
+    if not commit:
+        raise UserError("commit_not_found")
+    # リポジトリ名をプレフィックスに (展開時に 1 ディレクトリになる)
+    root = os.path.basename(os.path.abspath(state.REPO.rstrip(os.sep))) or "project"
+    prefix = root + "-" + commit[:7] + "/"
+    try:
+        raw = subprocess.check_output(
+            ["git", "-C", state.REPO, "archive", "--format=" + fmt, "--prefix=" + prefix, commit],
+            stderr=subprocess.PIPE,
+        )
+    except subprocess.CalledProcessError as e:
+        msg = (e.stderr or b"").decode("utf-8", "replace").strip() or tr("git_command_failed")
+        raise UserError("archive_failed", error=msg)
+    name = root + "-" + commit[:7] + ("." + fmt)
+    return name, raw
+
+
 def wip_patch(base=None):
     """作業ツリーの変更 (ステージ済み・未ステージ・未追跡) をまとめた、base (既定は HEAD) からのパッチ。
     本物のインデックスは変えず、そのコピーに add -A して差分を取る。"""
@@ -620,7 +654,7 @@ def rev_or_none(rev):
 
 
 __all__ = [
-    "FILE_CONTENT_LIMIT", "WIP_HASH", "blame", "blob_or_empty", "file_bytes", "file_content", "image_mime", "pdf_mime", "preview_mime",
+    "FILE_CONTENT_LIMIT", "WIP_HASH", "blame", "blob_or_empty", "archive_bytes", "file_bytes", "file_content", "image_mime", "pdf_mime", "preview_mime",
     "file_exists_at", "is_wip", "patch_bytes", "rev_or_none", "status_mark", "tree",
     "validate_file_path", "wip_file", "wip_head", "wip_patch", "wip_status_marks", "wip_tree",
     "worktree_target",

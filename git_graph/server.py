@@ -34,7 +34,7 @@ from .remote import (  # noqa: F401
 )
 from .routing import route, ROUTES
 from .files import (  # noqa: F401
-    api_blame, api_file, api_file_copy, api_file_save, api_patch_am, api_patch_apply, api_tree, file_download, patch_download,
+    api_blame, api_file, api_file_copy, api_file_save, api_patch_am, api_patch_apply, api_tree, archive_download, file_download, patch_download,
     PATCH_BODY_LIMIT, SAVE_BODY_LIMIT, tree_log_stream, WIP_HASH,
 )
 from .history import (  # noqa: F401
@@ -320,6 +320,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, "text/html", render_files_page().replace("__HASH__", html.escape(h)))
             elif u.path == "/download":
                 self._send_download(*file_download(q))
+            elif u.path == "/archive":
+                self._send_download(*archive_download(q))
             elif u.path == "/raw":
                 if q.get("side"):  # 差分の片側 (old / new) を画像プレビュー用に返す (クエリは /api/diff-sources と同じ)
                     name, data, path = diff_side_bytes(

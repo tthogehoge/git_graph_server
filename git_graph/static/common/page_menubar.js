@@ -521,6 +521,14 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
   on("opHistoryBtn", () => { closeMenus(); if (window.showOtherOpHistory) window.showOtherOpHistory(); });
   on("messageLogBtn", () => { closeMenus(); if (window.showOtherMessageLog) window.showOtherMessageLog(); });
   on("submoduleListBtn", () => { closeMenus(); if (window.showOtherSubmoduleList) window.showOtherSubmoduleList(); });
+  function archiveHref(fmt) {
+    // 表示中のコミット。WIP なら HEAD (未コミット変更は含まない)
+    let h = (typeof hash === "string" && hash) ? hash : "HEAD";
+    if (h === "WIP") h = "HEAD";
+    return "/archive?" + new URLSearchParams({format: fmt, hash: h}).toString();
+  }
+  on("archiveZipBtn", () => { closeMenus(); location.href = archiveHref("zip"); });
+  on("archiveTarBtn", () => { closeMenus(); location.href = archiveHref("tar"); });
   on("commitGraphBtn", async () => {
     closeMenus();
     if (!confirm(T.confirm_commit_graph_optimize || "Optimize commit-graph?")) return;

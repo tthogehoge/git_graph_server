@@ -228,6 +228,13 @@ document.getElementById("compareToolbar").addEventListener("click", ev => {  // 
   if (ev.target.closest("#reflogBtn")) { showReflog(""); return; }
   if (ev.target.closest("#opHistoryBtn")) { showOpHistory(); return; }
   if (ev.target.closest("#messageLogBtn")) { showMessageLog(); return; }
+  if (ev.target.closest("#archiveZipBtn") || ev.target.closest("#archiveTarBtn")) {
+    const fmt = ev.target.closest("#archiveZipBtn") ? "zip" : "tar";
+    let h = (typeof actionHash === "string" && actionHash) ? actionHash : "HEAD";
+    // 選択がなければ HEAD
+    location.href = "/archive?" + new URLSearchParams({format: fmt, hash: h}).toString();
+    return;
+  }
   if (ev.target.closest("#commitGraphBtn")) {
     if (!confirm(t("confirm_commit_graph_optimize"))) return;
     const btn = ev.target.closest("#commitGraphBtn");
