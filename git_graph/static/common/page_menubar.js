@@ -19,9 +19,22 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
   const $ = id => document.getElementById(id);
   const page = bar.dataset.page;  // "files" (legacy "diff" URLs redirect here)
   const q = new URLSearchParams(location.search);
-  const HASH = /^[0-9a-f]{7,40}$/;
-  // いま表示しているコミット (作業ツリーなどは空)。差分はサーバーが data-commit に入れ、ファイル表示は URL の hash
-  const here = bar.dataset.commit || (page === "files" && HASH.test(q.get("hash") || "") ? q.get("hash") : "");
+  const HASH = /^[0-9a-f]{7,40}$/i;
+  // いま表示しているコミット (作業ツリー / WIP は空)。差分は data-commit、ファイル表示は URL やページの hash
+  function readHere() {
+    const fromBar = (bar.dataset.commit || "").trim();
+    if (fromBar && HASH.test(fromBar)) return fromBar.toLowerCase();
+    let h = "";
+    if (page === "files") {
+      // 01_core.js の hash を優先 (ページ全体で同じ値)
+      if (typeof hash === "string" && hash) h = hash;
+      else h = new URLSearchParams(location.search).get("hash") || q.get("hash") || "";
+    }
+    h = (h || "").trim();
+    if (!h || h === "WIP") return "";
+    return HASH.test(h) ? h.toLowerCase() : "";
+  }
+  let here = readHere();
   const writable = bar.dataset.writable === "1", worktree = bar.dataset.worktree === "1";
   const go = url => { location.href = url; };
   const getJson = url => fetch(url).then(r => r.ok ? r.json() : r.text().then(m => { throw new Error(m || r.status); }));
@@ -30,8 +43,17 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
   // 選択 (対象 / A / B)。グラフ画面と同じ sessionStorage に残すので、グラフへ戻っても引き継がれる (保存形式は log_select.js)
   const sel = LogSel.load() || {};
   for (const k of ["compareA", "compareB", "actionHash"]) if (!HASH.test(sel[k] || "")) sel[k] = null;
+  // ファイル表示でコミットを開いているとき、操作対象が空なら表示中のコミットを対象にする
+  if (page === "files" && here && !sel.actionHash) {
+    sel.actionHash = here;
+    try { LogSel.save(sel); } catch (e) { /* 保存できなくても表示中の here で動く */ }
+  }
   const save = () => LogSel.save(sel);  // ファイル表示のログの強調も、これで付け直される
-  const target = () => sel.actionHash || here;  // 操作の対象: グラフで選んだコミット、無ければ表示中のコミット
+  const target = () => {  // 操作の対象: ファイル表示では開いているコミット、グラフでは選んだコミット
+    here = readHere();
+    if (page === "files" && here) return here;
+    return sel.actionHash || here;
+  };
 
   // 指定したコミットを、いまと同じ種類のページで開く。開いているディレクトリ / ファイルはそのまま引き継ぐ (無ければページ側が案内する)
   function viewUrl(hash) {
@@ -168,6 +190,7 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
   enable(bar.querySelector('[data-cact="branch"]'), () => writable); enable(bar.querySelector('[data-cact="tag"]'), () => writable);
   enable(bar.querySelector('[data-cact="checkout"]'), () => writable && worktree); enable($("resetBtn"), () => writable && worktree);
   bar.querySelectorAll("#remoteActions [data-cact]").forEach(b => enable(b, () => writable && worktree));
+  enable($("pushSelBtn"), () => writable && worktree);  // 操作メニュー内の選択コミット push
 
   // ---- git 操作 (グラフ画面と同じ API・確認文。成功したら、ブランチ / HEAD の変化を表示に反映するため読み込み直す) ----
   // 対象 = 操作の対象のコミット、A / B = 比較の 2 つのコミット。作業ツリーが要る操作は、書き込めて作業ツリーがあるときだけ使える
@@ -394,7 +417,7 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
     wipPatchCreateBtn.title = T.tip_patch_create_commit;
   }
   ["renameBranchBtn", "deleteBranchBtn", "deleteRemoteBranchBtn", "deleteTagBtn", "undoBtn", "redoBtn"].forEach(id => { $(id).disabled = true; });  // 状態が分かるまでは押せない
-  const worktreeOps = ["mergeBtn", "rebaseBtn", "cherryBtn", "revertBtn", "mergeIntoBtn", "cherryOntoBtn", "rebaseOntoBtn", "rebaseRangeBtn", "rebaseDescendantsBtn", "rebaseEquivalentBtn"];
+  const worktreeOps = ["mergeBtn", "rebaseBtn", "irebaseBtn", "cherryBtn", "revertBtn", "mergeIntoBtn", "cherryOntoBtn", "rebaseOntoBtn", "rebaseRangeBtn", "rebaseDescendantsBtn", "rebaseEquivalentBtn"];
   worktreeOps.forEach(id => enable($(id), () => writable && worktree));
   ["resetBranchBtn", "renameBranchBtn", "deleteBranchBtn", "deleteRemoteBranchBtn", "deleteTagBtn", "undoBtn", "redoBtn"].forEach(id => enable($(id), () => writable));
   enable($("findEquivalentParentsBtn")); enable($("findEquivalentBranchBtn"));
