@@ -60,3 +60,13 @@ Files   : licenses/graphviz.txt
 Notes   : Not bundled with this application. Graphviz must be installed
           separately by the user. The application only invokes the
           external `dot` (or related) executables when present.
+
+---------------------------------------------------------------------------
+marked
+---------------------------------------------------------------------------
+License : MIT
+Files   : licenses/marked.txt
+Notes   : Copyright (c) 2018+, MarkedJS; Copyright (c) 2011-2018, Christopher Jeffrey.
+          Markdown parser used to preview .md files in the file view
+          (git_graph/static/vendor/marked.js).
+

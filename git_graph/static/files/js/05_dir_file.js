@@ -143,6 +143,36 @@ function openDir(path) {  // ディレクトリを選ぶ: 開いているファ�
   if (currentFile) clearFile();
   loadTree(path, true).then(showDir);
 }
+
+const MD_EXT = /\.(md|markdown|mdown|mkd|mkdn)$/i;
+function isMarkdownPath(path) {
+  return MD_EXT.test(path || "");
+}
+let markedReady = false;
+function ensureMarked() {
+  if (markedReady || !window.marked || typeof marked.use !== "function") return;
+  // 生の HTML タグは出さない (リポジトリ内の .md でも XSS を抑える)
+  marked.use({ renderer: { html() { return ""; } } });
+  markedReady = true;
+}
+function showMarkdown(r) {  // Markdown は marked.js で HTML 化してプレビュー (編集は元テキスト)
+  closeEditor();
+  const src = (r && r.content != null) ? r.content : "";
+  let html = "";
+  try {
+    ensureMarked();
+    if (window.marked && typeof marked.parse === "function") {
+      html = marked.parse(src, { async: false });
+    } else {
+      html = "<pre>" + esc(src) + "</pre>";
+    }
+  } catch (e) {
+    html = "<pre>" + esc(src) + "</pre>";
+  }
+  content.className = "md-preview";
+  content.innerHTML = html;
+}
+
 function showImage(r) {  // 画像ファイルは <img> でプレビュー (中身は /raw から)
   closeEditor();
   const params = new URLSearchParams({hash: r.hash || hash, path: r.path || currentFile});
@@ -188,6 +218,7 @@ function loadFile(path, push) {
     title.textContent = fileTitle(r, "");
     if (r.image) showImage(r);
     else if (r.binary) { content.className = "binary"; content.textContent = t("binary_file"); }
+    else if (isMarkdownPath(path)) showMarkdown(r);
     else showCode(r);
     fileBlameBtn.hidden = false;
     fileBlameBtn.disabled = r.binary || (isWip && !wipHead);
@@ -233,6 +264,7 @@ function showFileContentView() {  // 差分 / ログ / blame から内容表示�
     title.textContent = fileTitle(fileData, "");
     if (fileData.image) showImage(fileData);
     else if (fileData.binary) { content.className = "binary"; content.textContent = t("binary_file"); }
+    else if (isMarkdownPath(currentFile)) showMarkdown(fileData);
     else showCode(fileData);
   } else if (currentFile) {
     loadFile(currentFile, false);
