@@ -1758,7 +1758,7 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         with self.assertRaises(HTTPError) as cm:
             opener.open(base + "/")
         self.assertEqual((cm.exception.code, cm.exception.headers["Location"]),
-                         (302, "/files?hash=WIP&path=&file=tracked.txt&view=diff&dwip=unstaged"))
+                         (302, "/files?hash=WIP&side=changes"))  # 先頭ファイルの差分ではなく変更一覧
         cm.exception.close()
         with opener.open(base + "/") as response:  # 2回目はグラフの画面
             self.assertEqual(response.status, 200)
