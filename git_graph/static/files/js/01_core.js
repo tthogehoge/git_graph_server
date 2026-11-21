@@ -155,6 +155,14 @@ function diffParams(path) {  // このファイルの差分 API の引数。変�
       }
       return diffSel.old ? {path: path, wip: diffSel.wip, old: diffSel.old} : {path: path, wip: diffSel.wip};
     }
+    // ページが「コミットと WIP の比較」(dfrom / dto=WIP) のときは、
+    // ファイル一覧から内容を開いても「差分」ボタンで比較差分を出せる
+    if (compareFrom && compareTo === "WIP") {
+      const f = wipCompareChanges && wipCompareChanges[path];
+      const p = {from: compareFrom, wip: "compare", path: path};
+      if (f && f.old_path) p.old = f.old_path;
+      return p;
+    }
     const xy = (entryInfo[path] || {}).xy;
     if (xy) {
       const st = entryInfo[path].st;
@@ -175,6 +183,13 @@ function diffParams(path) {  // このファイルの差分 API の引数。変�
   if (diffSel && diffSel.path === path && diffSel.from && diffSel.to) {
     const p = {from: diffSel.from, to: diffSel.to, path: path};
     if (diffSel.old) p.old = diffSel.old;
+    return p;
+  }
+  // ページが 2 コミット比較 (dfrom / dto) のときは、ファイル一覧からでも「差分」ボタンで比較差分を出せる
+  if (compareFrom && compareTo && compareTo !== "WIP") {
+    const f = commitChanges && commitChanges[path];
+    const p = {from: compareFrom, to: compareTo, path: path};
+    if (f && f.old_path) p.old = f.old_path;
     return p;
   }
   const f = commitChanges && commitChanges[path];
