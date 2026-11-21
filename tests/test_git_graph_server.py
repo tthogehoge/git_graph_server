@@ -439,16 +439,20 @@ class GitApiIntegrationTests(unittest.TestCase):
         self.assertEqual(result["to"]["hash"], self.second_commit)
         self.assertEqual({item["path"] for item in result["files"]}, {"README.md", "new.txt"})
 
-    def test_commit_detail_links_to_first_file_diff(self):
+    def test_commit_detail_file_diff_link_opens_changes_list(self):
+        """「ファイル差分」は先頭ファイルではなく、変更一覧 (side=changes) を開く。"""
         app_js = page_with_assets(app.render_main_page())
 
-        self.assertIn('diffUrl({hash: c.hash}, c.files[0])', app_js)
-        self.assertIn('class="detail-files" href="\' + esc(diffUrl({hash: c.hash}, c.files[0]))', app_js)
+        self.assertIn('&side=changes"', app_js)
+        self.assertIn('esc(t("file_diff"))', app_js)
+        self.assertNotIn('diffUrl({hash: c.hash}, c.files[0])', app_js)
 
-    def test_wip_pane_links_to_first_file_diff(self):
+    def test_wip_pane_file_diff_link_opens_changes_list(self):
+        """WIP の「ファイル差分」も変更一覧 (side=changes) を開く。"""
         app_js = page_with_assets(app.render_main_page())
 
-        self.assertIn('class="detail-files" href="\' + esc(diffUrl({}, files[0]))', app_js)
+        self.assertIn('href="/files?hash=WIP&side=changes"', app_js)
+        self.assertNotIn("diffUrl({}, files[0])", app_js)
 
     @unittest.skipUnless(shutil.which("dot"), "Graphviz dot is not installed")
     def test_build_graph_keeps_refs_and_collapses_intermediate_commits(self):

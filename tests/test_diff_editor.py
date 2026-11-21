@@ -273,6 +273,10 @@ class DiffEditorPageTests(unittest.TestCase):
         self.assertIn("return Object.assign({}, f, {st: st});", files_html)
         self.assertIn("function wipSelectionEnabled()", files_html)
         self.assertIn("compareFrom === wipHead", files_html)
+        # 比較ページでは、ファイル一覧から内容を開いても diffParams が比較差分を返し「差分」ボタンが使える
+        self.assertIn('if (compareFrom && compareTo === "WIP")', files_html)
+        self.assertIn('wip: "compare"', files_html)
+        self.assertIn('if (compareFrom && compareTo && compareTo !== "WIP")', files_html)
         open_wip_change = files_html[files_html.index("function openWipChange"):files_html.index("let pendingWipOpen")]
         self.assertLess(open_wip_change.index("if (currentFile === sel.path"), open_wip_change.index("if (!leaveEdit())"))
         open_change = files_html[files_html.index("function openChange"):files_html.index("fileDiffBtn.onclick")]
