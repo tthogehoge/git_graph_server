@@ -39,7 +39,12 @@ function createDiffEditorView(opts) {
       /* 左右それぞれで横スクロール可能にし、位置は createDiffEditor 側で同期する */
       ".de-host .cm-mergeViewEditor { min-width: 0; overflow-x: auto; overflow-y: hidden; }",
       ".de-host .cm-mergeView .cm-scroller { overflow-x: auto !important; }",
-    ].join("\n");
+          ".de-imgs { display: flex; gap: 0; border: 1px solid #ddd; background: #fafafa; min-height: 80px; }",
+      ".de-imgs .de-img-side { flex: 1 1 0; min-width: 0; padding: 8px; text-align: center; overflow: auto; }",
+      ".de-imgs .de-img-side + .de-img-side { border-left: 1px solid #ddd; }",
+      ".de-imgs .de-img-side img { max-width: 100%; height: auto; vertical-align: middle; background: linear-gradient(45deg,#eee 25%,transparent 25%),linear-gradient(-45deg,#eee 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#eee 75%),linear-gradient(-45deg,transparent 75%,#eee 75%); background-size: 16px 16px; background-position: 0 0,0 8px,8px -8px,-8px 0; }",
+      ".de-imgs .de-img-missing { color: #888; padding: 24px 8px; }",
+].join("\n");
     document.head.appendChild(style);
   }
   box.textContent = "";
@@ -71,7 +76,7 @@ function createDiffEditorView(opts) {
   labels.hidden = true;
   labels.append(labelOld, labelNew);
   box.append(bar, notes, labels, host);
-  let editor = null, data = null, seq = 0;
+  let editor = null, data = null, seq = 0, lastParams = null;
   let editMode = false, editOnChange = null, editOnSave = null;
 
   function setNotes(lines, isError) {
@@ -87,11 +92,47 @@ function createDiffEditorView(opts) {
     count.textContent = "";
   }
   const sideName = side => side.label + (side.exists ? "" : " " + text("diff_editor_missing"));
+  function sideImgUrl(which) {
+    const p = new URLSearchParams(lastParams || {});
+    p.set("side", which);
+    return "/raw?" + p.toString();
+  }
+  function renderImageDiff(a, b) {
+    labelOld.textContent = sideName(a);
+    labelNew.textContent = sideName(b);
+    labels.hidden = false;
+    prev.disabled = next.disabled = true;
+    count.textContent = "";
+    const row = document.createElement("div");
+    row.className = "de-imgs";
+    function cell(side, which) {
+      const box = document.createElement("div");
+      box.className = "de-img-side";
+      if (!side.exists) {
+        box.innerHTML = '<div class="de-img-missing">' + text("diff_editor_missing") + "</div>";
+      } else if (side.image) {
+        const img = document.createElement("img");
+        img.src = sideImgUrl(which);
+        img.alt = data.path || "";
+        box.appendChild(img);
+      } else if (side.binary) {
+        box.innerHTML = '<div class="de-img-missing">' + text("diff_editor_binary") + "</div>";
+      } else {
+        box.innerHTML = '<div class="de-img-missing">' + text("diff_editor_unavailable") + "</div>";
+      }
+      return box;
+    }
+    row.appendChild(cell(a, "old"));
+    row.appendChild(cell(b, "new"));
+    host.appendChild(row);
+  }
   function render() {  // data (両側の内容) から、エディタを作り直す (折りたたみの切り替えでも使う)
     clear();
     const [a, b] = [data.old, data.new];
     const lines = [];
-    if (a.binary || b.binary) {
+    if ((a.image || b.image) && lastParams) {
+      renderImageDiff(a, b);
+    } else if (a.binary || b.binary) {
       lines.push(text("diff_editor_binary"));
     } else if (!a.exists && !b.exists) {
       lines.push(text("diff_editor_unavailable"));
@@ -131,7 +172,8 @@ function createDiffEditorView(opts) {
       editMode = false; editOnChange = null; editOnSave = null;
       clear();
       setNotes([], false);
-      const url = "/api/diff-sources?" + (params instanceof URLSearchParams ? params : new URLSearchParams(params));
+      lastParams = params instanceof URLSearchParams ? params : new URLSearchParams(params);
+      const url = "/api/diff-sources?" + lastParams;
       const fetched = fetch(url).then(r => r.ok ? r.json() : r.text().then(m => { throw new Error(m || r.status); }));
       return Promise.all([fetched, opts.loadScript()]).then(([r]) => {
         if (mine !== seq) return;  // 読み込んでいる間に、閉じられたか、別のファイルを読み込み直した

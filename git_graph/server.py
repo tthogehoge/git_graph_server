@@ -48,6 +48,7 @@ from .submodules import api_submodule_add, api_submodule_fetch, api_submodule_up
 from . import engine, tmpdir
 from .pages import diff_page_url, diff_url, render_files_page, render_merge_page, wip_files
 from .query.files import image_mime
+from .query.diff_sources import side_bytes as diff_side_bytes
 from .wip import api_status, api_wip_commit  # noqa: F401
 
 
@@ -275,7 +276,20 @@ class Handler(BaseHTTPRequestHandler):
             elif u.path == "/download":
                 self._send_download(*file_download(q))
             elif u.path == "/raw":
-                self._send_raw(*file_download(q), path=q.get("path", [""])[0])
+                if q.get("side"):  # 差分の片側 (old / new) を画像プレビュー用に返す (クエリは /api/diff-sources と同じ)
+                    name, data, path = diff_side_bytes(
+                        q.get("path", [""])[0],
+                        old=q.get("old", [""])[0],
+                        hash_=q.get("hash", [""])[0],
+                        from_hash=q.get("from", [""])[0],
+                        to_hash=q.get("to", [""])[0],
+                        wip=q.get("wip", [""])[0],
+                        between="from" in q or "to" in q,
+                        side=q.get("side", ["new"])[0],
+                    )
+                    self._send_raw(name, data, path=path)
+                else:
+                    self._send_raw(*file_download(q), path=q.get("path", [""])[0])
             elif u.path == "/patch":
                 self._send_download(*patch_download(q))
             elif u.path == "/diff":
