@@ -29,7 +29,7 @@ function fitEditor(host) {  // エディタの高さを本文の領域に合わ�
   const top = host.getBoundingClientRect().top - main.getBoundingClientRect().top + main.scrollTop;
   host.style.height = Math.max(200, main.clientHeight - top - 14 - 2) + "px";  // 14: #main の下の余白、2: 枠線
 }
-window.addEventListener("resize", () => { if (document.getElementById("mdEditPreview") || document.getElementById("htmlEditPreview")) fitMdEditSplit(); else if (document.querySelector("iframe.html-preview-frame")) fitHtmlPreviewFrame(document.querySelector("iframe.html-preview-frame")); else { const host = document.querySelector(".cm-host"); if (host) fitEditor(host); } });
+window.addEventListener("resize", () => { if (document.getElementById("mdEditPreview") || document.getElementById("htmlEditPreview")) fitMdEditSplit(); else if (document.querySelector("iframe.html-preview-frame, iframe.pdf-preview-frame")) fitHtmlPreviewFrame(document.querySelector("iframe.html-preview-frame, iframe.pdf-preview-frame")); else { const host = document.querySelector(".cm-host"); if (host) fitEditor(host); } });
 let keepViewerScroll = null;  // 更新ボタンで読み直すとき、表示のスクロール位置を引き継ぐ ({path, top})
 function jumpToHashLine() {  // URL の #L12 で、その行を出す
   const m = /^#L(\d+)$/.exec(location.hash);

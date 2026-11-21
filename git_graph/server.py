@@ -47,7 +47,7 @@ from .repo_setup import api_setup, open_repo  # noqa: F401
 from .submodules import api_submodule_add, api_submodule_fetch, api_submodule_update  # noqa: F401
 from . import engine, tmpdir
 from .pages import diff_page_url, diff_url, render_files_page, render_merge_page, wip_files
-from .query.files import image_mime
+from .query.files import image_mime, preview_mime
 from .query.diff_sources import side_bytes as diff_side_bytes
 from .wip import api_status, api_wip_commit  # noqa: F401
 
@@ -225,15 +225,60 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def _send_raw(self, name, data, path=""):
-        """画像プレビュー用に、正しい Content-Type でインライン表示する。画像以外は octet-stream。"""
-        mime = image_mime(path or name) or "application/octet-stream"
-        self.send_response(200)
+        """画像 / PDF プレビュー用に、正しい Content-Type でインライン表示する。
+        Firefox の PDF ビューアは Range 要求を送るため、バイト範囲にも応える。"""
+        if not isinstance(data, (bytes, bytearray)):
+            data = bytes(data)
+        data = bytes(data)
+        mime = preview_mime(path or name) or "application/octet-stream"
+        total = len(data)
+        status = 200
+        body = data
+        content_range = None
+        range_hdr = (self.headers.get("Range") or "").strip()
+        if range_hdr.startswith("bytes=") and total > 0:
+            try:
+                spec = range_hdr[6:].split(",", 1)[0].strip()
+                start_s, sep, end_s = spec.partition("-")
+                if not sep:
+                    raise ValueError("bad range")
+                if start_s == "":
+                    length = int(end_s)
+                    if length <= 0:
+                        raise ValueError("bad range")
+                    start = max(0, total - length)
+                    end = total - 1
+                else:
+                    start = int(start_s)
+                    end = int(end_s) if end_s != "" else total - 1
+                if start < 0 or start >= total or end < start:
+                    self.send_response(416)
+                    self.send_header("Content-Range", f"bytes */{total}")
+                    self.send_header("Content-Length", "0")
+                    self.send_header("Cache-Control", "no-store")
+                    self.end_headers()
+                    return
+                end = min(end, total - 1)
+                body = data[start:end + 1]
+                status = 206
+                content_range = f"bytes {start}-{end}/{total}"
+            except ValueError:
+                body = data
+                status = 200
+                content_range = None
+        fallback = "".join(c if c.isascii() and c.isprintable() and c not in '"\\/;' else "_" for c in (name or "file")) or "file"
+        self.send_response(status)
         self.send_header("Content-Type", mime)
-        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Content-Length", str(len(body)))
+        if content_range:
+            self.send_header("Content-Range", content_range)
+        self.send_header("Content-Disposition", f"inline; filename=\"{fallback}\"; filename*=UTF-8''{quote(name or fallback, safe='')}")
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.end_headers()
-        self.wfile.write(data)
+        self.wfile.write(body)
+
 
     def do_GET(self):
         u = urlparse(self.path)

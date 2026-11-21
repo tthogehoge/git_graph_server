@@ -44,9 +44,28 @@ def image_mime(path):
     return _IMAGE_MIME.get(path[i:].lower())
 
 
+def pdf_mime(path):
+    """path が PDF なら application/pdf、そうでなければ None。"""
+    if not path:
+        return None
+    i = path.rfind(".")
+    if i < 0:
+        return None
+    return "application/pdf" if path[i:].lower() == ".pdf" else None
+
+
+def preview_mime(path):
+    """インライン表示用の MIME (画像または PDF)。"""
+    return image_mime(path) or pdf_mime(path)
+
+
 def attach_image_info(res, path):
-    """バイナリの画像なら image / mime を付ける (表示側が /raw で読み出す)。"""
+    """バイナリの画像 / PDF なら image または pdf と mime を付ける (表示側が /raw で読み出す)。"""
     if not res.get("binary"):
+        return res
+    if pdf_mime(path):
+        res["pdf"] = True
+        res["mime"] = "application/pdf"
         return res
     mime = image_mime(path)
     if mime:
@@ -601,7 +620,7 @@ def rev_or_none(rev):
 
 
 __all__ = [
-    "FILE_CONTENT_LIMIT", "WIP_HASH", "blame", "blob_or_empty", "file_bytes", "file_content", "image_mime",
+    "FILE_CONTENT_LIMIT", "WIP_HASH", "blame", "blob_or_empty", "file_bytes", "file_content", "image_mime", "pdf_mime", "preview_mime",
     "file_exists_at", "is_wip", "patch_bytes", "rev_or_none", "status_mark", "tree",
     "validate_file_path", "wip_file", "wip_head", "wip_patch", "wip_status_marks", "wip_tree",
     "worktree_target",

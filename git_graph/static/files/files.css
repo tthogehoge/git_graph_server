@@ -148,3 +148,7 @@
 
   /* HTML 編集プレビュー (左右分割の右ペイン) */
   #htmlEditPreview.html-preview-frame { flex: 1 1 auto; min-height: 0; border: 1px solid #bbb; box-sizing: border-box; }
+
+  /* PDF プレビュー (ブラウザ内蔵ビューア。/raw は Range 対応) */
+  .pdf-preview { margin: 8px 0; }
+  .pdf-preview-frame { display: block; width: 100%; border: 1px solid #ddd; border-radius: 4px; background: #525659; }

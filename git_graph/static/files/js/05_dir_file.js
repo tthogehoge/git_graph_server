@@ -312,7 +312,8 @@ function showMarkdown(r) {  // Markdown は marked.js で HTML 化してプレ�
   bindMdViewBar(r);
   bindMarkdownRepoLinks(content.querySelector(".md-body"), r.path || currentFile);
 }
-function showFileBody(r) {  // 内容表示: Markdown / HTML ならプレビュー / テキストを選べる
+function showFileBody(r) {  // 内容表示: Markdown / HTML / PDF / 画像ならプレビュー
+  if (r.pdf) return showPdf(r);
   if (r.image) return showImage(r);
   if (r.binary) { content.className = "binary"; content.textContent = t("binary_file"); return; }
   const path = r.path || currentFile;
@@ -326,6 +327,15 @@ function showFileBody(r) {  // 内容表示: Markdown / HTML ならプレビュ�
   showCode(r, false);
 }
 
+function showPdf(r) {  // PDF はブラウザのビューアでプレビュー (中身は /raw。Range 対応)
+  closeEditor();
+  const params = new URLSearchParams({hash: r.hash || hash, path: r.path || currentFile});
+  content.className = "pdf-preview";
+  content.innerHTML = '<iframe class="pdf-preview-frame" src="/raw?' + params.toString() +
+    '" title="' + esc(r.path || currentFile) + '"></iframe>';
+  const frame = content.querySelector("iframe.pdf-preview-frame");
+  if (typeof fitHtmlPreviewFrame === "function") fitHtmlPreviewFrame(frame);
+}
 function showImage(r) {  // 画像ファイルは <img> でプレビュー (中身は /raw から)
   closeEditor();
   const params = new URLSearchParams({hash: r.hash || hash, path: r.path || currentFile});
