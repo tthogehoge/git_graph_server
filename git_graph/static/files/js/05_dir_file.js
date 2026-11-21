@@ -190,22 +190,21 @@ function bindMdViewBar(r) {
   };
   if (brkLab) brkLab.hidden = !mdPreviewOn;
 }
-function showMarkdown(r) {  // Markdown は marked.js で HTML 化してプレビュー (編集は元テキスト)
-  closeEditor();
-  const src = (r && r.content != null) ? r.content : "";
-  let html = "";
+function renderMarkdownHtml(src) {  // Markdown 文字列 → HTML (失敗時はエスケープした pre)
+  src = src == null ? "" : String(src);
   try {
     ensureMarked();
     if (window.marked && typeof marked.parse === "function") {
-      html = marked.parse(src, { async: false, breaks: !!mdBreaksOn });
-    } else {
-      html = "<pre>" + esc(src) + "</pre>";
+      return marked.parse(src, { async: false, breaks: !!mdBreaksOn });
     }
-  } catch (e) {
-    html = "<pre>" + esc(src) + "</pre>";
-  }
+  } catch (e) { /* fall through */ }
+  return "<pre>" + esc(src) + "</pre>";
+}
+function showMarkdown(r) {  // Markdown は marked.js で HTML 化してプレビュー (編集は元テキスト)
+  closeEditor();
+  const src = (r && r.content != null) ? r.content : "";
   content.className = "md-preview";
-  content.innerHTML = mdViewBarHtml() + '<div class="md-body">' + html + "</div>";
+  content.innerHTML = mdViewBarHtml() + '<div class="md-body">' + renderMarkdownHtml(src) + "</div>";
   bindMdViewBar(r);
 }
 function showFileBody(r) {  // 内容表示: Markdown ならプレビュー / テキストを選べる

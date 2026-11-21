@@ -28,7 +28,7 @@ function fitEditor(host) {  // エディタの高さを本文の領域に合わ�
   const top = host.getBoundingClientRect().top - main.getBoundingClientRect().top + main.scrollTop;
   host.style.height = Math.max(200, main.clientHeight - top - 14 - 2) + "px";  // 14: #main の下の余白、2: 枠線
 }
-window.addEventListener("resize", () => { const host = document.querySelector(".cm-host"); if (host) fitEditor(host); });
+window.addEventListener("resize", () => { if (document.getElementById("mdEditPreview")) fitMdEditSplit(); else { const host = document.querySelector(".cm-host"); if (host) fitEditor(host); } });
 let keepViewerScroll = null;  // 更新ボタンで読み直すとき、表示のスクロール位置を引き継ぐ ({path, top})
 function jumpToHashLine() {  // URL の #L12 で、その行を出す
   const m = /^#L(\d+)$/.exec(location.hash);
@@ -118,6 +118,17 @@ function editorPhrases() {  // 検索パネルなどの文言 (CodeMirror 側の
           "Go to line": t("editor_goto_line"), "go": t("editor_go")};
 }
 window.addEventListener("beforeunload", ev => { if (editing && editDirty) { ev.preventDefault(); ev.returnValue = ""; } });
+function updateMdEditPreview() {
+  const pane = document.getElementById("mdEditPreview");
+  if (!pane || !textEditor) return;
+  pane.innerHTML = renderMarkdownHtml(textEditor.getText());
+}
+function fitMdEditSplit() {
+  const left = document.getElementById("editor");
+  const right = document.getElementById("mdEditPreview");
+  if (left) fitEditor(left);
+  if (right && left) right.style.height = left.style.height;
+}
 function startEdit() {
   if (!fileData || !fileData.editable || !currentFile) return;
   closeEditor();  // 表示のエディタ
@@ -127,23 +138,43 @@ function startEdit() {
   const eol = EOL_LABEL[fileData.eol] || t("edit_eol_none");
   title.textContent = t("file_edit_title", {path: currentFile});
   content.className = "";
+  const mdEdit = typeof isMarkdownPath === "function" && isMarkdownPath(currentFile);
+  const breaksLabel = mdEdit
+    ? '<label class="edit-vim" title="' + esc(t("md_breaks_tip")) + '"><input type="checkbox" id="editMdBreaks"' +
+      (mdBreaksOn ? " checked" : "") + '> ' + esc(t("md_breaks")) + '</label>'
+    : "";
+  const editorBlock = mdEdit
+    ? '<div class="md-edit-split"><div class="md-edit-left"><div id="editor" class="cm-host"></div></div>' +
+      '<div class="md-edit-right"><div id="mdEditPreview" class="md-preview md-edit-preview"></div></div></div>'
+    : '<div id="editor" class="cm-host"></div>';
   content.innerHTML = '<div class="edit-info">' + esc(t("edit_format", {encoding: fileData.encoding, eol: eol})) + '</div>' +
     (fileData.eol_mixed ? '<div class="edit-info warn">' + esc(t("edit_eol_mixed", {eol: eol})) + '</div>' : "") +
     '<div class="edit-bar"><button class="primary" id="editSave">' + esc(t("edit_save")) + '</button><button id="editCancel">' +
     esc(t("edit_cancel")) + '</button><label class="edit-vim" title="' + esc(t("edit_wrap_tip")) + '"><input type="checkbox" id="editWrap"' + (wrapOn ? " checked" : "") +
     '> ' + esc(t("edit_wrap")) + '</label><label class="edit-vim" title="' + esc(t("edit_vim_tip")) + '"><input type="checkbox" id="editVim"' + (vimOn ? " checked" : "") +
-    '> ' + esc(t("edit_vim")) + '</label></div><div id="editor" class="cm-host"></div>';
+    '> ' + esc(t("edit_vim")) + '</label>' + breaksLabel + '</div>' + editorBlock;
   document.getElementById("main").scrollTop = 0;
-  fitEditor(document.getElementById("editor"));
+  if (mdEdit) fitMdEditSplit();
+  else fitEditor(document.getElementById("editor"));
   const loaded = fileData;
+  let mdPreviewTimer = null;
   loadEditorScript().then(() => {
     const host = document.getElementById("editor");
     if (!editing || fileData !== loaded || !host) return;  // 読み込んでいる間に、別の表示に移った
     textEditor = GGText.createTextEditor({
       parent: host, text: loaded.content, path: currentFile, vim: vimOn, wrap: wrapOn, phrases: editorPhrases(),
-      onChange: () => { editDirty = true; }, onSave: saveEdit,
+      onChange: () => {
+        editDirty = true;
+        if (!mdEdit) return;
+        if (mdPreviewTimer) clearTimeout(mdPreviewTimer);
+        mdPreviewTimer = setTimeout(updateMdEditPreview, 120);
+      }, onSave: saveEdit,
       onQuit: force => { if (force) editDirty = false; if (leaveEdit()) backToContent(); },  // Vim の :q / :q!
     });
+    if (mdEdit) {
+      updateMdEditPreview();
+      fitMdEditSplit();
+    }
     textEditor.focus();
   }).catch(e => {
     if (!leaveEdit()) return;
@@ -156,6 +187,12 @@ function startEdit() {
   document.getElementById("editVim").onchange = ev => {
     setVimPref(ev.target.checked);
     if (textEditor) { textEditor.setVim(vimOn); textEditor.focus(); }
+  };
+  const brk = document.getElementById("editMdBreaks");
+  if (brk) brk.onchange = ev => {
+    setMdBreaksPref(ev.target.checked);
+    updateMdEditPreview();
+    if (textEditor) textEditor.focus();
   };
   document.getElementById("editSave").onclick = saveEdit;
   document.getElementById("editCancel").onclick = () => { if (leaveEdit()) backToContent(); };
