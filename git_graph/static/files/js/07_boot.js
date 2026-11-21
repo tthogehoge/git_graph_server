@@ -201,18 +201,31 @@ if (hash) applySideMode();
 if (!hash) showError(new Error(t("commit_required"))); else { loadCommitChanges(); restoreFromUrl(true); }
 
 // ---- その他メニューの一覧 (ブランチ / タグ / stash / reflog など) を右ペインに表示。グラフ画面の showRefList 等と同じ API・同じ行 (CommitLog) を使う ----
-let otherListSeq = 0;
-function showOtherList(kind, titleKey, helpKey, apiPath, params, opts) {
-  opts = opts || {};
+
+function beginOtherListView() {
+  // その他メニューの一覧表示の共通前処理。ディレクトリの tree-log が本文を上書きしないよう止める
   closeEditor();
+  if (typeof leaveEdit === "function" && !leaveEdit()) return false;
   if (logPager) logPager.stop();
-  const seq = ++otherListSeq;
-  const alive = () => otherListSeq === seq && !currentFile;  // ファイルを開いたら捨てる (簡易)
-  // ファイルを開いていない状態に寄せる
+  if (typeof treeLogAbort !== "undefined" && treeLogAbort) {
+    try { treeLogAbort.abort(); } catch (e) { /* ignore */ }
+    treeLogAbort = null;
+  }
+  if (typeof dirLogSeq !== "undefined") dirLogSeq++;  // 進行中の showDir / tree-log を無効化
   if (currentFile) clearFile();
   dirLogOn = commitLogOn = false;
   dirActions.hidden = true;
   fileActions.hidden = true;
+  if (typeof showFilePane === "function") showFilePane();
+  return true;
+}
+
+let otherListSeq = 0;
+function showOtherList(kind, titleKey, helpKey, apiPath, params, opts) {
+  opts = opts || {};
+  if (!beginOtherListView()) return;
+  const seq = ++otherListSeq;
+  const alive = () => otherListSeq === seq && !currentFile;  // ファイルを開いたら捨てる (簡易)
   title.textContent = t(titleKey);
   setDocumentTitle(t(titleKey));
   content.className = "";
@@ -256,13 +269,8 @@ window.showOtherTagList = () => showOtherList("tags", "tag_list_title", "tag_lis
 window.showOtherStashList = () => showOtherList("stash", "stash_list_title", "stash_list_help", "/api/stash-list", {});
 window.showOtherReflog = function (branch) {
   // ブランチ選択付き reflog (グラフの showReflog に近づける)
-  closeEditor();
-  if (logPager) logPager.stop();
+  if (!beginOtherListView()) return;
   const seq = ++otherListSeq;
-  if (currentFile) clearFile();
-  dirLogOn = commitLogOn = false;
-  dirActions.hidden = true;
-  fileActions.hidden = true;
   title.textContent = "reflog " + (branch || "HEAD");
   setDocumentTitle("reflog " + (branch || "HEAD"));
   content.className = "";
@@ -334,13 +342,8 @@ window.showOtherReflog = function (branch) {
 
 // ---- 操作履歴 (その他メニュー)。グラフと同じ API + OtherLists.opHistoryHtml ----
 window.showOtherOpHistory = function () {
-  closeEditor();
-  if (logPager) logPager.stop();
+  if (!beginOtherListView()) return;
   const seq = ++otherListSeq;
-  if (currentFile) clearFile();
-  dirLogOn = commitLogOn = false;
-  dirActions.hidden = true;
-  fileActions.hidden = true;
   title.textContent = t("op_history_title");
   setDocumentTitle(t("op_history_title"));
   content.className = "";
@@ -358,13 +361,8 @@ window.showOtherOpHistory = function () {
 
 // ---- メッセージ一覧 (その他メニュー)。トーストで出た通知のログ (common/message_log.js。グラフと共通) ----
 window.showOtherMessageLog = function () {
-  closeEditor();
-  if (logPager) logPager.stop();
+  if (!beginOtherListView()) return;
   ++otherListSeq;
-  if (currentFile) clearFile();
-  dirLogOn = commitLogOn = false;
-  dirActions.hidden = true;
-  fileActions.hidden = true;
   title.textContent = t("message_log_title");
   setDocumentTitle(t("message_log_title"));
   content.className = "";
@@ -387,13 +385,8 @@ function filesSubmoduleAuthDeps() {
   };
 }
 window.showOtherSubmoduleList = function () {
-  closeEditor();
-  if (logPager) logPager.stop();
+  if (!beginOtherListView()) return;
   const seq = ++otherListSeq;
-  if (currentFile) clearFile();
-  dirLogOn = commitLogOn = false;
-  dirActions.hidden = true;
-  fileActions.hidden = true;
   title.textContent = t("submodule_list_title");
   setDocumentTitle(t("submodule_list_title"));
   const writable = !!(typeof CAN_COPY !== "undefined" && CAN_COPY);
