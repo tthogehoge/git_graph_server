@@ -413,6 +413,16 @@ window.showOtherSubmoduleList = function () {
       .then(async r => {
         const failed = (r.results || []).filter(x => !x.ok).map(x => "<div>" + esc(x.path) + ": " + esc(x.error) + "</div>").join("");
         await reloadRows().catch(() => {});
+        // 更新で親の gitlink が変わると差分になる。一覧・変更ファイルを読み直す (手動の画面更新なしで出す)
+        if (url === "/api/submodule-update" && typeof window.refreshFilesState === "function") {
+          await window.refreshFilesState().catch(() => {});
+          // 開いているのが更新した submodule の差分なら、差分も作り直す
+          if (currentFile && paths.includes(currentFile) && currentView === "diff" && typeof loadFileDiff === "function") {
+            loadFileDiff(currentFile);
+          } else if (currentFile && paths.includes(currentFile)) {
+            updateDiffBtn();
+          }
+        }
         smMsg('<span style="color:' + (r.ok ? "#080" : "#b00") + '">' + esc(r.message || "") + "</span>" + failed);
       }).catch(e => smMsg('<span style="color:#b00">' + esc(t("error") + e.message) + "</span>"))
       .finally(() => { submoduleBusy = false; syncSel(); });

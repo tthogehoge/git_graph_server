@@ -131,6 +131,8 @@ function runSubmoduleBatch(url, extra, confirmKey, workingKey, doneKey) {
     const failed = r.results.filter(x => !x.ok).map(x => "<div>" + esc(x.path) + ": " + esc(x.error) + "</div>").join("");
     submoduleBusy = false;
     await reloadSubmoduleRows().catch(() => {});
+    // 更新で親の gitlink が変わると WIP の差分になる (追加時と同様にグラフを読み直す)
+    if (url === "/api/submodule-update") refreshGraph().catch(() => {});
     submoduleMessage('<span style="color:' + (r.ok ? "#080" : "#b00") + '">' + esc(r.message) + "</span>" + failed);
   }).catch(e => submoduleMessage('<span style="color:#b00">' + esc(t("error") + e.message) + "</span>"))
     .finally(() => { submoduleBusy = false; syncSubmoduleSel(); });
