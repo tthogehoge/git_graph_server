@@ -334,6 +334,8 @@ _FIND_BAR_JS = """
                 var p = n.parentElement;
                 while (p) {
                     if (skip[p.tagName] || p.id === "ggFindBar") return NodeFilter.FILTER_REJECT;
+                    // CodeMirror のエディタの中は探さない。<mark> を差し込むと、エディタが DOM の変化を編集として受け取るため
+                    if (p.classList && p.classList.contains("cm-editor")) return NodeFilter.FILTER_REJECT;
                     if (p.hasAttribute && p.hasAttribute("hidden")) return NodeFilter.FILTER_REJECT;
                     p = p.parentElement;
                 }
@@ -438,7 +440,15 @@ _FIND_BAR_JS = """
         input.style.outline = "";
     }
 
+    // フォーカスが CodeMirror のエディタ (検索パネルの入力欄も含む) の中にあるか
+    function inEditor(t) {
+        return !!(t && t.closest && t.closest(".cm-editor"));
+    }
+
     document.addEventListener("keydown", function (e) {
+        // エディタの中の Ctrl+F / F3 は、エディタ自身の検索 (検索パネル) に任せる。
+        // ここで止めると、エディタに届かず、エディタの検索が使えなくなる
+        if (inEditor(e.target)) return;
         if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === "f" || e.key === "F")) {
             e.preventDefault();
             e.stopPropagation();
