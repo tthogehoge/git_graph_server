@@ -15,3 +15,11 @@ input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 button { font: inherit; padding: 7px 22px; border: 1px solid var(--accent); border-radius: 4px; background: var(--accent); color: #fff; cursor: pointer; }
 button:disabled { opacity: .6; cursor: default; }
 #setupBusy { color: var(--muted); }
+
+.actions button.secondary {
+  background: var(--bg, #f4f4f4);
+  color: var(--fg, #222);
+  border: 1px solid var(--border, #bbb);
+}
+.actions button.secondary:hover { background: #e8e8e8; }
+.actions button.secondary:disabled { opacity: 0.6; }

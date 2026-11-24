@@ -525,7 +525,7 @@
   "cli_help_check_i18n": "翻訳の漏れを検査して終了",
   "cli_not_a_repo": "{repo} は git リポジトリではありません",
   "setup_title": "リポジトリを開く",
-  "setup_lead": "指定されたフォルダは git リポジトリではありません。開くフォルダを指定するか、リポジトリのアドレスを入力してクローンしてください。",
+  "setup_lead": "指定されたフォルダは git リポジトリではありません。開くフォルダを指定するか、リポジトリのアドレスを入力してクローンするか、そのまま初期化して開いてください。",
   "setup_path_label": "開くフォルダ (アドレスを指定したときはクローン先)",
   "setup_path_hint": "git リポジトリのあるフォルダ。サブフォルダを指定しても、リポジトリの最上位を開きます。クローンするときは、存在しないか空のフォルダを指定します。",
   "setup_url_label": "リポジトリのアドレス (任意)",
@@ -538,7 +538,7 @@
   "setup_auth_needed": "{origin} は認証が必要です。ユーザー名とパスワード (またはトークン) を入力して、もう一度「開く」を押してください。",
   "setup_path_required": "開くフォルダを指定してください",
   "setup_path_not_found": "フォルダ {path} が見つかりません",
-  "setup_not_a_repo": "{path} は git リポジトリではありません (リポジトリのアドレスを指定すると、クローンして開けます)",
+  "setup_not_a_repo": "{path} は git リポジトリではありません (アドレスを指定してクローンするか、「そのまま開く」で初期化できます)",
   "setup_dest_not_empty": "{path} は空のフォルダではないため、クローンできません",
   "setup_url_invalid": "リポジトリのアドレスが正しくありません",
   "setup_required": "先に開くリポジトリを指定してください",
@@ -1010,5 +1010,11 @@
   "repo_search_failed": "検索に失敗しました: {error}",
   "repo_search_searching": "検索中…",
   "repo_search_no_hits": "ヒットなし",
-  "keyboard_help_repo_search": "リポジトリ内検索を開きます (Ctrl+Shift+F)。"
+  "keyboard_help_repo_search": "リポジトリ内検索を開きます (Ctrl+Shift+F)。",
+  "setup_init_open": "そのまま開く (初期化)",
+  "tip_setup_init_open": "クローンせず、このフォルダで git init して開きます。既存のファイルは未コミットの変更 (WIP) として扱えます",
+  "setup_init_hint": "git リポジトリではないフォルダを作業場所にしたいときは「そのまま開く」を使います。コミット履歴は無く、ファイル画面の WIP で編集・追加できます。",
+  "setup_init_opening": "初期化して開いています…",
+  "setup_init_failed": "{path} の初期化に失敗しました: {error}",
+  "setup_init_with_url": "「そのまま開く」ではリポジトリのアドレスは使えません。アドレスを空にするか、「開く」でクローンしてください。"
 }

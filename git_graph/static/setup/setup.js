@@ -13,17 +13,12 @@ async function post(path, body) {
   return JSON.parse(text);
 }
 
-$("setupForm").addEventListener("submit", async ev => {
-  ev.preventDefault();
-  const url = $("setupUrl").value.trim();
-  const body = {path: $("setupPath").value, url};
-  if (authOrigin) {
-    body.auth = {username: $("setupUser").value, password: $("setupPass").value};
-    body.auth_origin = authOrigin;
-  }
+async function runSetup(body, busyKey) {
   $("setupError").textContent = "";
   $("setupSubmit").disabled = true;
-  $("setupBusy").textContent = t(url ? "setup_cloning" : "setup_opening");
+  const initBtn = $("setupInitOpen");
+  if (initBtn) initBtn.disabled = true;
+  $("setupBusy").textContent = t(busyKey);
   let moving = false;
   try {
     const res = await post("/api/setup", body);
@@ -41,7 +36,29 @@ $("setupForm").addEventListener("submit", async ev => {
   } finally {
     if (!moving) {
       $("setupSubmit").disabled = false;
+      if (initBtn) initBtn.disabled = false;
       $("setupBusy").textContent = "";
     }
   }
+}
+
+$("setupForm").addEventListener("submit", async ev => {
+  ev.preventDefault();
+  const url = $("setupUrl").value.trim();
+  const body = {path: $("setupPath").value, url};
+  if (authOrigin) {
+    body.auth = {username: $("setupUser").value, password: $("setupPass").value};
+    body.auth_origin = authOrigin;
+  }
+  await runSetup(body, url ? "setup_cloning" : "setup_opening");
+});
+
+// クローンせず、フォルダを git init してから開く (既存ファイルは未追跡の WIP)
+$("setupInitOpen").addEventListener("click", async () => {
+  const url = $("setupUrl").value.trim();
+  if (url) {
+    $("setupError").textContent = t("setup_init_with_url");
+    return;
+  }
+  await runSetup({path: $("setupPath").value, url: "", init: true}, "setup_init_opening");
 });

@@ -99,6 +99,40 @@ class OpenRepoTests(StateGuard):
         self.assertEqual(repo_setup.clean_path_text("/tmp/x"), "/tmp/x")
 
 
+    def test_init_and_open_creates_repo_and_enables_wip(self):
+        folder = os.path.join(self.root, "plain")
+        os.makedirs(folder)
+        with open(os.path.join(folder, "note.txt"), "w", encoding="utf-8") as f:
+            f.write("hello\n")
+        state.NEED_REPO = True
+        r = repo_setup.init_and_open(folder)
+        self.assertTrue(r["initialized"])
+        self.assertEqual(os.path.realpath(state.REPO), os.path.realpath(folder))
+        self.assertTrue(state.HAS_WORKTREE)
+        self.assertTrue(state.WIP_ENABLED)
+        self.assertTrue(state.START_WIP)
+        self.assertFalse(state.NEED_REPO)
+        self.assertTrue(os.path.isdir(os.path.join(folder, ".git")))
+
+    def test_init_and_open_on_existing_repo_skips_init(self):
+        repo = os.path.join(self.root, "proj")
+        make_repo(repo)
+        state.NEED_REPO = True
+        r = repo_setup.init_and_open(repo)
+        self.assertFalse(r["initialized"])
+        self.assertEqual(os.path.realpath(state.REPO), os.path.realpath(repo))
+
+    def test_api_setup_init_opens_non_repo(self):
+        folder = os.path.join(self.root, "work")
+        os.makedirs(folder)
+        state.NEED_REPO = True
+        body = {"path": folder, "url": "", "init": True}
+        r = repo_setup.api_setup(body)
+        self.assertTrue(r["ok"])
+        self.assertTrue(r["initialized"])
+        self.assertFalse(state.NEED_REPO)
+
+
 class SetupApiTests(StateGuard):
     def setUp(self):
         super().setUp()
@@ -111,14 +145,14 @@ class SetupApiTests(StateGuard):
         with mock.patch.object(repo_setup, "clone_repo") as clone:
             res = repo_setup.api_setup({"path": self.source})
         clone.assert_not_called()
-        self.assertEqual(res, {"ok": True, "cloned": False})
+        self.assertEqual(res, {"ok": True, "cloned": False, "initialized": False})
         self.assertFalse(state.NEED_REPO)
         self.assertEqual(state.PROJECT_NAME, "source")
 
     def test_clones_into_the_folder_and_opens_it(self):
         dest = os.path.join(self.root, "work", "copy")  # 途中のフォルダが無くてもよい
         res = repo_setup.api_setup({"path": dest, "url": self.source})
-        self.assertEqual(res, {"ok": True, "cloned": True})
+        self.assertEqual(res, {"ok": True, "cloned": True, "initialized": False})
         self.assertTrue(os.path.isfile(os.path.join(dest, "a.txt")))
         self.assertFalse(state.NEED_REPO)
         self.assertEqual(os.path.realpath(state.REPO), os.path.realpath(dest))
@@ -276,7 +310,7 @@ class SetupHttpTests(StateGuard):
     def test_clone_over_http_then_the_normal_page_is_served(self):
         dest = os.path.join(self.root, "dest")
         with self.post("/api/setup", {"path": dest, "url": self.source}) as res:
-            self.assertEqual(json.loads(res.read()), {"ok": True, "cloned": True})
+            self.assertEqual(json.loads(res.read()), {"ok": True, "cloned": True, "initialized": False})
         self.assertFalse(state.NEED_REPO)
         for _ in range(100):  # サーバーは応答を返したあとで warm_graph を呼ぶ (別スレッド)。呼ばれるのを待つ
             if self.warm.called:

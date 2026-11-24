@@ -525,7 +525,7 @@
   "cli_help_check_i18n": "check the translations for omissions and exit",
   "cli_not_a_repo": "{repo} is not a git repository",
   "setup_title": "Open a repository",
-  "setup_lead": "The specified folder is not a git repository. Choose a folder to open, or enter a repository address to clone.",
+  "setup_lead": "The specified folder is not a git repository. Choose a folder to open, enter a URL to clone, or initialize the folder as-is.",
   "setup_path_label": "Folder to open (clone destination if an address is given)",
   "setup_path_hint": "A folder that contains a git repository. A subfolder opens the top of its repository. To clone, use a folder that does not exist or is empty.",
   "setup_url_label": "Repository address (optional)",
@@ -538,7 +538,7 @@
   "setup_auth_needed": "{origin} requires authentication. Enter a username and a password (or token), then press Open again.",
   "setup_path_required": "Specify the folder to open",
   "setup_path_not_found": "Folder {path} was not found",
-  "setup_not_a_repo": "{path} is not a git repository (give a repository address to clone and open it)",
+  "setup_not_a_repo": "{path} is not a git repository (clone with a URL, or use Open as-is to initialize)",
   "setup_dest_not_empty": "Cannot clone: {path} is not an empty folder",
   "setup_url_invalid": "The repository address is not valid",
   "setup_required": "Choose a repository to open first",
@@ -1010,5 +1010,11 @@
   "repo_search_failed": "Search failed: {error}",
   "repo_search_searching": "Searching…",
   "repo_search_no_hits": "No hits",
-  "keyboard_help_repo_search": "Open repository search (Ctrl+Shift+F)."
+  "keyboard_help_repo_search": "Open repository search (Ctrl+Shift+F).",
+  "setup_init_open": "Open as-is (initialize)",
+  "tip_setup_init_open": "Initialize with git init in this folder without cloning. Existing files appear as untracked WIP changes",
+  "setup_init_hint": "Use “Open as-is” for a non-git folder. There is no history yet; work from the files view WIP (untracked files).",
+  "setup_init_opening": "Initializing and opening…",
+  "setup_init_failed": "Failed to initialize {path}: {error}",
+  "setup_init_with_url": "“Open as-is” cannot be used with a repository URL. Clear the URL, or use Open to clone."
 }

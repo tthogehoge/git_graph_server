@@ -1,6 +1,7 @@
 # 開くリポジトリの決定 (起動時の指定、または設定画面からの指定)。
 # 起動時に指定されたパスが git リポジトリでなかったときは、サーバーを「リポジトリ未選択」(state.NEED_REPO) の状態で起動し、
 # 開くパスとリポジトリのアドレス (任意) を入力する画面を出す。アドレスが指定されていればクローンしてから開く。
+# アドレスなしで「そのまま開く」を選んだときは、フォルダ内で git init してから開く (既存ファイルは未追跡の WIP として扱える)。
 import os
 import subprocess
 import tempfile
@@ -25,17 +26,22 @@ def absolute_path(text):
     return os.path.abspath(os.path.expanduser(text))
 
 
+def is_git_repo(path):
+    """path が git リポジトリ (またはその配下) なら True。git が無ければ UserError。"""
+    try:
+        found = subprocess.run(["git", "-C", path, "rev-parse", "--git-dir"], capture_output=True, check=False)
+    except FileNotFoundError:
+        raise UserError("setup_git_missing")
+    return found.returncode == 0
+
+
 def open_repo(path):
     """path を表示するリポジトリにする。git リポジトリでなければ UserError (このとき状態は変えない)。
     サブフォルダが指定されたときは、パスの扱い (status / diff はルート基準) がずれないよう作業ツリーのルートに揃える。"""
     path = absolute_path(path)
     if not os.path.isdir(path):
         raise UserError("setup_path_not_found", path=path)
-    try:
-        found = subprocess.run(["git", "-C", path, "rev-parse", "--git-dir"], capture_output=True, check=False)
-    except FileNotFoundError:
-        raise UserError("setup_git_missing")
-    if found.returncode != 0:
+    if not is_git_repo(path):
         raise UserError("setup_not_a_repo", path=path)
     top = subprocess.run(["git", "-C", path, "rev-parse", "--show-toplevel"], capture_output=True, text=True,
                          encoding="utf-8", errors="replace", check=False)
@@ -80,9 +86,36 @@ def clone_repo(url, dest, *, auth=None, auth_origin=None):
     return None
 
 
+def init_and_open(path):
+    """git リポジトリでないフォルダを git init してから開く。
+    既にリポジトリなら init せず open_repo するだけ。既存ファイルは未追跡の WIP として扱える。
+    コミットが無いのでグラフは空に近く、作業はファイル画面の WIP が中心になる。"""
+    path = absolute_path(path)
+    if not os.path.isdir(path):
+        raise UserError("setup_path_not_found", path=path)
+    if is_git_repo(path):
+        open_repo(path)
+        return {"ok": True, "cloned": False, "initialized": False}
+    try:
+        r = subprocess.run(
+            ["git", "-C", path, "init"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", check=False,
+        )
+    except FileNotFoundError:
+        raise UserError("setup_git_missing")
+    if r.returncode != 0:
+        err = (r.stderr or r.stdout or "").strip() or tr("git_command_failed")
+        raise UserError("setup_init_failed", path=path, error=err)
+    open_repo(path)
+    # 履歴が無いので WIP (ファイル画面) から始める
+    state.START_WIP = True
+    return {"ok": True, "cloned": False, "initialized": True}
+
+
 @route("/api/setup", method="POST")
 def api_setup(body):
-    """設定画面の「開く」。url があれば path へクローンしてから、path のリポジトリを開く。
+    """設定画面の「開く」。url があれば path へクローンしてから開く。
+    init=True のときはリポジトリでなければ git init してから開く (クローンしない)。
     リポジトリを開いたあとは、画面が / へ移ると通常の画面 (WIP またはグラフ) になる。"""
     if not state.NEED_REPO:
         raise UserError("setup_already_open")
@@ -92,6 +125,9 @@ def api_setup(body):
     path, url = clean_path_text(path), url.strip()
     if not path:
         raise UserError("setup_path_required")
+    init = bool(body.get("init"))
+    if init and url:
+        raise UserError("setup_init_with_url")
     if url:
         if not state.WRITABLE:  # クローンはファイルを作る書き込み。--read-only のときはできない
             raise UserError("write_disabled")
@@ -102,11 +138,15 @@ def api_setup(body):
         result = clone_repo(url, absolute_path(path), auth=auth, auth_origin=origin if isinstance(origin, str) else None)
         if result:
             return result
+        open_repo(path)
+        return {"ok": True, "cloned": True, "initialized": False}
+    if init:
+        return init_and_open(path)
     open_repo(path)
-    return {"ok": True, "cloned": bool(url)}
+    return {"ok": True, "cloned": False, "initialized": False}
 
 
 __all__ = [
     "CLONE_TIMEOUT", "absolute_path", "api_setup", "check_clone_dest", "check_clone_url", "clean_path_text",
-    "clone_repo", "open_repo",
+    "clone_repo", "init_and_open", "is_git_repo", "open_repo",
 ]
