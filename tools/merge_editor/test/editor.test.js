@@ -380,6 +380,52 @@ test("marker editor: adopt resolves the conflict at the cursor too, and conflict
   ed.destroy();
 });
 
+// 検索 (Ctrl+F)。ページ側 (pywebview の検索バー) は、エディタの中の Ctrl+F をエディタに任せるので、どのペインでもエディタ自身が受ける
+const searchPanel = view => view.dom.querySelector(".cm-search");
+
+test("marker editor: Ctrl+F opens the search panel in the result and in both read-only sides; the sides have no replace", () => {
+  const w = load();
+  const ed = w.GGMerge.createMergeEditor({
+    top: w.document.getElementById("top"), result: w.document.getElementById("result"),
+    ours: "ours needle\n", theirs: "theirs needle\n", text: TEXT, labels: {}, phrases: {Find: "検索"}, onChange: () => {},
+  });
+  for (const view of [ed.view, ed.topView.a, ed.topView.b]) {
+    assert.equal(searchPanel(view), null);
+    const ev = press(w, view, "f", {ctrlKey: true});
+    assert.equal(ev.defaultPrevented, true, "エディタが Ctrl+F を受ける (ブラウザーの検索は出さない)");
+    assert.ok(searchPanel(view), "検索パネルが開く");
+    assert.equal(view.state.phrase("Find"), "検索");  // 文言は翻訳される
+    assert.equal(searchPanel(view).querySelector("[name=replace]") !== null, view === ed.view, "置換欄は、書き換えられる結果だけ");
+  }
+  ed.destroy();
+});
+
+test("base editor: Ctrl+F opens the search panel in all four panes; replace in one result is mirrored to the other result", () => {
+  const w = load();
+  const {ed} = baseEditor(w, {phrases: {Find: "検索"}});
+  for (const view of [ed.oursView.a, ed.oursView.b, ed.theirsView.a, ed.theirsView.b]) {
+    const ev = press(w, view, "f", {ctrlKey: true});
+    assert.equal(ev.defaultPrevented, true);
+    assert.ok(searchPanel(view), "検索パネルが開く");
+    assert.equal(view.state.phrase("Find"), "検索");
+  }
+  assert.equal(searchPanel(ed.oursView.a).querySelector("[name=replace]"), null);  // 読み取り専用の側に置換欄は出ない
+  // 結果のペイン (baseB) で置換すると、もう片方の結果 (baseA) にも反映される
+  const panel = searchPanel(ed.baseB);
+  const fill = (name, value) => {
+    const input = panel.querySelector("[name=" + name + "]");
+    input.value = value;
+    input.dispatchEvent(new w.Event("change", {bubbles: true}));
+  };
+  fill("search", "three");
+  fill("replace", "THREE");
+  panel.querySelector("[name=replaceAll]").click();
+  assert.ok(ed.baseB.state.doc.toString().includes("\nTHREE\n"));
+  assert.equal(ed.baseA.state.doc.toString(), ed.baseB.state.doc.toString());
+  assert.equal(ed.conflictCount(), 1);
+  ed.destroy();
+});
+
 test("diff editor: old | new side by side, read-only, changed lines marked, highlight by file name", () => {
   const w = load(TEXT_BUNDLE);
   const ed = w.GGText.createDiffEditor({

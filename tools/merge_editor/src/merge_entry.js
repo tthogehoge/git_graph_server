@@ -11,6 +11,7 @@ import {Annotation, EditorState, StateField} from "@codemirror/state";
 import {Decoration, drawSelection, EditorView, highlightActiveLine, keymap, lineNumbers, WidgetType} from "@codemirror/view";
 import {defaultKeymap, history, historyKeymap, redo, undo} from "@codemirror/commands";
 import {getChunks, goToNextChunk, goToPreviousChunk, MergeView} from "@codemirror/merge";
+import {highlightSelectionMatches, search, searchKeymap} from "@codemirror/search";
 import {CHOICES, findConflicts, resolution, resolveAll} from "./conflicts.js";
 import {THEME, VIEW_SIZE} from "./theme.js";
 
@@ -156,12 +157,16 @@ function resolveAllIn(view, choice) {
   if (out !== text) view.dispatch({changes: {from: 0, to: text.length, insert: out}, userEvent: "input.resolve"});
 }
 
-// opts: {top, result, ours, theirs, text, labels, onChange}
+// 検索 (Ctrl+F / Cmd+F で検索パネル、F3 / Ctrl+G で次へ)。結果だけでなく、読み取り専用の ours / theirs / ベースの側でも使える。
+// opts.phrases: 検索パネルなどの文言の翻訳 ({"Find": "検索", ...}。createTextEditor と同じ)
+const searchExtensions = opts => [highlightSelectionMatches(), search({top: true}), EditorState.phrases.of(opts.phrases || {})];
+
+// opts: {top, result, ours, theirs, text, labels, phrases, onChange}
 //   top / result: 親の要素。labels: {ours, theirs, both, both_rev, base, keys} (ボタンの文言と、ショートカットキーの説明 keys)。
 //   onChange(conflictCount): 結果の内容が変わるたび (最初の 1 回を含む) に呼ぶ。
 export function createMergeEditor(opts) {
   const labels = opts.labels || {};
-  const readOnly = [EditorState.readOnly.of(true), lineNumbers(), THEME, EditorView.lineWrapping];
+  const readOnly = [EditorState.readOnly.of(true), lineNumbers(), THEME, EditorView.lineWrapping, searchExtensions(opts), keymap.of(searchKeymap)];
   const topView = new MergeView({
     a: {doc: opts.ours, extensions: readOnly},
     b: {doc: opts.theirs, extensions: readOnly},
@@ -181,7 +186,8 @@ export function createMergeEditor(opts) {
     parent: opts.result,
     state: EditorState.create({
       doc: opts.text,
-      extensions: [lineNumbers(), history(), drawSelection(), highlightActiveLine(), keymap.of([...defaultKeymap, ...historyKeymap]),
+      extensions: [lineNumbers(), history(), drawSelection(), highlightActiveLine(), searchExtensions(opts),
+                   keymap.of([...searchKeymap, ...defaultKeymap, ...historyKeymap]),
                    THEME, VIEW_SIZE, EditorView.lineWrapping, field,
                    EditorView.updateListener.of(update => { if (update.docChanged) notify(); })],
     }),
@@ -208,7 +214,7 @@ export function createMergeEditor(opts) {
 const mirrored = Annotation.define();  // もう一方の結果からの反映である印 (反映をまた反映し返さない)
 const chunkCount = view => { const chunks = getChunks(view.state); return chunks ? chunks.chunks.length : 0; };
 
-// opts: {oursParent, theirsParent, ours, theirs, text, labels, onChange}
+// opts: {oursParent, theirsParent, ours, theirs, text, labels, phrases, onChange}
 //   oursParent: ours | 結果 の組を入れる要素。theirsParent: theirs | 結果 の組を入れる要素。text: 結果の初めの内容 (競合マーカー入り)。
 //   labels: {revert, keys} (差分ごとの矢印ボタンの説明)。onChange(conflictCount): 結果が変わるたび (最初の 1 回を含む) に呼ぶ。
 // 2 つの結果は、片方を変えるともう片方にも同じ変更が入る。アンドゥ/リドゥの履歴は 1 つ (baseA) にまとめてあり、
@@ -217,14 +223,14 @@ const chunkCount = view => { const chunks = getChunks(view.state); return chunks
 // 矢印を赤くして、競合全体を ours / theirs で解決する (1 つの競合が複数の差分に分かれるので、先頭の矢印だけを出す)。
 export function createBaseMergeEditor(opts) {
   const labels = opts.labels || {};
-  const side = [EditorState.readOnly.of(true), lineNumbers(), THEME, EditorView.lineWrapping];
+  const side = [EditorState.readOnly.of(true), lineNumbers(), THEME, EditorView.lineWrapping, searchExtensions(opts), keymap.of(searchKeymap)];
   const field = conflictField(labels, false, null);
   let baseA = null, baseB = null, lastFocused = null;
   const arrows = [];  // 矢印ボタンの整理 (tidy) を、ペアごとに持つ
   const tidyAll = () => requestAnimationFrame(() => requestAnimationFrame(() => arrows.forEach(a => a.tidy())));  // ライブラリが矢印を測り直した後
   const notify = () => { if (opts.onChange && baseA) opts.onChange(conflictsOf(baseA, field).length); };
   const resultExtensions = (self, peer, withHistory) => [
-    lineNumbers(), drawSelection(), highlightActiveLine(), THEME, EditorView.lineWrapping, field, withHistory ? history() : [],
+    lineNumbers(), drawSelection(), highlightActiveLine(), THEME, EditorView.lineWrapping, field, withHistory ? history() : [], searchExtensions(opts),
     keymap.of([
       // 履歴は baseA だけが持つ。baseB で Ctrl+Z / Ctrl+Y を押したときも、baseA の履歴を戻す
       ...(withHistory ? historyKeymap : [
@@ -232,7 +238,7 @@ export function createBaseMergeEditor(opts) {
         {key: "Mod-y", mac: "Mod-Shift-z", run: () => redo(baseA), preventDefault: true},
         {key: "Mod-Shift-z", run: () => redo(baseA), preventDefault: true},
       ]),
-      ...defaultKeymap,
+      ...searchKeymap, ...defaultKeymap,
     ]),
     EditorView.domEventHandlers({focus: () => { lastFocused = self(); }}),
     EditorView.updateListener.of(update => {

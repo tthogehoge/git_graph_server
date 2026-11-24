@@ -58,17 +58,23 @@ function showUnsupported(d) {
 
 const conflictLabels = () => ({ours: t("merge_pick_ours"), theirs: t("merge_pick_theirs"), both: t("merge_pick_both"),
                                both_rev: t("merge_pick_both_rev"), base: t("merge_pick_base"), keys: SHORTCUTS, revert: t("merge_revert_chunk")});
+function editorPhrases() {  // 検索パネルなどの文言 (CodeMirror 側の英語の文言 → 翻訳)
+  return {"Find": t("editor_find"), "Replace": t("editor_replace"), "next": t("editor_next"), "previous": t("editor_previous"),
+          "all": t("editor_all"), "match case": t("editor_match_case"), "regexp": t("editor_regexp"), "by word": t("editor_by_word"),
+          "replace": t("editor_replace_one"), "replace all": t("editor_replace_all"), "close": t("editor_close"),
+          "Go to line": t("editor_goto_line"), "go": t("editor_go")};
+}
 function applyDiffScan(mv) {
   if (mv && mv.reconfigure) mv.reconfigure({diffConfig: DIFF_SCAN});
 }
 function createMarkersEditor(text) {
   editor = GGMerge.createMergeEditor({top: $("top"), result: $("result"), ours: data.ours, theirs: data.theirs, text: text,
-                                      onChange: onConflictCount, labels: conflictLabels()});
+                                      onChange: onConflictCount, labels: conflictLabels(), phrases: editorPhrases()});
   applyDiffScan(editor.topView);  // ours|theirs の差分表示
 }
 function createBaseEditor(text) {
   baseEditor = GGMerge.createBaseMergeEditor({oursParent: $("oursPair"), theirsParent: $("theirsPair"), ours: data.ours, theirs: data.theirs,
-                                              text: text, onChange: onConflictCount, labels: conflictLabels()});
+                                              text: text, onChange: onConflictCount, labels: conflictLabels(), phrases: editorPhrases()});
   applyDiffScan(baseEditor.oursView);
   applyDiffScan(baseEditor.theirsView);
 }
