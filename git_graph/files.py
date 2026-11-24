@@ -50,6 +50,22 @@ def api_file_upload(body):
             "message": tr("upload_saved", path=r["path"])}
 
 
+@route("/api/file-create", method="POST", engine=True)
+def api_file_create(body):
+    """作業ツリーに空のファイルを新規作成する。"""
+    path = body.get("path", "")
+    r = files.create_file(path)
+    return {"ok": True, "path": r["path"], "message": tr("create_file_done", path=r["path"])}
+
+
+@route("/api/dir-create", method="POST", engine=True)
+def api_dir_create(body):
+    """作業ツリーにディレクトリを新規作成する。"""
+    path = body.get("path", "")
+    r = files.create_dir(path)
+    return {"ok": True, "path": r["path"], "message": tr("create_dir_done", path=r["path"])}
+
+
 @route("/api/merge-sources")
 def api_merge_sources(q):
     """競合しているファイルの ours / base / theirs、3 way マージの結果、作業ツリーの内容 (マージエディタ用)。"""

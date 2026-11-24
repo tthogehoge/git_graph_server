@@ -1016,5 +1016,22 @@
   "setup_init_hint": "git リポジトリではないフォルダを作業場所にしたいときは「そのまま開く」を使います。コミット履歴は無く、ファイル画面の WIP で編集・追加できます。",
   "setup_init_opening": "初期化して開いています…",
   "setup_init_failed": "{path} の初期化に失敗しました: {error}",
-  "setup_init_with_url": "「そのまま開く」ではリポジトリのアドレスは使えません。アドレスを空にするか、「開く」でクローンしてください。"
+  "setup_init_with_url": "「そのまま開く」ではリポジトリのアドレスは使えません。アドレスを空にするか、「開く」でクローンしてください。",
+  "create_file": "新規ファイル",
+  "create_dir": "新規フォルダ",
+  "tip_create_file": "このディレクトリに空のファイルを作成します",
+  "tip_create_dir": "このディレクトリにフォルダを作成します",
+  "create_file_title": "ファイルを作成",
+  "create_dir_title": "フォルダを作成",
+  "create_name_label": "名前",
+  "create_file_ph": "例: README.md",
+  "create_dir_ph": "例: src",
+  "create_name_hint": "作成先: {dir}（名前に / は使えません）",
+  "create_name_invalid": "名前が正しくありません（/ や .. は使えません）",
+  "create_submit": "作成",
+  "create_file_done": "ファイルを作成しました: {path}",
+  "create_dir_done": "フォルダを作成しました: {path}",
+  "create_exists": "既に存在します: {path}",
+  "op_label_file_create": "ファイルの作成",
+  "op_label_dir_create": "フォルダの作成"
 }

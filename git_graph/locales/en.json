@@ -1016,5 +1016,22 @@
   "setup_init_hint": "Use “Open as-is” for a non-git folder. There is no history yet; work from the files view WIP (untracked files).",
   "setup_init_opening": "Initializing and opening…",
   "setup_init_failed": "Failed to initialize {path}: {error}",
-  "setup_init_with_url": "“Open as-is” cannot be used with a repository URL. Clear the URL, or use Open to clone."
+  "setup_init_with_url": "“Open as-is” cannot be used with a repository URL. Clear the URL, or use Open to clone.",
+  "create_file": "New file",
+  "create_dir": "New folder",
+  "tip_create_file": "Create an empty file in this directory",
+  "tip_create_dir": "Create a folder in this directory",
+  "create_file_title": "Create file",
+  "create_dir_title": "Create folder",
+  "create_name_label": "Name",
+  "create_file_ph": "e.g. README.md",
+  "create_dir_ph": "e.g. src",
+  "create_name_hint": "Location: {dir} (name cannot contain /)",
+  "create_name_invalid": "Invalid name (/ and .. are not allowed)",
+  "create_submit": "Create",
+  "create_file_done": "Created file: {path}",
+  "create_dir_done": "Created folder: {path}",
+  "create_exists": "Already exists: {path}",
+  "op_label_file_create": "Create file",
+  "op_label_dir_create": "Create folder"
 }

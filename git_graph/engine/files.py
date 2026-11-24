@@ -88,3 +88,46 @@ def upload_file(path, data, overwrite=False):
             pass
         raise ValueError(str(e))
     return {"path": path, "size": len(data), "sha": hashlib.sha256(data).hexdigest()}
+
+
+@operation("file_create", touches_worktree=True, detail=lambda path, *_, **__: path if isinstance(path, str) else "")
+def create_file(path):
+    """作業ツリーに空のファイルを新規作成する。既にあればエラー。親ディレクトリは必要なら作る。"""
+    if not isinstance(path, str):
+        raise ValueError("bad body")
+    path = validate_file_path(path, allow_empty=False)
+    target = worktree_target(path)
+    if os.path.lexists(target):
+        raise UserError("create_exists", path=path)
+    parent = os.path.dirname(target)
+    if parent:
+        try:
+            os.makedirs(parent, exist_ok=True)
+        except OSError as e:
+            raise ValueError(str(e))
+    try:
+        fd = os.open(target, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        os.close(fd)
+    except FileExistsError:
+        raise UserError("create_exists", path=path)
+    except OSError as e:
+        raise ValueError(str(e))
+    return {"path": path}
+
+
+@operation("dir_create", touches_worktree=True, detail=lambda path, *_, **__: path if isinstance(path, str) else "")
+def create_dir(path):
+    """作業ツリーにディレクトリを新規作成する。既にあればエラー。"""
+    if not isinstance(path, str):
+        raise ValueError("bad body")
+    path = validate_file_path(path, allow_empty=False)
+    target = worktree_target(path)
+    if os.path.lexists(target):
+        raise UserError("create_exists", path=path)
+    try:
+        os.makedirs(target, exist_ok=False)
+    except FileExistsError:
+        raise UserError("create_exists", path=path)
+    except OSError as e:
+        raise ValueError(str(e))
+    return {"path": path}

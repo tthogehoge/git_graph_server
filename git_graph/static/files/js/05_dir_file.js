@@ -48,6 +48,10 @@ function setDirActions() {  // ディレクトリを表示しているときの�
   dirLogBtn.hidden = (dirLogOn && !commitLogOn) || !canLog;
   dirListBtn.hidden = !dirLogOn;
   dirGraphLogBtn.hidden = !dirLogOn || commitLogOn || !canLog || !current;  // ルートは、グラフ画面のファイルログの対象にならない
+  // 新規作成は作業ツリーを編集できるときだけ (ログ表示中も、いまのディレクトリに対して作れる)
+  const canCreate = isWip && CAN_EDIT && !dirLogOn;
+  if (dirNewFileBtn) dirNewFileBtn.hidden = !canCreate;
+  if (dirNewDirBtn) dirNewDirBtn.hidden = !canCreate;
 }
 
 function pathCrumbHtml(path) {

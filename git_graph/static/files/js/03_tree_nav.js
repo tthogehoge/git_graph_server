@@ -331,6 +331,57 @@ fileUploadBtn.onclick = () => {  // ファイルを選んで、その内容で�
   };
   input.click();
 };
+
+// ---- ファイル / フォルダの新規作成 (作業ツリーのいまのディレクトリ) ----
+function createEntryNameOk(name) {
+  name = String(name || "").trim().replace(/\\/g, "/");
+  if (!name || name === "." || name === "..") return "";
+  if (name.includes("/")) return "";  // 1 階層だけ。深いパスはフォルダを順に作る
+  return name;
+}
+async function promptCreateEntry(kind) {
+  // kind: "file" | "dir"
+  if (!isWip || !CAN_EDIT || typeof openDialog !== "function") return;
+  if (!leaveEdit()) return;
+  const titleKey = kind === "dir" ? "create_dir_title" : "create_file_title";
+  const values = await openDialog(t(titleKey), form => {
+    const el = input("text", "name");
+    el.required = true;
+    el.autocomplete = "off";
+    el.spellcheck = false;
+    el.placeholder = t(kind === "dir" ? "create_dir_ph" : "create_file_ph");
+    field(form, t("create_name_label"), el, false);
+    const hint = document.createElement("p");
+    hint.className = "hint";
+    hint.textContent = t("create_name_hint", {dir: current || t("root")});
+    form.appendChild(hint);
+  }, t("create_submit"));
+  if (!values) return;
+  const name = createEntryNameOk(values.name);
+  if (!name) {
+    setFileMsg(t("create_name_invalid"), false);
+    return;
+  }
+  const path = current ? current + "/" + name : name;
+  const url = kind === "dir" ? "/api/dir-create" : "/api/file-create";
+  const busy = kind === "dir" ? dirNewDirBtn : dirNewFileBtn;
+  if (busy) busy.disabled = true;
+  try {
+    const r = await postJson(url, {path: path});
+    setFileMsg(r.message || t(kind === "dir" ? "create_dir_done" : "create_file_done", {path: path}), true);
+    await loadTree(current, false);
+    if (typeof loadWipChanges === "function") loadWipChanges();
+    if (kind === "dir") openDir(path);
+    else loadFile(path, true);
+  } catch (e) {
+    setFileMsg(e.message || String(e), false);
+  } finally {
+    if (busy) busy.disabled = false;
+  }
+}
+if (dirNewFileBtn) dirNewFileBtn.onclick = () => promptCreateEntry("file");
+if (dirNewDirBtn) dirNewDirBtn.onclick = () => promptCreateEntry("dir");
+
 fileExtEditBtn.onclick = () => {  // OS の標準のエディタ、または設定ファイルの editor で開く
   if (!currentFile) return;
   fileExtEditBtn.disabled = true;
