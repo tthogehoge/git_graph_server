@@ -243,7 +243,10 @@ function loadTree(path, push) {
   if (push) history.pushState({path: path, file: currentFile, view: currentView}, "", pageUrl(path, currentFile, currentView));
   return api("/api/tree", {hash: hash, path: path}).then(r => {
     dirEntries = r.entries;
-    if (isWip) { wipHead = r.head || null; selBar.hidden = !wipSelectionEnabled(); loadWipChanges(); }
+    // loadWipChanges を待たないと、直後の status 再取得と順序が狂い staged が一覧に出ないことがある
+    const wipLoad = isWip
+      ? (wipHead = r.head || null, selBar.hidden = !wipSelectionEnabled(), loadWipChanges())
+      : Promise.resolve();
     if (currentCommitMeta) {
       renderCommitHeader(currentCommitMeta);
     } else if (compareFrom && compareTo) {
@@ -286,6 +289,7 @@ function loadTree(path, push) {
       }
     }
     updateSelBar();
+    return wipLoad;
   }).catch(e => {
     // 対象ファイルの親ディレクトリがこのコミットに無いとき (ログから古いコミットを選んだ場合など) はルートを表示する
     if (path) return loadTree("", false);

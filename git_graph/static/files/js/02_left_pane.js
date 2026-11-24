@@ -75,7 +75,8 @@ function wipFilesChanged(files, status) {  // WIP パネルの一覧と状態が
   syncTreeCheckBoxes();
   updateDiffBtn();
   markWipCurrent();
-  if (isWip && wipHeadFiles.length) renderWipChanges();
+  // status が後から届いても、変更ファイル一覧を必ず描き直す (積集合待ちで空のまま残さない)
+  if (isWip) renderWipChanges();
 }
 function wipStatusForPath(path) {
   const same = wipStatusFiles.filter(f => f.path === path);
@@ -135,7 +136,16 @@ function syncTreeCheckBoxes() {
   });
 }
 function renderWipChanges() {
-  sideChangesBtn.textContent = t("side_changes") + (wipHeadFiles.length ? " (" + wipHeadFiles.length + ")" : "");
+  // 表示の正は /api/status の分類 (staged/unstaged/...)。compare は行数表示の補完に使う。
+  // 以前は両方に載るパスだけ出していたため、status 未着や compare とのずれで
+  // git add 済みが「変更ファイル」に出ないことがあった。
+  const statusFiles = wipStatusFiles.length
+    ? wipStatusFiles
+    : wipHeadFiles.map(f => Object.assign({}, f, {
+        wip: (f.wip && f.wip !== "compare") ? f.wip : "unstaged",
+      }));
+  const nUnique = new Set(statusFiles.map(f => f.path).concat(wipHeadFiles.map(f => f.path))).size;
+  sideChangesBtn.textContent = t("side_changes") + (nUnique ? " (" + nUnique + ")" : "");
   const from = wipCompareFrom();
   const ctx = from ? {from: from, wip: "compare"} : {};
   if (wipSelectionEnabled()) {
@@ -143,8 +153,8 @@ function renderWipChanges() {
     const labels = {conflict: "conflict", staged: "staged", unstaged: "unstaged", untracked: "untracked"};
     let body = "";
     ["conflict", "staged", "unstaged", "untracked"].forEach(kind => {
-      const group = wipStatusFiles.filter(f => f.wip === kind && changes.has(f.path))
-        .map(f => Object.assign({}, changes.get(f.path), f, {wip: kind}));
+      const group = statusFiles.filter(f => f.wip === kind)
+        .map(f => Object.assign({}, changes.get(f.path) || {}, f, {wip: kind}));
       if (!group.length) return;
       const check = f => '<td class="fk"><input type="checkbox" class="ck" data-kind="' + esc(f.wip) + '" data-path="' + esc(f.path) +
         '" aria-label="' + esc(f.path) + '"' + (desiredStageChecked(f.wip, f.path) ? " checked" : "") +
