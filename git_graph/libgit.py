@@ -1,6 +1,9 @@
 # pygit2 によるリポジトリ読み取り。Windows での git.exe プロセス起動を避ける。
 # 書き込み・ネットワーク・複雑な porcelain (rebase 等) は gitrun の CLI のまま。
+# Repository は短時間キャッシュし、未使用が続けばキャッシュから外す (.git/objects のロックを早めに手放す)。
 import os
+import threading
+import time
 from . import app_state as state
 
 try:
@@ -11,7 +14,12 @@ except ImportError as e:  # pragma: no cover
 else:
     _import_error = None
 
+# 最後に repo() してからこの秒数たつとキャッシュから外す。処理中の参照は別途生きるので閉じない。
+_REPO_IDLE_SEC = 2
 _repo_cache = (None, None)  # (path, Repository)
+_repo_last_used = 0.0
+_repo_timer = None
+_repo_lock = threading.Lock()
 
 
 def available():
@@ -25,20 +33,67 @@ def require_pygit2():
         ) from _import_error
 
 
+def _drop_repo_unlocked():
+    """キャッシュだけ外す (_repo_lock 保持中)。
+    ここで Repository.free() は呼ばない。repo() の戻り値をまだ使っている処理があるため、
+    オブジェクトは参照が残るあいだ有効で、参照が無くなってから GC がハンドルを解放する。
+    """
+    global _repo_cache, _repo_timer, _repo_last_used
+    if _repo_timer is not None:
+        try:
+            _repo_timer.cancel()
+        except Exception:
+            pass
+        _repo_timer = None
+    _repo_cache = (None, None)
+    _repo_last_used = 0.0
+
+
+def _schedule_idle_close_unlocked():
+    """未使用タイムアウトでキャッシュを外すタイマーを張り直す (_repo_lock 保持中)。"""
+    global _repo_timer
+    if _repo_timer is not None:
+        try:
+            _repo_timer.cancel()
+        except Exception:
+            pass
+        _repo_timer = None
+
+    def close_if_idle():
+        with _repo_lock:
+            if _repo_cache[1] is None:
+                return
+            if time.monotonic() - _repo_last_used < _REPO_IDLE_SEC - 0.05:
+                return
+            _drop_repo_unlocked()
+
+    t = threading.Timer(_REPO_IDLE_SEC, close_if_idle)
+    t.daemon = True
+    t.start()
+    _repo_timer = t
+
+
 def repo():
-    """現在の state.REPO の pygit2.Repository (キャッシュ)。"""
+    """現在の state.REPO の pygit2.Repository (短時間キャッシュ)。
+    使われるたびに期限を延ばし、_REPO_IDLE_SEC 秒触れなければキャッシュから外す。
+    すでに呼び出し元が保持している Repository は、タイムアウトしても無効化しない。
+    """
     require_pygit2()
-    global _repo_cache
+    global _repo_cache, _repo_last_used
     path = state.REPO
-    if _repo_cache[0] != path:
-        _repo_cache = (path, pygit2.Repository(path))
-    return _repo_cache[1]
+    with _repo_lock:
+        if _repo_cache[0] != path:
+            _drop_repo_unlocked()
+            _repo_cache = (path, pygit2.Repository(path))
+        _repo_last_used = time.monotonic()
+        _schedule_idle_close_unlocked()
+        return _repo_cache[1]
 
 
 def reset_cache():
-    """テストや REPO 切替用。"""
-    global _repo_cache
-    _repo_cache = (None, None)
+    """テストや REPO 切替用。キャッシュをすぐ外す。"""
+    with _repo_lock:
+        _drop_repo_unlocked()
 
 
 def peel_commit(obj):
