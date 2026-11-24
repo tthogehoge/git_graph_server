@@ -326,6 +326,7 @@ function showHtml(r) {  // HTML は sandbox iframe でプレビュー (script �
       if (doc && doc.body) bindMarkdownRepoLinks(doc.body, r.path || currentFile);
     } catch (e) { /* sandbox */ }
   };
+  restoreMainScroll(r.path || currentFile);
 }
 function showMarkdown(r) {  // Markdown は marked.js で HTML 化してプレビュー (編集は元テキスト)
   closeEditor();
@@ -334,6 +335,7 @@ function showMarkdown(r) {  // Markdown は marked.js で HTML 化してプレ�
   content.innerHTML = mdViewBarHtml() + '<div class="md-body">' + renderMarkdownHtml(src) + "</div>";
   bindMdViewBar(r);
   bindMarkdownRepoLinks(content.querySelector(".md-body"), r.path || currentFile);
+  restoreMainScroll(r.path || currentFile);
 }
 function showFileBody(r) {  // 内容表示: Markdown / HTML / PDF / 画像ならプレビュー
   if (r.pdf) return showPdf(r);
@@ -368,6 +370,11 @@ function showImage(r) {  // 画像ファイルは <img> でプレビュー (中�
 
 function loadFile(path, push) {
   if (!leaveEdit()) return;
+  if (path !== currentFile) {
+    saveFileScroll();  // 別ファイルへ移る前に、今見ていた位置を覚える
+    // currentFile を変える前にエディタを閉じる (closeEditor が新しい path に誤って保存しないように)
+    if (typeof closeEditor === "function") closeEditor();
+  }
   showFilePane();
   if (push && (path !== currentFile || currentView)) history.pushState({path: current, file: path}, "", pageUrl(current, path));
   currentFile = path; currentView = "";

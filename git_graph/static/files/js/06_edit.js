@@ -19,6 +19,7 @@ function setWrapPref(on) {  // 折り返しの設定 (表示・編集・差分�
 const EOL_LABEL = {crlf: "CRLF", lf: "LF", cr: "CR"};
 let diffView = null;  // 右ペインの差分エディタ (view=diff)
 function closeEditor() {
+  saveFileScroll();
   if (mdScrollCleanup) { mdScrollCleanup(); mdScrollCleanup = null; }
   if (textEditor) { textEditor.destroy(); textEditor = null; }
   if (diffView) { diffView.close(); diffView = null; }
@@ -31,6 +32,46 @@ function fitEditor(host) {  // エディタの高さを本文の領域に合わ�
 }
 window.addEventListener("resize", () => { if (document.getElementById("mdEditPreview") || document.getElementById("htmlEditPreview")) fitMdEditSplit(); else if (document.querySelector("iframe.html-preview-frame, iframe.pdf-preview-frame")) fitHtmlPreviewFrame(document.querySelector("iframe.html-preview-frame, iframe.pdf-preview-frame")); else { const host = document.querySelector(".cm-host"); if (host) fitEditor(host); } });
 let keepViewerScroll = null;  // 更新ボタンで読み直すとき、表示のスクロール位置を引き継ぐ ({path, top})
+// ファイルごとに内容表示・編集のスクロール位置を覚える (開き直したとき 1 行目に戻さない)
+const fileScrollPos = Object.create(null);  // path -> number (CM scrollTop), path+":edit" -> number, path+":main" -> main.scrollTop
+function scrollKey(path, kind) {
+  if (!path) return "";
+  if (kind === "edit") return path + ":edit";
+  if (kind === "main") return path + ":main";
+  return path;
+}
+function saveFileScroll() {
+  if (!currentFile) return;
+  try {
+    if (textEditor) {
+      const top = textEditor.getScrollTop();
+      fileScrollPos[scrollKey(currentFile, editing ? "edit" : "")] = top;
+    } else {
+      const main = document.getElementById("main");
+      if (main) fileScrollPos[scrollKey(currentFile, "main")] = main.scrollTop;
+    }
+  } catch (e) { /* ignore */ }
+}
+function restoreCmScroll(path, isEdit) {
+  // keepViewerScroll (更新) を優先し、なければファイルごとの記憶。#L は jumpToHashLine 側
+  if (keepViewerScroll && keepViewerScroll.path === path) {
+    if (textEditor) textEditor.setScrollTop(keepViewerScroll.top);
+    keepViewerScroll = null;
+    return true;
+  }
+  const key = scrollKey(path, isEdit ? "edit" : "");
+  if (key in fileScrollPos && textEditor) {
+    textEditor.setScrollTop(fileScrollPos[key]);
+    return true;
+  }
+  return false;
+}
+function restoreMainScroll(path) {
+  const key = scrollKey(path, "main");
+  if (!(key in fileScrollPos)) return;
+  const main = document.getElementById("main");
+  if (main) main.scrollTop = fileScrollPos[key];
+}
 function jumpToHashLine() {  // URL の #L12 で、その行を出す
   const m = /^#L(\d+)$/.exec(location.hash);
   if (m && textEditor && !editing) textEditor.scrollToLine(parseInt(m[1], 10));
@@ -62,9 +103,8 @@ function showCode(r, previewKind) {  // ファイルの内容を、読み取り�
     closeEditor();
     textEditor = GGText.createTextEditor({parent: host, text: r.content, path: r.path, readOnly: true, vim: vimOn, wrap: wrapOn, phrases: editorPhrases()});
     title.textContent = fileTitle(r, textEditor.language);
-    if (keepViewerScroll && keepViewerScroll.path === r.path) textEditor.setScrollTop(keepViewerScroll.top);
-    else jumpToHashLine();
-    keepViewerScroll = null;
+    if (!restoreCmScroll(r.path || currentFile, false)) jumpToHashLine();
+    else if (/^#L\d+$/.test(location.hash)) jumpToHashLine();  // #L 指定があれば記憶より優先
   }).catch(e => {  // エディタを読み込めなくても、内容は読めるようにする
     if (fileData === r && host.isConnected) content.innerHTML = '<p class="hint">' + esc(e.message) + '</p><pre>' + esc(r.content) + '</pre>';
   });
@@ -270,6 +310,7 @@ function startEdit() {
       }, onSave: saveEdit,
       onQuit: force => { if (force) editDirty = false; if (leaveEdit()) backToContent(); },  // Vim の :q / :q!
     });
+    restoreCmScroll(currentFile, true);
     if (mdEdit) {
       updateMdEditPreview();
       fitMdEditSplit();
