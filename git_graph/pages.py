@@ -7,7 +7,7 @@ from urllib.parse import urlencode
 from . import app_state as state
 from .history import api_commit, api_compare, api_diff
 from .i18n import (
-    FAVICON_LINK, FILES_PAGE, fill_template, MENUBAR_TEMPLATE, MERGE_PAGE, read_asset, tr, UserError,
+    FAVICON_LINK, FILES_PAGE, fill_template, MENUBAR_TEMPLATE, menubar_template, MERGE_PAGE, read_asset, tr, UserError,
     with_project,
 )
 from .wip import api_status
@@ -113,7 +113,7 @@ def menubar_html(page, *, files_href=None, graph_href="/", reload_id="reload", r
     ページごとに変わるのは、ページ切り替えのリンク・再読み込みボタンの id と有効 / 無効・data 属性だけ。
     その画面でできない操作は、page_menubar.js (グラフ以外の画面) が無効にする。
     commit: 表示中のコミット (作業ツリーなどは空)。wip: 作業ツリーの変更を表示している。"""
-    out = fill_template(MENUBAR_TEMPLATE).replace("<!--__NAV__-->", page_nav_html(page, files_href, graph_href))
+    out = fill_template(menubar_template()).replace("<!--__NAV__-->", page_nav_html(page, files_href, graph_href))
     reload_old = '<button id="reload" class="sbtn iconbtn" disabled'
     assert reload_old in out
     out = out.replace(reload_old, f'<button id="{reload_id}" class="sbtn iconbtn"' + ("" if reload_enabled else " disabled"), 1)

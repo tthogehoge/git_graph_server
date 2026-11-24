@@ -17,6 +17,33 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
   const bar = document.getElementById("compareToolbar");
   if (!bar || bar.dataset.page === "graph") return;
   const $ = id => document.getElementById(id);
+  // 終了・再起動は他のメニュー初期化が失敗しても使えるように、最初に付ける
+  (function bindQuitEarly() {
+    const quitBtn = $("quitBtn"), quitModal = $("quitModal");
+    if (!quitBtn || !quitModal || quitBtn.dataset.quitBound) return;
+    quitBtn.dataset.quitBound = "1";
+    async function stopServerEarly(action) {
+      quitModal.hidden = true;
+      try {
+        await postJson(action === "restart" ? "/api/restart" : "/api/shutdown", {});
+      } catch (e) {
+        if (typeof mbSay === "function") mbSay((T && T.quit_failed) ? fmt(T.quit_failed, {error: e.message}) : e.message, false);
+        return;
+      }
+      document.body.textContent = action === "restart" ? (T && T.server_restarting) || "Restarting…" : (T && T.server_stopped) || "Stopped";
+      document.body.style.padding = "24px";
+      if (action === "restart") {
+        const tryReload = () => fetch("/").then(() => location.reload()).catch(() => setTimeout(tryReload, 500));
+        setTimeout(tryReload, 1000);
+      }
+    }
+    quitBtn.addEventListener("click", () => { quitModal.hidden = false; const q = $("quitModalQuit"); if (q) q.focus(); });
+    const cancel = $("quitModalCancel"), qbtn = $("quitModalQuit"), rbtn = $("quitModalRestart");
+    if (cancel) cancel.addEventListener("click", () => { quitModal.hidden = true; });
+    if (qbtn) qbtn.addEventListener("click", () => stopServerEarly("quit"));
+    if (rbtn) rbtn.addEventListener("click", () => stopServerEarly("restart"));
+  })();
+  try {
   const page = bar.dataset.page;  // "files" (legacy "diff" URLs redirect here)
   const q = new URLSearchParams(location.search);
   const HASH = /^[0-9a-f]{7,40}$/i;
@@ -391,7 +418,12 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
     $("deleteRemoteBranchBtn").disabled = !refs.remote.length;
     $("deleteTagBtn").disabled = !refs.tags.length;
   }
-  const on = (id, fn) => $(id).addEventListener("click", () => Promise.resolve(fn()).catch(fail));
+  // メニュー HTML と JS の版がずれて要素が無いときも、以降の初期化を止めない
+  const on = (id, fn) => {
+    const el = $(id);
+    if (!el) return;
+    el.addEventListener("click", () => Promise.resolve(fn()).catch(fail));
+  };
   on("mergeBtn", doMerge); on("rebaseBtn", doRebase); on("cherryBtn", doCherry); on("revertBtn", doRevert);
   on("mergeIntoBtn", doMergeInto); on("cherryOntoBtn", doCherryOnto); on("rebaseOntoBtn", doRebaseOnto); on("resetBranchBtn", doResetBranch);
   on("rebaseRangeBtn", doRebaseRange); on("rebaseDescendantsBtn", doRebaseDescendants); on("rebaseEquivalentBtn", doRebaseEquivalent);
@@ -416,7 +448,7 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
     wipPatchCreateBtn.textContent = T.patch_create;
     wipPatchCreateBtn.title = T.tip_patch_create_commit;
   }
-  ["renameBranchBtn", "deleteBranchBtn", "deleteRemoteBranchBtn", "deleteTagBtn", "undoBtn", "redoBtn"].forEach(id => { $(id).disabled = true; });  // 状態が分かるまでは押せない
+  ["renameBranchBtn", "deleteBranchBtn", "deleteRemoteBranchBtn", "deleteTagBtn", "undoBtn", "redoBtn"].forEach(id => { const el = $(id); if (el) el.disabled = true; });  // 状態が分かるまでは押せない
   const worktreeOps = ["mergeBtn", "rebaseBtn", "irebaseBtn", "cherryBtn", "revertBtn", "mergeIntoBtn", "cherryOntoBtn", "rebaseOntoBtn", "rebaseRangeBtn", "rebaseDescendantsBtn", "rebaseEquivalentBtn"];
   worktreeOps.forEach(id => enable($(id), () => writable && worktree));
   ["resetBranchBtn", "renameBranchBtn", "deleteBranchBtn", "deleteRemoteBranchBtn", "deleteTagBtn", "undoBtn", "redoBtn"].forEach(id => enable($(id), () => writable));
@@ -474,10 +506,12 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
     menu.style.setProperty("--menu-top", top + "px");
   }
   const closeMenus = () => menus.forEach(([b, m]) => {
-    const menu = $(m);
-    menu.hidden = true;
-    restoreMenuPosition(menu);
-    $(b).setAttribute("aria-expanded", "false");
+    const menu = $(m), btn = $(b);
+    if (menu) {
+      menu.hidden = true;
+      restoreMenuPosition(menu);
+    }
+    if (btn) btn.setAttribute("aria-expanded", "false");
   });
 
   // ログ行の操作メニューを開く (右クリック / Shift+F10 / ContextMenu キー)。開いたら先頭項目にフォーカスする
@@ -859,30 +893,35 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
       setTimeout(tryReload, 1000);
     }
   }
-  $("quitBtn").addEventListener("click", () => { quitModal.hidden = false; $("quitModalQuit").focus(); });
-  $("quitModalCancel").addEventListener("click", () => { quitModal.hidden = true; });
-  $("quitModalQuit").addEventListener("click", () => stopServer("quit"));
-  $("quitModalRestart").addEventListener("click", () => stopServer("restart"));
+  // quit は先頭で bindQuitEarly 済み
   const keyboardHelp = $("keyboardHelp");
   function closeKeyboardHelp() {
-    keyboardHelp.hidden = true;
-    $("otherMenuBtn").focus();
+    if (keyboardHelp) keyboardHelp.hidden = true;
+    const other = $("otherMenuBtn");
+    if (other) other.focus();
   }
-  $("keyboardHelpBtn").addEventListener("click", () => {
-    keyboardHelp.hidden = false;
-    $("keyboardHelpClose").focus();
-  });
-  $("keyboardHelpClose").addEventListener("click", closeKeyboardHelp);
-  keyboardHelp.addEventListener("click", ev => { if (ev.target === keyboardHelp) closeKeyboardHelp(); });
-  keyboardHelp.addEventListener("keydown", ev => {
-    if (ev.key === "Escape") {
-      ev.preventDefault();
-      ev.stopPropagation();
-      closeKeyboardHelp();
-    } else if (ev.key === "Tab") {
-      ev.preventDefault();
-      $("keyboardHelpClose").focus();
-    }
-  });
+  if (keyboardHelp) {
+    const khBtn = $("keyboardHelpBtn"), khClose = $("keyboardHelpClose");
+    if (khBtn) khBtn.addEventListener("click", () => {
+      keyboardHelp.hidden = false;
+      if (khClose) khClose.focus();
+    });
+    if (khClose) khClose.addEventListener("click", closeKeyboardHelp);
+    keyboardHelp.addEventListener("click", ev => { if (ev.target === keyboardHelp) closeKeyboardHelp(); });
+    keyboardHelp.addEventListener("keydown", ev => {
+      if (ev.key === "Escape") {
+        ev.preventDefault();
+        ev.stopPropagation();
+        closeKeyboardHelp();
+      } else if (ev.key === "Tab") {
+        ev.preventDefault();
+        if (khClose) khClose.focus();
+      }
+    });
+  }
+  } catch (err) {
+    console.error("menubar init failed", err);
+    try { if (typeof mbSay === "function") mbSay((err && err.message) || String(err), false); } catch (e2) { /* ignore */ }
+  }
 })();
 

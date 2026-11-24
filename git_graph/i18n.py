@@ -22,7 +22,28 @@ HTML_TEMPLATE = (STATIC_DIR / "graph" / "index.html").read_text(encoding="utf-8"
 FILES_PAGE = (STATIC_DIR / "files" / "files.html").read_text(encoding="utf-8")
 MERGE_PAGE = (STATIC_DIR / "merge" / "merge.html").read_text(encoding="utf-8")
 SETUP_PAGE = (STATIC_DIR / "setup" / "setup.html").read_text(encoding="utf-8")  # リポジトリが決まっていないときの、開くパスとクローン元の入力画面
-MENUBAR_TEMPLATE = (STATIC_DIR / "common" / "menubar.html").read_text(encoding="utf-8")  # 全画面共通のメニューバー (pages.menubar_html が使う)
+# メニューバーはファイル更新をプロセス再起動なしで拾う (静的 JS と HTML の食い違いで初期化が落ちるのを防ぐ)
+_MENUBAR_PATH = STATIC_DIR / "common" / "menubar.html"
+_menubar_cache = (None, None, "")  # mtime_ns, size, text
+
+
+def menubar_template():
+    """menubar.html の本文。mtime/size が変わったら読み直す。"""
+    global _menubar_cache
+    try:
+        st = _MENUBAR_PATH.stat()
+        key = (st.st_mtime_ns, st.st_size)
+    except OSError:
+        return _menubar_cache[2] or ""
+    if _menubar_cache[0] == key[0] and _menubar_cache[1] == key[1] and _menubar_cache[2]:
+        return _menubar_cache[2]
+    text = _MENUBAR_PATH.read_text(encoding="utf-8")
+    _menubar_cache = (key[0], key[1], text)
+    return text
+
+
+# 互換: 起動時点の内容 (テストや export 用)。実際の描画は menubar_template() を使う。
+MENUBAR_TEMPLATE = menubar_template()
 # CSS / JavaScript は static/ 下の個別ファイルとして、各ページの <link> / <script src> で配信する (pages.menubar_html / render_main_page など)
 _FAVICON_SVG = ("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'>"
                 "<path d='M16 7V25M16 16C16 11 24 13 24 7' stroke='#889' stroke-width='3' fill='none'/>"
