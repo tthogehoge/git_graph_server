@@ -159,3 +159,20 @@
     outline-offset: -4px;
     background: #eef5ff;
   }
+
+/* リポジトリ内検索 */
+.repo-search-form { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: flex-end; margin: 8px 0 12px; }
+.repo-search-form label { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: #444; }
+.repo-search-form label.repo-search-ic { flex-direction: row; align-items: center; gap: 6px; }
+.repo-search-form input[type="search"],
+.repo-search-form input[type="text"] { min-width: 14em; padding: 4px 6px; font: 13px monospace; }
+.repo-search-form button { padding: 4px 12px; }
+.repo-search-results { margin-top: 4px; }
+table.repo-search-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+table.repo-search-table tr.repo-hit { cursor: pointer; }
+table.repo-search-table tr.repo-hit:hover { background: #eef4ff; }
+table.repo-search-table td { padding: 3px 6px; vertical-align: top; border-bottom: 1px solid #eee; }
+.repo-hit-loc { white-space: nowrap; font-family: monospace; }
+.repo-hit-path { color: #06c; }
+.repo-hit-line { color: #888; }
+.repo-hit-text code { font: 12px monospace; white-space: pre-wrap; word-break: break-word; color: #222; }

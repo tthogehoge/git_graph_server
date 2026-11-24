@@ -503,3 +503,107 @@ window.showOtherSubmoduleList = function () {
       .finally(() => { opening = false; });
   };
 };
+
+
+// ---- リポジトリ内検索 (git grep)。ファイル内検索は CodeMirror (Ctrl+F) のまま ----
+window.showRepoSearch = function showRepoSearch() {
+  if (!beginOtherListView()) return;
+  const seq = ++otherListSeq;
+  title.textContent = t("repo_search_title");
+  setDocumentTitle(t("repo_search_title"));
+  content.className = "";
+  const pathDefault = (typeof current === "string" && current) ? current : "";
+  content.innerHTML =
+    '<div class="meta">' + esc(t("repo_search_help")) + "</div>" +
+    '<form class="repo-search-form" id="repoSearchForm">' +
+    '<label class="repo-search-q">' + esc(t("repo_search_query")) +
+    '<input type="search" id="repoSearchQ" autocomplete="off" spellcheck="false" placeholder="' + esc(t("repo_search_query_ph")) + '"></label>' +
+    '<label class="repo-search-path">' + esc(t("repo_search_path")) +
+    '<input type="text" id="repoSearchPath" autocomplete="off" spellcheck="false" value="' + esc(pathDefault) +
+    '" placeholder="' + esc(t("repo_search_path_ph")) + '"></label>' +
+    '<label class="repo-search-ic"><input type="checkbox" id="repoSearchIC"> ' + esc(t("repo_search_ignore_case")) + "</label>" +
+    '<button type="submit" class="sbtn primary" id="repoSearchGo">' + esc(t("repo_search_go")) + "</button>" +
+    "</form>" +
+    '<div class="log-head"><span class="meta" id="repoSearchCount"></span></div>' +
+    '<div id="repoSearchResults" class="repo-search-results"></div>';
+  document.getElementById("main").scrollTop = 0;
+  const qEl = document.getElementById("repoSearchQ");
+  const pathEl = document.getElementById("repoSearchPath");
+  const icEl = document.getElementById("repoSearchIC");
+  const countEl = document.getElementById("repoSearchCount");
+  const resultsEl = document.getElementById("repoSearchResults");
+  if (qEl) qEl.focus();
+
+  function openHit(path, line) {
+    if (otherListSeq !== seq) return;
+    if (!leaveEdit()) return;
+    const dir = parentDir(path);
+    const go = () => {
+      // #L は showCode 完了時の jumpToHashLine が読む
+      const url = pageUrl(dir, path) + "#L" + line;
+      history.pushState({path: dir, file: path}, "", url);
+      current = dir;
+      loadFile(path, false);
+    };
+    if (dir !== current) loadTree(dir, false).then(go);
+    else go();
+  }
+
+  function runSearch(ev) {
+    if (ev) ev.preventDefault();
+    if (otherListSeq !== seq) return;
+    const q = (qEl && qEl.value || "").trim();
+    if (!q) {
+      countEl.textContent = t("repo_search_empty");
+      resultsEl.innerHTML = "";
+      return;
+    }
+    const path = (pathEl && pathEl.value || "").trim();
+    countEl.textContent = t("repo_search_searching");
+    resultsEl.innerHTML = "";
+    const params = {hash: hash, q: q};
+    if (path) params.path = path;
+    if (icEl && icEl.checked) params.i = "1";
+    api("/api/repo-grep", params).then(r => {
+      if (otherListSeq !== seq) return;
+      const hits = r.hits || [];
+      countEl.textContent = t("repo_search_hits", {n: hits.length}) +
+        (r.truncated ? " — " + t("repo_search_truncated") : "");
+      if (!hits.length) {
+        resultsEl.innerHTML = '<p class="hint">' + esc(t("repo_search_no_hits")) + "</p>";
+        return;
+      }
+      resultsEl.innerHTML = '<table class="repo-search-table"><tbody>' + hits.map(h =>
+        '<tr class="repo-hit" data-path="' + esc(h.path) + '" data-line="' + h.line + '">' +
+        '<td class="repo-hit-loc"><span class="repo-hit-path">' + esc(h.path) + "</span>" +
+        '<span class="repo-hit-line">:' + h.line + "</span></td>" +
+        '<td class="repo-hit-text"><code>' + esc(h.text) + "</code></td></tr>"
+      ).join("") + "</tbody></table>";
+    }).catch(e => {
+      if (otherListSeq !== seq) return;
+      countEl.textContent = "";
+      resultsEl.innerHTML = '<p class="hint">' + esc(t("error") + e.message) + "</p>";
+    });
+  }
+
+  const form = document.getElementById("repoSearchForm");
+  if (form) form.onsubmit = runSearch;
+  content.onclick = ev => {
+    if (otherListSeq !== seq) return;
+    const tr = ev.target.closest("tr.repo-hit");
+    if (!tr) return;
+    openHit(tr.dataset.path, parseInt(tr.dataset.line, 10) || 1);
+  };
+};
+
+document.addEventListener("keydown", ev => {
+  // Ctrl+Shift+F / Cmd+Shift+F: リポジトリ内検索 (CodeMirror の Ctrl+F はファイル内のまま)
+  if (!(ev.ctrlKey || ev.metaKey) || !ev.shiftKey) return;
+  if (ev.key !== "f" && ev.key !== "F") return;
+  if (ev.target && (ev.target.closest && ev.target.closest("input, textarea, select, [contenteditable]"))) {
+    // 入力中でもリポジトリ検索は開いてよい (エディタ内は CodeMirror が Ctrl+F を使う。Shift 付きなので被らない)
+  }
+  if (document.querySelector('[id$="Modal"]:not([hidden]), #dlgBg')) return;
+  ev.preventDefault();
+  if (window.showRepoSearch) window.showRepoSearch();
+});

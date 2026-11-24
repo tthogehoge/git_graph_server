@@ -77,6 +77,23 @@ def api_file(q):
     return qf.file_content(q.get("hash", [""])[0], q.get("path", [""])[0])
 
 
+@route("/api/repo-grep")
+def api_repo_grep(q):
+    """リポジトリ内のファイル内容検索 (git grep)。hash=WIP なら作業ツリー。"""
+    ic = q.get("i", ["0"])[0] in ("1", "true", "True")
+    try:
+        max_hits = int(q.get("max", ["200"])[0])
+    except ValueError:
+        max_hits = 200
+    return qf.repo_grep(
+        q.get("hash", [""])[0],
+        q.get("q", [""])[0],
+        path=q.get("path", [""])[0],
+        ignore_case=ic,
+        max_hits=max_hits,
+    )
+
+
 
 def file_download(q):
     """ダウンロードするファイルを (ファイル名, バイト列) で返す。"""

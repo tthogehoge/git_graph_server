@@ -655,8 +655,78 @@ def rev_or_none(rev):
     return r.stdout.strip() or None
 
 
+
+def repo_grep(hash_, pattern, path="", ignore_case=False, max_hits=200):
+    """リポジトリ内のファイル内容を検索する (git grep)。
+    hash_ が WIP なら作業ツリー、それ以外は指定コミットのツリー。
+    戻り値: {hits: [{path, line, text}], truncated, query, path}。
+    """
+    import re as _re
+    if not isinstance(pattern, str):
+        raise ValueError("bad pattern")
+    pattern = pattern.strip()
+    if not pattern:
+        raise UserError("repo_search_empty")
+    if len(pattern) > 400:
+        raise UserError("repo_search_too_long")
+    if not isinstance(max_hits, int) or max_hits < 1:
+        max_hits = 200
+    max_hits = min(max_hits, 1000)
+    path = validate_file_path(path) if path else ""
+
+    # -n 行番号 / -I バイナリ除外 / -F 固定文字列 / --max-count ファイルあたり上限
+    args = ["grep", "-n", "-I", "-F", "--max-count=30"]
+    if ignore_case:
+        args.append("-i")
+    args.extend(["-e", pattern])
+
+    treeish = None
+    if hash_ == WIP_HASH:
+        if not state.WIP_ENABLED or not state.HAS_WORKTREE:
+            raise UserError("wip_disabled")
+        if path:
+            args.extend(["--", path])
+        else:
+            args.append("--")
+    else:
+        treeish = commit_of(hash_)
+        args.append(treeish)
+        if path:
+            args.extend(["--", path])
+        else:
+            args.append("--")
+
+    r = subprocess.run(
+        ["git", "-C", state.REPO, *args],
+        capture_output=True, check=False,
+    )
+    # 0 = ヒットあり, 1 = ヒットなし
+    if r.returncode not in (0, 1):
+        err = (r.stderr or b"").decode("utf-8", errors="replace").strip()
+        raise UserError("repo_search_failed", error=err or tr("git_command_failed"))
+
+    hits = []
+    lines = (r.stdout or b"").splitlines()
+    prefix = (treeish + ":") if treeish else None
+    for raw in lines:
+        if len(hits) >= max_hits:
+            break
+        line = raw.decode("utf-8", errors="replace")
+        m = _re.match(r"^(.*?):(\d+):(.*)$", line)
+        if not m:
+            continue
+        fpath, lineno, text_line = m.group(1), int(m.group(2)), m.group(3)
+        if prefix and fpath.startswith(prefix):
+            fpath = fpath[len(prefix):]
+        elif prefix and ":" in fpath and fpath.split(":", 1)[0] == treeish:
+            fpath = fpath.split(":", 1)[1]
+        hits.append({"path": fpath, "line": lineno, "text": text_line[:500]})
+
+    truncated = len(lines) > max_hits
+    return {"hits": hits, "truncated": truncated, "query": pattern, "path": path}
+
 __all__ = [
-    "FILE_CONTENT_LIMIT", "WIP_HASH", "blame", "blob_or_empty", "archive_bytes", "file_bytes", "file_content", "image_mime", "pdf_mime", "preview_mime",
+    "FILE_CONTENT_LIMIT", "WIP_HASH", "repo_grep", "blame", "blob_or_empty", "archive_bytes", "file_bytes", "file_content", "image_mime", "pdf_mime", "preview_mime",
     "file_exists_at", "is_wip", "patch_bytes", "rev_or_none", "status_mark", "tree",
     "validate_file_path", "wip_file", "wip_head", "wip_patch", "wip_status_marks", "wip_tree",
     "worktree_target",

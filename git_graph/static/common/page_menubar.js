@@ -425,7 +425,7 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
   enable($("wipPatchApplyBtn"), () => writable && worktree); enable($("wipPatchAmBtn"), () => writable && worktree);
   // その他メニューの一覧系: ファイル画面では右ペインに同じ一覧を出す (グラフの showRefList 等と同じ API)
   enable($("branchListBtn")); enable($("tagListBtn")); enable($("stashListBtn")); enable($("reflogBtn"));
-  enable($("submoduleListBtn")); enable($("opHistoryBtn")); enable($("messageLogBtn"));
+  enable($("submoduleListBtn")); enable($("repoSearchBtn")); enable($("opHistoryBtn")); enable($("messageLogBtn"));
   enable($("commitGraphBtn"), () => writable);  // 書き込み可能なときだけ
   enable($("archiveZipBtn")); enable($("archiveTgzBtn"));  // 読み取り専用でも可
   // remote 追加 / 削除 (その他メニュー)
@@ -545,6 +545,7 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
   on("opHistoryBtn", () => { closeMenus(); if (window.showOtherOpHistory) window.showOtherOpHistory(); });
   on("messageLogBtn", () => { closeMenus(); if (window.showOtherMessageLog) window.showOtherMessageLog(); });
   on("submoduleListBtn", () => { closeMenus(); if (window.showOtherSubmoduleList) window.showOtherSubmoduleList(); });
+  on("repoSearchBtn", () => { closeMenus(); if (window.showRepoSearch) window.showRepoSearch(); });
   function archiveHref(fmt) {
     // 表示中のコミット。WIP なら HEAD (未コミット変更は含まない)
     let h = (typeof hash === "string" && hash) ? hash : "HEAD";
