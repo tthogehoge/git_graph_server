@@ -228,6 +228,20 @@ document.getElementById("compareToolbar").addEventListener("click", ev => {  // 
   if (ev.target.closest("#reflogBtn")) { showReflog(""); return; }
   if (ev.target.closest("#opHistoryBtn")) { showOpHistory(); return; }
   if (ev.target.closest("#messageLogBtn")) { showMessageLog(); return; }
+  if (ev.target.closest("#saveWorktreePrefsBtn")) {
+    setOtherMenu(false);
+    if (!window.WorktreePrefs || typeof WorktreePrefs.save !== "function") {
+      setGraphStatus(t("prefs_unavailable"), "error");
+      return;
+    }
+    const btn = ev.target.closest("#saveWorktreePrefsBtn");
+    btn.disabled = true;
+    WorktreePrefs.save({includeOpts: true})
+      .then(r => setGraphStatus(r.message || t("prefs_saved"), "success"))
+      .catch(e => setGraphStatus(e.message || String(e), "error"))
+      .finally(() => { btn.disabled = false; });
+    return;
+  }
   if (ev.target.closest("#archiveZipBtn") || ev.target.closest("#archiveTgzBtn")) {
     const fmt = ev.target.closest("#archiveZipBtn") ? "zip" : "tar.gz";
     let h = (typeof actionHash === "string" && actionHash) ? actionHash : "HEAD";

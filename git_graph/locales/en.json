@@ -1034,8 +1034,11 @@
   "create_exists": "Already exists: {path}",
   "op_label_file_create": "Create file",
   "op_label_dir_create": "Create folder",
-  "prefs_saved": "Worktree preferences saved",
+  "prefs_saved": "Worktree preferences saved ({path})",
   "prefs_invalid": "Invalid preferences file {path}: {error}",
   "prefs_write_failed": "Cannot write preferences file {path}: {error}",
-  "prefs_no_git_dir": "Cannot save preferences: git directory unknown"
+  "prefs_no_git_dir": "Cannot save preferences: git directory unknown",
+  "save_worktree_prefs": "Save worktree preferences",
+  "tip_save_worktree_prefs": "Save current display settings (Vim, merge view, previews, etc.) and graph node options to .git/git-graph.json",
+  "prefs_unavailable": "Cannot save worktree preferences"
 }

@@ -1,9 +1,8 @@
-// ワークツリー設定 (.git/git-graph.json)。ページに埋め込まれた WORKTREE_PREFS を読み、変更時は /api/prefs へ書く。
-// localStorage よりリポジトリ側の値を優先する (別リポジトリで同じブラウザを使っても混ざらない)。
+// ワークツリー設定 (.git/git-graph.json)。
+// ページに埋め込まれた WORKTREE_PREFS を初期値にする。画面での切り替えはメモリ上だけ更新し、
+// メニュー「ワークツリー設定を保存」で初めてファイルへ書く。
 (function (global) {
-  const base = (typeof WORKTREE_PREFS === "object" && WORKTREE_PREFS) ? WORKTREE_PREFS : {};
-  let pending = {};
-  let timer = null;
+  const base = (typeof WORKTREE_PREFS === "object" && WORKTREE_PREFS) ? Object.assign({}, WORKTREE_PREFS) : {};
 
   function has(key) { return Object.prototype.hasOwnProperty.call(base, key); }
 
@@ -14,20 +13,19 @@
 
   function setLocal(key, value) {
     base[key] = value;
-    pending[key] = value;
-    if (timer) clearTimeout(timer);
-    timer = setTimeout(flush, 200);
   }
 
-  function flush() {
-    timer = null;
-    const body = {prefs: pending};
-    pending = {};
-    fetch("/api/prefs", {
+  function save(opts) {
+    // opts: {includeOpts?: bool} — 既定 true でサーバー側のグラフ用 OPTS もファイルへ含める
+    const body = {
+      prefs: Object.assign({}, base),
+      include_opts: !opts || opts.includeOpts !== false,
+    };
+    return fetch("/api/prefs", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify(body),
-    }).catch(() => { /* 保存失敗しても画面上の切り替えは維持 */ });
+    }).then(r => r.ok ? r.json() : r.text().then(m => { throw new Error(m || r.status); }));
   }
 
   global.WorktreePrefs = {
@@ -36,5 +34,6 @@
     setNumber: function (key, value) { setLocal(key, value); },
     all: function () { return Object.assign({}, base); },
     has: has,
+    save: save,
   };
 })(window);

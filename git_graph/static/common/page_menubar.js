@@ -458,6 +458,7 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
   // その他メニューの一覧系: ファイル画面では右ペインに同じ一覧を出す (グラフの showRefList 等と同じ API)
   enable($("branchListBtn")); enable($("tagListBtn")); enable($("stashListBtn")); enable($("reflogBtn"));
   enable($("submoduleListBtn")); enable($("repoSearchBtn")); enable($("opHistoryBtn")); enable($("messageLogBtn"));
+  enable($("saveWorktreePrefsBtn"));
   enable($("commitGraphBtn"), () => writable);  // 書き込み可能なときだけ
   enable($("archiveZipBtn")); enable($("archiveTgzBtn"));  // 読み取り専用でも可
   // remote 追加 / 削除 (その他メニュー)
@@ -578,6 +579,19 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
   on("reflogBtn", () => { closeMenus(); if (window.showOtherReflog) window.showOtherReflog(""); });
   on("opHistoryBtn", () => { closeMenus(); if (window.showOtherOpHistory) window.showOtherOpHistory(); });
   on("messageLogBtn", () => { closeMenus(); if (window.showOtherMessageLog) window.showOtherMessageLog(); });
+  on("saveWorktreePrefsBtn", async () => {
+    closeMenus();
+    if (!window.WorktreePrefs || typeof WorktreePrefs.save !== "function") {
+      mbSay(T.prefs_unavailable || "prefs unavailable", false);
+      return;
+    }
+    try {
+      const r = await WorktreePrefs.save({includeOpts: true});
+      mbSay(r.message || T.prefs_saved, true);
+    } catch (e) {
+      mbSay(e.message || String(e), false);
+    }
+  });
   on("submoduleListBtn", () => { closeMenus(); if (window.showOtherSubmoduleList) window.showOtherSubmoduleList(); });
   on("repoSearchBtn", () => { closeMenus(); if (window.showRepoSearch) window.showRepoSearch(); });
   function archiveHref(fmt) {

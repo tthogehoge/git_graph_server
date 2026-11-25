@@ -189,7 +189,9 @@ def api_prefs_get(_query=None):
 
 @route("/api/prefs", method="POST")
 def api_prefs_post(body):
-    """ワークツリー設定の一部更新。知っているキーだけ反映してファイルへ書く。"""
+    """ワークツリー設定をファイルへ書く。画面からの明示保存用。
+    prefs: 更新するキー。include_opts が真 (既定) のときは、いまの state.OPTS の
+    グラフ用の値 (cluster_min_nodes など) もファイルに含める。"""
     if state.NEED_REPO:
         raise UserError("setup_required")
     if not isinstance(body, dict):
@@ -197,17 +199,22 @@ def api_prefs_post(body):
     updates = body.get("prefs", body)
     if not isinstance(updates, dict):
         raise ValueError("bad body")
+    updates = dict(updates)
+    if body.get("include_opts", True) and state.OPTS is not None:
+        for key in GRAPH_KEYS:
+            if hasattr(state.OPTS, key):
+                updates[key] = getattr(state.OPTS, key)
     written = merge_prefs(updates)
     return {
         "ok": True,
         "prefs": written,
         "path": state.WORKTREE_PREFS_PATH or "",
-        "message": tr_saved(),
+        "message": tr_saved(path=state.WORKTREE_PREFS_PATH or ""),
     }
 
 
-def tr_saved():
-    return tr("prefs_saved")
+def tr_saved(path=""):
+    return tr("prefs_saved", path=path or "")
 
 
 __all__ = [

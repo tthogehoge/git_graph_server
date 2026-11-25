@@ -1034,8 +1034,11 @@
   "create_exists": "既に存在します: {path}",
   "op_label_file_create": "ファイルの作成",
   "op_label_dir_create": "フォルダの作成",
-  "prefs_saved": "ワークツリー設定を保存しました",
+  "prefs_saved": "ワークツリー設定を保存しました ({path})",
   "prefs_invalid": "設定ファイル {path} が正しくありません: {error}",
   "prefs_write_failed": "設定ファイル {path} に書けません: {error}",
-  "prefs_no_git_dir": "git ディレクトリが分からないため、設定を保存できません"
+  "prefs_no_git_dir": "git ディレクトリが分からないため、設定を保存できません",
+  "save_worktree_prefs": "ワークツリー設定を保存",
+  "tip_save_worktree_prefs": "いまの表示設定 (Vim・マージ表示・プレビューなど) とグラフのノード数オプションを .git/git-graph.json に保存します",
+  "prefs_unavailable": "ワークツリー設定を保存できません"
 }

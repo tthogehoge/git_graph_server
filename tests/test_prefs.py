@@ -68,3 +68,12 @@ class PrefsTests(unittest.TestCase):
         self.assertTrue(r["ok"])
         self.assertFalse(r["prefs"]["editor_wrap"])
         self.assertTrue(r["prefs"]["show_merges"])
+
+    def test_api_post_include_opts_writes_graph_opts(self):
+        state.OPTS.cluster_min_nodes = 777
+        state.OPTS.merge_max_nodes = 888
+        r = prefs_mod.api_prefs_post({"prefs": {"editor_vim": True}, "include_opts": True})
+        self.assertTrue(r["ok"])
+        self.assertEqual(r["prefs"]["cluster_min_nodes"], 777)
+        self.assertEqual(r["prefs"]["merge_max_nodes"], 888)
+        self.assertTrue(r["prefs"]["editor_vim"])
