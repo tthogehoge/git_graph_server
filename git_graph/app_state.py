@@ -14,3 +14,5 @@ START_WIP = False  # 最初の / へのアクセスを WIP のファイル表示
 CHILD_CMD = None  # submodule を別プロセスで開くときの起動コマンドを返す関数 (path -> argv)。pywebview のように、子が自分のウィンドウを開く方式のときに設定する
 NEED_REPO = False  # 起動時に指定されたパスが git リポジトリではなく、開くリポジトリがまだ決まっていない。設定画面だけを出す (repo_setup.py)
 SETUP_PATH = ""  # 設定画面の「開くフォルダ」の初期値 (起動時に指定されたパス)
+WORKTREE_PREFS = {}
+WORKTREE_PREFS_PATH = ""  # .git/git-graph.json (リポジトリごと)

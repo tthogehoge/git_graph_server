@@ -15,6 +15,16 @@ from .files import validate_file_path, WIP_HASH, worktree_target
 from .query.files import file_exists_at
 
 
+
+def _prefs_js():
+    """ページに埋め込むワークツリー設定。prefs が読めなくても空オブジェクト。"""
+    try:
+        from .prefs import prefs_js_literal
+        return prefs_js_literal()
+    except Exception:
+        return "{}"
+
+
 def wip_file_exists(path):
     try:
         target = worktree_target(path)
@@ -473,7 +483,8 @@ def render_files_page():
     return (with_project(fill_template(FILES_PAGE))
             .replace('<html lang="ja">', f'<html lang="{state.UI_LANG}">')
             .replace("/*__FLAGS__*/", "const CAN_COPY = " + ("true" if state.WRITABLE and state.HAS_WORKTREE else "false")
-                     + "; const DESKTOP = " + ("true" if state.DESKTOP and state.WRITABLE and state.HAS_WORKTREE else "false") + ";")
+                     + "; const DESKTOP = " + ("true" if state.DESKTOP and state.WRITABLE and state.HAS_WORKTREE else "false") + ";"
+                     + " const WORKTREE_PREFS = " + _prefs_js() + ";")
             .replace("<!--__MENUBAR__-->", menubar)
             .replace("/*__MENUBAR_DIALOG__*/", dialog_js)
             .replace("<!--__WIP_DIFF_REMOTE__-->", '<script src="/static/diff/wip_diff_remote.js"></script>' if remote else ""))

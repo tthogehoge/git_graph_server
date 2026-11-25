@@ -101,11 +101,20 @@ def with_project(page):
     """テンプレート中のプロジェクト名とアイコンの置換。"""
     return page.replace("__PROJECT__", html.escape(state.PROJECT_NAME)).replace("__FAVICON__", FAVICON_LINK)
 
+
+def _worktree_prefs_js():
+    try:
+        from .prefs import prefs_js_literal
+        return prefs_js_literal()
+    except Exception:
+        return "{}"
+
 def render_main_page():
     from .pages import menubar_html  # pages は i18n を使うので、循環しないよう呼ぶときに読み込む
     return (with_project((fill_template(HTML_TEMPLATE.replace("<!--__MENUBAR__-->", menubar_html("graph")))
                           .replace('<html lang="ja">', f'<html lang="{state.UI_LANG}">'))
-                          .replace("/*__FLAGS__*/", "const WIP_ENABLED = " + ("true" if state.WIP_ENABLED else "false") + ";")))
+                          .replace("/*__FLAGS__*/", "const WIP_ENABLED = " + ("true" if state.WIP_ENABLED else "false")
+                                   + "; const WORKTREE_PREFS = " + _worktree_prefs_js() + ";")))
 
 def render_setup_page():
     """開くリポジトリが決まっていないときの画面 (開くフォルダと、クローン元のアドレスの入力)。

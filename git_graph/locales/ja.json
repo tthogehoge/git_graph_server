@@ -1033,5 +1033,9 @@
   "create_dir_done": "フォルダを作成しました: {path}",
   "create_exists": "既に存在します: {path}",
   "op_label_file_create": "ファイルの作成",
-  "op_label_dir_create": "フォルダの作成"
+  "op_label_dir_create": "フォルダの作成",
+  "prefs_saved": "ワークツリー設定を保存しました",
+  "prefs_invalid": "設定ファイル {path} が正しくありません: {error}",
+  "prefs_write_failed": "設定ファイル {path} に書けません: {error}",
+  "prefs_no_git_dir": "git ディレクトリが分からないため、設定を保存できません"
 }

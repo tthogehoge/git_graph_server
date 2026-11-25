@@ -46,16 +46,21 @@ function t(key, values = {}) {  // {name} を values[name] に置き換える (�
 
 let DATA = {nodes: {}, edges: {}};
 const SHOW_MERGES_KEY = "gitGraphShowMerges";
-let showMergesState = null;  // 「マージ表示」のチェック状態。保存先 (localStorage) が使えない pywebview などでも切り替わるよう、メモリ上の値を正とする
+let showMergesState = null;  // 「マージ表示」。ワークツリー設定 > localStorage > オフ
 function showMergesOn() {
   if (showMergesState === null) {
-    try { showMergesState = localStorage.getItem(SHOW_MERGES_KEY) === "1"; } catch (e) { showMergesState = false; }
+    if (window.WorktreePrefs && WorktreePrefs.has("show_merges")) {
+      showMergesState = WorktreePrefs.getBool("show_merges", false);
+    } else {
+      try { showMergesState = localStorage.getItem(SHOW_MERGES_KEY) === "1"; } catch (e) { showMergesState = false; }
+    }
   }
   return showMergesState;
 }
 function setShowMerges(on) {
   showMergesState = !!on;
-  try { localStorage.setItem(SHOW_MERGES_KEY, on ? "1" : "0"); } catch (e) { /* 保存できなくても表示は切り替わる (次回起動時には引き継がれない) */ }
+  try { localStorage.setItem(SHOW_MERGES_KEY, on ? "1" : "0"); } catch (e) { /* 保存できなくても表示は切り替わる */ }
+  if (window.WorktreePrefs) WorktreePrefs.setBool("show_merges", showMergesState);
 }
 let openClusters = [];  // クラスター表示で開いているクラスター (古い順)。サーバーが数を絞って返す
 function graphUrl() {

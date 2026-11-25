@@ -47,6 +47,7 @@ IGNORED = {
     "/api/find-equivalent-parents", "/api/find-equivalent-branch",  # POST だが読み取りだけ
     "/api/undo", "/api/redo",
     "/api/setup",  # 開くリポジトリを決める (リポジトリが決まる前に呼ばれるので、状態を記録する対象が無い)
+    "/api/prefs",  # ワークツリー表示設定 (.git/git-graph.json)。git の内容は変えない
 }
 # 操作名 -> 履歴に出す文言の翻訳キー
 LABEL_KEYS = {

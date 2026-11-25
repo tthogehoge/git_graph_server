@@ -4,17 +4,26 @@
 let fileData = null, editing = false, editDirty = false, textEditor = null;
 const VIM_KEY = "gitGraphEditorVim";
 const WRAP_KEY = "gitGraphEditorWrap";
-let vimOn = false;  // Vim モードにするか。保存先 (localStorage) が使えない pywebview などでも切り替わるよう、メモリ上の値を正とする
-let wrapOn = true;  // 長い行を折り返すか。既定はオン (以前の表示と同じ)
-try { vimOn = localStorage.getItem(VIM_KEY) === "1"; } catch (e) { vimOn = false; }
-try { const w = localStorage.getItem(WRAP_KEY); if (w === "0") wrapOn = false; else if (w === "1") wrapOn = true; } catch (e) { wrapOn = true; }
-function setVimPref(on) {  // Vim モードの設定 (表示・編集・差分で共通)
+let vimOn = false;  // Vim モード。ワークツリー設定 > localStorage > 既定
+let wrapOn = true;  // 折り返し。ワークツリー設定 > localStorage > 既定
+(function initEditorPrefs() {
+  if (window.WorktreePrefs && WorktreePrefs.has("editor_vim")) vimOn = WorktreePrefs.getBool("editor_vim", false);
+  else try { vimOn = localStorage.getItem(VIM_KEY) === "1"; } catch (e) { vimOn = false; }
+  if (window.WorktreePrefs && WorktreePrefs.has("editor_wrap")) wrapOn = WorktreePrefs.getBool("editor_wrap", true);
+  else try {
+    const w = localStorage.getItem(WRAP_KEY);
+    if (w === "0") wrapOn = false; else if (w === "1") wrapOn = true;
+  } catch (e) { wrapOn = true; }
+})();
+function setVimPref(on) {  // Vim モードの設定 (表示・編集・差分で共通)。ワークツリーの .git/git-graph.json にも残す
   vimOn = on;
-  try { localStorage.setItem(VIM_KEY, vimOn ? "1" : "0"); } catch (e) { /* 保存できなくても切り替わる (次回は引き継がれない) */ }
+  try { localStorage.setItem(VIM_KEY, vimOn ? "1" : "0"); } catch (e) { /* 保存できなくても切り替わる */ }
+  if (window.WorktreePrefs) WorktreePrefs.setBool("editor_vim", vimOn);
 }
 function setWrapPref(on) {  // 折り返しの設定 (表示・編集・差分で共通)
   wrapOn = on;
-  try { localStorage.setItem(WRAP_KEY, wrapOn ? "1" : "0"); } catch (e) { /* 保存できなくても切り替わる (次回は引き継がれない) */ }
+  try { localStorage.setItem(WRAP_KEY, wrapOn ? "1" : "0"); } catch (e) { /* 保存できなくても切り替わる */ }
+  if (window.WorktreePrefs) WorktreePrefs.setBool("editor_wrap", wrapOn);
 }
 const EOL_LABEL = {crlf: "CRLF", lf: "LF", cr: "CR"};
 let diffView = null;  // 右ペインの差分エディタ (view=diff)

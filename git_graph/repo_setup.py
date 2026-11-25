@@ -55,6 +55,8 @@ def open_repo(path):
     state.NEED_REPO = False
     from . import libgit
     libgit.reset_cache()  # 前に開いていた (または開こうとした) リポジトリのキャッシュを捨てる
+    from . import prefs as prefs_mod
+    prefs_mod.load_into_state()  # .git/git-graph.json (vim / マージ表示 / ノード数など)
 
 
 def check_clone_url(url):

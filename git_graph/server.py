@@ -44,6 +44,7 @@ from .history import (  # noqa: F401
 from .external import DEFAULT_CONFIG_PATH, load_config
 from .launcher import api_submodule_open  # noqa: F401
 from .repo_setup import api_setup, open_repo  # noqa: F401
+from . import prefs as prefs_mod  # noqa: F401  (/api/prefs)
 from .submodules import api_submodule_add, api_submodule_fetch, api_submodule_update  # noqa: F401
 from . import engine, tmpdir
 from .pages import diff_page_url, diff_url, render_files_page, render_merge_page, wip_files

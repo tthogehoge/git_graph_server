@@ -1033,5 +1033,9 @@
   "create_dir_done": "Created folder: {path}",
   "create_exists": "Already exists: {path}",
   "op_label_file_create": "Create file",
-  "op_label_dir_create": "Create folder"
+  "op_label_dir_create": "Create folder",
+  "prefs_saved": "Worktree preferences saved",
+  "prefs_invalid": "Invalid preferences file {path}: {error}",
+  "prefs_write_failed": "Cannot write preferences file {path}: {error}",
+  "prefs_no_git_dir": "Cannot save preferences: git directory unknown"
 }

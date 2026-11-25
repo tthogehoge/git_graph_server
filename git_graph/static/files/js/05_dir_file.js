@@ -154,29 +154,44 @@ function openDir(path) {  // ディレクトリを選ぶ: 開いているファ�
 const MD_EXT = /\.(md|markdown|mdown|mkd|mkdn)$/i;
 const HTML_EXT = /\.(html?)$/i;
 const MD_PREVIEW_KEY = "gg-md-preview", MD_BREAKS_KEY = "gg-md-breaks", HTML_PREVIEW_KEY = "gg-html-preview", HTML_JS_KEY = "gg-html-js";
-let mdPreviewOn = true;  // Markdown を整形表示するか (オフならソース = テキスト表示)
-let mdBreaksOn = false;  // 単独改行を <br> にするか (marked の breaks)
-let htmlPreviewOn = true;  // HTML をプレビューするか (オフならソース)
-let htmlJsOn = false;  // HTML プレビューで script を動かすか (動かすときは親ページに触れないサンドボックスにする)
-try { const v = localStorage.getItem(MD_PREVIEW_KEY); if (v === "0") mdPreviewOn = false; else if (v === "1") mdPreviewOn = true; } catch (e) { mdPreviewOn = true; }
-try { const v = localStorage.getItem(MD_BREAKS_KEY); if (v === "1") mdBreaksOn = true; else if (v === "0") mdBreaksOn = false; } catch (e) { mdBreaksOn = false; }
-try { const v = localStorage.getItem(HTML_PREVIEW_KEY); if (v === "0") htmlPreviewOn = false; else if (v === "1") htmlPreviewOn = true; } catch (e) { htmlPreviewOn = true; }
+let mdPreviewOn = true;  // Markdown 整形表示。ワークツリー設定 > localStorage > オン
+let mdBreaksOn = false;
+let htmlPreviewOn = true;
+let htmlJsOn = false;
+(function initPreviewPrefs() {
+  function fromLs(key, onVal, offVal, fallback) {
+    try {
+      const v = localStorage.getItem(key);
+      if (v === onVal) return true;
+      if (v === offVal) return false;
+    } catch (e) { /* ignore */ }
+    return fallback;
+  }
+  const WP = window.WorktreePrefs;
+  mdPreviewOn = (WP && WP.has("md_preview")) ? WP.getBool("md_preview", true) : fromLs(MD_PREVIEW_KEY, "1", "0", true);
+  mdBreaksOn = (WP && WP.has("md_breaks")) ? WP.getBool("md_breaks", false) : fromLs(MD_BREAKS_KEY, "1", "0", false);
+  htmlPreviewOn = (WP && WP.has("html_preview")) ? WP.getBool("html_preview", true) : fromLs(HTML_PREVIEW_KEY, "1", "0", true);
+  htmlJsOn = (WP && WP.has("html_js")) ? WP.getBool("html_js", false) : fromLs(HTML_JS_KEY, "1", "0", false);
+})();
 function setMdPreviewPref(on) {
   mdPreviewOn = on;
-  try { localStorage.setItem(MD_PREVIEW_KEY, mdPreviewOn ? "1" : "0"); } catch (e) { /* 保存できなくても切り替わる */ }
+  try { localStorage.setItem(MD_PREVIEW_KEY, mdPreviewOn ? "1" : "0"); } catch (e) { /* ignore */ }
+  if (window.WorktreePrefs) WorktreePrefs.setBool("md_preview", mdPreviewOn);
 }
 function setMdBreaksPref(on) {
   mdBreaksOn = on;
-  try { localStorage.setItem(MD_BREAKS_KEY, mdBreaksOn ? "1" : "0"); } catch (e) { /* 保存できなくても切り替わる */ }
+  try { localStorage.setItem(MD_BREAKS_KEY, mdBreaksOn ? "1" : "0"); } catch (e) { /* ignore */ }
+  if (window.WorktreePrefs) WorktreePrefs.setBool("md_breaks", mdBreaksOn);
 }
 function setHtmlPreviewPref(on) {
   htmlPreviewOn = on;
-  try { localStorage.setItem(HTML_PREVIEW_KEY, htmlPreviewOn ? "1" : "0"); } catch (e) { /* 保存できなくても切り替わる */ }
+  try { localStorage.setItem(HTML_PREVIEW_KEY, htmlPreviewOn ? "1" : "0"); } catch (e) { /* ignore */ }
+  if (window.WorktreePrefs) WorktreePrefs.setBool("html_preview", htmlPreviewOn);
 }
-try { const v = localStorage.getItem(HTML_JS_KEY); if (v === "1") htmlJsOn = true; else if (v === "0") htmlJsOn = false; } catch (e) { htmlJsOn = false; }
 function setHtmlJsPref(on) {
   htmlJsOn = on;
-  try { localStorage.setItem(HTML_JS_KEY, htmlJsOn ? "1" : "0"); } catch (e) { /* 保存できなくても切り替わる */ }
+  try { localStorage.setItem(HTML_JS_KEY, htmlJsOn ? "1" : "0"); } catch (e) { /* ignore */ }
+  if (window.WorktreePrefs) WorktreePrefs.setBool("html_js", htmlJsOn);
 }
 function htmlSandboxAttr() {  // sandbox 属性の値。script を動かすときは allow-same-origin を外す
   // (allow-scripts + allow-same-origin の組合せは、script が自分で sandbox を外せるので親ページに触れてしまう)
