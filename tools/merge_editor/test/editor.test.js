@@ -163,7 +163,11 @@ test("read-only viewer (file view): shows the text, blocks typing, still allows 
   assert.equal(w.document.querySelectorAll(".cm-gutters").length, 1);
   assert.equal(ed.view.state.readOnly, true);
   assert.equal(w.document.querySelector(".cm-activeLine"), null);  // 表示では、カーソル行を強調しない
-  assert.ok(w.document.querySelector(".cm-lineWrapping"), "view wraps long lines");
+  assert.equal(w.document.querySelector(".cm-lineWrapping"), null, "折り返しは、wrap を指定したときだけ");
+  ed.setWrap(true);
+  assert.ok(w.document.querySelector(".cm-lineWrapping"), "setWrap(true) で長い行を折り返す");
+  ed.setWrap(false);
+  assert.equal(w.document.querySelector(".cm-lineWrapping"), null, "setWrap(false) で折り返しを戻す");
   ed.view.dispatch({selection: {anchor: 0}});
   const ev = new w.KeyboardEvent("keydown", {key: "Tab", bubbles: true, cancelable: true});
   w.document.querySelector(".cm-content").dispatchEvent(ev);
@@ -484,8 +488,8 @@ test("diff editor: collapse folds long unchanged runs; added / deleted files are
   eol.destroy();
 });
 
-// ---- 差分エディタの表示 (git_graph/static/diff_editor_view.js: /diff と /files の右ペインで共用) ----
-const VIEW_SCRIPT = new URL("../../../git_graph/static/diff_editor_view.js", import.meta.url);
+// ---- 差分エディタの表示 (git_graph/static/diff/diff_editor_view.js: /diff と /files の右ペインで共用) ----
+const VIEW_SCRIPT = new URL("../../../git_graph/static/diff/diff_editor_view.js", import.meta.url);
 const side = (content, extra = {}) => ({kind: "commit", ref: "abc1234", label: "abc1234", exists: true, content: content, encoding: "UTF-8", binary: false, truncated: false, eol: "lf", ...extra});
 const TEXTS = {
   diff_editor_prev: "PREV", diff_editor_next: "NEXT", diff_editor_collapse: "COLLAPSE", diff_editor_chunks: "{n} changes", diff_editor_none: "NONE",

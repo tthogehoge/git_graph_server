@@ -3981,6 +3981,8 @@ class EmptyRepoTests(unittest.TestCase):
     def test_empty_repo_shows_wip_and_allows_commit(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             subprocess.run(["git", "init", "-q", tmpdir], check=True)
+            for key, value in (("user.name", "Test User"), ("user.email", "test@example.com")):  # 初回コミットが、グローバルの git の設定に頼らない
+                subprocess.run(["git", "-C", tmpdir, "config", key, value], check=True)
             old_repo, old_wip, old_opts, old_writable, old_worktree = (
                 state.REPO, state.WIP_ENABLED, state.OPTS, state.WRITABLE, state.HAS_WORKTREE
             )
