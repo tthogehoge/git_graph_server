@@ -1148,7 +1148,7 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
                 page = response.read().decode("utf-8")
             self.assertIn('href="/static/graph/app_tail.css"', page)
             self.assertIn('src="/static/graph/js/01_core.js"', page)
-            self.assertIn("<script>const WIP_ENABLED = true;</script>", page)
+            self.assertRegex(page, r"<script>const WIP_ENABLED = true; const WORKTREE_PREFS = \{.*?\};</script>")  # フラグとワークツリー設定は 1 つの script
             self.assertNotIn("<style>", page)
 
             with urlopen(f"{base_url}/static/i18n.js") as response:

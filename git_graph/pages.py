@@ -89,6 +89,8 @@ MENUBAR_TEXT_KEYS = (
     # remote 追加 / 削除 (その他メニュー)
     "remote_add", "remote_remove", "fetch_after_add", "name_url_required", "remote_to_remove",
     "confirm_remove_remote", "no_remotes", "name", "add", "running_fetch",
+    # ワークツリー設定の保存 (メニューバー)
+    "prefs_saved", "prefs_unavailable",
 )
 # ヘッダーのアイコンボタン。files.html / index.html にも同じ絵を直接書いてある
 _SVG = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">{p}</svg>'
