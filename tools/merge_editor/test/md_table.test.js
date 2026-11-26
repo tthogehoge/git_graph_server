@@ -36,6 +36,15 @@ function paste(w, text) {
   w.document.querySelector(".cm-content").dispatchEvent(ev);
   return ev;
 }
+function caretEnd(w, el) {  // セル (contenteditable) の末尾へキャレットを置く
+  el.focus();
+  const r = w.document.createRange();
+  r.selectNodeContents(el);
+  r.collapse(false);
+  const s = w.getSelection();
+  s.removeAllRanges();
+  s.addRange(r);
+}
 const selText = ed => {
   const s = ed.view.state.selection.main;
   return ed.view.state.sliceDoc(s.from, s.to);
@@ -408,6 +417,39 @@ test("the overlay always has the same size at the center of the screen (the curs
   assert.equal(w.GGText.mdTableOverlay(ed.view), true);
   const ov2 = w.document.querySelector(".gg-md-table-overlay");
   assert.deepEqual([ov2.style.left, ov2.style.top, ov2.style.width, ov2.style.height], size, "どこで開いても、大きさも場所も同じ");
+});
+
+test("the overlay's arrow keys move between cells at the cell edges", () => {
+  const w = load();
+  const ed = editor(w, DOC);
+  inCell(ed, 5);  // 「秋子」のセルの中 (キャレットは先頭)
+  assert.equal(w.GGText.mdTableOverlay(ed.view), true);
+  const ov = w.document.querySelector(".gg-md-table-overlay");
+  const key = name => ov.dispatchEvent(new w.KeyboardEvent("keydown", {key: name, bubbles: true, cancelable: true}));
+  const focused = () => w.document.activeElement.textContent;
+  // 開いた直後、カーソルは「秋子」(1 つ目の列) の先頭。左端のセルの先頭で ← は動かない
+  key("ArrowLeft");
+  assert.equal(focused(), "秋子");
+  // Tab で「32」へ動って、その先頭で ← : 前のセル (秋子) へ
+  key("Tab");
+  assert.equal(focused(), "32");
+  key("ArrowLeft");
+  assert.equal(focused(), "秋子");
+  // → : セルの先頭では動かない。末尾なら、次のセル (32) へ
+  key("ArrowRight");
+  assert.equal(focused(), "秋子");
+  caretEnd(w, w.document.activeElement);
+  key("ArrowRight");
+  assert.equal(focused(), "32");
+  // ↓ : 下のセル (太郎の「8」) へ。↑ : 上へ戻る (さらに ↑ で見出しの「年齢」へ。そこからは動かない)
+  key("ArrowDown");
+  assert.equal(focused(), "8");
+  key("ArrowUp");
+  assert.equal(focused(), "32");
+  key("ArrowUp");
+  assert.equal(focused(), "年齢");
+  key("ArrowUp");
+  assert.equal(focused(), "年齢");
 });
 
 test("the overlay's Ctrl+Z / Ctrl+Y undo and redo cell edits and structural changes", () => {

@@ -5,6 +5,7 @@
 // 貼り付けを元に戻す / やり直せる。
 // ボタン (行・列の追加 / 削除。上 / 下、左 / 右) と、Alt+Backspace / Alt+Shift+Backspace でも
 // 行・列を消せる。Ctrl/Cmd+Enter で行を下に足す。Alt+Enter はセルの中の改行 (書き戻すときに <br> にする)。
+// 矢印キーは、セルの中ではふうに動き、セルの端では隣のセルへ動く。
 // 表計算からのタブ区切りのテキストの貼り付けも、表の行に変換して受ける。
 // 閉じるとき (Esc、外のクリック、エディタのスクロール、リサイズ) に、編集した内容を
 // Markdown の表の行に変換してソースに書き戻す。表の解析と整形は src/md_table.js の純関数を使う。
@@ -64,6 +65,10 @@ function goCell(o, doc, el) {  // セルを覚えて、そこへ移る
 function cellOf(o, row, col) {  // (data-r, data-c) のセル。なければ null
   return [...o.root.querySelectorAll("td")].find(el => +el.dataset.r === row && +el.dataset.c === col) || null;
 }
+function goRC(o, doc, row, col) {  // (row, col) のセルへ移る (なければ何もしない)
+  const el = cellOf(o, row, col);
+  if (el) goCell(o, doc, el);
+}
 function moveCell(o, doc, dir) {  // オーバーレイの中の Tab / Shift+Tab。セルの間を動く (端では止まる)
   const cells = [...o.root.querySelectorAll("td")];
   const i = cells.findIndex(td => +td.dataset.r === o.lastCell.row && +td.dataset.c === o.lastCell.col);
@@ -83,6 +88,21 @@ function insertBreak(doc) {  // Alt+Enter。セルの中で改行する (書き�
   r.collapse(false);
   sel.removeAllRanges();
   sel.addRange(r);
+}
+function currentTd(o, doc) {  // カーソルのあるセル (フォーカスがセルになければ null)
+  const el = doc.activeElement;
+  return el && el.closest && o.root.contains(el) ? el.closest("td") : null;
+}
+function sideText(doc, cell, before) {  // セルの中の、キャレットより前 / 後ろのテキスト (折り返しではなく、セルの中の改行で判断する)
+  const sel = doc.defaultView.getSelection();
+  if (!sel || !sel.rangeCount) return null;
+  const r = sel.getRangeAt(0);
+  if (!r.collapsed) return null;  // 選んでいるときは動かさない (選択を伸ばすのはブラウザーに任せる)
+  const probe = doc.createRange();
+  probe.selectNodeContents(cell);
+  if (before) probe.setEnd(r.startContainer, r.startOffset);
+  else probe.setStart(r.endContainer, r.endOffset);
+  return probe.toString();
 }
 
 // --- やり直し (Ctrl+Z / Ctrl+Y。セルの入力と、行・列の追加・削除・貼り付けを戻せる) ---
@@ -263,6 +283,30 @@ export function mdTableOverlay(view, labels = {}) {
     if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); addRow(open, doc, false); return; }
     if (ev.key === "Backspace" && ev.altKey && ev.shiftKey) { ev.preventDefault(); deleteColumn(open, doc); return; }
     if (ev.key === "Backspace" && ev.altKey) { ev.preventDefault(); deleteRow(open, doc); return; }
+    // 矢印キー。セルの端では、隣のセルへ動く (セルの中では、ふつうに動かす)。Shift は選択なので働かない
+    const td = currentTd(open, doc);
+    if (td && !ev.shiftKey && !ev.altKey && !ev.ctrlKey && !ev.metaKey) {
+      if (ev.key === "ArrowLeft" && open.lastCell.col > 0 && !(sideText(doc, td, true) || "").length) {
+        ev.preventDefault();
+        goRC(open, doc, open.lastCell.row, open.lastCell.col - 1);
+        return;
+      }
+      if (ev.key === "ArrowRight" && open.lastCell.col < open.ncol - 1 && !(sideText(doc, td, false) || "").length) {
+        ev.preventDefault();
+        goRC(open, doc, open.lastCell.row, open.lastCell.col + 1);
+        return;
+      }
+      if (ev.key === "ArrowUp" && !(sideText(doc, td, true) || "").includes("\n")) {
+        const next = cellOf(open, open.lastCell.row - 1, open.lastCell.col);
+        if (next) { ev.preventDefault(); goCell(open, doc, next); }
+        return;
+      }
+      if (ev.key === "ArrowDown" && !(sideText(doc, td, false) || "").includes("\n")) {
+        const next = cellOf(open, open.lastCell.row + 1, open.lastCell.col);
+        if (next) { ev.preventDefault(); goCell(open, doc, next); }
+        return;
+      }
+    }
     if (ev.key === "Enter" && !ev.shiftKey) { ev.preventDefault(); moveDown(open, doc); }
   };
   root.addEventListener("keydown", open.onKey);
