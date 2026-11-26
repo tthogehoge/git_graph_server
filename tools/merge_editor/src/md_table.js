@@ -350,4 +350,5 @@ function mdTableExtension() {
   ];
 }
 
-export {mdTableExtension};
+// オーバーレイの編集 (md_table_overlay.js) が、表の解析と書き戻しで使う純関数も出す
+export {mdTableExtension, blockOf, cellPos, rowCells, rowLine, tableIsValid};

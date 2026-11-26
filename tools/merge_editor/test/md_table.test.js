@@ -211,6 +211,38 @@ test("a table wider than the format width limit is not formatted (the other aids
   assert.ok(ed2.getText().startsWith("intro\n\n| 名前 | " + long + " |"), "すでにある行は変えない");
 });
 
+test("the table button opens a contenteditable overlay and writes the edits back to the source", () => {
+  const w = load();
+  const ed = editor(w, DOC);
+  ed.view.dispatch({selection: {anchor: ed.view.state.doc.line(1).from + 1}});  // 表の外では開かない
+  assert.equal(w.GGText.mdTableOverlay(ed.view), false);
+  assert.equal(w.document.querySelector(".gg-md-table-overlay"), null);
+  inCell(ed, 5);  // 「秋子」のセルの中
+  assert.equal(w.GGText.mdTableOverlay(ed.view), true);
+  const ov = w.document.querySelector(".gg-md-table-overlay");
+  assert.ok(ov, "表の上にオーバーレイが出る");
+  const ths = ov.querySelectorAll("thead th"), tds = ov.querySelectorAll("tbody td");
+  assert.equal(ths.length, 2);
+  assert.equal(ths[0].textContent, "名前");
+  assert.equal(tds.length, 4);  // データの 2 行 × 2 列 (区切りの行は出さない)
+  assert.equal(tds[0].textContent, "秋子");
+  // Tab で次のセルへ動く (エディタの Tab は働かない)
+  const tab = new w.KeyboardEvent("keydown", {key: "Tab", bubbles: true, cancelable: true});
+  ov.dispatchEvent(tab);
+  assert.equal(tab.defaultPrevented, true);
+  // セルを直接書き換えて Esc で閉じると、ソースに書き戻る
+  tds[0].textContent = "あきこ";
+  const esc = new w.KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true});
+  ov.dispatchEvent(esc);
+  assert.equal(esc.defaultPrevented, true);
+  assert.equal(ed.getText(),
+    "intro\n\n| 名前   | 年齢 |\n| :----- | ---: |\n| あきこ | 32   |\n| 太郎   | 8    |\noutro\n");
+  assert.equal(w.document.querySelector(".gg-md-table-overlay"), null);  // 閉じたら消える
+  const s = ed.view.state.selection.main;
+  const at = ed.getText().indexOf("32");  // Tab で次のセル (32) に動ったあとだから、そこへ戻る
+  assert.ok(at <= s.from && s.from <= at + 2, "カーソルは編集していたセルの中");
+});
+
 test("pasting tab separated text (spreadsheet) into a table adds the rows", () => {
   const w = load();
   const ed = editor(w, DOC);
