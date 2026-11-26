@@ -475,7 +475,7 @@ test("copying a selection across cells puts tab separated text on the clipboard"
   assert.equal(ev2.clipboardData.text, "秋子\t32\n太郎\t8");
 });
 
-test("dragging the mouse across cells selects them (and the drag copy works)", () => {
+test("dragging the mouse across cells selects them (vertically too, and the drag copy works)", () => {
   const w = load();
   const ed = editor(w, DOC);
   inCell(ed, 5);
@@ -483,41 +483,49 @@ test("dragging the mouse across cells selects them (and the drag copy works)", (
   const ov = w.document.querySelector(".gg-md-table-overlay");
   const cells = ov.querySelectorAll("tbody td");
   const md = (target, opts = {}) => new w.MouseEvent("mousedown", {bubbles: true, cancelable: true, button: 0, ...opts});
-  // 「秋子」で押して、「8」までドラッグすると、セルをまたぐ選択になる
+  const up = () => w.document.dispatchEvent(new w.MouseEvent("mouseup", {bubbles: true}));
+  const selChanged = () => w.document.dispatchEvent(new w.Event("selectionchange"));
+  const copyEvent = () => {
+    const ev = new w.Event("copy", {bubbles: true, cancelable: true});
+    const store = {};
+    ev.clipboardData = {setData: (t, v) => { store[t] = v; }, get text() { return store["text/plain"]; }};
+    return ev;
+  };
+  const selectedBg = "rgb(207, 227, 255)";  // SELECT_BG (#cfe3ff)
+  // 「秋子」で押して、「8」まで横にドラッグすると、2 × 2 のセルの選択になる
   cells[2].dispatchEvent(md(cells[2]));
   assert.equal(w.document.activeElement, cells[2], "押したセルにフォーカスがある");
   cells[5].dispatchEvent(new w.MouseEvent("mousemove", {bubbles: true}));
-  const sel = w.getSelection();
-  assert.equal(sel.rangeCount, 1);
-  const r = sel.getRangeAt(0);
-  assert.equal(r.collapsed, false, "選択がつぶれていない");
-  assert.ok(cells[2].contains(r.startContainer) && cells[5].contains(r.endContainer), "「秋子」から「8」まで");
-  // セルをまたぐ選択のときは、かかっているセルの背景が変わる (文字列の選択と区別がつくように)
-  w.document.dispatchEvent(new w.Event("selectionchange"));
-  const selectedBg = "rgb(207, 227, 255)";  // SELECT_BG (#cfe3ff)
-  const headerBg = "rgb(246, 248, 250)";  // 見出しの行 (#f6f8fa)
+  selChanged();
   [2, 3, 4, 5].forEach(i => assert.equal(cells[i].style.background, selectedBg, "選んだセル " + i));
-  [0, 1].forEach(i => assert.equal(cells[i].style.background, headerBg, "選んでいない見出し " + i));
+  [0, 1].forEach(i => assert.notEqual(cells[i].style.background, selectedBg, "選んでいない見出し " + i));
+  // DOM の選択は、押したセルのキャレットのまま (ブラウザーは contenteditable のセルをまたげないので、状態のほうで選ぶ)
+  assert.equal(w.getSelection().getRangeAt(0).collapsed, true);
   // そのままコピーすると、タブ区切りのテキストになる
-  const ev = new w.Event("copy", {bubbles: true, cancelable: true});
-  const store = {};
-  ev.clipboardData = {setData: (t, v) => { store[t] = v; }, get text() { return store["text/plain"]; }};
+  const ev = copyEvent();
   ov.dispatchEvent(ev);
   assert.equal(ev.defaultPrevented, true);
   assert.equal(ev.clipboardData.text, "秋子\t32\n太郎\t8");
-  // 放したあとは、ドラッグを始めたセルのまま (キャレットはつぶれていない選択を保つ)
-  w.document.dispatchEvent(new w.MouseEvent("mouseup", {bubbles: true}));
-  assert.equal(sel.rangeCount, 1);
-  assert.equal(sel.getRangeAt(0).collapsed, false);
+  // 縦にも選べる:「秋子」から「太郎」まで (同じ列)
+  up();
+  cells[2].dispatchEvent(md(cells[2]));
+  cells[4].dispatchEvent(new w.MouseEvent("mousemove", {bubbles: true}));
+  selChanged();
+  [2, 4].forEach(i => assert.equal(cells[i].style.background, selectedBg, "縦に選んだセル " + i));
+  [3, 5].forEach(i => assert.notEqual(cells[i].style.background, selectedBg, "縦に選んでいないセル " + i));
+  const ev2 = copyEvent();
+  ov.dispatchEvent(ev2);
+  assert.equal(ev2.clipboardData.text, "秋子\n太郎");
+  up();
   // 単にクリックしただけのセルは、キャレットが置かれた状態になる (ふつうに編集できる)
   cells[4].dispatchEvent(md(cells[4]));
-  w.document.dispatchEvent(new w.MouseEvent("mouseup", {bubbles: true}));
+  up();
   assert.equal(w.document.activeElement, cells[4]);
   const s2 = w.getSelection();
   assert.equal(s2.rangeCount, 1);
   assert.equal(s2.getRangeAt(0).collapsed, true, "クリックはキャレット");
   // キャレットに戻ったら、セルの選択の色は消える
-  w.document.dispatchEvent(new w.Event("selectionchange"));
+  selChanged();
   [2, 3, 4, 5].forEach(i => assert.notEqual(cells[i].style.background, selectedBg, "色が消えたセル " + i));
 });
 

@@ -66,6 +66,7 @@ function focusCell(doc, el, atEnd) {  // セルへカーソル (キャレット)
 }
 function goCell(o, doc, el) {  // セルを覚えて、そこへ移る
   o.lastCell = {row: +el.dataset.r, col: +el.dataset.c};
+  o.selState = null;  // セルの選択は、移ったら消す
   focusCell(doc, el, false);
 }
 function cellOf(o, row, col) {  // (data-r, data-c) のセル。なければ null
@@ -110,10 +111,14 @@ function selectedCells(o, doc) {  // 選択範囲にかかっているセル (�
     return r.compareBoundaryPoints(1, cr) > 0 && r.compareBoundaryPoints(3, cr) < 0;  // 範囲と重なるセル
   });
 }
-function paintSelected(o, doc) {  // セルをまたぐ選択のときは、かかっているセルの背景を変える (文字列の選択と区別がつくように)
-  const on = selectedCells(o, doc);
+function paintSelected(o, doc) {  // セルの選択 (selState。ドラッグで作る) があれば、その範囲のセルの背景を変える
   renumber(o);  // いったん、見出しかどうかのふつうの色に戻してから
-  if (on.length >= 2) on.forEach(td => { td.style.background = SELECT_BG; });  // セルの選択だけ、色を変える
+  const s = o.selState;
+  if (!s) return;
+  for (let r = s.r0; r <= s.r1; r++) for (let c = s.c0; c <= s.c1; c++) {
+    const td = cellOf(o, r, c);
+    if (td) td.style.background = SELECT_BG;  // 文字列の選択と区別がつくように
+  }
 }
 function moveCell(o, doc, dir) {  // オーバーレイの中の Tab / Shift+Tab。セルの間を動く (端では止まる)
   const cells = [...o.root.querySelectorAll("td")];
@@ -283,7 +288,7 @@ export function mdTableOverlay(view, labels = {}) {
                              border: "1px solid #888", boxShadow: "0 4px 16px rgba(0,0,0,.3)", padding: "4px",
                              display: "flex", flexDirection: "column", boxSizing: "border-box"});
   open = {view, doc, from: block.from, to: block.to, text: block.text, indent, aligns, ncol, root,
-          lastCell: {row: 1, col: 0}, undo: [], redo: [], restoring: false};
+          lastCell: {row: 1, col: 0}, selState: null, undo: [], redo: [], restoring: false};
   const bar = doc.createElement("div");  // 行と列の追加・削除のボタン (表をスクロールしても見えている)
   bar.style.cssText = "display:flex; gap:4px; margin-bottom:4px; flex:none;";
   const fallback = {addRowAbove: "↑ 行", addRow: "↓ 行", delRow: "− 行", addColLeft: "← 列", addCol: "→ 列", delCol: "− 列"};
@@ -353,6 +358,7 @@ export function mdTableOverlay(view, labels = {}) {
     if (ev.key === "Backspace" && ev.altKey && ev.shiftKey) { ev.preventDefault(); deleteColumn(open, doc); return; }
     if (ev.key === "Backspace" && ev.altKey) { ev.preventDefault(); deleteRow(open, doc); return; }
     // 矢印キー。セルの端では、隣のセルへ動く (セルの中では、ふつうに動かす)。Shift は選択なので働かない
+    if (ev.key.indexOf("Arrow") === 0) open.selState = null;  // 矢印で動いたら、セルの選択は消す
     const td = currentTd(open, doc);
     if (td && !ev.shiftKey && !ev.altKey && !ev.ctrlKey && !ev.metaKey) {
       if (ev.key === "ArrowLeft" && open.lastCell.col > 0 && !(sideText(doc, td, true) || "").length) {
@@ -384,6 +390,7 @@ export function mdTableOverlay(view, labels = {}) {
     const el = doc.activeElement;
     const cell = el && el.closest ? el.closest("td") : null;
     if (cell && root.contains(cell)) open.lastCell = {row: +cell.dataset.r, col: +cell.dataset.c};
+    open.selState = null;  // セルを選んでいるときに入力したら、選択は消す
   };
   open.retrack = () => {  // セルの位置だけ覚え直す
     const el = doc.activeElement;
@@ -426,19 +433,24 @@ export function mdTableOverlay(view, labels = {}) {
     renumber(open);
     goCell(open, doc, cellOf(open, r0, c0));  // カーソルは、貼り始めたセルへ
   };
-  open.onCopy = ev => {  // 複数のセルにまたがる選択は、タブ区切りのテキストとしてコピーする (表計算に貼れる)
-    const cells = selectedCells(open, doc);
-    if (cells.length < 2) return;  // 1 つのセルの中の選択は、ブラウザーのコピーに任せる
+  open.onCopy = ev => {  // セルの選択 (ドラッグ) か、複数のセルにまたがる文字列の選択なら、タブ区切りのテキストとしてコピーする
+    const s = open.selState;
+    let block = null;  // [r0, r1, c0, c1]
+    if (s) block = [s.r0, s.r1, s.c0, s.c1];
+    else {
+      const cells = selectedCells(open, doc);
+      if (cells.length < 2) return;  // 1 つのセルの中の選択は、ブラウザーのコピーに任せる
+      const rs = cells.map(td => +td.dataset.r), cs = cells.map(td => +td.dataset.c);
+      block = [Math.min(...rs), Math.max(...rs), Math.min(...cs), Math.max(...cs)];  // 選んだ範囲を長方形として切り出す
+    }
     const cd = ev.clipboardData;
     if (!cd || typeof cd.setData !== "function") return;
     ev.preventDefault();
     ev.stopPropagation();
-    const rs = cells.map(td => +td.dataset.r), cs = cells.map(td => +td.dataset.c);
-    const r0 = Math.min(...rs), r1 = Math.max(...rs), c0 = Math.min(...cs), c1 = Math.max(...cs);
     const lines = [];
-    for (let r = r0; r <= r1; r++) {  // 選んだ範囲を長方形として切り出す (選んでいないセルも、その場所のセル)
+    for (let r = block[0]; r <= block[1]; r++) {  // 選んでいないセルも、その場所のセルで埋める
       const line = [];
-      for (let c = c0; c <= c1; c++) {
+      for (let c = block[2]; c <= block[3]; c++) {
         const td = cellOf(open, r, c);
         line.push(td ? rawCell(td) : "");
       }
@@ -457,6 +469,7 @@ export function mdTableOverlay(view, labels = {}) {
     if (!td || !root.contains(td) || ev.button !== 0) return;
     ev.preventDefault();  // ネイティブのキャレット移動・選択は働かせない (自分で作る)
     drag = {td, caret: caretAtPoint(doc, ev.clientX, ev.clientY)};
+    open.selState = null;  // 新しく押したので、前のセルの選択は消す
     td.focus();
     const r = drag.caret || cellRange(doc, td);
     r.collapse(true);
@@ -469,20 +482,23 @@ export function mdTableOverlay(view, labels = {}) {
     if (!drag) return;
     const td = ev.target && ev.target.closest ? ev.target.closest("td") : null;
     if (!td || !root.contains(td)) return;
-    const r = doc.createRange();
     if (td === drag.td) {  // 同じセルの中なら、セルの中の選択 (ネイティブと同じように)
+      open.selState = null;
       const c2 = caretAtPoint(doc, ev.clientX, ev.clientY);
       if (!c2) return;
+      const r = doc.createRange();
       const a = drag.caret || cellRange(doc, td);
       if (a.compareBoundaryPoints(0, c2) <= 0) { r.setStart(a.startContainer, a.startOffset); r.setEnd(c2.startContainer, c2.startOffset); }
       else { r.setStart(c2.startContainer, c2.startOffset); r.setEnd(a.startContainer, a.startOffset); }
-    } else {  // ほかのセルへなら、セルをまたぐ選択 (始めのセルと動かした先のセルを、まるごと含む)
-      const a = cellRange(doc, drag.td), b = cellRange(doc, td);
-      if (a.compareBoundaryPoints(0, b) <= 0) { r.setStart(a.startContainer, a.startOffset); r.setEnd(b.endContainer, b.endOffset); }
-      else { r.setStart(b.startContainer, b.startOffset); r.setEnd(a.endContainer, a.endOffset); }
+      setSel(doc, r);
+      paintSelected(open, doc);
+    } else {  // ほかのセルへなら、セルの選択。縦・横・斜めのどちらでも選べるように、セルの番号の長方形として覚える
+      // (DOM の選択は、ブラウザーが contenteditable のセルをまたげずに潰すことがあるので、使わない)
+      const r0 = Math.min(+drag.td.dataset.r, +td.dataset.r), r1 = Math.max(+drag.td.dataset.r, +td.dataset.r);
+      const c0 = Math.min(+drag.td.dataset.c, +td.dataset.c), c1 = Math.max(+drag.td.dataset.c, +td.dataset.c);
+      open.selState = {r0, r1, c0, c1};
+      paintSelected(open, doc);
     }
-    setSel(doc, r);
-    paintSelected(open, doc);
   };
   root.addEventListener("mousemove", open.onMm);
   open.onMu = () => { drag = null; };  // 放したら終わり (選択はそのまま残る)
