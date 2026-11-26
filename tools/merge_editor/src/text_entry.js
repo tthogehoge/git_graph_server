@@ -8,6 +8,7 @@ import {getChunks, goToNextChunk, goToPreviousChunk, MergeView} from "@codemirro
 import {highlightSelectionMatches, search, searchKeymap} from "@codemirror/search";
 import {Vim, vim} from "@replit/codemirror-vim";
 import {languageExtensions, languageName} from "./languages.js";
+import {mdTableExtension} from "./md_table.js";
 import {THEME, VIEW_SIZE} from "./theme.js";
 
 // Vim モードの Ex コマンド (:w :wq :x :q :q!)。Vim の登録はアプリ全体で 1 つなので、押したエディタの opts を探して呼ぶ。
@@ -45,6 +46,7 @@ export function createTextEditor(opts) {
         wrapSlot.of(wrapExtension(!!opts.wrap)),
         indentUnit.of("\t"), EditorState.tabSize.of(4),  // Tab はタブ文字を入れる (選択が複数行ならインデント)
         languageExtensions(opts.path || "") || [],
+        (opts.readOnly || languageName(opts.path || "") !== "markdown") ? [] : mdTableExtension(),
         Prec.high(vimSlot.of(vimExtension(!!opts.vim))),  // Vim のキーは、ほかのキー割り当てより先に効かせる
         EditorState.phrases.of(opts.phrases || {}),
         keymap.of([
@@ -133,6 +135,7 @@ export function createDiffEditor(opts) {
       ...searchKeymap, ...historyKeymap, ...defaultKeymap,
     ]),
     EditorView.updateListener.of(update => { if (update.docChanged && opts.onChange) opts.onChange(); }),
+    ...(languageName(opts.path || "") === "markdown" ? mdTableExtension() : []),  // 差分エディタで Markdown の表を編集するときも同じ操作
   ] : [
     ...shared, EditorState.readOnly.of(true),
     keymap.of([...searchKeymap, ...defaultKeymap]),
@@ -166,3 +169,4 @@ export function createDiffEditor(opts) {
 
 export {Vim, getCM} from "@replit/codemirror-vim";  // テストで Ex コマンドを直接動かすため
 export {languageName};
+export {formatMarkdownTable} from "./md_table.js";  // テストから直接確かめるため

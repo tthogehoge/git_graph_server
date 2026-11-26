@@ -171,6 +171,18 @@ function editorPhrases() {  // 検索パネルなどの文言 (CodeMirror 側の
 window.addEventListener("beforeunload", ev => { if (editing && editDirty) { ev.preventDefault(); ev.returnValue = ""; } });
 let mdScrollCleanup = null;  // Markdown 編集の左右スクロール同期を外す関数
 let mdScrollSyncing = false;
+function insertMdTable() {  // 「表」ボタン。カーソルの行の下に 2 列の表を入れて、最後の行の 1 つ目の空セルへカーソルを置く
+  if (!editing || !textEditor || !textEditor.view) return;
+  const view = textEditor.view;
+  const line = view.state.doc.lineAt(view.state.selection.main.head);
+  const rows = ["| " + t("md_table_col", {n: 1}) + " | " + t("md_table_col", {n: 2}) + " |", "| --- | --- |", "|   |   |"];
+  const atLineEnd = line.text !== "";  // 行の途中なら、いったん改行してから表を出す (表は専用の行に)
+  const from = line.to;
+  const insert = (atLineEnd ? "\n" : "") + rows.join("\n");
+  const anchor = from + (atLineEnd ? 1 : 0) + rows[0].length + 1 + rows[1].length + 1 + 2;  // 最後の行の 1 つ目の空セルの中
+  view.dispatch({changes: {from, to: from, insert: insert}, selection: {anchor: anchor}, scrollIntoView: true});
+  textEditor.focus();
+}
 function mdEditScroller() {  // 左エディタのスクロール要素 (CodeMirror の .cm-scroller)
   const host = document.getElementById("editor");
   return host && host.querySelector(".cm-scroller");
@@ -300,7 +312,9 @@ function startEdit() {
     '<div class="edit-bar"><button class="primary" id="editSave">' + esc(t("edit_save")) + '</button><button id="editCancel">' +
     esc(t("edit_cancel")) + '</button><label class="edit-vim" title="' + esc(t("edit_wrap_tip")) + '"><input type="checkbox" id="editWrap"' + (wrapOn ? " checked" : "") +
     '> ' + esc(t("edit_wrap")) + '</label><label class="edit-vim" title="' + esc(t("edit_vim_tip")) + '"><input type="checkbox" id="editVim"' + (vimOn ? " checked" : "") +
-    '> ' + esc(t("edit_vim")) + '</label>' + breaksLabel + '</div>' + editorBlock;
+    '> ' + esc(t("edit_vim")) + '</label>' +
+    (mdEdit ? '<button id="mdTblBtn" title="' + esc(t("md_table_insert_tip")) + '">' + esc(t("md_table_insert")) + '</button>' : "") +
+    breaksLabel + '</div>' + editorBlock;
   document.getElementById("main").scrollTop = 0;
   if (splitEdit) fitMdEditSplit();
   else fitEditor(document.getElementById("editor"));
@@ -351,6 +365,8 @@ function startEdit() {
     updateMdEditPreview();
     if (textEditor) textEditor.focus();
   };
+  const tblBtn = document.getElementById("mdTblBtn");
+  if (tblBtn) tblBtn.onclick = insertMdTable;
   document.getElementById("editSave").onclick = saveEdit;
   document.getElementById("editCancel").onclick = () => { if (leaveEdit()) backToContent(); };
 }
