@@ -248,15 +248,17 @@ test("the overlay's buttons and keys add and delete rows and columns, and the re
   const w = load();
   const ed = editor(w, DOC);
   inCell(ed, 5);  // 「秋子」のセルの中
-  assert.equal(w.GGText.mdTableOverlay(ed.view, {addRow: "+ 行", delRow: "− 行", addCol: "+ 列", delCol: "− 列"}), true);
+  assert.equal(w.GGText.mdTableOverlay(ed.view, {addRowAbove: "↑ 行", addRow: "↓ 行", delRow: "− 行",
+                                                 addColLeft: "← 列", addCol: "→ 列", delCol: "− 列"}), true);
   const ov = w.document.querySelector(".gg-md-table-overlay");
   const btns = [...ov.querySelectorAll("button")];
-  assert.deepEqual(btns.map(b => b.textContent), ["+ 行", "− 行", "+ 列", "− 列"]);
+  assert.deepEqual(btns.map(b => b.textContent), ["↑ 行", "↓ 行", "− 行", "← 列", "→ 列", "− 列"]);
+  assert.ok(ov.querySelector("table").parentElement.style.overflow === "auto", "ボタンの行はスクロールの外 (スクロールしても見えている)");
   assert.equal(ov.querySelectorAll("thead th").length, 2);
   assert.equal(ov.querySelectorAll("tbody tr").length, 2);
 
-  // + 行: いまの行 (秋子) の下に空の行が足される
-  btns[0].click();
+  // ↓ 行: いまの行 (秋子) の下に空の行が足される
+  btns[1].click();
   assert.equal(ov.querySelectorAll("tbody tr").length, 3);
   ov.dispatchEvent(new w.KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
   assert.equal(ed.getText(),
@@ -268,6 +270,40 @@ test("the overlay's buttons and keys add and delete rows and columns, and the re
   ov2.dispatchEvent(new w.KeyboardEvent("keydown", {key: "Backspace", altKey: true, bubbles: true, cancelable: true}));
   assert.equal(ov2.querySelectorAll("tbody tr").length, 2);
   ov2.dispatchEvent(new w.KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
+  assert.equal(ed.getText(), DOC);
+
+  // 見出しの行で ↑ 行: 見出しの次 (最初のデータの行) に空の行が足される
+  ed.view.dispatch({selection: {anchor: ed.view.state.doc.line(3).from + 3}});  // 見出しの「名前」
+  assert.equal(w.GGText.mdTableOverlay(ed.view), true);
+  const ov7 = w.document.querySelector(".gg-md-table-overlay");
+  ov7.querySelectorAll("button")[0].click();  // ↑ 行
+  assert.equal(ov7.querySelectorAll("tbody tr").length, 3);
+  assert.equal(ov7.querySelectorAll("tbody tr")[0].children[0].textContent, "\u200b");  // 足されたのは空の行
+  ov7.dispatchEvent(new w.KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
+  assert.equal(ed.getText(),
+    "intro\n\n| 名前 | 年齢 |\n| :--- | ---: |\n|      |      |\n| 秋子 | 32   |\n| 太郎 | 8    |\noutro\n");
+
+  // − 行 (カーソルは足した空の行にある) で元に戻してから、← 列: 1 つ目の列の左に空の列が足される
+  assert.equal(w.GGText.mdTableOverlay(ed.view), true);
+  const ov8 = w.document.querySelector(".gg-md-table-overlay");
+  ov8.querySelectorAll("button")[2].click();  // − 行
+  assert.equal(ov8.querySelectorAll("tbody tr").length, 2);
+  ov8.dispatchEvent(new w.KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
+  assert.equal(ed.getText(), DOC);
+  ed.view.dispatch({selection: {anchor: ed.view.state.doc.line(3).from + 3}});  // 見出しの「名前」
+  assert.equal(w.GGText.mdTableOverlay(ed.view), true);
+  const ov9 = w.document.querySelector(".gg-md-table-overlay");
+  ov9.querySelectorAll("button")[3].click();  // ← 列
+  assert.equal(ov9.querySelectorAll("thead th").length, 3);
+  ov9.dispatchEvent(new w.KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
+  assert.equal(ed.getText(),
+    "intro\n\n|     | 名前 | 年齢 |\n| --- | :--- | ---: |\n|     | 秋子 | 32   |\n|     | 太郎 | 8    |\noutro\n");
+  // (以降の確認のため、元の 2 列に戻す: Alt+Shift+Backspace で足した列 (カーソルはそこ) を消す)
+  ed.view.dispatch({selection: {anchor: ed.view.state.doc.line(3).from + 3}});
+  assert.equal(w.GGText.mdTableOverlay(ed.view), true);
+  const ov10 = w.document.querySelector(".gg-md-table-overlay");
+  ov10.dispatchEvent(new w.KeyboardEvent("keydown", {key: "Backspace", altKey: true, shiftKey: true, bubbles: true, cancelable: true}));
+  ov10.dispatchEvent(new w.KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
   assert.equal(ed.getText(), DOC);
 
   // Ctrl+Enter: 列を右に足す (見出しも)。Alt+Shift+Backspace: その列を消す

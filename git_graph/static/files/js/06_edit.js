@@ -175,7 +175,8 @@ function insertMdTable() {  // 「表」ボタン。カーソルが表の中な�
   if (!editing || !textEditor || !textEditor.view) return;
   const view = textEditor.view;
   if (window.GGText && window.GGText.mdTableOverlay &&
-      window.GGText.mdTableOverlay(view, {addRow: t("md_table_ov_add_row"), delRow: t("md_table_ov_del_row"),
+      window.GGText.mdTableOverlay(view, {addRowAbove: t("md_table_ov_add_row_above"), addRow: t("md_table_ov_add_row"),
+                                          delRow: t("md_table_ov_del_row"), addColLeft: t("md_table_ov_add_col_left"),
                                           addCol: t("md_table_ov_add_col"), delCol: t("md_table_ov_del_col")})) return;  // オーバーレイにフォーカスがあるので、エディタは聚焦らない
   const line = view.state.doc.lineAt(view.state.selection.main.head);
   const rows = ["| " + t("md_table_col", {n: 1}) + " | " + t("md_table_col", {n: 2}) + " |", "| --- | --- |", "|   |   |"];
