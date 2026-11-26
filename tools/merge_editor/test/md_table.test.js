@@ -45,6 +45,32 @@ function caretEnd(w, el) {  // セル (contenteditable) の末尾へキャレッ
   s.removeAllRanges();
   s.addRange(r);
 }
+function caretAt(w, el, offset) {  // セルの中の offset 文字目の後ろ (先頭は 0) へキャレットを置く
+  el.focus();
+  const r = w.document.createRange();
+  r.setStart(el.firstChild, offset);
+  r.setEnd(el.firstChild, offset);
+  const s = w.getSelection();
+  s.removeAllRanges();
+  s.addRange(r);
+}
+function fakeWrap(w, cell, perLine, lineH) {  // 折り返しの代わりのレイアウト (テスト用): cell の中のテキストを perLine 文字ごとに折り返すものとして、行ごとの矩形を返す
+  w.Range.prototype.getClientRects = function() {
+    const inside = n => n === cell || cell.contains(n);
+    if (this.collapsed || !inside(this.startContainer) || !inside(this.endContainer)) return [];
+    const abs = (container, offset) => {  // 境界の、セルの中での文字の位置
+      const pr = w.document.createRange();
+      pr.selectNodeContents(cell);
+      pr.setEnd(container, offset);
+      return pr.toString().length;
+    };
+    const from = abs(this.startContainer, this.startOffset), to = abs(this.endContainer, this.endOffset);
+    const rects = [];
+    for (let i = Math.floor(from / perLine); i <= Math.floor(Math.max(from, to - 1) / perLine); i++)
+      rects.push({top: i * lineH, bottom: (i + 1) * lineH, height: lineH, left: 0, right: 10, width: 10});
+    return rects;
+  };
+}
 const selText = ed => {
   const s = ed.view.state.selection.main;
   return ed.view.state.sliceDoc(s.from, s.to);
@@ -417,6 +443,38 @@ test("the overlay always has the same size at the center of the screen (the curs
   assert.equal(w.GGText.mdTableOverlay(ed.view), true);
   const ov2 = w.document.querySelector(".gg-md-table-overlay");
   assert.deepEqual([ov2.style.left, ov2.style.top, ov2.style.width, ov2.style.height], size, "どこで開いても、大きさも場所も同じ");
+});
+
+test("the overlay's up / down keys use the wrapped visual lines of tall cells", () => {
+  const w = load();
+  const long = "あいうえおかきくけこさしすせそ";  // 15 文字
+  const ed = editor(w, "intro\n\n| 名前 | 備考 |\n| --- | --- |\n| 秋子 | " + long + " |\n| 太郎 | 8    |\noutro\n");
+  inCell(ed, 5);
+  assert.equal(w.GGText.mdTableOverlay(ed.view), true);
+  const ov = w.document.querySelector(".gg-md-table-overlay");
+  const cell = ov.querySelectorAll("tbody tr")[1].children[1];  // 長いセル (5 文字ごとに折り返す → 3 行)
+  fakeWrap(w, cell, 5, 16);
+  const key = name => ov.dispatchEvent(new w.KeyboardEvent("keydown", {key: name, bubbles: true, cancelable: true}));
+  const focused = () => w.document.activeElement.textContent;
+  // 折り返しの途中 (2 行目) では、上下ともセルの中にとどまる
+  caretAt(w, cell, 6);
+  key("ArrowUp");
+  assert.equal(focused(), long, "2 行目で ↑ は動かない");
+  key("ArrowDown");
+  assert.equal(focused(), long, "2 行目で ↓ は動かない");
+  // 1 行目でも ↓ は動かない (折り返しの続きがある)。最後の行では ↓ が、下のセル (太郎の「8」) へ動く
+  caretAt(w, cell, 0);
+  key("ArrowDown");
+  assert.equal(focused(), long, "1 行目で ↓ は動かない");
+  caretAt(w, cell, 15);
+  key("ArrowUp");
+  assert.equal(focused(), long, "最後の行で ↑ は動かない");
+  key("ArrowDown");
+  assert.equal(focused(), "8", "下の端 → 下のセルへ");
+  // 1 行目の先頭で ↑ は、上のセル (見出しの「備考」) へ
+  caretAt(w, cell, 0);
+  key("ArrowUp");
+  assert.equal(focused(), "備考");
 });
 
 test("the overlay's arrow keys move between cells at the cell edges", () => {

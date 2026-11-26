@@ -5,7 +5,8 @@
 // 貼り付けを元に戻す / やり直せる。
 // ボタン (行・列の追加 / 削除。上 / 下、左 / 右) と、Alt+Backspace / Alt+Shift+Backspace でも
 // 行・列を消せる。Ctrl/Cmd+Enter で行を下に足す。Alt+Enter はセルの中の改行 (書き戻すときに <br> にする)。
-// 矢印キーは、セルの中ではふうに動き、セルの端では隣のセルへ動く。
+// 矢印キーは、セルの中ではふうに動き、セルの端では隣のセルへ動く。上下は、折り返しで複数行の
+// セルでは、折り返しの行で判断する (見た目の行の位置を、矩形から取る。取れないときはセルの中の改行で代用)。
 // 表計算からのタブ区切りのテキストの貼り付けも、表の行に変換して受ける。
 // 閉じるとき (Esc、外のクリック、エディタのスクロール、リサイズ) に、編集した内容を
 // Markdown の表の行に変換してソースに書き戻す。表の解析と整形は src/md_table.js の純関数を使う。
@@ -93,7 +94,7 @@ function currentTd(o, doc) {  // カーソルのあるセル (フォーカスが
   const el = doc.activeElement;
   return el && el.closest && o.root.contains(el) ? el.closest("td") : null;
 }
-function sideText(doc, cell, before) {  // セルの中の、キャレットより前 / 後ろのテキスト (折り返しではなく、セルの中の改行で判断する)
+function sideText(doc, cell, before) {  // セルの中の、キャレットより前 / 後ろのテキスト
   const sel = doc.defaultView.getSelection();
   if (!sel || !sel.rangeCount) return null;
   const r = sel.getRangeAt(0);
@@ -103,6 +104,29 @@ function sideText(doc, cell, before) {  // セルの中の、キャレットよ�
   if (before) probe.setEnd(r.startContainer, r.startOffset);
   else probe.setStart(r.endContainer, r.endOffset);
   return probe.toString();
+}
+function visualLines(r) {  // 範囲が、見た目で何行に渡るか (折り返しの行も数える)。レイアウトが取れないときは null
+  const rects = r.getClientRects ? r.getClientRects() : [];
+  if (!rects.length) return r.collapsed ? 1 : null;  // 範囲がつぶれているときは 1 行。矩形が取れないときは分からない
+  const tops = [];
+  for (const rect of rects) {
+    if (rect.width === 0 && rect.height === 0) continue;  // 幅も高さもない断片は、数えない
+    if (!tops.some(t => Math.abs(t - rect.top) <= 1)) tops.push(rect.top);  // 同じ行の断片 (折り返しの割れる場所) は 1 行
+  }
+  return Math.max(1, tops.length);
+}
+function atVerticalEdge(doc, cell, up) {  // カーソルが、セルの一番上 / 下の「見た目の行」にあるか。
+  const sel = doc.defaultView.getSelection();  // 折り返しで複数行のセルは、折り返しの行数で判断する
+  if (!sel || !sel.rangeCount) return true;
+  const r = sel.getRangeAt(0);
+  if (!r.collapsed) return false;
+  const probe = doc.createRange();
+  probe.selectNodeContents(cell);
+  if (up) probe.setEnd(r.startContainer, r.startOffset);
+  else probe.setStart(r.endContainer, r.endOffset);
+  const n = visualLines(probe);
+  if (n != null) return n <= 1;  // カーソルより前 / 後ろが 1 行に収まっているなら、端
+  return !(sideText(doc, cell, up) || "").includes("\n");  // 見た目が取れない環境 (テストなど) は、セルの中の改行で代用
 }
 
 // --- やり直し (Ctrl+Z / Ctrl+Y。セルの入力と、行・列の追加・削除・貼り付けを戻せる) ---
@@ -296,12 +320,12 @@ export function mdTableOverlay(view, labels = {}) {
         goRC(open, doc, open.lastCell.row, open.lastCell.col + 1);
         return;
       }
-      if (ev.key === "ArrowUp" && !(sideText(doc, td, true) || "").includes("\n")) {
+      if (ev.key === "ArrowUp" && atVerticalEdge(doc, td, true)) {
         const next = cellOf(open, open.lastCell.row - 1, open.lastCell.col);
         if (next) { ev.preventDefault(); goCell(open, doc, next); }
         return;
       }
-      if (ev.key === "ArrowDown" && !(sideText(doc, td, false) || "").includes("\n")) {
+      if (ev.key === "ArrowDown" && atVerticalEdge(doc, td, false)) {
         const next = cellOf(open, open.lastCell.row + 1, open.lastCell.col);
         if (next) { ev.preventDefault(); goCell(open, doc, next); }
         return;
