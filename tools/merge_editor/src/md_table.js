@@ -57,10 +57,13 @@ function isSepRow(cells) {  // 区切りの行 (--- / :---: など) か
 }
 function tableIsValid(rows) {
   if (rows.length < 3 || !rows[0] || !rows[1]) return false;
-  return rows[0].cells.length >= 2 && isSepRow(rows[1].cells) && rows.every(r => r && r.cells.length >= 1);
+  const ncol = rows[0].cells.length;
+  if (ncol < 2 || !isSepRow(rows[1].cells)) return false;
+  // 見出しより多いセルの行があるとき (セルの中に「|」を生で書いてある) は、区切りがどれか分からないので補助しない
+  return rows.every(r => r && r.cells.length >= 1 && r.cells.length <= ncol);
 }
-function ncolOf(rows) {
-  return Math.max.apply(null, rows.map(r => r.cells.length));
+function ncolOf(rows) {  // 列の数は、見出しの行で決める (少ない行は、整形と表示が空セルを補う)
+  return rows[0].cells.length;
 }
 function rowLine(cells, indent) {  // セルの内容から、行を 1 行作る (整形前の素の形)
   return indent + "| " + cells.join(" | ") + " |";
@@ -289,6 +292,15 @@ function onPaste(ev, view) {
     .map(l => l.split("\t").map(c => c.replace(/\|/g, "\\|")));
   const lines = block.text.split("\n");
   pasted.forEach((cells, i) => lines.splice(row + 1 + i, 0, rowLine(cells, block.rows[row].indent)));
+  // 貼った行に列が多いときは、全部の行をその列の数まで広げる (見出しと区切りも)
+  const rows = lines.map(rowCells);
+  const max = Math.max.apply(null, rows.map(r => r.cells.length));
+  for (let i = 0; i < rows.length; i++) {
+    if (rows[i].cells.length >= max) continue;
+    const cells = rows[i].cells.map(c => c.text);
+    while (cells.length < max) cells.push(i === 1 ? "---" : "");
+    lines[i] = rowLine(cells, rows[i].indent);
+  }
   const formatted = formatMarkdownTable(lines.join("\n"));
   if (formatted == null) return false;
   return replaceBlock(view, block, formatted, {row: row + 1, col: 0}, "input.paste");

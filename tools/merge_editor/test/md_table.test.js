@@ -60,6 +60,28 @@ test("format: tab stops (fullwidth characters count 2) and alignment markers", (
                "| 名前 | 年齢 |\n| :--- | :--: |\n| 秋子 | 32   |");
   assert.equal(w.GGText.formatMarkdownTable("| a |"), null);  // 区切りの行が無いものや、表でないものは null
   assert.equal(w.GGText.formatMarkdownTable("aaa"), null);
+  assert.equal(w.GGText.formatMarkdownTable("| a | b | c |\n| --- | --- | --- |\n| x | y |"),
+               "| a   | b   | c   |\n| --- | --- | --- |\n| x   | y   |     |");  // 少ない行は、空セルで補う (表示と同じ)
+});
+
+test("a row with more cells than the header (a raw | in a cell) leaves the table alone", () => {
+  const w = load();
+  const t = "| a | b |\n| --- | --- |\n| x | y | z |\n";  // セルの中に生の「|」がある行は、区切りを決められない
+  assert.equal(w.GGText.formatMarkdownTable(t), null);
+  const ed = editor(w, "intro\n\n" + t + "outro\n");
+  ed.view.dispatch({selection: {anchor: ed.view.state.doc.line(5).from + 3}});
+  key(w, "Enter");
+  key(w, "Shift-Tab");  // 表の補助は何もしない (Shift+Tab はインデントを戻すだけなので、文字は変わらない)
+  assert.equal(ed.getText(), "intro\n\n| a | b |\n| --- | --- |\n| x\n| y | z |\noutro\n");
+});
+
+test("pasting data wider than the table widens every row (header and separator too)", () => {
+  const w = load();
+  const ed = editor(w, DOC);
+  inCell(ed, 5);
+  paste(w, "p\tq\tr");
+  assert.equal(ed.getText(),
+    "intro\n\n| 名前 | 年齢 |     |\n| :--- | ---: | --- |\n| 秋子 | 32   |     |\n| p    | q    | r   |\n| 太郎 | 8    |     |\noutro\n");
 });
 
 test("Tab / Shift+Tab move between cells, Tab on the last cell adds a row", () => {
