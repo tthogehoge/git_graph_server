@@ -174,7 +174,9 @@ let mdScrollSyncing = false;
 function insertMdTable() {  // 「表」ボタン。カーソルが表の中なら、その表を直接編集するオーバーレイを出す (閉じるときにソースへ書き戻す)。外なら、カーソルの行の下に 2 列の表を入れて、最後の行の 1 つ目の空セルへカーソルを置く
   if (!editing || !textEditor || !textEditor.view) return;
   const view = textEditor.view;
-  if (window.GGText && window.GGText.mdTableOverlay && window.GGText.mdTableOverlay(view)) return;  // オーバーレイにフォーカスがあるので、エディタは聚焦らない
+  if (window.GGText && window.GGText.mdTableOverlay &&
+      window.GGText.mdTableOverlay(view, {addRow: t("md_table_ov_add_row"), delRow: t("md_table_ov_del_row"),
+                                          addCol: t("md_table_ov_add_col"), delCol: t("md_table_ov_del_col")})) return;  // オーバーレイにフォーカスがあるので、エディタは聚焦らない
   const line = view.state.doc.lineAt(view.state.selection.main.head);
   const rows = ["| " + t("md_table_col", {n: 1}) + " | " + t("md_table_col", {n: 2}) + " |", "| --- | --- |", "|   |   |"];
   const atLineEnd = line.text !== "";  // 行の途中なら、いったん改行してから表を出す (表は専用の行に)

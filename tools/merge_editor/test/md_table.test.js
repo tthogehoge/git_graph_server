@@ -244,6 +244,70 @@ test("the table button opens a contenteditable overlay and writes the edits back
   assert.ok(at <= s.from && s.from <= at + 2, "カーソルは編集していたセルの中");
 });
 
+test("the overlay's buttons and keys add and delete rows and columns, and the result is written back", () => {
+  const w = load();
+  const ed = editor(w, DOC);
+  inCell(ed, 5);  // 「秋子」のセルの中
+  assert.equal(w.GGText.mdTableOverlay(ed.view, {addRow: "+ 行", delRow: "− 行", addCol: "+ 列", delCol: "− 列"}), true);
+  const ov = w.document.querySelector(".gg-md-table-overlay");
+  const btns = [...ov.querySelectorAll("button")];
+  assert.deepEqual(btns.map(b => b.textContent), ["+ 行", "− 行", "+ 列", "− 列"]);
+  assert.equal(ov.querySelectorAll("thead th").length, 2);
+  assert.equal(ov.querySelectorAll("tbody tr").length, 2);
+
+  // + 行: いまの行 (秋子) の下に空の行が足される
+  btns[0].click();
+  assert.equal(ov.querySelectorAll("tbody tr").length, 3);
+  ov.dispatchEvent(new w.KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
+  assert.equal(ed.getText(),
+    "intro\n\n| 名前 | 年齢 |\n| :--- | ---: |\n| 秋子 | 32   |\n|      |      |\n| 太郎 | 8    |\noutro\n");
+
+  // Alt+Backspace: 足した行 (カーソルはそこにある) を消す → 元に戻る
+  assert.equal(w.GGText.mdTableOverlay(ed.view), true);
+  const ov2 = w.document.querySelector(".gg-md-table-overlay");
+  ov2.dispatchEvent(new w.KeyboardEvent("keydown", {key: "Backspace", altKey: true, bubbles: true, cancelable: true}));
+  assert.equal(ov2.querySelectorAll("tbody tr").length, 2);
+  ov2.dispatchEvent(new w.KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
+  assert.equal(ed.getText(), DOC);
+
+  // Ctrl+Enter: 列を右に足す (見出しも)。Alt+Shift+Backspace: その列を消す
+  assert.equal(w.GGText.mdTableOverlay(ed.view), true);
+  const ov3 = w.document.querySelector(".gg-md-table-overlay");
+  ov3.dispatchEvent(new w.KeyboardEvent("keydown", {key: "Enter", ctrlKey: true, bubbles: true, cancelable: true}));
+  assert.equal(ov3.querySelectorAll("thead th").length, 3);
+  assert.equal(ov3.querySelectorAll("tbody tr")[0].children.length, 3);
+  ov3.dispatchEvent(new w.KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
+  assert.equal(ed.getText(),
+    "intro\n\n| 名前 |     | 年齢 |\n| :--- | --- | ---: |\n| 秋子 |     | 32   |\n| 太郎 |     | 8    |\noutro\n");
+  assert.equal(w.GGText.mdTableOverlay(ed.view), true);
+  const ov4 = w.document.querySelector(".gg-md-table-overlay");
+  ov4.dispatchEvent(new w.KeyboardEvent("keydown", {key: "Backspace", altKey: true, shiftKey: true, bubbles: true, cancelable: true}));
+  assert.equal(ov4.querySelectorAll("thead th").length, 2);
+  ov4.dispatchEvent(new w.KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
+  assert.equal(ed.getText(), DOC);
+
+  // 見出しのセルも書ける (th も contenteditable)
+  assert.equal(w.GGText.mdTableOverlay(ed.view), true);
+  const ov5 = w.document.querySelector(".gg-md-table-overlay");
+  assert.equal(ov5.querySelector("thead th").getAttribute("contenteditable"), "true");
+  ov5.querySelector("thead th").textContent = "氏名";
+  ov5.dispatchEvent(new w.KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
+  assert.ok(ed.getText().startsWith("intro\n\n| 氏名 | 年齢 |"));
+
+  // データの行が 1 つだけの表では行を消さず、列が 2 つの表では列を消さない
+  const ed2 = editor(w, "intro\n\n| a | b |\n| --- | --- |\n| x | y |\noutro\n");
+  inCell(ed2, 5);
+  assert.equal(w.GGText.mdTableOverlay(ed2.view), true);
+  const ov6 = w.document.querySelector(".gg-md-table-overlay");
+  ov6.dispatchEvent(new w.KeyboardEvent("keydown", {key: "Backspace", altKey: true, bubbles: true, cancelable: true}));
+  assert.equal(ov6.querySelectorAll("tbody tr").length, 1);
+  ov6.dispatchEvent(new w.KeyboardEvent("keydown", {key: "Backspace", altKey: true, shiftKey: true, bubbles: true, cancelable: true}));
+  assert.equal(ov6.querySelectorAll("thead th").length, 2);
+  ov6.dispatchEvent(new w.KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
+  assert.equal(ed2.getText(),  // 行も列も消えていない (整形だけは効く)
+    "intro\n\n| a   | b   |\n| --- | --- |\n| x   | y   |\noutro\n");
+});
+
 test("pasting tab separated text (spreadsheet) into a table adds the rows", () => {
   const w = load();
   const ed = editor(w, DOC);
