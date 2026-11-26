@@ -7,7 +7,9 @@
 // 行・列を消せる。Ctrl/Cmd+Enter で行を下に足す。Alt+Enter はセルの中の改行 (書き戻すときに <br> にする)。
 // 矢印キーは、セルの中ではふうに動き、セルの端では隣のセルへ動く。上下は、折り返しで複数行の
 // セルでは、折り返しの行で判断する (見た目の行の位置を、矩形から取る。取れないときはセルの中の改行で代用)。
-// 表計算からのタブ区切りのテキストの貼り付けも、表の行に変換して受ける。
+// 表計算からのタブ区切りのテキストの貼り付けは、カーソルのセルから、貼った内容で上書きする
+// (行・列が足りなければ、足してから上書きする)。複数のセルにまたがる選択は、タブ区切りのテキストとして
+// コピーできる (表計算に貼り付けられる)。
 // 閉じるとき (Esc、外のクリック、エディタのスクロール、リサイズ) に、編集した内容を
 // Markdown の表の行に変換してソースに書き戻す。表の解析と整形は src/md_table.js の純関数を使う。
 // 見出し (最初の行) は特別扱いしない: 上に行を足すと、その行が新しい見出しになる。見出しの行を
@@ -19,8 +21,10 @@ const BLANK = "\u200b";  // 空のセルの高さを保つための幅 0 の空�
 let open = null;  // 開いているオーバーレイの情報
 
 function cellFromDom(el) {  // セルの DOM の内容 → セルのテキスト (セルの中の改行は <br> に。幅 0 の空白は消す)
-  return (el.textContent || "").split(BLANK).join("").replace(/\u00a0/g, " ").replace(/\r/g, "")
-    .replace(/^ +/, "").replace(/ +$/, "").replace(/\n/g, "<br>");
+  return rawCell(el).replace(/\r/g, "").replace(/^ +/, "").replace(/ +$/, "").replace(/\n/g, "<br>");
+}
+function rawCell(el) {  // セルの見えているテキスト (コピー用。改行はそのまま)
+  return (el.textContent || "").split(BLANK).join("").replace(/\u00a0/g, " ");
 }
 function escapeCell(s) {  // セルの中の生の「|」は \ で逃がす (元から \| だったものは、逃がしてから戻すので変わらない)
   return s.replace(/\\\|/g, "\u0000").replace(/\|/g, "\\|").replace(/\u0000/g, "\\|");
@@ -69,6 +73,19 @@ function cellOf(o, row, col) {  // (data-r, data-c) のセル。なければ nul
 function goRC(o, doc, row, col) {  // (row, col) のセルへ移る (なければ何もしない)
   const el = cellOf(o, row, col);
   if (el) goCell(o, doc, el);
+}
+function selectedCells(o, doc) {  // 選択範囲にかかっているセル (行優先の順)。つぶれていない範囲がなければ空
+  const sel = doc.defaultView.getSelection();
+  if (!sel || !sel.rangeCount) return [];
+  const r = sel.getRangeAt(0);
+  if (r.collapsed) return [];
+  // Range の定数 (START_TO_END = 1, END_TO_START = 3)。START_TO_END はこちらの終わりと相手の始まり、
+  // END_TO_START はこちらの始まりと相手の終わりを比べる。環境によらないように、数で書く
+  return [...o.root.querySelectorAll("td")].filter(td => {
+    const cr = doc.createRange();
+    cr.selectNodeContents(td);
+    return r.compareBoundaryPoints(1, cr) > 0 && r.compareBoundaryPoints(3, cr) < 0;  // 範囲と重なるセル
+  });
 }
 function moveCell(o, doc, dir) {  // オーバーレイの中の Tab / Shift+Tab。セルの間を動く (端では止まる)
   const cells = [...o.root.querySelectorAll("td")];
@@ -349,7 +366,7 @@ export function mdTableOverlay(view, labels = {}) {
   root.addEventListener("input", open.track);
   root.addEventListener("keyup", open.retrack);
   root.addEventListener("click", open.retrack);
-  open.onPaste = ev => {  // 表計算からのタブ区切りのテキスト。いまの行の下に、表の行として足す
+  open.onPaste = ev => {  // 表計算からのタブ区切りのテキスト。カーソルのセルから、貼った内容で上書きする
     const cd = ev.clipboardData;
     if (!cd || typeof cd.getData !== "function") return;
     const text = cd.getData("text/plain");
@@ -358,25 +375,51 @@ export function mdTableOverlay(view, labels = {}) {
     ev.stopPropagation();
     snapshot(open);  // 元に戻せるように、変える前の状態を覚える
     const pasted = text.replace(/\r\n?/g, "\n").replace(/\n+$/, "").split("\n").map(l => l.split("\t"));
+    const r0 = Math.max(0, open.lastCell.row), c0 = Math.max(0, open.lastCell.col);
+    const needR = r0 + pasted.length, needC = c0 + Math.max(...pasted.map(row => row.length));
     const tbody = open.root.querySelector("tbody");
-    const trs = [...tbody.children];
-    const row = Math.max(0, open.lastCell.row), col = open.lastCell.col;
-    const width = Math.max(open.ncol, ...pasted.map(r => r.length));
-    if (width > open.ncol) {  // 貼った行に列が多いときは、全部の行をその列の数まで広げる (見出しも)
-      [...open.root.querySelectorAll("tr")].forEach(tr => { while (tr.children.length < width) tr.appendChild(mkCell(doc, "")); });
-      for (let c = open.ncol; c < width; c++) open.aligns.push([false, false]);
-      open.ncol = width;
-    }
-    let ref = trs[row] ? trs[row].nextSibling : null;  // いまの行の下へ、順番に足す (基準点は固定)
-    pasted.forEach(cells => {
+    while (tbody.children.length < needR) {  // 行が足りなければ、末尾に足す
       const tr = doc.createElement("tr");
-      for (let c = 0; c < open.ncol; c++) tr.appendChild(mkCell(doc, c < cells.length ? cells[c].replace(/\|/g, "\\|") : ""));
-      tbody.insertBefore(tr, ref);
+      for (let c = 0; c < open.ncol; c++) tr.appendChild(mkCell(doc, ""));
+      tbody.appendChild(tr);
+    }
+    if (needC > open.ncol) {  // 列が足りなければ、全部の行 (見出しも) をその列の数まで広げる (区切りの行の揃えも)
+      [...open.root.querySelectorAll("tr")].forEach(tr => { while (tr.children.length < needC) tr.appendChild(mkCell(doc, "")); });
+      for (let c = open.ncol; c < needC; c++) open.aligns.push([false, false]);
+      open.ncol = needC;
+    }
+    renumber(open);  // 足したセルにも data-r / data-c を振ってから、上書きする
+    pasted.forEach((cells, i) => {
+      for (let c = 0; c < cells.length; c++) {
+        const td = cellOf(open, r0 + i, c0 + c);
+        if (td) td.textContent = cells[c] === "" ? BLANK : cells[c].replace(/\|/g, "\\|");
+      }
     });
     renumber(open);
-    goCell(open, doc, cellOf(open, row + 1, Math.min(col, open.ncol - 1)));
+    goCell(open, doc, cellOf(open, r0, c0));  // カーソルは、貼り始めたセルへ
+  };
+  open.onCopy = ev => {  // 複数のセルにまたがる選択は、タブ区切りのテキストとしてコピーする (表計算に貼れる)
+    const cells = selectedCells(open, doc);
+    if (cells.length < 2) return;  // 1 つのセルの中の選択は、ブラウザーのコピーに任せる
+    const cd = ev.clipboardData;
+    if (!cd || typeof cd.setData !== "function") return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const rs = cells.map(td => +td.dataset.r), cs = cells.map(td => +td.dataset.c);
+    const r0 = Math.min(...rs), r1 = Math.max(...rs), c0 = Math.min(...cs), c1 = Math.max(...cs);
+    const lines = [];
+    for (let r = r0; r <= r1; r++) {  // 選んだ範囲を長方形として切り出す (選んでいないセルも、その場所のセル)
+      const line = [];
+      for (let c = c0; c <= c1; c++) {
+        const td = cellOf(open, r, c);
+        line.push(td ? rawCell(td) : "");
+      }
+      lines.push(line.join("\t"));
+    }
+    cd.setData("text/plain", lines.join("\n"));
   };
   root.addEventListener("paste", open.onPaste);
+  root.addEventListener("copy", open.onCopy);
   open.onDown = ev => { if (!root.contains(ev.target)) closeOverlay(); };  // 外のクリックで閉じる
   doc.addEventListener("mousedown", open.onDown, true);
   open.onScroll = () => closeOverlay();  // 表の位置がずれるので、スクロールでも閉じる
@@ -398,6 +441,7 @@ export function closeOverlay() {
   o.root.removeEventListener("keyup", o.retrack);
   o.root.removeEventListener("click", o.retrack);
   o.root.removeEventListener("paste", o.onPaste);
+  o.root.removeEventListener("copy", o.onCopy);
   const doc = o.view.dom.ownerDocument, win = doc.defaultView;
   doc.removeEventListener("mousedown", o.onDown, true);
   o.view.scrollDOM.removeEventListener("scroll", o.onScroll);

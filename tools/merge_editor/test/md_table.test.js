@@ -400,7 +400,7 @@ test("in the overlay, Ctrl+Enter adds a row below and Alt+Enter makes a line bre
     "intro\n\n| 名前     | 年齢 |\n| :------- | ---: |\n| <br>秋子 | 32   |\n| 太郎     | 8    |\n|          |      |\noutro\n");
 });
 
-test("pasting tab separated text into the overlay adds the rows below the current row", () => {
+test("pasting tab separated text into the overlay overwrites the cells (rows and columns are added when needed)", () => {
   const w = load();
   const ed = editor(w, DOC);
   inCell(ed, 5);  // 「秋子」のセルの中
@@ -410,22 +410,69 @@ test("pasting tab separated text into the overlay adds the rows below the curren
   ev.clipboardData = {getData: () => "p\tq\nr\ts"};
   ov.dispatchEvent(ev);
   assert.equal(ev.defaultPrevented, true);
-  assert.equal(ov.querySelectorAll("tbody tr").length, 5);
+  assert.equal(ov.querySelectorAll("tbody tr").length, 3);  // 行の数は変わらない (上書き)
+  assert.equal(ov.querySelectorAll("tbody tr")[1].children[0].textContent, "p");
+  assert.equal(ov.querySelectorAll("tbody tr")[2].children[1].textContent, "s");
   ov.dispatchEvent(new w.KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
   assert.equal(ed.getText(),
-    "intro\n\n| 名前 | 年齢 |\n| :--- | ---: |\n| 秋子 | 32   |\n| p    | q    |\n| r    | s    |\n| 太郎 | 8    |\noutro\n");
+    "intro\n\n| 名前 | 年齢 |\n| :--- | ---: |\n| p    | q    |\n| r    | s    |\noutro\n");
 
-  // 貼った行に列が多いときは、全部の行 (見出しも) がその列の数まで広がる
-  const ed2 = editor(w, DOC);
-  inCell(ed2, 5);
-  assert.equal(w.GGText.mdTableOverlay(ed2.view), true);
+  // 列が足りなければ、全部の行 (見出しも) が広がる (カーソルは、貼り始めたセル「p」にある)
+  assert.equal(w.GGText.mdTableOverlay(ed.view), true);
   const ov2 = w.document.querySelector(".gg-md-table-overlay");
   const ev2 = new w.Event("paste", {bubbles: true, cancelable: true});
-  ev2.clipboardData = {getData: () => "p\tq\tr"};
+  ev2.clipboardData = {getData: () => "x\ty\tz"};
   ov2.dispatchEvent(ev2);
+  assert.equal(ov2.querySelectorAll("tbody tr")[0].children.length, 3);
   ov2.dispatchEvent(new w.KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
-  assert.equal(ed2.getText(),
-    "intro\n\n| 名前 | 年齢 |     |\n| :--- | ---: | --- |\n| 秋子 | 32   |     |\n| p    | q    | r   |\n| 太郎 | 8    |     |\noutro\n");
+  assert.equal(ed.getText(),
+    "intro\n\n| 名前 | 年齢 |     |\n| :--- | ---: | --- |\n| x    | y    | z   |\n| r    | s    |     |\noutro\n");
+
+  // 行が足りなければ、末尾に足す (最後の行で 2 行分)
+  assert.equal(w.GGText.mdTableOverlay(ed.view), true);
+  const ov3 = w.document.querySelector(".gg-md-table-overlay");
+  ov3.dispatchEvent(new w.KeyboardEvent("keydown", {key: "Enter", bubbles: true, cancelable: true}));  // 最後の行 (r) へ
+  const ev3 = new w.Event("paste", {bubbles: true, cancelable: true});
+  ev3.clipboardData = {getData: () => "n1\tn2\nm1\tm2"};
+  ov3.dispatchEvent(ev3);
+  assert.equal(ov3.querySelectorAll("tbody tr").length, 4);
+  ov3.dispatchEvent(new w.KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
+  assert.equal(ed.getText(),
+    "intro\n\n| 名前 | 年齢 |     |\n| :--- | ---: | --- |\n| x    | y    | z   |\n| n1   | n2   |     |\n| m1   | m2   |     |\noutro\n");
+});
+
+test("copying a selection across cells puts tab separated text on the clipboard", () => {
+  const w = load();
+  const ed = editor(w, DOC);
+  inCell(ed, 5);  // 「秋子」のセルの中
+  assert.equal(w.GGText.mdTableOverlay(ed.view), true);
+  const ov = w.document.querySelector(".gg-md-table-overlay");
+  const cells = ov.querySelectorAll("tbody td");
+  const copyEvent = () => {
+    const ev = new w.Event("copy", {bubbles: true, cancelable: true});
+    const store = {};
+    ev.clipboardData = {setData: (t, v) => { store[t] = v; }, get text() { return store["text/plain"]; }};
+    return ev;
+  };
+  const select = (a, ao, b, bo) => {
+    const r = w.document.createRange();
+    r.setStart(a, ao);
+    r.setEnd(b, bo);
+    const s = w.getSelection();
+    s.removeAllRanges();
+    s.addRange(r);
+  };
+  // 1 つのセルの中の選択は、ふつうのコピー (妨げない)
+  select(cells[2].firstChild, 0, cells[2].firstChild, 1);
+  const ev1 = copyEvent();
+  ov.dispatchEvent(ev1);
+  assert.equal(ev1.defaultPrevented, false);
+  // 「秋子」から「8」まで (2 × 2) を選ぶと、タブ区切りのテキストになる
+  select(cells[2].firstChild, 0, cells[5].firstChild, 1);
+  const ev2 = copyEvent();
+  ov.dispatchEvent(ev2);
+  assert.equal(ev2.defaultPrevented, true);
+  assert.equal(ev2.clipboardData.text, "秋子\t32\n太郎\t8");
 });
 
 test("the overlay always has the same size at the center of the screen (the cursor position and the table size do not change it)", () => {
