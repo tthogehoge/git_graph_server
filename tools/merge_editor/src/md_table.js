@@ -350,4 +350,4 @@ function mdTableExtension() {
   ];
 }
 
-export {mdTableExtension};
+export {mdTableExtension, insertColumnRight as mdTableAddColumn};  // mdTableAddColumn は「表」ボタン (06_edit.js) から。表の中なら列を足す

@@ -170,3 +170,4 @@ export function createDiffEditor(opts) {
 export {Vim, getCM} from "@replit/codemirror-vim";  // テストで Ex コマンドを直接動かすため
 export {languageName};
 export {formatMarkdownTable} from "./md_table.js";  // テストから直接確かめるため
+export {mdTableAddColumn} from "./md_table.js";  // 「表」ボタンから (カーソルが表の中なら列を足す)

@@ -171,9 +171,13 @@ function editorPhrases() {  // 検索パネルなどの文言 (CodeMirror 側の
 window.addEventListener("beforeunload", ev => { if (editing && editDirty) { ev.preventDefault(); ev.returnValue = ""; } });
 let mdScrollCleanup = null;  // Markdown 編集の左右スクロール同期を外す関数
 let mdScrollSyncing = false;
-function insertMdTable() {  // 「表」ボタン。カーソルの行の下に 2 列の表を入れて、最後の行の 1 つ目の空セルへカーソルを置く
+function insertMdTable() {  // 「表」ボタン。カーソルが表の中なら、そのセルの右に列を足す。外なら、カーソルの行の下に 2 列の表を入れて、最後の行の 1 つ目の空セルへカーソルを置く
   if (!editing || !textEditor || !textEditor.view) return;
   const view = textEditor.view;
+  if (window.GGText && window.GGText.mdTableAddColumn && window.GGText.mdTableAddColumn(view)) {
+    textEditor.focus();
+    return;
+  }
   const line = view.state.doc.lineAt(view.state.selection.main.head);
   const rows = ["| " + t("md_table_col", {n: 1}) + " | " + t("md_table_col", {n: 2}) + " |", "| --- | --- |", "|   |   |"];
   const atLineEnd = line.text !== "";  // 行の途中なら、いったん改行してから表を出す (表は専用の行に)
