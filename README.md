@@ -99,6 +99,8 @@ When writing is enabled, the **Edit** button in the file view of the working tre
 
 Tick **Vim mode** in the edit bar to edit with Vim keys (`:w` saves, `:q` quits, `:q!` discards changes and quits). The setting is remembered in the browser. The editor (about 1 MB) is loaded when a file's content is first shown, so a directory listing alone does not load it.
 
+When editing a Markdown file, drop an image (or any file) onto the editor, or paste a figure (a screenshot, a copied image), and it is uploaded to `attachments/` next to the Markdown file and a link is inserted at the cursor: `![name](attachments/name.png)` for images, `[name.pdf](attachments/name.pdf)` for other files. An existing file is never overwritten (the new one becomes `name-2.png`, ...), and a pasted image without a name becomes `image-YYYYMMDD-HHMMSS.png`. The preview on the right shows the image as soon as it is uploaded. The uploaded files are untracked files in the working tree, so commit them together with the Markdown file. When the clipboard also holds text (for example cells copied from a spreadsheet), the text is pasted as usual.
+
 ## Display language
 
 Set the language with `LANG` when starting the server. Japanese is used for an unset or unsupported language.

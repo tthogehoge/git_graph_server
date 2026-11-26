@@ -321,6 +321,10 @@ function startEdit() {
     });
     restoreCmScroll(currentFile, true);
     if (mdEdit) {
+      MdAttach.bind(host, {  // 画像のドロップ / 図のペースト → attachments へアップロードして、リンクを貼る
+        getView: () => textEditor && textEditor.view, mdPath: () => currentFile, t: t, status: setStatus,
+        refresh: () => loadTree(current, false),
+      });
       updateMdEditPreview();
       fitMdEditSplit();
       bindMdEditScrollSync();
