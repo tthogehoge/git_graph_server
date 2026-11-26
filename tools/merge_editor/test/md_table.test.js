@@ -226,6 +226,7 @@ test("the table button opens a contenteditable overlay and writes the edits back
   assert.equal(ths[0].textContent, "名前");
   assert.equal(tds.length, 4);  // データの 2 行 × 2 列 (区切りの行は出さない)
   assert.equal(tds[0].textContent, "秋子");
+  assert.equal(tds[0].style.whiteSpace, "pre-wrap");  // 長いセルは、セルの中で折り返す
   // Tab で次のセルへ動く (エディタの Tab は働かない)
   const tab = new w.KeyboardEvent("keydown", {key: "Tab", bubbles: true, cancelable: true});
   ov.dispatchEvent(tab);

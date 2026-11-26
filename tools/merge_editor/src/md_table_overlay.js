@@ -67,7 +67,8 @@ export function mdTableOverlay(view) {
     el.dataset.r = String(r); el.dataset.c = String(c);
     el.textContent = text === "" ? BLANK : text;  // 空のセルは、高さを保つために幅 0 の空白を入れておく
     Object.assign(el.style, {border: "1px solid #aaa", padding: "2px 8px", minWidth: "48px",
-                             outline: "none", whiteSpace: "pre", font: "inherit", textAlign: "left", verticalAlign: "top"});
+                             outline: "none", whiteSpace: "pre-wrap", wordBreak: "break-word",
+                             font: "inherit", textAlign: "left", verticalAlign: "top"});
     if (tag === "td") el.setAttribute("contenteditable", "true");
     return el;
   };
@@ -101,6 +102,13 @@ export function mdTableOverlay(view) {
   root.style.maxWidth = Math.max(200, win.innerWidth - left - 12) + "px";
   root.style.maxHeight = Math.max(120, win.innerHeight - top - 12) + "px";
   doc.body.appendChild(root);
+  // 幅が画面に入りきらない表 (長いセルのある表) は、プレビューと同じく画面幅までにして、セルの中で折り返させる
+  const cap = win.innerWidth - left - 12;
+  if (table.offsetWidth > cap) {
+    root.style.width = Math.max(200, cap) + "px";
+    table.style.width = "100%";
+    table.style.tableLayout = "fixed";  // 列の幅は均等。中身は折り返すので、はみ出さない
+  }
 
   // カーソルのあったセル (見出しと区切りの行は、オーバーレイでは見出しの行) を覚えて、そこへ移る
   let srcRow = 0;  // ソースの行 (ブロックの中の番号。0 = 見出し、1 = 区切り)
