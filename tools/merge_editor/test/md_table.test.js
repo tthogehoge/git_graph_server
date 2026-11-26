@@ -221,18 +221,20 @@ test("the table button opens a contenteditable overlay and writes the edits back
   assert.equal(w.GGText.mdTableOverlay(ed.view), true);
   const ov = w.document.querySelector(".gg-md-table-overlay");
   assert.ok(ov, "表の上にオーバーレイが出る");
-  const ths = ov.querySelectorAll("thead th"), tds = ov.querySelectorAll("tbody td");
-  assert.equal(ths.length, 2);
-  assert.equal(ths[0].textContent, "名前");
-  assert.equal(tds.length, 4);  // データの 2 行 × 2 列 (区切りの行は出さない)
-  assert.equal(tds[0].textContent, "秋子");
+  assert.equal(ov.querySelectorAll("thead").length, 0);  // 見出しもふつうの行 (tbody) に入れる (上にも行を足せる)
+  const rows = ov.querySelectorAll("tbody tr"), tds = ov.querySelectorAll("tbody td");
+  assert.equal(rows.length, 3);  // 見出し + データの 2 行 (区切りの行は出さない)
+  assert.equal(tds.length, 6);
+  assert.equal(rows[0].children[0].textContent, "名前");  // 最初の行が見出し
+  assert.equal(rows[0].children[0].style.background, "rgb(246, 248, 250)", "見出しの行は、色を変えて見分けがつく");
+  assert.equal(rows[1].children[0].textContent, "秋子");
   assert.equal(tds[0].style.whiteSpace, "pre-wrap");  // 長いセルは、セルの中で折り返す
   // Tab で次のセルへ動く (エディタの Tab は働かない)
   const tab = new w.KeyboardEvent("keydown", {key: "Tab", bubbles: true, cancelable: true});
   ov.dispatchEvent(tab);
   assert.equal(tab.defaultPrevented, true);
   // セルを直接書き換えて Esc で閉じると、ソースに書き戻る
-  tds[0].textContent = "あきこ";
+  tds[2].textContent = "あきこ";
   const esc = new w.KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true});
   ov.dispatchEvent(esc);
   assert.equal(esc.defaultPrevented, true);
@@ -254,47 +256,46 @@ test("the overlay's buttons and keys add and delete rows and columns, and the re
   const btns = [...ov.querySelectorAll("button")];
   assert.deepEqual(btns.map(b => b.textContent), ["↑ 行", "↓ 行", "− 行", "← 列", "→ 列", "− 列"]);
   assert.ok(ov.querySelector("table").parentElement.style.overflow === "auto", "ボタンの行はスクロールの外 (スクロールしても見えている)");
-  assert.equal(ov.querySelectorAll("thead th").length, 2);
-  assert.equal(ov.querySelectorAll("tbody tr").length, 2);
+  assert.equal(ov.querySelectorAll("tbody tr").length, 3);  // 見出し + データの 2 行
 
   // ↓ 行: いまの行 (秋子) の下に空の行が足される
   btns[1].click();
-  assert.equal(ov.querySelectorAll("tbody tr").length, 3);
+  assert.equal(ov.querySelectorAll("tbody tr").length, 4);
   ov.dispatchEvent(new w.KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
   assert.equal(ed.getText(),
     "intro\n\n| 名前 | 年齢 |\n| :--- | ---: |\n| 秋子 | 32   |\n|      |      |\n| 太郎 | 8    |\noutro\n");
 
-  // Alt+Backspace: 足した行 (カーソルはそこにある) を消す → 元に戻る
+  // ↓ 行でカーソルは足された行に動っているので、そのまま Alt+Backspace で消す → 元に戻る
   assert.equal(w.GGText.mdTableOverlay(ed.view), true);
   const ov2 = w.document.querySelector(".gg-md-table-overlay");
   ov2.dispatchEvent(new w.KeyboardEvent("keydown", {key: "Backspace", altKey: true, bubbles: true, cancelable: true}));
-  assert.equal(ov2.querySelectorAll("tbody tr").length, 2);
+  assert.equal(ov2.querySelectorAll("tbody tr").length, 3);
   ov2.dispatchEvent(new w.KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
   assert.equal(ed.getText(), DOC);
 
-  // 見出しの行で ↑ 行: 見出しの次 (最初のデータの行) に空の行が足される
+  // 見出しの行で ↑ 行: 見出しの「上」に空の行が足される (その行が、新しい見出しになる)
   ed.view.dispatch({selection: {anchor: ed.view.state.doc.line(3).from + 3}});  // 見出しの「名前」
   assert.equal(w.GGText.mdTableOverlay(ed.view), true);
   const ov7 = w.document.querySelector(".gg-md-table-overlay");
   ov7.querySelectorAll("button")[0].click();  // ↑ 行
-  assert.equal(ov7.querySelectorAll("tbody tr").length, 3);
+  assert.equal(ov7.querySelectorAll("tbody tr").length, 4);
   assert.equal(ov7.querySelectorAll("tbody tr")[0].children[0].textContent, "\u200b");  // 足されたのは空の行
   ov7.dispatchEvent(new w.KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
   assert.equal(ed.getText(),
-    "intro\n\n| 名前 | 年齢 |\n| :--- | ---: |\n|      |      |\n| 秋子 | 32   |\n| 太郎 | 8    |\noutro\n");
+    "intro\n\n|      |      |\n| :--- | ---: |\n| 名前 | 年齢 |\n| 秋子 | 32   |\n| 太郎 | 8    |\noutro\n");
 
-  // − 行 (カーソルは足した空の行にある) で元に戻してから、← 列: 1 つ目の列の左に空の列が足される
+  // − 行 (カーソルは新しい見出しの行にある) で元に戻す: 見出しの行を消すと、次の行が見出しに繰り上がる
   assert.equal(w.GGText.mdTableOverlay(ed.view), true);
   const ov8 = w.document.querySelector(".gg-md-table-overlay");
   ov8.querySelectorAll("button")[2].click();  // − 行
-  assert.equal(ov8.querySelectorAll("tbody tr").length, 2);
+  assert.equal(ov8.querySelectorAll("tbody tr").length, 3);
   ov8.dispatchEvent(new w.KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
   assert.equal(ed.getText(), DOC);
   ed.view.dispatch({selection: {anchor: ed.view.state.doc.line(3).from + 3}});  // 見出しの「名前」
   assert.equal(w.GGText.mdTableOverlay(ed.view), true);
   const ov9 = w.document.querySelector(".gg-md-table-overlay");
   ov9.querySelectorAll("button")[3].click();  // ← 列
-  assert.equal(ov9.querySelectorAll("thead th").length, 3);
+  assert.equal(ov9.querySelectorAll("tbody tr")[0].children.length, 3);
   ov9.dispatchEvent(new w.KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
   assert.equal(ed.getText(),
     "intro\n\n|     | 名前 | 年齢 |\n| --- | :--- | ---: |\n|     | 秋子 | 32   |\n|     | 太郎 | 8    |\noutro\n");
@@ -306,27 +307,11 @@ test("the overlay's buttons and keys add and delete rows and columns, and the re
   ov10.dispatchEvent(new w.KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
   assert.equal(ed.getText(), DOC);
 
-  // Ctrl+Enter: 列を右に足す (見出しも)。Alt+Shift+Backspace: その列を消す
-  assert.equal(w.GGText.mdTableOverlay(ed.view), true);
-  const ov3 = w.document.querySelector(".gg-md-table-overlay");
-  ov3.dispatchEvent(new w.KeyboardEvent("keydown", {key: "Enter", ctrlKey: true, bubbles: true, cancelable: true}));
-  assert.equal(ov3.querySelectorAll("thead th").length, 3);
-  assert.equal(ov3.querySelectorAll("tbody tr")[0].children.length, 3);
-  ov3.dispatchEvent(new w.KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
-  assert.equal(ed.getText(),
-    "intro\n\n| 名前 |     | 年齢 |\n| :--- | --- | ---: |\n| 秋子 |     | 32   |\n| 太郎 |     | 8    |\noutro\n");
-  assert.equal(w.GGText.mdTableOverlay(ed.view), true);
-  const ov4 = w.document.querySelector(".gg-md-table-overlay");
-  ov4.dispatchEvent(new w.KeyboardEvent("keydown", {key: "Backspace", altKey: true, shiftKey: true, bubbles: true, cancelable: true}));
-  assert.equal(ov4.querySelectorAll("thead th").length, 2);
-  ov4.dispatchEvent(new w.KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
-  assert.equal(ed.getText(), DOC);
-
-  // 見出しのセルも書ける (th も contenteditable)
+  // 見出しのセルも書ける (td も contenteditable)
   assert.equal(w.GGText.mdTableOverlay(ed.view), true);
   const ov5 = w.document.querySelector(".gg-md-table-overlay");
-  assert.equal(ov5.querySelector("thead th").getAttribute("contenteditable"), "true");
-  ov5.querySelector("thead th").textContent = "氏名";
+  assert.equal(ov5.querySelectorAll("tbody tr")[0].children[0].getAttribute("contenteditable"), "true");
+  ov5.querySelectorAll("tbody tr")[0].children[0].textContent = "氏名";
   ov5.dispatchEvent(new w.KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
   assert.ok(ed.getText().startsWith("intro\n\n| 氏名 | 年齢 |"));
 
@@ -336,12 +321,91 @@ test("the overlay's buttons and keys add and delete rows and columns, and the re
   assert.equal(w.GGText.mdTableOverlay(ed2.view), true);
   const ov6 = w.document.querySelector(".gg-md-table-overlay");
   ov6.dispatchEvent(new w.KeyboardEvent("keydown", {key: "Backspace", altKey: true, bubbles: true, cancelable: true}));
-  assert.equal(ov6.querySelectorAll("tbody tr").length, 1);
+  assert.equal(ov6.querySelectorAll("tbody tr").length, 2);  // 消すと見出ししか残らないので、行は消さない
   ov6.dispatchEvent(new w.KeyboardEvent("keydown", {key: "Backspace", altKey: true, shiftKey: true, bubbles: true, cancelable: true}));
-  assert.equal(ov6.querySelectorAll("thead th").length, 2);
+  assert.equal(ov6.querySelectorAll("tbody tr")[0].children.length, 2);  // 列が 2 つしかないので、列も消さない
   ov6.dispatchEvent(new w.KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
   assert.equal(ed2.getText(),  // 行も列も消えていない (整形だけは効く)
     "intro\n\n| a   | b   |\n| --- | --- |\n| x   | y   |\noutro\n");
+});
+
+test("in the overlay, Ctrl+Enter adds a row below and Alt+Enter makes a line break (written back as <br>)", () => {
+  const w = load();
+  const ed = editor(w, DOC);
+  inCell(ed, 5);  // 「秋子」のセルの中
+  assert.equal(w.GGText.mdTableOverlay(ed.view), true);
+  const ov = w.document.querySelector(".gg-md-table-overlay");
+  const ev = new w.KeyboardEvent("keydown", {key: "Enter", altKey: true, bubbles: true, cancelable: true});
+  ov.dispatchEvent(ev);  // セルの中で改行 (キャレットは「秋子」の先頭にあるので、改行が先に入る)
+  assert.equal(ev.defaultPrevented, true);
+  ov.dispatchEvent(new w.KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
+  assert.equal(ed.getText(),
+    "intro\n\n| 名前     | 年齢 |\n| :------- | ---: |\n| <br>秋子 | 32   |\n| 太郎     | 8    |\noutro\n");
+
+  // ソースの <br> は、開くときにセルの中の改行になる (Esc だけで閉じれば、書き戻しで元の形のまま)
+  ed.view.dispatch({selection: {anchor: ed.view.state.doc.line(5).from + 3}});
+  assert.equal(w.GGText.mdTableOverlay(ed.view), true);
+  const ov2 = w.document.querySelector(".gg-md-table-overlay");
+  const cell = ov2.querySelectorAll("tbody tr")[1].children[0];
+  assert.equal(cell.textContent, "\n秋子");  // <br> が改行になっている
+  ov2.dispatchEvent(new w.KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
+  assert.equal(ed.getText(),
+    "intro\n\n| 名前     | 年齢 |\n| :------- | ---: |\n| <br>秋子 | 32   |\n| 太郎     | 8    |\noutro\n");
+
+  // Ctrl+Enter: 行を下に足す
+  ed.view.dispatch({selection: {anchor: ed.view.state.doc.line(6).from + 3}});  // 「太郎」
+  assert.equal(w.GGText.mdTableOverlay(ed.view), true);
+  const ov3 = w.document.querySelector(".gg-md-table-overlay");
+  const ev3 = new w.KeyboardEvent("keydown", {key: "Enter", ctrlKey: true, bubbles: true, cancelable: true});
+  ov3.dispatchEvent(ev3);
+  assert.equal(ev3.defaultPrevented, true);
+  assert.equal(ov3.querySelectorAll("tbody tr").length, 4);
+  ov3.dispatchEvent(new w.KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
+  assert.equal(ed.getText(),
+    "intro\n\n| 名前     | 年齢 |\n| :------- | ---: |\n| <br>秋子 | 32   |\n| 太郎     | 8    |\n|          |      |\noutro\n");
+});
+
+test("pasting tab separated text into the overlay adds the rows below the current row", () => {
+  const w = load();
+  const ed = editor(w, DOC);
+  inCell(ed, 5);  // 「秋子」のセルの中
+  assert.equal(w.GGText.mdTableOverlay(ed.view), true);
+  const ov = w.document.querySelector(".gg-md-table-overlay");
+  const ev = new w.Event("paste", {bubbles: true, cancelable: true});
+  ev.clipboardData = {getData: () => "p\tq\nr\ts"};
+  ov.dispatchEvent(ev);
+  assert.equal(ev.defaultPrevented, true);
+  assert.equal(ov.querySelectorAll("tbody tr").length, 5);
+  ov.dispatchEvent(new w.KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
+  assert.equal(ed.getText(),
+    "intro\n\n| 名前 | 年齢 |\n| :--- | ---: |\n| 秋子 | 32   |\n| p    | q    |\n| r    | s    |\n| 太郎 | 8    |\noutro\n");
+
+  // 貼った行に列が多いときは、全部の行 (見出しも) がその列の数まで広がる
+  const ed2 = editor(w, DOC);
+  inCell(ed2, 5);
+  assert.equal(w.GGText.mdTableOverlay(ed2.view), true);
+  const ov2 = w.document.querySelector(".gg-md-table-overlay");
+  const ev2 = new w.Event("paste", {bubbles: true, cancelable: true});
+  ev2.clipboardData = {getData: () => "p\tq\tr"};
+  ov2.dispatchEvent(ev2);
+  ov2.dispatchEvent(new w.KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
+  assert.equal(ed2.getText(),
+    "intro\n\n| 名前 | 年齢 |     |\n| :--- | ---: | --- |\n| 秋子 | 32   |     |\n| p    | q    | r   |\n| 太郎 | 8    |     |\noutro\n");
+});
+
+test("the overlay always has the same size (the cursor position and the table size do not change it)", () => {
+  const w = load();
+  const ed = editor(w, DOC);
+  inCell(ed, 5);  // 表の中の下のほうの行
+  assert.equal(w.GGText.mdTableOverlay(ed.view), true);
+  const ov = w.document.querySelector(".gg-md-table-overlay");
+  assert.ok(ov.style.width && ov.style.height, "大きさが決まっている: " + ov.style.width + " × " + ov.style.height);
+  const size = [ov.style.width, ov.style.height];
+  ov.dispatchEvent(new w.KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
+  ed.view.dispatch({selection: {anchor: ed.view.state.doc.line(3).from + 3}});  // 見出し (表の中の上のほう)
+  assert.equal(w.GGText.mdTableOverlay(ed.view), true);
+  const ov2 = w.document.querySelector(".gg-md-table-overlay");
+  assert.deepEqual([ov2.style.width, ov2.style.height], size, "どこで開いても、大きさは同じ");
 });
 
 test("pasting tab separated text (spreadsheet) into a table adds the rows", () => {
