@@ -183,6 +183,34 @@ test("leaving the table aligns the pipes (typing inside does not reformat yet)",
   assert.ok(!ed.getText().includes("| --- | - |"));
 });
 
+test("a table wider than the format width limit is not formatted (the other aids still work)", () => {
+  const w = load();
+  const long = "x".repeat(120);
+  const wide = `| 名前 | ${long} |\n| --- | --- |\n| 秋子 | 32 |\n| 太郎 | 8 |\n`;
+  assert.equal(w.GGText.formatMarkdownTable(wide), null);  // 整形すると上限 (100 桁) を超えるので、しない
+  assert.match(w.GGText.formatMarkdownTable(wide, Infinity), /^\| 名前 +\|/);  // 幅の数えなし指示なら、整形する
+  assert.equal(w.GGText.formatMarkdownTable("| a | b |\n| --- | --- |\n| " + long + " | c |\n"), null);
+
+  // 表から出ても、縦揃えはしない (打っている途中に画面からあふれない)
+  const ed = editor(w, "intro\n\n" + wide + "outro\n");
+  ed.view.dispatch({selection: {anchor: ed.getText().indexOf("outro")}});
+  assert.equal(ed.getText(), "intro\n\n" + wide + "outro\n");
+
+  // 最後の行での Tab は行を足すが、ほかの行はそろえない
+  inCell(ed, 6);  // 最後の行「太郎」→ 最後のセルまで Tab すると、行が足される
+  key(w, "Tab");
+  key(w, "Tab");
+  assert.ok(ed.getText().includes("\n|  |\noutro\n"), "素の形の空の行が足される: " + JSON.stringify(ed.getText().slice(-10)));
+
+  // 貼り付けも、足した行は素の形 (余白をそろえない) で入る
+  const ed2 = editor(w, "intro\n\n" + wide + "outro\n");
+  inCell(ed2, 5);
+  const ev = paste(w, "p\tq");
+  assert.equal(ev.defaultPrevented, true);
+  assert.ok(ed2.getText().includes("\n| p | q |\n"), "貼った行が入る: " + JSON.stringify(ed2.getText().split("\n").slice(4, 6)));
+  assert.ok(ed2.getText().startsWith("intro\n\n| 名前 | " + long + " |"), "すでにある行は変えない");
+});
+
 test("pasting tab separated text (spreadsheet) into a table adds the rows", () => {
   const w = load();
   const ed = editor(w, DOC);

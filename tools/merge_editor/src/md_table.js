@@ -1,6 +1,7 @@
 // Markdown の表 (GFM) の編集支援。表の中にカーソルがあるときだけ働くキー操作 (Tab でセル移動、
 // Enter で次の行、Alt+Enter で行追加、Ctrl/Cmd+Enter で列追加、Alt+Backspace / Alt+Shift+Backspace で
-// 行 / 列の削除) と、カーソルが表から出たときのパイプの縦揃え (全角を 2 桁として幅を数えて整える)、
+// 行 / 列の削除) と、カーソルが表から出たときのパイプの縦揃え (全角を 2 桁として幅を数えて整える。
+// 幅が FORMAT_MAX_WIDTH 桁を超える表は、縦揃えをしない)、
 // 表の中へのタブ区切りテキストの貼り付け (表計算からコピーしたもの) を、表の行に変換する をまとめたもの。
 // 文字列だけの変換 (formatMarkdownTable と mdTable*) は、エディタを介さず io を立てずにテスト
 // (test/md_table.test.js) できる純関数にしてある。
@@ -81,8 +82,13 @@ function sepCell(w, left, right) {  // 区切りの行のセル。元の : の�
 
 // --- 文字列だけの変換 (テストから直接使う) ---
 
-// 表のブロックのテキストを、列の幅を数えて整形する。表でなければ null (末尾に改行 1 つが付いていてもよい)
-export function formatMarkdownTable(text) {
+// 整形してよい幅の上限 (全角を 2 として数えた桁数)。これを超える表は、画面に入りきらずに
+// 横に長くなるだけで縦揃えの意味がないので、ほかの補助は効かせたまま整形だけをしない
+export const FORMAT_MAX_WIDTH = 100;
+
+// 表のブロックのテキストを、列の幅を数えて整形する。表でないときと、整形結果が max 桁
+// (既定は FORMAT_MAX_WIDTH) を超えるときは null (max に Infinity を渡すと、幅を数えない。末尾に改行 1 つが付いていてもよい)
+export function formatMarkdownTable(text, max = FORMAT_MAX_WIDTH) {
   const lines = String(text).split("\n");
   const tail = lines.length > 1 && lines[lines.length - 1] === "" ? "\n" : "";  // 末尾の改行は、整形してから返す
   if (tail) lines.pop();
@@ -98,7 +104,7 @@ export function formatMarkdownTable(text) {
     const m = /^(:?)(-+)(:?)$/.exec(c.text);
     return m ? [m[1] !== "", m[3] !== ""] : [false, false];
   }) : null;
-  return rows.map((r, i) => {
+  const out = rows.map((r, i) => {
     const parts = [];
     for (let c = 0; c < ncol; c++) {
       if (i === 1 && sep) {
@@ -109,7 +115,9 @@ export function formatMarkdownTable(text) {
       }
     }
     return r.indent + "| " + parts.join(" | ") + " |";
-  }).join("\n") + tail;
+  });
+  if (out.some(l => displayWidth(l) > max)) return null;
+  return out.join("\n") + tail;
 }
 
 // データの行 (rowIdx 番目) の後ろに空の行を足す。戻り値は {text, row, col} (row / col は置き換え後のカーソル位置の目印)
@@ -221,7 +229,11 @@ function replaceBlock(view, block, newText, place, userEvent) {
 }
 function op(view, block, operation, userEvent) {  // 純関数の mdTable* を整形してからブロックに置き換える
   const formatted = formatMarkdownTable(operation.text);
-  if (formatted == null) return false;
+  // 幅の上限を超える表は、縦揃えをせずに、足した行・列だけを素の形で置く (ほかの補助は効かせておく)
+  if (formatted == null) {
+    if (formatMarkdownTable(operation.text, Infinity) == null) return false;
+    return replaceBlock(view, block, operation.text, operation, userEvent);
+  }
   return replaceBlock(view, block, formatted, operation, userEvent);
 }
 
@@ -301,9 +313,10 @@ function onPaste(ev, view) {
     while (cells.length < max) cells.push(i === 1 ? "---" : "");
     lines[i] = rowLine(cells, rows[i].indent);
   }
-  const formatted = formatMarkdownTable(lines.join("\n"));
-  if (formatted == null) return false;
-  return replaceBlock(view, block, formatted, {row: row + 1, col: 0}, "input.paste");
+  const joined = lines.join("\n");
+  if (formatMarkdownTable(joined, Infinity) == null) return false;
+  const formatted = formatMarkdownTable(joined);  // 幅の上限を超えるなら、素の形 (余白をそろえない) のまま入れる
+  return replaceBlock(view, block, formatted == null ? joined : formatted, {row: row + 1, col: 0}, "input.paste");
 }
 
 // カーソルが表から出たら、その表を整形する (打っている最中は動かさないので、ちらつかない)
