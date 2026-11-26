@@ -475,6 +475,43 @@ test("copying a selection across cells puts tab separated text on the clipboard"
   assert.equal(ev2.clipboardData.text, "秋子\t32\n太郎\t8");
 });
 
+test("dragging the mouse across cells selects them (and the drag copy works)", () => {
+  const w = load();
+  const ed = editor(w, DOC);
+  inCell(ed, 5);
+  assert.equal(w.GGText.mdTableOverlay(ed.view), true);
+  const ov = w.document.querySelector(".gg-md-table-overlay");
+  const cells = ov.querySelectorAll("tbody td");
+  const md = (target, opts = {}) => new w.MouseEvent("mousedown", {bubbles: true, cancelable: true, button: 0, ...opts});
+  // 「秋子」で押して、「8」までドラッグすると、セルをまたぐ選択になる
+  cells[2].dispatchEvent(md(cells[2]));
+  assert.equal(w.document.activeElement, cells[2], "押したセルにフォーカスがある");
+  cells[5].dispatchEvent(new w.MouseEvent("mousemove", {bubbles: true}));
+  const sel = w.getSelection();
+  assert.equal(sel.rangeCount, 1);
+  const r = sel.getRangeAt(0);
+  assert.equal(r.collapsed, false, "選択がつぶれていない");
+  assert.ok(cells[2].contains(r.startContainer) && cells[5].contains(r.endContainer), "「秋子」から「8」まで");
+  // そのままコピーすると、タブ区切りのテキストになる
+  const ev = new w.Event("copy", {bubbles: true, cancelable: true});
+  const store = {};
+  ev.clipboardData = {setData: (t, v) => { store[t] = v; }, get text() { return store["text/plain"]; }};
+  ov.dispatchEvent(ev);
+  assert.equal(ev.defaultPrevented, true);
+  assert.equal(ev.clipboardData.text, "秋子\t32\n太郎\t8");
+  // 放したあとは、ドラッグを始めたセルのまま (キャレットはつぶれていない選択を保つ)
+  w.document.dispatchEvent(new w.MouseEvent("mouseup", {bubbles: true}));
+  assert.equal(sel.rangeCount, 1);
+  assert.equal(sel.getRangeAt(0).collapsed, false);
+  // 単にクリックしただけのセルは、キャレットが置かれた状態になる (ふつうに編集できる)
+  cells[4].dispatchEvent(md(cells[4]));
+  w.document.dispatchEvent(new w.MouseEvent("mouseup", {bubbles: true}));
+  assert.equal(w.document.activeElement, cells[4]);
+  const s2 = w.getSelection();
+  assert.equal(s2.rangeCount, 1);
+  assert.equal(s2.getRangeAt(0).collapsed, true, "クリックはキャレット");
+});
+
 test("the overlay always has the same size at the center of the screen (the cursor position and the table size do not change it)", () => {
   const w = load();
   const ed = editor(w, DOC);

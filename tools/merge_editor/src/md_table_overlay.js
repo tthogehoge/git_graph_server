@@ -74,6 +74,28 @@ function goRC(o, doc, row, col) {  // (row, col) のセルへ移る (なけれ�
   const el = cellOf(o, row, col);
   if (el) goCell(o, doc, el);
 }
+function cellRange(doc, td) {  // セルの中身全体の範囲 (ドラッグでの選択に使う)
+  const r = doc.createRange();
+  r.selectNodeContents(td);
+  return r;
+}
+function caretAtPoint(doc, x, y) {  // (x, y) の場所のキャレット。取れない環境 (テストなど) では null
+  if (typeof doc.caretRangeFromPoint === "function") return doc.caretRangeFromPoint(x, y);
+  if (typeof doc.caretPositionFromPoint === "function") {
+    const p = doc.caretPositionFromPoint(x, y);
+    if (!p) return null;
+    const r = doc.createRange();
+    r.setStart(p.offsetNode, p.offset);
+    return r;
+  }
+  return null;
+}
+function setSel(doc, r) {  // 選択を、範囲 r にする
+  const sel = doc.defaultView.getSelection();
+  if (!sel) return;
+  sel.removeAllRanges();
+  sel.addRange(r);
+}
 function selectedCells(o, doc) {  // 選択範囲にかかっているセル (行優先の順)。つぶれていない範囲がなければ空
   const sel = doc.defaultView.getSelection();
   if (!sel || !sel.rangeCount) return [];
@@ -254,7 +276,7 @@ export function mdTableOverlay(view, labels = {}) {
   Object.assign(root.style, {position: "fixed", zIndex: "1000", background: "#fff", color: "#222",
                              border: "1px solid #888", boxShadow: "0 4px 16px rgba(0,0,0,.3)", padding: "4px",
                              display: "flex", flexDirection: "column", boxSizing: "border-box"});
-  open = {view, from: block.from, to: block.to, text: block.text, indent, aligns, ncol, root,
+  open = {view, doc, from: block.from, to: block.to, text: block.text, indent, aligns, ncol, root,
           lastCell: {row: 1, col: 0}, undo: [], redo: [], restoring: false};
   const bar = doc.createElement("div");  // 行と列の追加・削除のボタン (表をスクロールしても見えている)
   bar.style.cssText = "display:flex; gap:4px; margin-bottom:4px; flex:none;";
@@ -420,6 +442,43 @@ export function mdTableOverlay(view, labels = {}) {
   };
   root.addEventListener("paste", open.onPaste);
   root.addEventListener("copy", open.onCopy);
+
+  // マウスのドラッグでの選択。セルはそれぞれ contenteditable なので、ネイティブの選択は
+  // ドラッグを始めたセルの中で閉じて、セルをまたげない。そこで、選択はこちらで作る
+  let drag = null;  // ドラッグ中の状態 (始めたセルと、押した場所のキャレット)
+  open.onMd = ev => {  // 押したら、いったん自分でキャレットを置いて、ドラッグでの選択を始める
+    const td = ev.target && ev.target.closest ? ev.target.closest("td") : null;
+    if (!td || !root.contains(td) || ev.button !== 0) return;
+    ev.preventDefault();  // ネイティブのキャレット移動・選択は働かせない (自分で作る)
+    drag = {td, caret: caretAtPoint(doc, ev.clientX, ev.clientY)};
+    td.focus();
+    const r = drag.caret || cellRange(doc, td);
+    r.collapse(true);
+    setSel(doc, r);
+    open.lastCell = {row: +td.dataset.r, col: +td.dataset.c};
+  };
+  root.addEventListener("mousedown", open.onMd);
+  open.onMm = ev => {  // 動かした先で、選択を作り直す
+    if (!drag) return;
+    const td = ev.target && ev.target.closest ? ev.target.closest("td") : null;
+    if (!td || !root.contains(td)) return;
+    const r = doc.createRange();
+    if (td === drag.td) {  // 同じセルの中なら、セルの中の選択 (ネイティブと同じように)
+      const c2 = caretAtPoint(doc, ev.clientX, ev.clientY);
+      if (!c2) return;
+      const a = drag.caret || cellRange(doc, td);
+      if (a.compareBoundaryPoints(0, c2) <= 0) { r.setStart(a.startContainer, a.startOffset); r.setEnd(c2.startContainer, c2.startOffset); }
+      else { r.setStart(c2.startContainer, c2.startOffset); r.setEnd(a.startContainer, a.startOffset); }
+    } else {  // ほかのセルへなら、セルをまたぐ選択 (始めのセルと動かした先のセルを、まるごと含む)
+      const a = cellRange(doc, drag.td), b = cellRange(doc, td);
+      if (a.compareBoundaryPoints(0, b) <= 0) { r.setStart(a.startContainer, a.startOffset); r.setEnd(b.endContainer, b.endOffset); }
+      else { r.setStart(b.startContainer, b.startOffset); r.setEnd(a.endContainer, a.endOffset); }
+    }
+    setSel(doc, r);
+  };
+  root.addEventListener("mousemove", open.onMm);
+  open.onMu = () => { drag = null; };  // 放したら終わり (選択はそのまま残る)
+  doc.addEventListener("mouseup", open.onMu);
   open.onDown = ev => { if (!root.contains(ev.target)) closeOverlay(); };  // 外のクリックで閉じる
   doc.addEventListener("mousedown", open.onDown, true);
   open.onScroll = () => closeOverlay();  // 表の位置がずれるので、スクロールでも閉じる
@@ -442,6 +501,9 @@ export function closeOverlay() {
   o.root.removeEventListener("click", o.retrack);
   o.root.removeEventListener("paste", o.onPaste);
   o.root.removeEventListener("copy", o.onCopy);
+  o.root.removeEventListener("mousedown", o.onMd);
+  o.root.removeEventListener("mousemove", o.onMm);
+  o.doc.removeEventListener("mouseup", o.onMu);
   const doc = o.view.dom.ownerDocument, win = doc.defaultView;
   doc.removeEventListener("mousedown", o.onDown, true);
   o.view.scrollDOM.removeEventListener("scroll", o.onScroll);
