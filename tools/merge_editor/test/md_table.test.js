@@ -492,6 +492,12 @@ test("dragging the mouse across cells selects them (and the drag copy works)", (
   const r = sel.getRangeAt(0);
   assert.equal(r.collapsed, false, "選択がつぶれていない");
   assert.ok(cells[2].contains(r.startContainer) && cells[5].contains(r.endContainer), "「秋子」から「8」まで");
+  // セルをまたぐ選択のときは、かかっているセルの背景が変わる (文字列の選択と区別がつくように)
+  w.document.dispatchEvent(new w.Event("selectionchange"));
+  const selectedBg = "rgb(207, 227, 255)";  // SELECT_BG (#cfe3ff)
+  const headerBg = "rgb(246, 248, 250)";  // 見出しの行 (#f6f8fa)
+  [2, 3, 4, 5].forEach(i => assert.equal(cells[i].style.background, selectedBg, "選んだセル " + i));
+  [0, 1].forEach(i => assert.equal(cells[i].style.background, headerBg, "選んでいない見出し " + i));
   // そのままコピーすると、タブ区切りのテキストになる
   const ev = new w.Event("copy", {bubbles: true, cancelable: true});
   const store = {};
@@ -510,6 +516,9 @@ test("dragging the mouse across cells selects them (and the drag copy works)", (
   const s2 = w.getSelection();
   assert.equal(s2.rangeCount, 1);
   assert.equal(s2.getRangeAt(0).collapsed, true, "クリックはキャレット");
+  // キャレットに戻ったら、セルの選択の色は消える
+  w.document.dispatchEvent(new w.Event("selectionchange"));
+  [2, 3, 4, 5].forEach(i => assert.notEqual(cells[i].style.background, selectedBg, "色が消えたセル " + i));
 });
 
 test("the overlay always has the same size at the center of the screen (the cursor position and the table size do not change it)", () => {

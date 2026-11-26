@@ -17,6 +17,7 @@
 import {blockOf, cellPos, formatMarkdownTable, rowLine} from "./md_table.js";
 
 const BLANK = "\u200b";  // 空のセルの高さを保つための幅 0 の空白 (読むときに消す)
+const SELECT_BG = "#cfe3ff";  // セルを選んでいるときの背景 (文字列の選択と区別がつくように)
 
 let open = null;  // 開いているオーバーレイの情報
 
@@ -108,6 +109,11 @@ function selectedCells(o, doc) {  // 選択範囲にかかっているセル (�
     cr.selectNodeContents(td);
     return r.compareBoundaryPoints(1, cr) > 0 && r.compareBoundaryPoints(3, cr) < 0;  // 範囲と重なるセル
   });
+}
+function paintSelected(o, doc) {  // セルをまたぐ選択のときは、かかっているセルの背景を変える (文字列の選択と区別がつくように)
+  const on = selectedCells(o, doc);
+  renumber(o);  // いったん、見出しかどうかのふつうの色に戻してから
+  if (on.length >= 2) on.forEach(td => { td.style.background = SELECT_BG; });  // セルの選択だけ、色を変える
 }
 function moveCell(o, doc, dir) {  // オーバーレイの中の Tab / Shift+Tab。セルの間を動く (端では止まる)
   const cells = [...o.root.querySelectorAll("td")];
@@ -455,6 +461,7 @@ export function mdTableOverlay(view, labels = {}) {
     const r = drag.caret || cellRange(doc, td);
     r.collapse(true);
     setSel(doc, r);
+    paintSelected(open, doc);  // キャレットを置くので、セルの選択の色は消える
     open.lastCell = {row: +td.dataset.r, col: +td.dataset.c};
   };
   root.addEventListener("mousedown", open.onMd);
@@ -475,10 +482,13 @@ export function mdTableOverlay(view, labels = {}) {
       else { r.setStart(b.startContainer, b.startOffset); r.setEnd(a.endContainer, a.endOffset); }
     }
     setSel(doc, r);
+    paintSelected(open, doc);
   };
   root.addEventListener("mousemove", open.onMm);
   open.onMu = () => { drag = null; };  // 放したら終わり (選択はそのまま残る)
   doc.addEventListener("mouseup", open.onMu);
+  open.onSelChange = () => { if (open && open.root.isConnected) paintSelected(open, doc); };  // ほかの選択の変化 (ダブルクリックなど) でも、色を直す
+  doc.addEventListener("selectionchange", open.onSelChange);
   open.onDown = ev => { if (!root.contains(ev.target)) closeOverlay(); };  // 外のクリックで閉じる
   doc.addEventListener("mousedown", open.onDown, true);
   open.onScroll = () => closeOverlay();  // 表の位置がずれるので、スクロールでも閉じる
@@ -504,6 +514,7 @@ export function closeOverlay() {
   o.root.removeEventListener("mousedown", o.onMd);
   o.root.removeEventListener("mousemove", o.onMm);
   o.doc.removeEventListener("mouseup", o.onMu);
+  o.doc.removeEventListener("selectionchange", o.onSelChange);
   const doc = o.view.dom.ownerDocument, win = doc.defaultView;
   doc.removeEventListener("mousedown", o.onDown, true);
   o.view.scrollDOM.removeEventListener("scroll", o.onScroll);
