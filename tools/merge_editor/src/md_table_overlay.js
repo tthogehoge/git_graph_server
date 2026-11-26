@@ -1,6 +1,8 @@
 // 「表」ボタン (06_edit.js) から開く、表の直接編集 (オーバーレイ)。カーソルのある表の上に
 // contenteditable な HTML の表を浮かせて、セルの中をブラウザーと同じ操作で編集できるようにする。
-// 大きさは常に同じ (開いた位置や表の大きさによらない)。表をスクロールしても、上のボタンの行は見えている。
+// 大きさは常に同じ (開いた位置や表の大きさによらず、画面の真ん中に固定で出る)。表をスクロールしても、
+// 上のボタンの行は見えている。Ctrl+Z / Ctrl+Y (Shift+Ctrl+Z) で、セルの入力と行・列の追加・削除・
+// 貼り付けを元に戻す / やり直せる。
 // ボタン (行・列の追加 / 削除。上 / 下、左 / 右) と、Alt+Backspace / Alt+Shift+Backspace でも
 // 行・列を消せる。Ctrl/Cmd+Enter で行を下に足す。Alt+Enter はセルの中の改行 (書き戻すときに <br> にする)。
 // 表計算からのタブ区切りのテキストの貼り付けも、表の行に変換して受ける。
@@ -83,9 +85,48 @@ function insertBreak(doc) {  // Alt+Enter。セルの中で改行する (書き�
   sel.addRange(r);
 }
 
+// --- やり直し (Ctrl+Z / Ctrl+Y。セルの入力と、行・列の追加・削除・貼り付けを戻せる) ---
+
+function serialize(o) {  // 表のいまの状態 (セルの中身・列の数・区切りの行の揃え)
+  return {cells: [...o.root.querySelectorAll("tr")].map(tr => [...tr.children].map(el => el.textContent)),
+          ncol: o.ncol, aligns: o.aligns.map(a => [a[0], a[1]])};
+}
+function eqState(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
+function snapshot(o) {  // いまの状態を undo の積み物に置く (変わっていなければ置かない)。redo の積み物は空にする
+  const cur = serialize(o);
+  if (o.undo.length && eqState(o.undo[o.undo.length - 1], cur)) return;
+  o.undo.push(cur);
+  o.redo = [];
+}
+function restore(o, doc, state) {  // 記録しておいた状態の表を作り直す (カーソルは、なるべく同じセルへ)
+  o.ncol = state.ncol;
+  o.aligns = state.aligns.map(a => [a[0], a[1]]);
+  o.restoring = true;  // 作り直しの間は、履歴を積まない (focusin の記録を止める)
+  const tbody = o.root.querySelector("tbody");
+  tbody.replaceChildren();
+  state.cells.forEach(cells => {
+    const tr = doc.createElement("tr");
+    for (let c = 0; c < o.ncol; c++) tr.appendChild(mkCell(doc, cells[c] || ""));
+    tbody.appendChild(tr);
+  });
+  renumber(o);
+  o.lastCell = {row: Math.min(o.lastCell.row, state.cells.length - 1), col: Math.min(o.lastCell.col, o.ncol - 1)};
+  goCell(o, doc, cellOf(o, o.lastCell.row, o.lastCell.col));
+  o.restoring = false;
+}
+function applyHistory(o, doc, from, to) {  // from の積み物から 1 つ戻して作り直す (undo は undo→redo、redo は redo→undo)
+  const cur = serialize(o);
+  if (from.length && eqState(from[from.length - 1], cur)) from.pop();  // いまの状態が積んであれば捨てて、その前から戻す
+  const state = from.pop();
+  if (!state) return;
+  to.push(cur);
+  restore(o, doc, state);
+}
+
 // --- 行と列の追加・削除 (ボタンと、オーバーレイの中のキーから。ソースへの書き戻しは閉じるとき) ---
 
 function addRow(o, doc, above) {  // いまの行の上 / 下に、空の行を足す (見出しの上でもよい。その行が新しい見出しになる)
+  snapshot(o);  // 元に戻せるように、変える前の状態を覚える
   const tbody = o.root.querySelector("tbody");
   const trs = [...tbody.children];
   const at = Math.max(0, o.lastCell.row + (above ? 0 : 1));  // 挿入位置 (tbody の中の番号)
@@ -97,6 +138,7 @@ function addRow(o, doc, above) {  // いまの行の上 / 下に、空の行を�
   goCell(o, doc, tr.children[Math.min(o.lastCell.col, o.ncol - 1)]);
 }
 function deleteRow(o, doc) {  // いまの行を消す (見出しの行を消すと、次の行が見出しに繰り上がる)。
+  snapshot(o);  // 元に戻せるように、変える前の状態を覚える (消せないときは、状態が変わらないので積まれない)
   const trs = [...o.root.querySelector("tbody").children];  // 消すと見出しとデータが残らない (2 行未満になる) ときは、消さない
   if (trs.length <= 2) return;
   trs[o.lastCell.row].remove();
@@ -105,6 +147,7 @@ function deleteRow(o, doc) {  // いまの行を消す (見出しの行を消す
   goCell(o, doc, cellOf(o, o.lastCell.row, Math.min(o.lastCell.col, o.ncol - 1)));
 }
 function addColumn(o, doc, left) {  // いまの列の左 / 右に、空の列を足す (すべての行)
+  snapshot(o);  // 元に戻せるように、変える前の状態を覚える
   const rows = [...o.root.querySelectorAll("tr")];
   const at = left ? o.lastCell.col : o.lastCell.col + 1;
   o.ncol += 1;
@@ -117,6 +160,7 @@ function addColumn(o, doc, left) {  // いまの列の左 / 右に、空の列�
   goCell(o, doc, cellOf(o, o.lastCell.row, at));
 }
 function deleteColumn(o, doc) {  // いまの列を消す (列が 2 つしかないときは消さない。消すと表が壊れる)
+  snapshot(o);  // 元に戻せるように、変える前の状態を覚える (消せないときは、状態が変わらないので積まれない)
   if (o.ncol <= 2) return;
   const col = o.lastCell.col;
   [...o.root.querySelectorAll("tr")].forEach(tr => tr.children[col].remove());
@@ -150,7 +194,7 @@ export function mdTableOverlay(view, labels = {}) {
                              border: "1px solid #888", boxShadow: "0 4px 16px rgba(0,0,0,.3)", padding: "4px",
                              display: "flex", flexDirection: "column", boxSizing: "border-box"});
   open = {view, from: block.from, to: block.to, text: block.text, indent, aligns, ncol, root,
-          lastCell: {row: 1, col: 0}};
+          lastCell: {row: 1, col: 0}, undo: [], redo: [], restoring: false};
   const bar = doc.createElement("div");  // 行と列の追加・削除のボタン (表をスクロールしても見えている)
   bar.style.cssText = "display:flex; gap:4px; margin-bottom:4px; flex:none;";
   const fallback = {addRowAbove: "↑ 行", addRow: "↓ 行", delRow: "− 行", addColLeft: "← 列", addCol: "→ 列", delCol: "− 列"};
@@ -180,16 +224,15 @@ export function mdTableOverlay(view, labels = {}) {
   root.appendChild(bar);
   root.appendChild(scroller);
   renumber(open);
+  snapshot(open);  // 開いたときの状態を覚えておく (最初の入力も Ctrl+Z で戻せるように)
 
-  // 大きさは常に同じ (画面の 8 割 × 6 割)。置く場所はソースの表の近く (画面からはみ出さない範囲で)
-  const a = view.coordsAtPos(block.from) || {left: 0, right: 0, top: 0, bottom: 0};
-  const b = view.coordsAtPos(block.to) || a;
+  // 大きさは常に同じ (画面の 8 割 × 6 割)。置く場所は画面の真ん中で固定 (開いた位置によらず、あっちこっちに動かない)
   const width = Math.min(win.innerWidth - 16, Math.max(360, Math.floor(win.innerWidth * 0.8)));
   const height = Math.min(win.innerHeight - 16, Math.max(200, Math.floor(win.innerHeight * 0.6)));
   root.style.width = width + "px";
   root.style.height = height + "px";
-  root.style.left = Math.max(8, Math.min(Math.min(a.left, b.left) - 6, win.innerWidth - width - 8)) + "px";
-  root.style.top = Math.max(8, Math.min(a.top - 6, win.innerHeight - height - 8)) + "px";
+  root.style.left = Math.max(8, Math.floor((win.innerWidth - width) / 2)) + "px";
+  root.style.top = Math.max(8, Math.floor((win.innerHeight - height) / 2)) + "px";
   doc.body.appendChild(root);
 
   // カーソルのあったセル (見出しと区切りの行は、オーバーレイでは見出しの行) を覚えて、そこへ移る
@@ -205,6 +248,16 @@ export function mdTableOverlay(view, labels = {}) {
 
   open.onKey = ev => {
     if (ev.key === "Escape") { ev.preventDefault(); closeOverlay(); return; }
+    if ((ev.ctrlKey || ev.metaKey) && !ev.altKey && (ev.key === "z" || ev.key === "Z")) {  // やり直し
+      ev.preventDefault();
+      applyHistory(open, doc, ev.shiftKey ? open.redo : open.undo, ev.shiftKey ? open.undo : open.redo);
+      return;
+    }
+    if ((ev.ctrlKey || ev.metaKey) && !ev.altKey && !ev.shiftKey && (ev.key === "y" || ev.key === "Y")) {
+      ev.preventDefault();
+      applyHistory(open, doc, open.redo, open.undo);
+      return;
+    }
     if (ev.key === "Tab") { ev.preventDefault(); moveCell(open, doc, ev.shiftKey ? -1 : 1); return; }
     if (ev.key === "Enter" && ev.altKey) { ev.preventDefault(); insertBreak(doc); return; }  // セルの中の改行
     if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); addRow(open, doc, false); return; }
@@ -213,14 +266,21 @@ export function mdTableOverlay(view, labels = {}) {
     if (ev.key === "Enter" && !ev.shiftKey) { ev.preventDefault(); moveDown(open, doc); }
   };
   root.addEventListener("keydown", open.onKey);
-  open.track = () => {  // 編集しているセルを覚える (書き戻したあと、カーソルをそこへ戻す)
+  open.track = () => {  // セルの位置と、打った内容 (やり直し用) を覚える。打鍵ではなく input で取る (undo のキー自体を履歴に入れない)
+    if (!open.restoring) snapshot(open);
     const el = doc.activeElement;
     const cell = el && el.closest ? el.closest("td") : null;
     if (cell && root.contains(cell)) open.lastCell = {row: +cell.dataset.r, col: +cell.dataset.c};
   };
-  root.addEventListener("keyup", open.track);
+  open.retrack = () => {  // セルの位置だけ覚え直す
+    const el = doc.activeElement;
+    const cell = el && el.closest ? el.closest("td") : null;
+    if (cell && root.contains(cell)) open.lastCell = {row: +cell.dataset.r, col: +cell.dataset.c};
+  };
   root.addEventListener("focusin", open.track);
-  root.addEventListener("click", open.track);
+  root.addEventListener("input", open.track);
+  root.addEventListener("keyup", open.retrack);
+  root.addEventListener("click", open.retrack);
   open.onPaste = ev => {  // 表計算からのタブ区切りのテキスト。いまの行の下に、表の行として足す
     const cd = ev.clipboardData;
     if (!cd || typeof cd.getData !== "function") return;
@@ -228,6 +288,7 @@ export function mdTableOverlay(view, labels = {}) {
     if (!text || text.indexOf("\t") < 0) return;  // タブのない普通のテキストは、ブラウザーの貼り付けに任せる
     ev.preventDefault();
     ev.stopPropagation();
+    snapshot(open);  // 元に戻せるように、変える前の状態を覚える
     const pasted = text.replace(/\r\n?/g, "\n").replace(/\n+$/, "").split("\n").map(l => l.split("\t"));
     const tbody = open.root.querySelector("tbody");
     const trs = [...tbody.children];
@@ -264,9 +325,10 @@ export function closeOverlay() {
   open = null;
   o.root.remove();
   o.root.removeEventListener("keydown", o.onKey);
-  o.root.removeEventListener("keyup", o.track);
   o.root.removeEventListener("focusin", o.track);
-  o.root.removeEventListener("click", o.track);
+  o.root.removeEventListener("input", o.track);
+  o.root.removeEventListener("keyup", o.retrack);
+  o.root.removeEventListener("click", o.retrack);
   o.root.removeEventListener("paste", o.onPaste);
   const doc = o.view.dom.ownerDocument, win = doc.defaultView;
   doc.removeEventListener("mousedown", o.onDown, true);

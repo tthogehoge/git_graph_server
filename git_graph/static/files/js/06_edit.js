@@ -171,13 +171,14 @@ function editorPhrases() {  // 検索パネルなどの文言 (CodeMirror 側の
 window.addEventListener("beforeunload", ev => { if (editing && editDirty) { ev.preventDefault(); ev.returnValue = ""; } });
 let mdScrollCleanup = null;  // Markdown 編集の左右スクロール同期を外す関数
 let mdScrollSyncing = false;
-function insertMdTable() {  // 「表」ボタン。カーソルが表の中なら、その表を直接編集するオーバーレイを出す (閉じるときにソースへ書き戻す)。外なら、カーソルの行の下に 2 列の表を入れて、最後の行の 1 つ目の空セルへカーソルを置く
+function insertMdTable() {  // 「表」ボタン。カーソルが表の中なら、その表を直接編集するオーバーレイを出す (閉じるときにソースへ書き戻す)。外なら、カーソルの行の下に 2 列の表を入れて、そのままオーバーレイで開く
   if (!editing || !textEditor || !textEditor.view) return;
   const view = textEditor.view;
+  const labels = {addRowAbove: t("md_table_ov_add_row_above"), addRow: t("md_table_ov_add_row"),
+                  delRow: t("md_table_ov_del_row"), addColLeft: t("md_table_ov_add_col_left"),
+                  addCol: t("md_table_ov_add_col"), delCol: t("md_table_ov_del_col")};
   if (window.GGText && window.GGText.mdTableOverlay &&
-      window.GGText.mdTableOverlay(view, {addRowAbove: t("md_table_ov_add_row_above"), addRow: t("md_table_ov_add_row"),
-                                          delRow: t("md_table_ov_del_row"), addColLeft: t("md_table_ov_add_col_left"),
-                                          addCol: t("md_table_ov_add_col"), delCol: t("md_table_ov_del_col")})) return;  // オーバーレイにフォーカスがあるので、エディタは聚焦らない
+      window.GGText.mdTableOverlay(view, labels)) return;  // オーバーレイにフォーカスがあるので、エディタは聚焦らない
   const line = view.state.doc.lineAt(view.state.selection.main.head);
   const rows = ["| " + t("md_table_col", {n: 1}) + " | " + t("md_table_col", {n: 2}) + " |", "| --- | --- |", "|   |   |"];
   const atLineEnd = line.text !== "";  // 行の途中なら、いったん改行してから表を出す (表は専用の行に)
@@ -185,7 +186,9 @@ function insertMdTable() {  // 「表」ボタン。カーソルが表の中な�
   const insert = (atLineEnd ? "\n" : "") + rows.join("\n");
   const anchor = from + (atLineEnd ? 1 : 0) + rows[0].length + 1 + rows[1].length + 1 + 2;  // 最後の行の 1 つ目の空セルの中
   view.dispatch({changes: {from, to: from, insert: insert}, selection: {anchor: anchor}, scrollIntoView: true});
-  textEditor.focus();
+  if (window.GGText && window.GGText.mdTableOverlay &&
+      window.GGText.mdTableOverlay(view, labels)) return;  // 入れた表を、そのままオーバーレイで開く
+  textEditor.focus();  // オーバーレイが出せないときは、エディタへ戻る
 }
 function mdEditScroller() {  // 左エディタのスクロール要素 (CodeMirror の .cm-scroller)
   const host = document.getElementById("editor");

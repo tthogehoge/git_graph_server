@@ -393,19 +393,47 @@ test("pasting tab separated text into the overlay adds the rows below the curren
     "intro\n\n| 名前 | 年齢 |     |\n| :--- | ---: | --- |\n| 秋子 | 32   |     |\n| p    | q    | r   |\n| 太郎 | 8    |     |\noutro\n");
 });
 
-test("the overlay always has the same size (the cursor position and the table size do not change it)", () => {
+test("the overlay always has the same size at the center of the screen (the cursor position and the table size do not change it)", () => {
   const w = load();
   const ed = editor(w, DOC);
   inCell(ed, 5);  // 表の中の下のほうの行
   assert.equal(w.GGText.mdTableOverlay(ed.view), true);
   const ov = w.document.querySelector(".gg-md-table-overlay");
   assert.ok(ov.style.width && ov.style.height, "大きさが決まっている: " + ov.style.width + " × " + ov.style.height);
-  const size = [ov.style.width, ov.style.height];
+  assert.equal(ov.style.left, Math.floor((w.innerWidth - parseInt(ov.style.width)) / 2) + "px", "画面の真ん中 (横)");
+  assert.equal(ov.style.top, Math.floor((w.innerHeight - parseInt(ov.style.height)) / 2) + "px", "画面の真ん中 (縦)");
+  const size = [ov.style.left, ov.style.top, ov.style.width, ov.style.height];
   ov.dispatchEvent(new w.KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
   ed.view.dispatch({selection: {anchor: ed.view.state.doc.line(3).from + 3}});  // 見出し (表の中の上のほう)
   assert.equal(w.GGText.mdTableOverlay(ed.view), true);
   const ov2 = w.document.querySelector(".gg-md-table-overlay");
-  assert.deepEqual([ov2.style.width, ov2.style.height], size, "どこで開いても、大きさは同じ");
+  assert.deepEqual([ov2.style.left, ov2.style.top, ov2.style.width, ov2.style.height], size, "どこで開いても、大きさも場所も同じ");
+});
+
+test("the overlay's Ctrl+Z / Ctrl+Y undo and redo cell edits and structural changes", () => {
+  const w = load();
+  const ed = editor(w, DOC);
+  inCell(ed, 5);  // 「秋子」のセルの中
+  assert.equal(w.GGText.mdTableOverlay(ed.view), true);
+  const ov = w.document.querySelector(".gg-md-table-overlay");
+  const cellOfRow1 = () => ov.querySelectorAll("tbody tr")[1].children[0];
+  cellOfRow1().textContent = "あきこ";
+  ov.dispatchEvent(new w.Event("input", {bubbles: true}));
+  ov.dispatchEvent(new w.KeyboardEvent("keydown", {key: "z", ctrlKey: true, bubbles: true, cancelable: true}));
+  assert.equal(cellOfRow1().textContent, "秋子", "セルの入力を戻す");
+  ov.dispatchEvent(new w.KeyboardEvent("keydown", {key: "y", ctrlKey: true, bubbles: true, cancelable: true}));
+  assert.equal(cellOfRow1().textContent, "あきこ", "やり直す");
+  // 行の追加も戻せる
+  ov.querySelectorAll("button")[1].click();  // ↓ 行
+  assert.equal(ov.querySelectorAll("tbody tr").length, 4);
+  ov.dispatchEvent(new w.KeyboardEvent("keydown", {key: "z", ctrlKey: true, bubbles: true, cancelable: true}));
+  assert.equal(ov.querySelectorAll("tbody tr").length, 3, "行の追加を戻す");
+  ov.dispatchEvent(new w.KeyboardEvent("keydown", {key: "z", ctrlKey: true, bubbles: true, cancelable: true}));
+  assert.equal(cellOfRow1().textContent, "秋子", "さらに戻ると、セルの入力も戻る");
+  ov.dispatchEvent(new w.KeyboardEvent("keydown", {key: "y", ctrlKey: true, bubbles: true, cancelable: true}));
+  assert.equal(cellOfRow1().textContent, "あきこ", "やり直すと、セルの入力も戻る");
+  ov.dispatchEvent(new w.KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
+  assert.ok(ed.getText().includes("| あきこ"), "書き戻し: " + ed.getText().split("\n")[4]);
 });
 
 test("pasting tab separated text (spreadsheet) into a table adds the rows", () => {
