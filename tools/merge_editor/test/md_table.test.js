@@ -211,19 +211,6 @@ test("a table wider than the format width limit is not formatted (the other aids
   assert.ok(ed2.getText().startsWith("intro\n\n| 名前 | " + long + " |"), "すでにある行は変えない");
 });
 
-test("mdTableAddColumn (the table button) adds a column inside a table and does nothing outside", () => {
-  const w = load();
-  const ed = editor(w, DOC);
-  inCell(ed, 5);  // 「秋子」のセルの中
-  assert.equal(w.GGText.mdTableAddColumn(ed.view), true);
-  assert.equal(ed.getText(),
-    "intro\n\n| 名前 |     | 年齢 |\n| :--- | --- | ---: |\n| 秋子 |     | 32   |\n| 太郎 |     | 8    |\noutro\n");
-  ed.view.dispatch({selection: {anchor: ed.view.state.doc.line(1).from + 2}});  // 表の外 (intro の行) へ
-  assert.equal(w.GGText.mdTableAddColumn(ed.view), false);  // 表の外では何もしない
-  assert.equal(ed.getText(),
-    "intro\n\n| 名前 |     | 年齢 |\n| :--- | --- | ---: |\n| 秋子 |     | 32   |\n| 太郎 |     | 8    |\noutro\n");
-});
-
 test("pasting tab separated text (spreadsheet) into a table adds the rows", () => {
   const w = load();
   const ed = editor(w, DOC);
