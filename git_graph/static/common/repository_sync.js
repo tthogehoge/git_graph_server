@@ -1,5 +1,8 @@
 // 成功した API 書き込みを画面間で共有する。個々の操作 UI に更新呼び出しを足し忘れないための共通通知。
 (function () {
+  // ファイルシステム監視の方式を見直すまで自動同期を停止する。
+  window.GIT_GRAPH_AUTO_WIP_SYNC = false;
+  if (window.GIT_GRAPH_AUTO_WIP_SYNC !== true) return;
   const KEY = "git_graph_repository_changed";
   const notify = detail => window.dispatchEvent(new CustomEvent("git-graph-repository-changed", {detail: detail || {}}));
   const originalFetch = window.fetch.bind(window);

@@ -42,11 +42,13 @@ function pollGraphWip() {
   }
   api("/api/status", {}).then(observeGraphWipStatus).catch(() => {});
 }
-pollGraphWip();
-setInterval(pollGraphWip, 2000);
-window.addEventListener("git-graph-repository-changed", () => {
-  if (!detailView.querySelector(".wip-panel")) pollGraphWip();
-});
+if (window.GIT_GRAPH_AUTO_WIP_SYNC === true) {
+  pollGraphWip();
+  setInterval(pollGraphWip, 2000);
+  window.addEventListener("git-graph-repository-changed", () => {
+    if (!detailView.querySelector(".wip-panel")) pollGraphWip();
+  });
+}
 const wipCommitMenuBtn = document.getElementById("wipCommitMenuBtn");
 wipCommitMenuBtn.disabled = !DATA.writable || !WIP_ENABLED;
 wipCommitMenuBtn.addEventListener("click", () => {

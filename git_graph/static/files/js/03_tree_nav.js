@@ -22,7 +22,8 @@ function refreshVisibleRefChips() {
 }
 const refsReady = refreshRefLabels();  // ページを開いたときに 1 回読む
 // コミット・push / pull / fetch のあと: ブランチ名と HEAD の表示を更新する (ページ全体の再読み込みの代わり / 直前の反映)
-window.refreshFilesState = function (opts) {
+window.refreshFilesState = function () {
+  const opts = arguments[0];
   if (typeof window.invalidateMenubarRefLabels === "function") window.invalidateMenubarRefLabels();
   return refreshRefLabels().then(() => {
     if (!isWip) return;
