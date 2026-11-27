@@ -169,7 +169,10 @@ function restoreFromUrl(first) {  // URL の path / file / view の状態を画�
     return (reload ? loadFile(file, false) : Promise.resolve()).then(() => { if (view) renderView(view); });
   }).then(() => {
     if (p.get("wip_commit") === "1") showWipCommitPane(); else showFilePane();
-    const f = afterRestore; afterRestore = null; if (f) f();
+    const f = afterRestore; afterRestore = null;
+    return Promise.resolve(f ? f() : null).then(() => {
+      if (!first && p.get("wip_commit") === "1") return refreshWipCommitPanel();
+    });
   });
 }
 let repoSearchRestoreSeq = 0;

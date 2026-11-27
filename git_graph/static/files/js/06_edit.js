@@ -389,7 +389,7 @@ function saveEdit() {
       editing = editDirty = false;
       closeEditor();
       fileData = null;  // 保存後の内容は読み込み直す
-      backToContent(() => loadTree(current, false)  // 変更の印と差分ボタンを更新する
+      backToContent(() => loadTree(current, false, {skipWipChanges: new URLSearchParams(location.search).get("wip_commit") === "1"})  // 変更の印と差分ボタンを更新する
         .then(() => { updateDiffBtn(); setFileMsg(r.message, true); }));
     })
     .catch(e => { btn.disabled = false; setFileMsg(e.message, false); fileActions.hidden = false; });

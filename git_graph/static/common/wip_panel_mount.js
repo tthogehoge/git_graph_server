@@ -28,9 +28,13 @@ function mountWipPanel(root, opts) {
           history.replaceState(history.state, "", location.pathname + "?" + params + location.hash);
         }
       }
-      // 再読み込み前にブランチ名・HEAD を先に反映する (コミット直後の札の遅れを防ぐ)
-      if (typeof window.refreshFilesState === "function") window.refreshFilesState();
-      setTimeout(() => location.reload(), 800);
+      if (typeof window.refreshFilesState === "function") {
+        // 左ペインとコミット欄を部分更新する。status はパネルの取得結果を左ペインにも共有し、重複取得しない。
+        window.refreshFilesState({skipWipChanges: true}).then(() => panel.say(message, true));
+      } else {
+        // 差分ページにはファイル画面用の部分更新処理がない。
+        setTimeout(() => location.reload(), 800);
+      }
     },
     onFiles: opts.onFiles,
     amendOverride: opts.diff ? () => q.get("wip") === "amend" : undefined,
