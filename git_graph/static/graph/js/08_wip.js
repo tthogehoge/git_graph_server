@@ -8,6 +8,7 @@ const wipPanel = WipPanel.create({
   dialog: openActionDialog,
   canWrite: () => !!DATA.writable,  // 書き込みが無効 (--read-only など) のときはチェック欄を出さない
   say: (text, ok) => setGraphStatus(text, ok ? "success" : "error"),
+  onRepoChange: () => refreshGraph().catch(() => {}),
   afterChange: (message, opts) => {
     showWip(true, message);
     refreshGraph().catch(() => {});

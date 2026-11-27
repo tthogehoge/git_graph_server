@@ -425,7 +425,7 @@ def render_diff_page(q):
     menubar = menubar_html("diff", files_href=files_href, graph_href=graph_href, reload_id="rld", reload_enabled=bool(wip),
                            commit=bar_commit, wip=bool(wip and not is_wip_compare))
     # JavaScript は /static/ 下の個別ファイル。順序が大事なので、かつての埋め込みの順序をそのまま保つ
-    scripts = (script_tag("common/copy.js") + script_tag("common/pane_resize.js")
+    scripts = (script_tag("common/repository_sync.js") + script_tag("common/copy.js") + script_tag("common/pane_resize.js")
                + f"<script>{dialog_js}</script>\n"  # 文言 T と共通のダイアログ部品 (メニューバー・コミット欄・push / pull で共通)
                + script_tag("common/patch_ops.js") + script_tag("common/log_select.js") + script_tag("common/page_menubar.js"))
     if use_panel:  # 共通の WIP パネル (wip_panel.js) と、その接続

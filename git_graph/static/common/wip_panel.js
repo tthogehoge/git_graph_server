@@ -87,7 +87,7 @@ const WipPanel = (function () {
     const t = host.t;
     let root = null;
     let sel = {};  // 「種類 + パス」→ ユーザーが付け外ししたチェック状態 (ステージ済みと未ステージは別々にチェックできる)
-    let merging = false, rebasing = false, files = [], started = false, lastStatus = null, refreshing = false;
+    let merging = false, rebasing = false, files = [], started = false, lastStatus = null, refreshing = false, statusRequestGeneration = 0;
     // amend モード: チェック中は「直前のコミットの親」と作業ツリーの差分を出し、メッセージも直前のものを入れる
     let amendOn = false, msg = "", msgNormal = "", headMsg = "", branchVal = "";  // msgNormal: amend にする前に書いていたメッセージ (解除で戻す)
     const key = (kind, path) => kind + "\0" + path;
@@ -314,6 +314,7 @@ const WipPanel = (function () {
     let lastOpts = {};
     function render(el, o) {
       root = el; lastOpts = o || {};
+      ++statusRequestGeneration;
       bind(root);
       return host.get("/api/status", amendOn ? {amend: 1} : {}).then(s => {
         lastStatus = JSON.stringify(s);
@@ -440,6 +441,17 @@ const WipPanel = (function () {
         return render(root, lastOpts).then(() => ({changed: true, headChanged: !!old && (old.head !== s.head || old.branch !== s.branch)}));
       }).finally(() => { refreshing = false; });
     }
+    window.addEventListener("git-graph-repository-changed", () => {
+      if (!root) return;
+      const generation = statusRequestGeneration;
+      setTimeout(() => {
+        // 操作画面の afterChange が先に WIP を読み直した場合は、その取得を共通通知でもう一度行わない。
+        if (!root || generation !== statusRequestGeneration) return;
+        refreshIfChanged().then(result => {
+          if (result && result.headChanged && host.onRepoChange) host.onRepoChange();
+        }).catch(() => {});
+      }, 100);
+    });
     return {render: render, refreshIfChanged: refreshIfChanged, say: say, reset: reset, setChecks: setChecks, amend: () => amendOn, files: () => files};
   }
 
