@@ -15,6 +15,9 @@ function mountWipPanel(root, opts) {
     dialog: (title, fieldsHtml, submitLabel) => openDialog(title, form => { form.insertAdjacentHTML("beforeend", fieldsHtml); }, submitLabel),
     canWrite: () => !!bar && bar.dataset.writable === "1" && bar.dataset.worktree === "1",
     say: (text, ok) => mbSay(text, ok),
+    onRepoChange: () => {
+      if (typeof window.refreshFilesState === "function") window.refreshFilesState({skipWipPanel: true});
+    },
     afterChange: (message, change) => {  // 作業ツリーの状態が変わったので、表示 (一覧・差分・ファイル) をページごと読み込み直す
       panel.say(message, true);
       if (!opts.diff && opts.onFiles && change && change.hash) {

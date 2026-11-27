@@ -448,15 +448,15 @@ const WipPanel = (function () {
         // 操作画面の afterChange が先に WIP を読み直した場合は、その取得を共通通知でもう一度行わない。
         if (!root || generation !== statusRequestGeneration) return;
         refreshIfChanged().then(result => {
-          if (result && result.headChanged && host.onRepoChange) host.onRepoChange();
+          if (result && host.onRepoChange) host.onRepoChange(result);
         }).catch(() => {});
       }, 100);
     });
     // 外部エディタや別プロセスによる変更を、WIP パネルが見えている間は画面共通で確認する。
     setInterval(() => {
-      if (!root || document.hidden || !root.querySelector(".wip-panel") || root.closest("[hidden]")) return;
+      if (host.autoPoll === false || !root || document.hidden || !root.querySelector(".wip-panel") || root.closest("[hidden]")) return;
       refreshIfChanged().then(result => {
-        if (result && result.headChanged && host.onRepoChange) host.onRepoChange();
+        if (result && host.onRepoChange) host.onRepoChange(result);
       }).catch(() => {});
     }, 2000);
     return {render: render, refreshIfChanged: refreshIfChanged, say: say, reset: reset, setChecks: setChecks, amend: () => amendOn, files: () => files};

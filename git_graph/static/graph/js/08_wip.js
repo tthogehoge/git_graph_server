@@ -7,16 +7,46 @@ const wipPanel = WipPanel.create({
   post: post,
   dialog: openActionDialog,
   canWrite: () => !!DATA.writable,  // 書き込みが無効 (--read-only など) のときはチェック欄を出さない
+  autoPoll: false,  // グラフ画面の監視は WIP パネルが閉じているときも含め、下の共通ポーラーで行う
   say: (text, ok) => setGraphStatus(text, ok ? "success" : "error"),
-  onRepoChange: () => refreshGraph().catch(() => {}),
   afterChange: (message, opts) => {
     showWip(true, message);
-    refreshGraph().catch(() => {});
     if (opts && opts.stash) loadStashes();
   },
-  onFiles: files => { curCtx = {}; curFiles = files; updatePageNav("WIP"); },
+  onFiles: (files, status) => {
+    curCtx = {}; curFiles = files; updatePageNav("WIP");
+    if (!status) return;
+    observeGraphWipStatus(status);
+  },
 });
+let lastWipHead = null, lastWipBranch = "";
+function observeGraphWipStatus(status) {
+  const paths = new Set();
+  ["conflicts", "staged", "unstaged", "untracked"].forEach(kind => (status[kind] || []).forEach(f => paths.add(f.path)));
+  updateWipGraphCount(paths.size);
+  const head = status.head || "", branch = status.branch || "";
+  if (lastWipHead !== null && (head !== lastWipHead || branch !== lastWipBranch)) refreshGraph().catch(() => {});
+  lastWipHead = head; lastWipBranch = branch;
+}
+function updateWipGraphCount(value) {
+  const node = [...document.querySelectorAll("#graph g.node")].find(g => g.querySelector("title")?.textContent === "WIP");
+  const count = node && node.querySelectorAll("text")[1];
+  if (count && Number.isInteger(value)) count.textContent = value ? t("n_changes", {n: value}) : t("wip_clean");
+}
 const wipSay = (text, ok) => wipPanel.say(text, ok);
+function pollGraphWip() {
+  if (document.hidden) return;
+  if (detailView.querySelector(".wip-panel")) {
+    wipPanel.refreshIfChanged().catch(() => {});
+    return;
+  }
+  api("/api/status", {}).then(observeGraphWipStatus).catch(() => {});
+}
+pollGraphWip();
+setInterval(pollGraphWip, 2000);
+window.addEventListener("git-graph-repository-changed", () => {
+  if (!detailView.querySelector(".wip-panel")) pollGraphWip();
+});
 const wipCommitMenuBtn = document.getElementById("wipCommitMenuBtn");
 wipCommitMenuBtn.disabled = !DATA.writable || !WIP_ENABLED;
 wipCommitMenuBtn.addEventListener("click", () => {

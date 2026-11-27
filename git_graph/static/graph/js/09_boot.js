@@ -24,6 +24,7 @@ fetch(graphUrl())
     setGraphData(r);
     if (r.notice) setGraphStatus(r.notice, "error");  // 大きすぎて表示を減らしたとき
     document.getElementById("graph").innerHTML = r.svg;
+    updateWipGraphCount(DATA.nodes.WIP ? DATA.nodes.WIP.count : null);
     applyGraphZoom();
     init();
     updateCmpClasses();

@@ -252,7 +252,7 @@ def add_wip(dot_text, nodes, head, count, anchor=None):
     """HEAD の子として、破線の WIP ノードを dot とノード情報に追加する。
     anchor は線を引く先のノード名 (HEAD を含むクラスターが閉じているときは、そのクラスター)。"""
     label = ('<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="3" STYLE="dashed" BGCOLOR="#fff8dc">'
-             f'<TR><TD><B>WIP</B></TD></TR><TR><TD>{html.escape(tr("n_changes", n=count) if count else tr("wip_clean"))}</TD></TR></TABLE>>')
+             '<TR><TD><B>WIP</B></TD></TR><TR><TD WIDTH="130" HEIGHT="20">&#160;</TD></TR></TABLE>>')
     parent = anchor or head
     lines = f'  "WIP" [label={label}];\n'
     if parent:

@@ -22,14 +22,14 @@ function refreshVisibleRefChips() {
 }
 const refsReady = refreshRefLabels();  // ページを開いたときに 1 回読む
 // コミット・push / pull / fetch のあと: ブランチ名と HEAD の表示を更新する (ページ全体の再読み込みの代わり / 直前の反映)
-window.refreshFilesState = function () {
+window.refreshFilesState = function (opts) {
   if (typeof window.invalidateMenubarRefLabels === "function") window.invalidateMenubarRefLabels();
   return refreshRefLabels().then(() => {
     if (!isWip) return;
     // 作業ツリー表示中は HEAD が動いていることがあるので、ツリーと左上のコミット情報を読み直す
     return loadTree(current, false);
   }).then(() => {
-    if (typeof refreshWipCommitPanel === "function") return refreshWipCommitPanel();
+    if (!(opts && opts.skipWipPanel) && typeof refreshWipCommitPanel === "function") return refreshWipCommitPanel();
   }).catch(() => {});
 };
 function showError(e) {

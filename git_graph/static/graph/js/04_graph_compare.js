@@ -11,6 +11,7 @@ function refreshGraph() {
       const anchor = captureAnchor(gc);  // 選択中の要素が画面のどこにあるか (作り直したあとも同じ位置に置く)
       setGraphData(r);
       gc.innerHTML = r.svg;
+      updateWipGraphCount(DATA.nodes.WIP ? DATA.nodes.WIP.count : null);
       applyGraphZoom();
       gc.scrollTop = top0; gc.scrollLeft = left0;
       selected = null;
