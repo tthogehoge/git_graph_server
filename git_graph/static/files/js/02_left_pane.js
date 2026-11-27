@@ -55,8 +55,10 @@ function renderChanges() {  // コミット (または比較) の変更ファイ
   changesEl.querySelectorAll(".entry").forEach(a => { a.onclick = () => { selectEntry(a); openChange(a.dataset.path); }; });
   syncChangesSelection();
 }
+let wipStatusReady = false;
 function wipFilesChanged(files, status) {  // WIP パネルの一覧と状態が決まった (パネルを描き直すたびに呼ばれる)
   wipFiles = files;
+  wipStatusReady = !!status;
   wipStatusFiles = status ? [
     ...(status.conflicts || []).map(f => Object.assign({wip: "conflict"}, f)),
     ...(status.staged || []).map(f => Object.assign({wip: "staged"}, f)),
@@ -139,7 +141,7 @@ function renderWipChanges() {
   // 表示の正は /api/status の分類 (staged/unstaged/...)。compare は行数表示の補完に使う。
   // 以前は両方に載るパスだけ出していたため、status 未着や compare とのずれで
   // git add 済みが「変更ファイル」に出ないことがあった。
-  const statusFiles = wipStatusFiles.length
+  const statusFiles = wipStatusReady
     ? wipStatusFiles
     : wipHeadFiles.map(f => Object.assign({}, f, {
         wip: (f.wip && f.wip !== "compare") ? f.wip : "unstaged",
@@ -202,7 +204,7 @@ function loadWipChanges() {
         const kinds = ["conflict", "staged", "unstaged", "untracked"];
         wipHeadFiles.push(...(s[key] || []).map(f => Object.assign({wip: kinds[index]}, f)));
       });
-      renderWipChanges();
+      wipFilesChanged(wipHeadFiles, s);
     }).catch(e => {
       if (seq === wipChangesSeq) changesEl.innerHTML = '<p class="hint">' + esc(t("error") + e.message) + "</p>";
     });
@@ -226,7 +228,10 @@ function loadWipChanges() {
       });
       refreshBadges();
     }
-    renderWipChanges();
+    return api("/api/status", {}).then(s => {
+      if (seq !== wipChangesSeq) return;
+      wipFilesChanged(wipHeadFiles, s);
+    });
   }).catch(e => {
     if (seq === wipChangesSeq) changesEl.innerHTML = '<p class="hint">' + esc(t("error") + e.message) + "</p>";
   });
