@@ -16,8 +16,18 @@ const check = (cond, msg) => { if (!cond) failures.push(msg); };
     runScripts: "dangerously", resources: "usable", pretendToBeVisual: true,
     beforeParse(w) {
       w.netErrors = [];  // 失敗した通信 (原因を追うために、待ちきれたときに付ける)
-      w.fetch = (u, o) => fetch(new URL(u, BASE), o).then(r => { if (!r.ok) r.clone().text().then(m => w.netErrors.push(r.status + " " + String(u).slice(0, 60) + " " + m.slice(0, 120))); return r; },
+      w.fetch = (u, o = {}) => {
+        // jsdom の AbortSignal は Node fetch が受け取れないので、abort を Node 側へ橋渡しする。
+        let options = o;
+        if (o.signal && !(o.signal instanceof AbortSignal)) {
+          const controller = new AbortController();
+          if (o.signal.aborted) controller.abort(o.signal.reason);
+          else o.signal.addEventListener("abort", () => controller.abort(o.signal.reason), {once: true});
+          options = Object.assign({}, o, {signal: controller.signal});
+        }
+        return fetch(new URL(u, BASE), options).then(r => { if (!r.ok) r.clone().text().then(m => w.netErrors.push(r.status + " " + String(u).slice(0, 60) + " " + m.slice(0, 120))); return r; },
                                                           e => { w.netErrors.push("fetch failed " + String(u).slice(0, 60) + " " + e); throw e; });
+      };
       // jsdom に無い、レイアウトの API (CodeMirror が測定に使う) を空の値で補う
       const rect = {left: 0, right: 0, top: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0};
       w.Range.prototype.getClientRects = () => []; w.Range.prototype.getBoundingClientRect = () => rect;
