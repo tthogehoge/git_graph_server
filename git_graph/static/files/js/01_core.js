@@ -243,7 +243,7 @@ wipCommitMenuBtn.onclick = () => {
   if (!CAN_COPY) return;
   if (isWip) {
     openWipCommit();
-    if (!wipCommitView.hidden) window.refreshFilesState();
+    if (!wipCommitView.hidden) window.refreshFilesState({skipWipChanges: true});
   }
   else location.href = "/files?hash=WIP&wip_commit=1";
 };

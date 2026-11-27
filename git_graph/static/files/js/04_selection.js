@@ -84,7 +84,7 @@ selCommitBtn.onclick = () => {  // チェック状態を反映してコミット
   if (!isWip || !wipSelectionEnabled() || !wipCommitPanel) return;
   wipCommitPanel.setChecks(wipPanelChecks());
   if (wipCommitView.hidden) openWipCommit();
-  if (!wipCommitView.hidden) window.refreshFilesState();
+  if (!wipCommitView.hidden) window.refreshFilesState({skipWipChanges: true});
 };
 function isUntrackedEntry(p) {  // 未追跡のファイル / 中がすべて未追跡のディレクトリ (git rm できない)
   const e = entryInfo[p] || {};

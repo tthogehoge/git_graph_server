@@ -28,7 +28,7 @@ window.refreshFilesState = function () {
   return refreshRefLabels().then(() => {
     if (!isWip) return;
     // 作業ツリー表示中は HEAD が動いていることがあるので、ツリーと左上のコミット情報を読み直す
-    return loadTree(current, false);
+    return loadTree(current, false, opts);
   }).then(() => {
     if (!(opts && opts.skipWipPanel) && typeof refreshWipCommitPanel === "function") return refreshWipCommitPanel();
   }).catch(() => {});
@@ -238,16 +238,19 @@ document.addEventListener("keydown", ev => {
   selectEntry(rows[next]);
 });
 
-function loadTree(path, push) {
+function loadTree(path, push, opts) {
   current = path;
   dirEntries = null;
   if (push) history.pushState({path: path, file: currentFile, view: currentView}, "", pageUrl(path, currentFile, currentView));
   return api("/api/tree", {hash: hash, path: path}).then(r => {
     dirEntries = r.entries;
     // loadWipChanges を待たないと、直後の status 再取得と順序が狂い staged が一覧に出ないことがある
-    const wipLoad = isWip
-      ? (wipHead = r.head || null, selBar.hidden = !wipSelectionEnabled(), loadWipChanges())
-      : Promise.resolve();
+    let wipLoad = Promise.resolve();
+    if (isWip) {
+      wipHead = r.head || null;
+      selBar.hidden = !wipSelectionEnabled();
+      if (!(opts && opts.skipWipChanges)) wipLoad = loadWipChanges();
+    }
     if (currentCommitMeta) {
       renderCommitHeader(currentCommitMeta);
     } else if (compareFrom && compareTo) {
@@ -293,7 +296,7 @@ function loadTree(path, push) {
     return wipLoad;
   }).catch(e => {
     // 対象ファイルの親ディレクトリがこのコミットに無いとき (ログから古いコミットを選んだ場合など) はルートを表示する
-    if (path) return loadTree("", false);
+    if (path) return loadTree("", false, opts);
     showError(e);
   });
 }
