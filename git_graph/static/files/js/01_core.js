@@ -241,7 +241,10 @@ const wipCommitMenuBtn = document.getElementById("wipCommitMenuBtn");
 wipCommitMenuBtn.disabled = !CAN_COPY;
 wipCommitMenuBtn.onclick = () => {
   if (!CAN_COPY) return;
-  if (isWip) openWipCommit();
+  if (isWip) {
+    openWipCommit();
+    if (!wipCommitView.hidden) window.refreshFilesState();
+  }
   else location.href = "/files?hash=WIP&wip_commit=1";
 };
 document.getElementById("wipCommitBack").onclick = () => {
