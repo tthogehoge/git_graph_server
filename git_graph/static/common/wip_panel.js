@@ -452,6 +452,13 @@ const WipPanel = (function () {
         }).catch(() => {});
       }, 100);
     });
+    // 外部エディタや別プロセスによる変更を、WIP パネルが見えている間は画面共通で確認する。
+    setInterval(() => {
+      if (!root || document.hidden || !root.querySelector(".wip-panel") || root.closest("[hidden]")) return;
+      refreshIfChanged().then(result => {
+        if (result && result.headChanged && host.onRepoChange) host.onRepoChange();
+      }).catch(() => {});
+    }, 2000);
     return {render: render, refreshIfChanged: refreshIfChanged, say: say, reset: reset, setChecks: setChecks, amend: () => amendOn, files: () => files};
   }
 
