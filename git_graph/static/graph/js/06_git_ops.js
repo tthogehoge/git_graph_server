@@ -473,6 +473,7 @@ function doUndoRedo(dir, quiet) {  // dir: "undo" | "redo"。quiet はショー�
     if (!r) { setGraphStatus("", "info", true); return; }
     setGraphStatus(r.message, "success", true);
     updateUndoButtons();
+    if (detailView.querySelector(".wip-panel")) showWip(true);
     return Promise.all([loadStashes(), refreshGraph().catch(() => {})]).then(() => {
       if (curView === "list" && listView.dataset.src === "/api/stash-list") showStashList(true);
     });

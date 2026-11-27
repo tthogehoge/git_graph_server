@@ -224,8 +224,13 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
   const A = () => sel.compareA, B = () => sel.compareB, short7 = h => (h || "").slice(0, 7);
   const OP_LABEL = () => ({merge: T.merge, rebase: T.rebase, cherry: T.cherry_pick, revert: T.revert});
   const reloadSoon = () => {
-    if (typeof window.refreshFilesState === "function") window.refreshFilesState();
-    setTimeout(() => location.reload(), 800);
+    const commitView = document.getElementById("wipCommitView");
+    const isWipCommitView = new URLSearchParams(location.search).get("hash") === "WIP" && commitView && !commitView.hidden;
+    if (isWipCommitView && typeof window.refreshFilesState === "function") {
+      window.refreshFilesState({skipWipChanges: true});
+    } else {
+      setTimeout(() => location.reload(), 800);
+    }
   };
   const clearAB = () => { sel.compareA = sel.compareB = null; save(); refresh(); };  // A / B のコミットは、操作のあとで変わることがある
   async function opHead(needBranch, mergeKey) {  // 途中の操作 (マージ・リベースなど) があれば止める
