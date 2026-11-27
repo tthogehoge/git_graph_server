@@ -172,7 +172,18 @@ function restoreFromUrl(first) {  // URL の path / file / view の状態を画�
     const f = afterRestore; afterRestore = null; if (f) f();
   });
 }
-window.onpopstate = () => restoreFromUrl(false);
+let repoSearchRestoreSeq = 0;
+window.onpopstate = ev => {
+  const restoreSeq = ++repoSearchRestoreSeq;
+  ++otherListSeq;
+  const search = ev.state && ev.state.repoSearch;
+  if (!search) return restoreFromUrl(false);
+  const show = () => {
+    if (restoreSeq === repoSearchRestoreSeq && history.state && history.state.repoSearch) showRepoSearch(search);
+  };
+  if (search.pathDefault !== current) loadTree(search.pathDefault || "", false).then(show);
+  else show();
+};
 // 更新ボタン (作業ツリーの表示だけ): 一覧と開いているファイル / 表示を、いまの作業ツリーから読み直す。
 // コミットの内容は変わらないので、コミット表示では出さない。編集中の変更は、捨ててよいか確認してから読み直す
 const reloadBtn = document.getElementById("reloadBtn");
@@ -506,13 +517,17 @@ window.showOtherSubmoduleList = function () {
 
 
 // ---- リポジトリ内検索 (git grep)。ファイル内検索は CodeMirror (Ctrl+F) のまま ----
-window.showRepoSearch = function showRepoSearch() {
+window.showRepoSearch = function showRepoSearch(savedSearch) {
   if (!beginOtherListView()) return;
+  const searchState = savedSearch || {pathDefault: current, query: "", path: current, ignoreCase: false};
+  const state = Object.assign({}, history.state, {path: current, repoSearch: searchState});
+  if (savedSearch || (history.state && history.state.repoSearch)) history.replaceState(state, "", location.href);
+  else history.pushState(state, "", location.href);
   const seq = ++otherListSeq;
   title.textContent = t("repo_search_title");
   setDocumentTitle(t("repo_search_title"));
   content.className = "";
-  const pathDefault = (typeof current === "string" && current) ? current : "";
+  const pathDefault = searchState.pathDefault || "";
   content.innerHTML =
     '<div class="meta">' + esc(t("repo_search_help")) + "</div>" +
     '<form class="repo-search-form" id="repoSearchForm">' +
@@ -532,11 +547,23 @@ window.showRepoSearch = function showRepoSearch() {
   const icEl = document.getElementById("repoSearchIC");
   const countEl = document.getElementById("repoSearchCount");
   const resultsEl = document.getElementById("repoSearchResults");
+  qEl.value = searchState.query || "";
+  pathEl.value = searchState.path === undefined ? pathDefault : searchState.path;
+  icEl.checked = !!searchState.ignoreCase;
   if (qEl) qEl.focus();
+
+  function saveSearchState() {
+    if (!history.state || !history.state.repoSearch) return;
+    const updated = Object.assign({}, history.state.repoSearch, {
+      query: qEl.value, path: pathEl.value, ignoreCase: icEl.checked,
+    });
+    history.replaceState(Object.assign({}, history.state, {repoSearch: updated}), "", location.href);
+  }
 
   function openHit(path, line) {
     if (otherListSeq !== seq) return;
     if (!leaveEdit()) return;
+    ++otherListSeq;
     const dir = parentDir(path);
     const go = () => {
       // #L は showCode 完了時の jumpToHashLine が読む
@@ -552,6 +579,7 @@ window.showRepoSearch = function showRepoSearch() {
   function runSearch(ev) {
     if (ev) ev.preventDefault();
     if (otherListSeq !== seq) return;
+    saveSearchState();
     const q = (qEl && qEl.value || "").trim();
     if (!q) {
       countEl.textContent = t("repo_search_empty");
@@ -588,12 +616,14 @@ window.showRepoSearch = function showRepoSearch() {
 
   const form = document.getElementById("repoSearchForm");
   if (form) form.onsubmit = runSearch;
+  qEl.oninput = pathEl.oninput = icEl.onchange = saveSearchState;
   content.onclick = ev => {
     if (otherListSeq !== seq) return;
     const tr = ev.target.closest("tr.repo-hit");
     if (!tr) return;
     openHit(tr.dataset.path, parseInt(tr.dataset.line, 10) || 1);
   };
+  if (searchState.query) runSearch();
 };
 
 document.addEventListener("keydown", ev => {

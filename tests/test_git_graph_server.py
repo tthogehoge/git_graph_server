@@ -3682,6 +3682,17 @@ class FilesLogMergeGraphTests(unittest.TestCase):
         self.assertIn("const graphRow = !path && !search", src)  # パスで絞ったログと検索結果には付けない
         self.assertIn("graphRow ? {graph: 1} : {}", src)  # 親を返させる
 
+    def test_repo_search_results_are_restored_by_browser_back(self):
+        src = (Path(__file__).resolve().parent.parent / "git_graph" / "static" / "files" / "js" / "07_boot.js").read_text(encoding="utf-8")
+        popstate = src[src.index("window.onpopstate ="):src.index("// 更新ボタン", src.index("window.onpopstate ="))]
+        search = src[src.index("window.showRepoSearch ="):src.index('document.addEventListener("keydown"', src.index("window.showRepoSearch ="))]
+
+        self.assertIn("ev.state && ev.state.repoSearch", popstate)
+        self.assertIn("loadTree(search.pathDefault || \"\", false).then(show)", popstate)
+        self.assertIn("history.pushState(state, \"\", location.href)", search)
+        self.assertIn("history.replaceState(Object.assign({}, history.state, {repoSearch: updated})", search)
+        self.assertIn("if (searchState.query) runSearch()", search)
+
 
 if __name__ == "__main__":
     unittest.main()
