@@ -1990,6 +1990,10 @@ class GitWriteApiIntegrationTests(unittest.TestCase):
         self.assertIn("select_wip", page_with_assets(viewer.render_files_page()))  # ファイル表示は JS で、表示中の hash が WIP のときに付け替える
         boot = (Path(app.__file__).parent / "git_graph" / "static" / "graph" / "js" / "09_boot.js").read_text(encoding="utf-8")
         self.assertIn('qs.get("select_wip")', boot)
+        self.assertIn(
+            'else if (screen.screen === "home") {\n      if (DATA.nodes && DATA.nodes["WIP"]) openWip();\n      else if (actionHash) revealHash(actionHash);\n      else scrollToHead();',
+            boot,
+        )
 
     def test_diff_page_marks_files_current_and_keeps_graph_navigation_available(self):
         # 差分ページはファイル表示として扱い、グラフへはいつでも遷移できる

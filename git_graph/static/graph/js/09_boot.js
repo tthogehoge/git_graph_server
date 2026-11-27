@@ -69,8 +69,10 @@ fetch(graphUrl())
       history.replaceState({screen: "home"}, "", "/");
       selectActionTarget(selectHash, true);
       if (nodeEl[selectHash]) select(nodeEl[selectHash]);
-    } else if (screen.screen === "home" && !actionHash) {
-      scrollToHead();
+    } else if (screen.screen === "home") {
+      if (DATA.nodes && DATA.nodes["WIP"]) openWip();
+      else if (actionHash) revealHash(actionHash);
+      else scrollToHead();
     } else if (actionHash) {
       revealHash(actionHash);
     }
