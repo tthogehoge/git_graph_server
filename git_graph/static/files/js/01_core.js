@@ -18,10 +18,10 @@ const list = document.getElementById("list"), content = document.getElementById(
 const fileActions = document.getElementById("fileActions"), fileLogBtn = document.getElementById("fileLogBtn"), fileBlameBtn = document.getElementById("fileBlameBtn"), fileContentBtn = document.getElementById("fileContentBtn");
 const fileGraphLogBtn = document.getElementById("fileGraphLogBtn");
 const dirActions = document.getElementById("dirActions"), dirLogBtn = document.getElementById("dirLogBtn"), dirCommitLogBtn = document.getElementById("dirCommitLogBtn");
-const dirNewFileBtn = document.getElementById("dirNewFileBtn"), dirNewDirBtn = document.getElementById("dirNewDirBtn");
+const dirNewFileBtn = document.getElementById("dirNewFileBtn"), dirNewDirBtn = document.getElementById("dirNewDirBtn"), dirMoveBtn = document.getElementById("dirMoveBtn");
 const fileCommitLogBtn = document.getElementById("fileCommitLogBtn");
 const dirListBtn = document.getElementById("dirListBtn"), dirGraphLogBtn = document.getElementById("dirGraphLogBtn");
-const fileDownloadBtn = document.getElementById("fileDownloadBtn"), fileExtEditBtn = document.getElementById("fileExtEditBtn"), fileUploadBtn = document.getElementById("fileUploadBtn");
+const fileDownloadBtn = document.getElementById("fileDownloadBtn"), fileExtEditBtn = document.getElementById("fileExtEditBtn"), fileUploadBtn = document.getElementById("fileUploadBtn"), fileMoveBtn = document.getElementById("fileMoveBtn");
 const fileRmBtn = document.getElementById("fileRmBtn"), fileRmCachedBtn = document.getElementById("fileRmCachedBtn");
 const fileCopyBtn = document.getElementById("fileCopyBtn"), fileMsg = document.getElementById("fileMsg");
 const fileDiffBtn = document.getElementById("fileDiffBtn"), fileEditBtn = document.getElementById("fileEditBtn");

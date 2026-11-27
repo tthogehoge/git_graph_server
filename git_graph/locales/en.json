@@ -1049,5 +1049,20 @@
   "prefs_no_git_dir": "Cannot save preferences: git directory unknown",
   "save_worktree_prefs": "Save worktree preferences",
   "tip_save_worktree_prefs": "Save current display settings (Vim, merge view, previews, etc.) and graph node options to .git/git-graph.json",
-  "prefs_unavailable": "Cannot save worktree preferences"
+  "prefs_unavailable": "Cannot save worktree preferences",
+  "move_btn": "Rename / move",
+  "tip_move_file": "Rename this file or move it to another directory (a tracked file is moved with git mv, which stages the change)",
+  "tip_move_dir": "Rename this folder or move it to another directory (tracked files are moved with git mv, which stages the change)",
+  "move_file_title": "Rename / move file",
+  "move_dir_title": "Rename / move folder",
+  "move_path_label": "New path",
+  "move_hint": "Path from the repository root. Change only the name to rename; change the directory too to move (missing directories are created)",
+  "move_submit": "Apply",
+  "move_done": "Moved: {src} → {dest}",
+  "move_same": "The new path is the same as the current one",
+  "move_dest_invalid": "The new path is invalid (empty, .., or inside .git are not allowed)",
+  "move_exists": "Already exists: {path} (it is not overwritten)",
+  "move_missing": "The source does not exist: {path}",
+  "move_into_self": "A folder cannot be moved into itself",
+  "op_label_file_move": "Move / rename file"
 }

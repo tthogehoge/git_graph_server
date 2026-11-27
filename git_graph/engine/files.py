@@ -1,8 +1,11 @@
-# 作業ツリーのファイルの保存 (画面で編集した内容での上書き)。git は実行しないが、作業ツリーを書き換えて、
+# 作業ツリーのファイルの保存 (画面で編集した内容での上書き)・アップロード・新規作成・名前の変更と移動。
+# 名前の変更と移動 (move_path) だけは、追跡中のものに git mv を使う。作業ツリーを書き換えて、
 # 履歴 (undo) に記録する操作なので engine に置く。引数を受け取って結果を dict で返す。画面に出す文言の組み立ては route 側の仕事。
 import hashlib
 import os
 import tempfile
+from .. import app_state as state
+from ..gitrun import git, run_git_write
 from ..i18n import UserError
 from ..query.files import FILE_CONTENT_LIMIT, validate_file_path, worktree_target
 from ..textcodec import decode_text, edit_info, encode_for_save, save_codec
@@ -131,3 +134,84 @@ def create_dir(path):
     except OSError as e:
         raise ValueError(str(e))
     return {"path": path}
+
+
+def _remove_dirs(dirs):
+    for p in reversed(dirs):
+        try:
+            os.rmdir(p)
+        except OSError:
+            pass
+
+
+def _make_parents(target):
+    """target の親ディレクトリのうち、まだ無いものを作る。作ったものを返す (あとで失敗したときに消すため)。"""
+    todo, d = [], os.path.dirname(target)
+    while not os.path.lexists(d):
+        todo.append(d)
+        up = os.path.dirname(d)
+        if up == d:
+            break
+        d = up
+    if os.path.lexists(d) and not os.path.isdir(d):
+        raise UserError("move_dest_invalid")  # 親のどれかが、ディレクトリでなくファイル
+    made = []
+    try:
+        for p in reversed(todo):
+            os.mkdir(p)
+            made.append(p)
+    except OSError as e:
+        _remove_dirs(made)
+        raise ValueError(str(e))
+    return made
+
+
+def _is_case_rename(src, dest, src_target, dest_target):
+    """大文字小文字だけを変える名前の変更か。大文字小文字を区別しないファイルシステムでは、新しい名前が「既にある」ように見えるので、
+    元と同じものかを調べる。"""
+    try:
+        return src.lower() == dest.lower() and os.path.samestat(os.lstat(src_target), os.lstat(dest_target))
+    except OSError:
+        return False
+
+
+@operation("file_move", touches_worktree=True,
+           detail=lambda src, dest, *_, **__: f"{src} \u2192 {dest}" if isinstance(src, str) and isinstance(dest, str) else "")
+def move_path(src, dest):
+    """作業ツリーのファイル / ディレクトリの名前を変える、または別のディレクトリへ移す (dest は新しいパス全体。親ディレクトリは必要なら作る)。
+    追跡中なら git mv (名前の変更をステージする)、追跡中でないもの (未追跡・無視) は作業ツリーで動かすだけ。
+    移動先に何かあれば、上書きせずエラー。失敗したら、作った親ディレクトリも消して、元の状態に戻す。
+    戻り値: {"src", "dest", "tracked" (git mv したか)}。"""
+    if not state.WIP_ENABLED:
+        raise UserError("wip_disabled")
+    if not isinstance(src, str) or not isinstance(dest, str):
+        raise ValueError("bad body")
+    src = validate_file_path(src, allow_empty=False)
+    src_target = worktree_target(src)
+    try:
+        dest = validate_file_path(dest, allow_empty=False)
+        dest_target = worktree_target(dest)
+    except ValueError:
+        raise UserError("move_dest_invalid")
+    if src == dest:
+        raise UserError("move_same")
+    if dest.startswith(src + "/"):
+        raise UserError("move_into_self")
+    if not os.path.lexists(src_target):
+        raise UserError("move_missing", path=src)
+    if os.path.lexists(dest_target) and not _is_case_rename(src, dest, src_target, dest_target):
+        raise UserError("move_exists", path=dest)
+    tracked = any(git("ls-files", "-z", "--", src, literal=True).split("\0"))  # ディレクトリは、中に追跡中のファイルがあれば
+    made = _make_parents(dest_target)
+    try:
+        if tracked:
+            run_git_write("mv", "--", src, dest, literal=True)
+        else:
+            try:
+                os.rename(src_target, dest_target)
+            except OSError as e:
+                raise ValueError(str(e))
+    except BaseException:
+        _remove_dirs(made)
+        raise
+    return {"src": src, "dest": dest, "tracked": tracked}

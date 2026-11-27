@@ -296,7 +296,7 @@ function startEdit() {
   closeEditor();  // 表示のエディタ
   editing = true; editDirty = false;
   setFileMsg("", true);
-  [fileCommitLogBtn, fileLogBtn, fileBlameBtn, fileDiffBtn, fileExtDiffBtn, fileMergeBtn, fileEditBtn, fileContentBtn, fileGraphLogBtn, fileCopyBtn, fileDownloadBtn, fileUploadBtn, fileExtEditBtn, fileRmBtn, fileRmCachedBtn].forEach(b => { b.hidden = true; });
+  [fileCommitLogBtn, fileLogBtn, fileBlameBtn, fileDiffBtn, fileExtDiffBtn, fileMergeBtn, fileEditBtn, fileContentBtn, fileGraphLogBtn, fileCopyBtn, fileDownloadBtn, fileUploadBtn, fileMoveBtn, fileExtEditBtn, fileRmBtn, fileRmCachedBtn].forEach(b => { b.hidden = true; });
   const eol = EOL_LABEL[fileData.eol] || t("edit_eol_none");
   title.textContent = t("file_edit_title", {path: currentFile});
   content.className = "";
@@ -409,7 +409,7 @@ function startDiffEdit() {
     }
     editing = true; editDirty = false;
     setFileMsg("", true);
-    [fileCommitLogBtn, fileLogBtn, fileBlameBtn, fileDiffBtn, fileExtDiffBtn, fileMergeBtn, fileEditBtn, fileContentBtn, fileGraphLogBtn, fileCopyBtn, fileDownloadBtn, fileUploadBtn, fileExtEditBtn, fileRmBtn, fileRmCachedBtn].forEach(b => { b.hidden = true; });
+    [fileCommitLogBtn, fileLogBtn, fileBlameBtn, fileDiffBtn, fileExtDiffBtn, fileMergeBtn, fileEditBtn, fileContentBtn, fileGraphLogBtn, fileCopyBtn, fileDownloadBtn, fileUploadBtn, fileMoveBtn, fileExtEditBtn, fileRmBtn, fileRmCachedBtn].forEach(b => { b.hidden = true; });
     title.textContent = t("file_edit_title", {path: currentFile});
     let bar = content.querySelector(".edit-bar-diff");
     if (!bar) {

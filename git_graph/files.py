@@ -66,6 +66,14 @@ def api_dir_create(body):
     return {"ok": True, "path": r["path"], "message": tr("create_dir_done", path=r["path"])}
 
 
+@route("/api/file-move", method="POST", engine=True)
+def api_file_move(body):
+    """作業ツリーのファイル / ディレクトリの名前を変える、または別のディレクトリへ移す (追跡中なら git mv)。dest は新しいパス全体。"""
+    r = files.move_path(body.get("src", ""), body.get("dest", ""))
+    return {"ok": True, "src": r["src"], "dest": r["dest"], "tracked": r["tracked"],
+            "message": tr("move_done", src=r["src"], dest=r["dest"])}
+
+
 @route("/api/merge-sources")
 def api_merge_sources(q):
     """競合しているファイルの ours / base / theirs、3 way マージの結果、作業ツリーの内容 (マージエディタ用)。"""

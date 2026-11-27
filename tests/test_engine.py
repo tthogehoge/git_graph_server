@@ -4,6 +4,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import git_graph_server as app  # noqa: F401  (各モジュールの @route 登録を実行させる)
 from git_graph import app_state as state
@@ -136,6 +137,121 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(self.read("dir/a.txt"), "a\n")
         self.assertEqual(self.read("dir/sub/b.txt"), "b\n")
         self.assertEqual(self.git("status", "--porcelain").strip(), "")
+
+    # ---- ファイル・ディレクトリの名前の変更と移動 (追跡中なら git mv)
+
+    def move(self, src, dest):
+        return self.do("/api/file-move", {"src": src, "dest": dest})
+
+    def test_move_rename_tracked_file_stages_the_rename_and_undo_redo(self):
+        self.commit_file("dir/a.txt", "a\n", "add a")
+
+        r = self.move("dir/a.txt", "dir/b.txt")
+        self.assertTrue(r["ok"] and r["tracked"])
+        self.assertEqual((r["src"], r["dest"]), ("dir/a.txt", "dir/b.txt"))
+        self.assertIn("dir/b.txt", r["message"])
+        self.assertFalse(self.exists("dir/a.txt"))
+        self.assertEqual(self.read("dir/b.txt"), "a\n")
+        self.assertEqual(self.git("status", "--porcelain").strip(), "R  dir/a.txt -> dir/b.txt")  # 名前の変更はステージされる
+        self.assertEqual([e["op"] for e in engine._load()["entries"]], ["file_move"])
+
+        self.assertTrue(self.undo()["ok"])
+        self.assertEqual(self.read("dir/a.txt"), "a\n")
+        self.assertFalse(self.exists("dir/b.txt"))
+        self.assertEqual(self.git("status", "--porcelain").strip(), "")
+
+        self.assertTrue(self.redo()["ok"])
+        self.assertEqual(self.git("status", "--porcelain").strip(), "R  dir/a.txt -> dir/b.txt")
+
+    def test_move_tracked_file_to_new_directories_keeps_unstaged_edits(self):
+        self.commit_file("a.txt", "one\n", "add a")
+        self.write("a.txt", "one\ntwo\n")  # まだステージしていない編集
+
+        self.assertTrue(self.move("a.txt", "x/y/a.txt")["ok"])  # 無いディレクトリは作る
+        self.assertFalse(self.exists("a.txt"))
+        self.assertEqual(self.read("x/y/a.txt"), "one\ntwo\n")  # 編集はそのまま
+        self.assertEqual(self.git("show", ":x/y/a.txt"), "one\n")  # ステージされるのは、パスの変更だけ
+
+        self.assertTrue(self.undo()["ok"])
+        self.assertEqual(self.read("a.txt"), "one\ntwo\n")
+        self.assertFalse(self.exists("x"))  # 空になったディレクトリも片付く
+
+    def test_move_directory_moves_tracked_and_untracked_files_together(self):
+        self.commit_file("d/a.txt", "a\n", "add a")
+        self.write("d/new.txt", "n\n")  # 未追跡
+
+        r = self.move("d", "e/f")
+        self.assertTrue(r["tracked"])
+        self.assertFalse(self.exists("d"))
+        self.assertEqual(self.read("e/f/a.txt"), "a\n")
+        self.assertEqual(self.read("e/f/new.txt"), "n\n")  # 未追跡のファイルも一緒に動く
+        self.assertEqual(sorted(self.git("status", "--porcelain").splitlines()), ["?? e/f/new.txt", "R  d/a.txt -> e/f/a.txt"])
+
+        self.assertTrue(self.undo()["ok"])
+        self.assertEqual(self.read("d/a.txt"), "a\n")
+        self.assertEqual(self.read("e/f/new.txt"), "n\n")  # 管理外のファイルには、元に戻すでも触れない
+
+    def test_move_untracked_file_and_directory_only_move_in_the_worktree(self):
+        self.write("u.txt", "u\n")
+        self.write("dir/in.txt", "in\n")
+
+        r = self.move("u.txt", "sub/v.txt")
+        self.assertFalse(r["tracked"])
+        self.assertFalse(self.exists("u.txt"))
+        self.assertEqual(self.read("sub/v.txt"), "u\n")
+        self.assertFalse(self.move("dir", "renamed")["tracked"])
+        self.assertEqual(self.read("renamed/in.txt"), "in\n")
+        self.assertEqual(self.git("diff", "--cached", "--name-only").strip(), "")  # 何もステージしない
+
+    def test_move_only_changes_the_case_of_the_name(self):
+        self.commit_file("readme.txt", "r\n", "add readme")
+
+        self.assertTrue(self.move("readme.txt", "README.txt")["ok"])  # 大文字小文字だけの変更も、「既にある」にしない
+        self.assertEqual(self.git("ls-files", "--", "readme.txt", "README.txt").strip(), "README.txt")  # 追跡している名前が変わる
+        self.assertEqual(self.read("README.txt"), "r\n")
+
+    def test_move_never_overwrites_and_rejects_bad_requests(self):
+        self.commit_file("a.txt", "a\n", "add a")
+        self.commit_file("b.txt", "b\n", "add b")
+        self.commit_file("d/x.txt", "x\n", "add x")
+        self.write("untracked.txt", "u\n")
+        cases = [
+            (("a.txt", "b.txt"), "move_exists"),  # 追跡中のファイルへ
+            (("a.txt", "untracked.txt"), "move_exists"),  # 未追跡のファイルへ
+            (("a.txt", "d"), "move_exists"),  # ディレクトリへ (中に入れるのではなく、エラー)
+            (("nope.txt", "c.txt"), "move_missing"),
+            (("a.txt", "a.txt"), "move_same"),
+            (("d", "d/sub"), "move_into_self"),
+            (("a.txt", ""), "move_dest_invalid"),
+            (("a.txt", "../out.txt"), "move_dest_invalid"),  # リポジトリの外
+            (("a.txt", ".git/hooks/a"), "move_dest_invalid"),
+            (("a.txt", "b.txt/inner"), "move_dest_invalid"),  # 親がファイル
+        ]
+        for (src, dest), key in cases:
+            with self.assertRaises(UserError, msg=f"{src} -> {dest}") as cm:
+                self.move(src, dest)
+            self.assertEqual(cm.exception.key, key, f"{src} -> {dest}")
+        self.assertEqual(self.read("a.txt"), "a\n")  # どれも何も変えていない
+        self.assertEqual(self.read("b.txt"), "b\n")
+        self.assertEqual(self.read("untracked.txt"), "u\n")
+        self.assertEqual(self.git("status", "--porcelain").strip(), "?? untracked.txt")
+        self.assertEqual(engine._load()["entries"], [])
+
+    def test_move_failure_leaves_no_new_directories_behind(self):
+        self.commit_file("a.txt", "a\n", "add a")
+        with mock.patch("git_graph.engine.files.run_git_write", side_effect=ValueError("boom")):
+            with self.assertRaises(ValueError):
+                self.move("a.txt", "new/deep/a.txt")
+        self.assertFalse(self.exists("new"))  # 作りかけた親ディレクトリは消える
+        self.assertEqual(self.read("a.txt"), "a\n")
+
+    def test_move_is_refused_when_the_worktree_is_not_enabled(self):
+        self.commit_file("a.txt", "a\n", "add a")
+        state.WIP_ENABLED = False
+        with self.assertRaises(UserError) as cm:
+            self.move("a.txt", "b.txt")
+        self.assertEqual(cm.exception.key, "wip_disabled")
+        self.assertEqual(self.read("a.txt"), "a\n")
 
     # ---- ref 操作
 

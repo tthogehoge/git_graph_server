@@ -25,6 +25,7 @@ function clearFile() {  // ファイルを選ぶ前の表示に戻す
 }
 function updateUploadBtn() {  // 「アップロードして上書き」は、作業ツリーのファイルの内容表示だけに出す
   fileUploadBtn.hidden = !CAN_EDIT || !currentFile || (currentView !== "" && currentView !== "content");
+  fileMoveBtn.hidden = !CAN_EDIT || !currentFile || editing;  // 名前の変更・移動は、作業ツリーのファイルなら、どの表示でも (編集中は出さない)
 }
 function fileLogRow(c, graphTd) {  // ログの 1 行。グラフ画面のログと同じ行 (commit_log.js): (マージグラフ +) ハッシュ (グラフ画面で開くリンク)・(ブランチ / タグ +) 件名・作者 / 日付。操作の対象 / A / B の行は強調する (log_select.js)
   return CommitLog.rowHtml(c, {extraClass: LogSel.kinds(c[0], LogSel.load()), chips: refChips(c[0]), graphLink: true, graphTd: graphTd});
@@ -52,6 +53,7 @@ function setDirActions() {  // ディレクトリを表示しているときの�
   const canCreate = isWip && CAN_EDIT && !dirLogOn;
   if (dirNewFileBtn) dirNewFileBtn.hidden = !canCreate;
   if (dirNewDirBtn) dirNewDirBtn.hidden = !canCreate;
+  if (dirMoveBtn) dirMoveBtn.hidden = !canCreate || !current;  // ルートは動かせない
 }
 
 function pathCrumbHtml(path) {

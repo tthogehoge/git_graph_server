@@ -382,6 +382,58 @@ async function promptCreateEntry(kind) {
 if (dirNewFileBtn) dirNewFileBtn.onclick = () => promptCreateEntry("file");
 if (dirNewDirBtn) dirNewDirBtn.onclick = () => promptCreateEntry("dir");
 
+// ---- WIP: ファイル / フォルダの名前の変更・移動 (新しいパスを 1 つ入力する。名前だけ変えれば名前の変更、ディレクトリも変えれば移動) ----
+function movePathNormalize(path) {  // 前後の空白と、先頭・末尾の / を落とし、\ は / にする
+  return String(path || "").trim().replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+}
+async function promptMoveEntry(kind) {
+  // kind: "file" (いま開いているファイル) | "dir" (いま見ているフォルダ)
+  if (!isWip || !CAN_EDIT || typeof openDialog !== "function") return;
+  const from = kind === "dir" ? current : currentFile;
+  if (!from) return;
+  if (!leaveEdit()) return;
+  const values = await openDialog(t(kind === "dir" ? "move_dir_title" : "move_file_title"), form => {
+    const el = input("text", "path");
+    el.required = true;
+    el.autocomplete = "off";
+    el.spellcheck = false;
+    el.value = from;
+    field(form, t("move_path_label"), el, false);
+    const hint = document.createElement("p");
+    hint.className = "hint";
+    hint.textContent = t("move_hint");
+    form.appendChild(hint);
+    const base = from.lastIndexOf("/") + 1, dot = kind === "file" ? from.lastIndexOf(".") : -1;
+    const selectName = () => el.setSelectionRange(base, dot > base ? dot : from.length);  // 名前の部分 (ファイルは、拡張子の前まで) を選んでおく
+    selectName();
+    setTimeout(selectName, 0);
+  }, t("move_submit"));
+  if (!values) return;
+  const dest = movePathNormalize(values.path);
+  if (!dest || dest === from) {
+    setFileMsg(t(dest ? "move_same" : "move_dest_invalid"), false);
+    return;
+  }
+  const busy = kind === "dir" ? dirMoveBtn : fileMoveBtn;
+  if (busy) busy.disabled = true;
+  try {
+    const r = await postJson("/api/file-move", {src: from, dest: dest});
+    setFileMsg(r.message || t("move_done", {src: from, dest: dest}), true);
+    if (kind === "dir") {
+      openDir(r.dest);  // 動かしたフォルダを、新しい場所で開く (一覧と WIP の変更も読み直す)
+    } else {
+      await loadTree(parentDir(r.dest), false);  // 新しい場所の一覧
+      loadFile(r.dest, true);
+    }
+  } catch (e) {
+    setFileMsg(e.message || String(e), false);
+  } finally {
+    if (busy) busy.disabled = false;
+  }
+}
+if (dirMoveBtn) dirMoveBtn.onclick = () => promptMoveEntry("dir");
+if (fileMoveBtn) fileMoveBtn.onclick = () => promptMoveEntry("file");
+
 fileExtEditBtn.onclick = () => {  // OS の標準のエディタ、または設定ファイルの editor で開く
   if (!currentFile) return;
   fileExtEditBtn.disabled = true;

@@ -101,6 +101,8 @@ Tick **Vim mode** in the edit bar to edit with Vim keys (`:w` saves, `:q` quits,
 
 When editing a Markdown file, drop an image (or any file) onto the editor, or paste a figure (a screenshot, a copied image), and it is uploaded to `attachments/` next to the Markdown file and a link is inserted at the cursor: `![name](attachments/name.png)` for images, `[name.pdf](attachments/name.pdf)` for other files. An existing file is never overwritten (the new one becomes `name-2.png`, ...), and a pasted image without a name becomes `image-YYYYMMDD-HHMMSS.png`. The preview on the right shows the image as soon as it is uploaded. The uploaded files are untracked files in the working tree, so commit them together with the Markdown file. When the clipboard also holds text (for example cells copied from a spreadsheet), the text is pasted as usual.
 
+To rename a file or move it to another directory, press **Rename / move** while viewing a file in the working tree (or a folder other than the root) and edit the path in the dialog: change only the name to rename, or change the directory too to move (missing directories are created). A tracked file or folder is moved with `git mv`, so the change is staged and can be undone from the operation history; an untracked one is simply moved in the working tree. An existing file is never overwritten.
+
 ## Display language
 
 Set the language with `LANG` when starting the server. Japanese is used for an unset or unsupported language.

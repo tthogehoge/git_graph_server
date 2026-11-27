@@ -1049,5 +1049,20 @@
   "prefs_no_git_dir": "git ディレクトリが分からないため、設定を保存できません",
   "save_worktree_prefs": "ワークツリー設定を保存",
   "tip_save_worktree_prefs": "いまの表示設定 (Vim・マージ表示・プレビューなど) とグラフのノード数オプションを .git/git-graph.json に保存します",
-  "prefs_unavailable": "ワークツリー設定を保存できません"
+  "prefs_unavailable": "ワークツリー設定を保存できません",
+  "move_btn": "名前の変更・移動",
+  "tip_move_file": "このファイルの名前を変えたり、別のディレクトリへ移したりします (追跡中なら git mv で、変更をステージします)",
+  "tip_move_dir": "このフォルダの名前を変えたり、別のディレクトリへ移したりします (追跡中のファイルがあれば git mv で、変更をステージします)",
+  "move_file_title": "ファイルの名前の変更・移動",
+  "move_dir_title": "フォルダの名前の変更・移動",
+  "move_path_label": "新しいパス",
+  "move_hint": "リポジトリのルートからのパスです。名前だけを変えると名前の変更、ディレクトリも変えると移動になります（無いディレクトリは作ります）",
+  "move_submit": "変更",
+  "move_done": "変更しました: {src} → {dest}",
+  "move_same": "新しいパスが、今のパスと同じです",
+  "move_dest_invalid": "新しいパスが正しくありません（空・..・.git の中などは使えません）",
+  "move_exists": "既に存在します: {path}（上書きはしません）",
+  "move_missing": "元のファイルがありません: {path}",
+  "move_into_self": "フォルダを、自分自身の中へは移動できません",
+  "op_label_file_move": "ファイルの移動・名前の変更"
 }
