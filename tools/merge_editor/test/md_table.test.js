@@ -146,6 +146,25 @@ test("Tab / Shift+Tab move between cells, Tab on the last cell adds a row", () =
   assert.ok(ed.view.state.selection.main.from >= nl.from + 2 && ed.view.state.selection.main.from <= nl.from + 5, "新しい行の 1 つ目のセルの中");
 });
 
+test("Tab / Shift+Tab indent and outdent Markdown list items", () => {
+  const w = load();
+  const ed = editor(w, "- unordered\n1. ordered\nplain\n");
+  const doc = ed.view.state.doc;
+
+  ed.view.dispatch({selection: {anchor: doc.line(1).from + 4}});
+  key(w, "Tab");
+  assert.equal(ed.getText(), "\t- unordered\n1. ordered\nplain\n");
+  key(w, "Shift-Tab");
+  assert.equal(ed.getText(), "- unordered\n1. ordered\nplain\n");
+
+  const ordered = ed.view.state.doc.line(2);
+  ed.view.dispatch({selection: {anchor: ordered.from + 4}});
+  key(w, "Tab");
+  assert.equal(ed.getText(), "- unordered\n\t1. ordered\nplain\n");
+  key(w, "Shift-Tab");
+  assert.equal(ed.getText(), "- unordered\n1. ordered\nplain\n");
+});
+
 test("Enter moves to the next row (same column) and adds a row on the last row", () => {
   const w = load();
   const ed = editor(w, DOC);

@@ -2,7 +2,7 @@
 // 言語ごとの構文ハイライト (languages.js) と Vim モードがあるので、マージエディタとは別のバンドルにしてある。
 import {Compartment, EditorState, Prec} from "@codemirror/state";
 import {drawSelection, EditorView, highlightActiveLine, keymap, lineNumbers} from "@codemirror/view";
-import {defaultKeymap, history, historyKeymap, indentLess, insertTab} from "@codemirror/commands";
+import {defaultKeymap, history, historyKeymap, indentLess, indentMore, insertTab} from "@codemirror/commands";
 import {indentUnit} from "@codemirror/language";
 import {getChunks, goToNextChunk, goToPreviousChunk, MergeView} from "@codemirror/merge";
 import {highlightSelectionMatches, search, searchKeymap} from "@codemirror/search";
@@ -13,6 +13,15 @@ import {THEME, VIEW_SIZE} from "./theme.js";
 
 // Vim モードの Ex コマンド (:w :wq :x :q :q!)。Vim の登録はアプリ全体で 1 つなので、押したエディタの opts を探して呼ぶ。
 const textEditors = new WeakMap();  // EditorView → createTextEditor の opts
+const markdownListItem = /^[\t ]*(?:[-+*]|\d+[.)])(?:[\t ]+|$)/;
+function indentMarkdownList(view, command) {
+  if (!markdownListItem.test(view.state.doc.lineAt(view.state.selection.main.head).text)) return false;
+  return command(view);
+}
+const markdownListIndent = Prec.high(keymap.of([
+  {key: "Tab", run: view => indentMarkdownList(view, indentMore)},
+  {key: "Shift-Tab", run: view => indentMarkdownList(view, indentLess)},
+]));
 function defineEx(name, prefix, run) {
   Vim.defineEx(name, prefix, (cm, params) => {
     const opts = textEditors.get(cm.cm6);
@@ -46,7 +55,7 @@ export function createTextEditor(opts) {
         wrapSlot.of(wrapExtension(!!opts.wrap)),
         indentUnit.of("\t"), EditorState.tabSize.of(4),  // Tab はタブ文字を入れる (選択が複数行ならインデント)
         languageExtensions(opts.path || "") || [],
-        (opts.readOnly || languageName(opts.path || "") !== "markdown") ? [] : mdTableExtension(),
+        (opts.readOnly || languageName(opts.path || "") !== "markdown") ? [] : [markdownListIndent, ...mdTableExtension()],
         Prec.high(vimSlot.of(vimExtension(!!opts.vim))),  // Vim のキーは、ほかのキー割り当てより先に効かせる
         EditorState.phrases.of(opts.phrases || {}),
         keymap.of([
@@ -135,7 +144,7 @@ export function createDiffEditor(opts) {
       ...searchKeymap, ...historyKeymap, ...defaultKeymap,
     ]),
     EditorView.updateListener.of(update => { if (update.docChanged && opts.onChange) opts.onChange(); }),
-    ...(languageName(opts.path || "") === "markdown" ? mdTableExtension() : []),  // 差分エディタで Markdown の表を編集するときも同じ操作
+    ...(languageName(opts.path || "") === "markdown" ? [markdownListIndent, ...mdTableExtension()] : []),  // 差分エディタで Markdown の表を編集するときも同じ操作
   ] : [
     ...shared, EditorState.readOnly.of(true),
     keymap.of([...searchKeymap, ...defaultKeymap]),
