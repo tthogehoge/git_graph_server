@@ -389,7 +389,10 @@ function saveEdit() {
       editing = editDirty = false;
       closeEditor();
       fileData = null;  // 保存後の内容は読み込み直す
-      backToContent(() => loadTree(current, false, {skipWipChanges: new URLSearchParams(location.search).get("wip_commit") === "1"})  // 変更の印と差分ボタンを更新する
+      backToContent(() => window.refreshFilesState({
+        skipWipChanges: new URLSearchParams(location.search).get("wip_commit") === "1",
+        skipWipPanel: true,
+      })  // ツリー・WIP・Undo/Redo の状態をまとめて更新する
         .then(() => { updateDiffBtn(); setFileMsg(r.message, true); }));
     })
     .catch(e => { btn.disabled = false; setFileMsg(e.message, false); fileActions.hidden = false; });
@@ -451,7 +454,7 @@ function saveDiffEdit() {
       diffView = null;
       setFileMsg(r.message, true);
       // 保存後は差分を読み直す
-      loadTree(current, false).then(() => {
+      window.refreshFilesState({skipWipPanel: true}).then(() => {
         updateDiffBtn();
         loadFileDiff(path);
       });

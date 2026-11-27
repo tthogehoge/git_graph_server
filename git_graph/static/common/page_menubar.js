@@ -414,6 +414,7 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
     undo.disabled = !h.can_undo; undo.title = h.can_undo ? fmt(T.tip_undo_op, {op: h.next_undo}) : T.tip_undo;
     redo.disabled = !h.can_redo; redo.title = h.can_redo ? fmt(T.tip_redo_op, {op: h.next_redo}) : T.tip_redo;
   }
+  window.refreshUndoButtons = updateUndoButtons;
   async function updateRefButtons() {  // 対象のコミットに、操作できるブランチ / タグがあるときだけ押せる
     const h = target(), ids = ["renameBranchBtn", "deleteBranchBtn", "deleteRemoteBranchBtn", "deleteTagBtn"];
     if (!writable || !h) return;

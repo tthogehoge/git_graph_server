@@ -25,7 +25,9 @@ const refsReady = refreshRefLabels();  // ページを開いたときに 1 回�
 window.refreshFilesState = function () {
   const opts = arguments[0];
   if (typeof window.invalidateMenubarRefLabels === "function") window.invalidateMenubarRefLabels();
-  return refreshRefLabels().then(() => {
+  const undoUpdate = typeof window.refreshUndoButtons === "function"
+    ? window.refreshUndoButtons().catch(() => {}) : Promise.resolve();
+  return Promise.all([refreshRefLabels(), undoUpdate]).then(() => {
     if (!isWip) return;
     // 作業ツリー表示中は HEAD が動いていることがあるので、ツリーと左上のコミット情報を読み直す
     return loadTree(current, false, opts);
