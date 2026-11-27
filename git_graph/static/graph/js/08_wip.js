@@ -72,6 +72,7 @@ function updatePatchMenu() {
 }
 updatePatchMenu();
 function showWip(fromHistory, okMsg) {
+  setLocationMenu("WIP");
   document.body.classList.remove("compare-logs-mode");
   if (!fromHistory) pushScreen({screen: "wip"});
   setDocumentTitle(t("wip_title"));

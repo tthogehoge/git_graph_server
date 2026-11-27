@@ -62,6 +62,7 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
     return HASH.test(h) ? h.toLowerCase() : "";
   }
   let here = readHere();
+  let menuHeadHash = "";
   const writable = bar.dataset.writable === "1", worktree = bar.dataset.worktree === "1";
   const go = url => { location.href = url; };
   const getJson = url => fetch(url).then(r => r.ok ? r.json() : r.text().then(m => { throw new Error(m || r.status); }));
@@ -107,6 +108,12 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
     if (!r.head) throw new Error(T.mb_no_commit);
     return r.head;
   }
+  headCommit().then(h => {
+    menuHeadHash = h;
+    const atHead = !!here && here === menuHeadHash;
+    $("topBtn").classList.toggle("mbhere", atHead);
+    $("topBtn").setAttribute("aria-pressed", String(atHead));
+  }).catch(() => {});
 
   // ---- この画面でできる操作 (id → 動作)。ここに無いボタンは、下で無効にする ----
   const can = {};  // ボタン要素 → 有効かどうかの関数
@@ -200,8 +207,12 @@ function mbSay(text, state) {  // メッセージ欄。state: true = 成功 / fa
     $("setBBtn").textContent = h && B === h ? T.unset_b : T.set_as_b;
     $("unsetABtn").hidden = !A; $("unsetBBtn").hidden = !B;
     ["compareBtn", ...abIds.slice(3)].forEach(id => { $(id).hidden = !A || !B; });
-    $("wipBtn").classList.toggle("mbhere", page === "files" ? q.get("hash") === "WIP" : bar.dataset.wip === "1");
-    $("topBtn").classList.remove("mbhere");
+    const atWip = page === "files" ? q.get("hash") === "WIP" : bar.dataset.wip === "1";
+    $("wipBtn").classList.toggle("mbhere", atWip);
+    $("wipBtn").setAttribute("aria-pressed", String(atWip));
+    const atHead = !!here && !!menuHeadHash && here === menuHeadHash;
+    $("topBtn").classList.toggle("mbhere", atHead);
+    $("topBtn").setAttribute("aria-pressed", String(atHead));
     hashButtons.forEach(([id, label, key]) => $(id).classList.toggle("mbhere", !!here && sel[key] === here));
     updateRefButtons().catch(() => {});
   }

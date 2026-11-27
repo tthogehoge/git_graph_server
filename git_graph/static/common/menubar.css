@@ -51,6 +51,8 @@
   #compareToolbar > .cmp-hash { order: 7; }
   .abtn.mbtn { background: transparent; border-color: transparent; padding: 4px 10px; }
   .abtn.mbtn:hover { background: #dde6fa; border-color: #b8c7ee; }
+  .abtn.mbtn.mbhere { background: #c5d4f7; border-color: #7a96d8; color: #034; }
+  .abtn.mbtn.mbhere:hover { background: #b4c7f2; }
   .abtn.mbtn[aria-expanded="true"] { background: #cfdcf8; border-color: #9fb4e8; }
   .abtn.mbtn:disabled { background: transparent; border-color: transparent; }
   .menu-wrap { position: relative; display: inline-block; }

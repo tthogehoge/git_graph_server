@@ -27,7 +27,18 @@ CommitLog.bindSearch(listView, {
 });
 
 const TARGET_BEFORE = 100;  // 対象のコミットへ飛ぶとき、対象より前 (上) のこの件数から読み始める
+function setLocationMenu(hash) {
+  const wipBtn = document.getElementById("wipBtn"), headBtn = document.getElementById("topBtn");
+  const atWip = hash === "WIP";
+  const head = Object.values(DATA.nodes || {}).find(n => n.refs && n.refs.some(ref => ref.kind === "head"));
+  const atHead = !!head && hash === head.hash;
+  wipBtn.classList.toggle("mbhere", atWip);
+  wipBtn.setAttribute("aria-pressed", String(atWip));
+  headBtn.classList.toggle("mbhere", atHead);
+  headBtn.setAttribute("aria-pressed", String(atHead));
+}
 function showLog(titleHtml, rev, topHtml, fromHistory, restoreScroll, src, targetHash, search, win) {
+  setLocationMenu(rev);
   search = normSearch(search);
   // 検索できるのはコミット履歴のログだけ (stash / reflog / ブランチ・タグ一覧や、特定のコミットを探すログは対象外)
   const searchable = (!src || src.path === "/api/log") && !targetHash;
