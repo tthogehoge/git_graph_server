@@ -244,6 +244,71 @@ function renderMarkdownHtml(src) {  // Markdown 文字列 → HTML (失敗時は
   } catch (e) { /* fall through */ }
   return "<pre>" + esc(src) + "</pre>";
 }
+function markdownTaskCheckboxOffsets(src) {
+  ensureMarked();
+  if (!window.marked || typeof marked.lexer !== "function") return [];
+  // marked の task token 順に辿り、描画 checkbox を元ソースの位置へ対応づける。
+  const offsets = [];
+  let searchFrom = 0, valid = true;
+  function visit(tokens) {
+    (tokens || []).forEach(token => {
+      if (!valid) return;
+      if (token.type === "list") {
+        (token.items || []).forEach(item => {
+          if (!valid) return;
+          if (item.task) {
+            const start = src.indexOf(item.raw, searchFrom);
+            const marker = /^[ \t]*(?:[*+-]|\d+[.)])[ \t]+\[[ xX]\]/.exec(item.raw);
+            if (start < 0 || !marker) { valid = false; return; }
+            const offset = start + marker[0].indexOf("[");
+            offsets.push(offset);
+            searchFrom = offset + 3;
+          }
+          visit(item.tokens);
+        });
+      } else {
+        visit(token.tokens);
+      }
+    });
+  }
+  visit(marked.lexer(src));
+  return valid ? offsets : [];
+}
+function bindMarkdownTaskCheckboxes(root, r, src) {
+  if (!root) return;
+  const checkboxes = [...root.querySelectorAll('input[type="checkbox"]')];
+  if (!checkboxes.length) return;
+  const offsets = markdownTaskCheckboxOffsets(src);
+  const canToggle = CAN_EDIT && r && r.editable && !r.binary && !r.truncated && !!r.sha && offsets.length === checkboxes.length;
+  checkboxes.forEach((checkbox, index) => {
+    checkbox.disabled = !canToggle;
+    if (!canToggle) return;
+    checkbox.onchange = () => {
+      const checked = checkbox.checked, path = r.path || currentFile;
+      const offset = offsets[index] + 1;
+      const content = r.content.slice(0, offset) + (checked ? "x" : " ") + r.content.slice(offset + 1);
+      checkboxes.forEach(input => { input.disabled = true; });
+      fetch("/api/file-save", {method: "POST", headers: {"Content-Type": "application/json"},
+                               body: JSON.stringify({path: path, content: content, sha: r.sha})})
+        .then(response => response.ok ? response.json() : response.text().then(message => { throw new Error(message || response.status); }))
+        .then(saved => {
+          r.content = content;
+          r.sha = saved.sha;
+          if (fileData !== r || currentFile !== path) return;
+          setFileMsg(saved.message, true);
+          loadTree(current, false).then(updateDiffBtn).catch(e => setFileMsg(e.message, false));
+        })
+        .catch(e => {
+          checkbox.checked = !checked;
+          if (fileData === r && currentFile === path) setFileMsg(e.message, false);
+        })
+        .finally(() => {
+          const stillEditable = CAN_EDIT && fileData === r && currentFile === path && r.editable && !r.binary && !r.truncated;
+          checkboxes.forEach(input => { input.disabled = !stillEditable; });
+        });
+    };
+  });
+}
 function resolveMdRepoPath(fromFile, href) {
   // Markdown の相対リンクをリポジトリ内パスにする。外部 URL や # だけなら null
   if (href == null) return null;
@@ -355,7 +420,9 @@ function showMarkdown(r) {  // Markdown は marked.js で HTML 化してプレ�
   content.className = "md-preview";
   content.innerHTML = mdViewBarHtml() + '<div class="md-body">' + renderMarkdownHtml(src) + "</div>";
   bindMdViewBar(r);
-  bindMarkdownRepoLinks(content.querySelector(".md-body"), r.path || currentFile);
+  const body = content.querySelector(".md-body");
+  bindMarkdownRepoLinks(body, r.path || currentFile);
+  bindMarkdownTaskCheckboxes(body, r, src);
   restoreMainScroll(r.path || currentFile);
 }
 function showFileBody(r) {  // 内容表示: Markdown / HTML / PDF / 画像ならプレビュー
