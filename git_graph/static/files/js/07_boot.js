@@ -517,9 +517,12 @@ window.showOtherSubmoduleList = function () {
 
 
 // ---- リポジトリ内検索 (git grep)。ファイル内検索は CodeMirror (Ctrl+F) のまま ----
+let lastRepoSearch = null;
 window.showRepoSearch = function showRepoSearch(savedSearch) {
   if (!beginOtherListView()) return;
-  const searchState = savedSearch || {pathDefault: current, query: "", path: current, ignoreCase: false};
+  const searchState = savedSearch || (lastRepoSearch && lastRepoSearch.hash === hash
+    ? {pathDefault: lastRepoSearch.pathDefault, query: lastRepoSearch.query, path: lastRepoSearch.path, ignoreCase: lastRepoSearch.ignoreCase}
+    : {pathDefault: current, query: "", path: current, ignoreCase: false});
   const state = Object.assign({}, history.state, {path: current, repoSearch: searchState});
   if (savedSearch || (history.state && history.state.repoSearch)) history.replaceState(state, "", location.href);
   else history.pushState(state, "", location.href);
@@ -560,6 +563,27 @@ window.showRepoSearch = function showRepoSearch(savedSearch) {
     history.replaceState(Object.assign({}, history.state, {repoSearch: updated}), "", location.href);
   }
 
+  function renderHits(hits, truncated) {
+    countEl.textContent = t("repo_search_hits", {n: hits.length}) +
+      (truncated ? " — " + t("repo_search_truncated") : "");
+    if (!hits.length) {
+      resultsEl.innerHTML = '<p class="hint">' + esc(t("repo_search_no_hits")) + "</p>";
+      return;
+    }
+    resultsEl.innerHTML = '<table class="repo-search-table"><tbody>' + hits.map(h =>
+      '<tr class="repo-hit" data-path="' + esc(h.path) + '" data-line="' + h.line + '">' +
+      '<td class="repo-hit-loc"><span class="repo-hit-path">' + esc(h.path) + "</span>" +
+      '<span class="repo-hit-line">:' + h.line + "</span></td>" +
+      '<td class="repo-hit-text"><code>' + esc(h.text) + "</code></td></tr>"
+    ).join("") + "</tbody></table>";
+  }
+
+  function cachedResults(query, path, ignoreCase) {
+    if (!lastRepoSearch || lastRepoSearch.hash !== hash ||
+        lastRepoSearch.query !== query || lastRepoSearch.path !== path || lastRepoSearch.ignoreCase !== ignoreCase) return null;
+    return lastRepoSearch;
+  }
+
   function openHit(path, line) {
     if (otherListSeq !== seq) return;
     if (!leaveEdit()) return;
@@ -595,18 +619,11 @@ window.showRepoSearch = function showRepoSearch(savedSearch) {
     api("/api/repo-grep", params).then(r => {
       if (otherListSeq !== seq) return;
       const hits = r.hits || [];
-      countEl.textContent = t("repo_search_hits", {n: hits.length}) +
-        (r.truncated ? " — " + t("repo_search_truncated") : "");
-      if (!hits.length) {
-        resultsEl.innerHTML = '<p class="hint">' + esc(t("repo_search_no_hits")) + "</p>";
-        return;
-      }
-      resultsEl.innerHTML = '<table class="repo-search-table"><tbody>' + hits.map(h =>
-        '<tr class="repo-hit" data-path="' + esc(h.path) + '" data-line="' + h.line + '">' +
-        '<td class="repo-hit-loc"><span class="repo-hit-path">' + esc(h.path) + "</span>" +
-        '<span class="repo-hit-line">:' + h.line + "</span></td>" +
-        '<td class="repo-hit-text"><code>' + esc(h.text) + "</code></td></tr>"
-      ).join("") + "</tbody></table>";
+      lastRepoSearch = {
+        hash: hash, pathDefault: searchState.pathDefault, query: q, path: path,
+        ignoreCase: !!(icEl && icEl.checked), hits: hits, truncated: !!r.truncated,
+      };
+      renderHits(hits, r.truncated);
     }).catch(e => {
       if (otherListSeq !== seq) return;
       countEl.textContent = "";
@@ -623,7 +640,12 @@ window.showRepoSearch = function showRepoSearch(savedSearch) {
     if (!tr) return;
     openHit(tr.dataset.path, parseInt(tr.dataset.line, 10) || 1);
   };
-  if (searchState.query) runSearch();
+  if (searchState.query) {
+    const query = searchState.query.trim(), path = (searchState.path || "").trim();
+    const cached = cachedResults(query, path, !!searchState.ignoreCase);
+    if (cached) renderHits(cached.hits, cached.truncated);
+    else runSearch();
+  }
 };
 
 document.addEventListener("keydown", ev => {
