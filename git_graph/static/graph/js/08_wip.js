@@ -16,6 +16,13 @@ const wipPanel = WipPanel.create({
   onFiles: files => { curCtx = {}; curFiles = files; updatePageNav("WIP"); },
 });
 const wipSay = (text, ok) => wipPanel.say(text, ok);
+// WIP を表示中は、アプリ外で行われたファイル・submodule・ブランチ変更も反映する。
+setInterval(() => {
+  if (!detailView.querySelector(".wip-panel")) return;
+  wipPanel.refreshIfChanged().then(r => {
+    if (r && r.headChanged) refreshGraph().catch(() => {});
+  }).catch(() => {});
+}, 2000);
 const wipCommitMenuBtn = document.getElementById("wipCommitMenuBtn");
 wipCommitMenuBtn.disabled = !DATA.writable || !WIP_ENABLED;
 wipCommitMenuBtn.addEventListener("click", () => {

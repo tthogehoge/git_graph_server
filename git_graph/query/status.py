@@ -44,7 +44,8 @@ def status(amend=False):
         raise UserError("wip_disabled")
     s = status_lists()
     from .. import libgit
-    head, _ = read_head()
+    head, branch = read_head()
+    s["branch"] = branch
     for key, extra in (("staged", ["--cached"]), ("unstaged", [])):
         if not s[key]:
             continue

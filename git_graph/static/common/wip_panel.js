@@ -87,7 +87,7 @@ const WipPanel = (function () {
     const t = host.t;
     let root = null;
     let sel = {};  // 「種類 + パス」→ ユーザーが付け外ししたチェック状態 (ステージ済みと未ステージは別々にチェックできる)
-    let merging = false, rebasing = false, files = [], started = false;
+    let merging = false, rebasing = false, files = [], started = false, lastStatus = null, refreshing = false;
     // amend モード: チェック中は「直前のコミットの親」と作業ツリーの差分を出し、メッセージも直前のものを入れる
     let amendOn = false, msg = "", msgNormal = "", headMsg = "", branchVal = "";  // msgNormal: amend にする前に書いていたメッセージ (解除で戻す)
     const key = (kind, path) => kind + "\0" + path;
@@ -316,6 +316,7 @@ const WipPanel = (function () {
       root = el; lastOpts = o || {};
       bind(root);
       return host.get("/api/status", amendOn ? {amend: 1} : {}).then(s => {
+        lastStatus = JSON.stringify(s);
         merging = !!(s.merging || s.applying || s.cherry_picking || s.reverting); rebasing = !!s.rebasing; headMsg = s.head_message || "";
         if (!started) {  // 最初の描画のとき、別の画面で決めた amend の状態を引き継ぐ (差分ページは URL で決まる)
           started = true;
@@ -429,7 +430,17 @@ const WipPanel = (function () {
       });
     }
 
-    return {render: render, say: say, reset: reset, setChecks: setChecks, amend: () => amendOn, files: () => files};
+    function refreshIfChanged() {
+      if (!root || refreshing) return Promise.resolve(false);
+      refreshing = true;
+      return host.get("/api/status", amendOn ? {amend: 1} : {}).then(s => {
+        const snapshot = JSON.stringify(s);
+        if (snapshot === lastStatus) return false;
+        const old = lastStatus ? JSON.parse(lastStatus) : null;
+        return render(root, lastOpts).then(() => ({changed: true, headChanged: !!old && (old.head !== s.head || old.branch !== s.branch)}));
+      }).finally(() => { refreshing = false; });
+    }
+    return {render: render, refreshIfChanged: refreshIfChanged, say: say, reset: reset, setChecks: setChecks, amend: () => amendOn, files: () => files};
   }
 
   return {create: create, filesTable: filesTable, diffUrl: diffUrl, dirOf: dirOf, badge: badge};
