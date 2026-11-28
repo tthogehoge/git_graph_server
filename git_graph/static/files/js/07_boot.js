@@ -215,7 +215,7 @@ if (hash) applySideMode();
 if (!hash) showError(new Error(t("commit_required"))); else {
   loadCommitChanges();
   Promise.resolve(restoreFromUrl(true)).then(() => {
-    if (new URLSearchParams(location.search).get("repo_search") === "1") window.showRepoSearch();
+    if (new URLSearchParams(location.search).get("repo_search") === "1") window.showRepoSearch(null, true);
   });
 }
 
@@ -551,7 +551,7 @@ const repoSearchButton = document.getElementById("repoSearchBtn");
 if (repoSearchButton) repoSearchButton.addEventListener("mousedown", () => {
   pendingRepoSearchText = selectedRepoSearchText();
 });
-window.showRepoSearch = function showRepoSearch(savedSearch) {
+window.showRepoSearch = function showRepoSearch(savedSearch, replaceCurrent) {
   const selectedText = savedSearch ? "" : (pendingRepoSearchText || selectedRepoSearchText());
   pendingRepoSearchText = "";
   if (!beginOtherListView()) return;
@@ -561,7 +561,7 @@ window.showRepoSearch = function showRepoSearch(savedSearch) {
     : {pathDefault: current, query: "", path: current, ignoreCase: false});
   if (selectedText) searchState = Object.assign({}, searchState, {query: selectedText, historyId: null});
   const state = Object.assign({}, history.state, {path: current, repoSearch: searchState});
-  if (savedSearch || (history.state && history.state.repoSearch)) history.replaceState(state, "", location.href);
+  if (savedSearch || replaceCurrent || (history.state && history.state.repoSearch)) history.replaceState(state, "", location.href);
   else history.pushState(state, "", location.href);
   const seq = ++otherListSeq;
   title.textContent = t("repo_search_title");
