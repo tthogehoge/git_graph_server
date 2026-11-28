@@ -222,6 +222,14 @@ document.getElementById("compareToolbar").addEventListener("click", ev => {  // 
   if (ev.target.closest("#tagListBtn")) { showRefList("tags"); return; }
   if (ev.target.closest("#stashListBtn")) { showStashList(); return; }
   if (ev.target.closest("#submoduleListBtn")) { showSubmoduleList(); return; }
+  if (ev.target.closest("#repoSearchBtn")) {
+    closeMenus();
+    const head = Object.values(DATA.nodes || {}).find(n => n.refs && n.refs.some(ref => ref.kind === "head"));
+    const selectedCommit = selectedKey && /^[0-9a-f]{7,40}$/i.test(selectedKey) ? selectedKey : "";
+    const searchHash = selectedKey === "WIP" ? "WIP" : actionHash || selectedCommit || (head && head.hash) || "WIP";
+    location.href = "/files?" + new URLSearchParams({hash: searchHash, repo_search: "1"});
+    return;
+  }
   if (ev.target.closest("#stashApplyBtn")) { doStash("apply"); return; }
   if (ev.target.closest("#stashPopBtn")) { doStash("pop"); return; }
   if (ev.target.closest("#stashDropBtn")) { doStash("drop"); return; }

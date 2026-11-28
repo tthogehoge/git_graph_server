@@ -212,7 +212,12 @@ sideTabs.hidden = !hash;
 sideChangesBtn.textContent = t("side_changes");
 if (hash) changesEl.innerHTML = '<p class="hint">' + esc(t("loading")) + '</p>';
 if (hash) applySideMode();
-if (!hash) showError(new Error(t("commit_required"))); else { loadCommitChanges(); restoreFromUrl(true); }
+if (!hash) showError(new Error(t("commit_required"))); else {
+  loadCommitChanges();
+  Promise.resolve(restoreFromUrl(true)).then(() => {
+    if (new URLSearchParams(location.search).get("repo_search") === "1") window.showRepoSearch();
+  });
+}
 
 // ---- その他メニューの一覧 (ブランチ / タグ / stash / reflog など) を右ペインに表示。グラフ画面の showRefList 等と同じ API・同じ行 (CommitLog) を使う ----
 
