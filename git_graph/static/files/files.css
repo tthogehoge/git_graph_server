@@ -168,6 +168,10 @@
 .repo-search-form input[type="search"],
 .repo-search-form input[type="text"] { min-width: 14em; padding: 4px 6px; font: 13px monospace; }
 .repo-search-form button { padding: 4px 12px; }
+.repo-search-history { margin: 8px 0; }
+.repo-search-history h3 { margin: 6px 0; font-size: 13px; }
+.repo-search-history-item { margin: 0 6px 6px 0; }
+.repo-search-history-item[aria-current="true"] { background: #c5d4f7; }
 .repo-search-results { margin-top: 4px; }
 table.repo-search-table { width: 100%; border-collapse: collapse; font-size: 12px; }
 table.repo-search-table tr.repo-hit { cursor: pointer; }

@@ -3697,12 +3697,15 @@ class FilesLogMergeGraphTests(unittest.TestCase):
         self.assertIn("history.replaceState(Object.assign({}, history.state, {repoSearch: updated})", search)
         self.assertIn("else runSearch();", search)
 
-    def test_repo_search_reuses_last_results_when_reopened(self):
+    def test_repo_search_keeps_multiple_results_selectable(self):
         src = (Path(__file__).resolve().parent.parent / "git_graph" / "static" / "files" / "js" / "07_boot.js").read_text(encoding="utf-8")
         search = src[src.index("window.showRepoSearch ="):src.index('document.addEventListener("keydown"', src.index("window.showRepoSearch ="))]
 
-        self.assertIn("let lastRepoSearch = null;", src)
-        self.assertIn("lastRepoSearch = {", search)
+        self.assertIn("let repoSearchHistory = (() => {", src)
+        self.assertIn("sessionStorage.setItem(REPO_SEARCH_HISTORY_KEY, JSON.stringify(repoSearchHistory))", search)
+        self.assertIn("item.hash === hash && item.query === q", search)
+        self.assertIn("repoSearchHistory = [result, ...repoSearchHistory.filter", search)
+        self.assertIn('data-search-history-id="' + "' + item.id", search)
         self.assertIn("if (cached) renderHits(cached.hits, cached.truncated);", search)
         self.assertIn("else runSearch();", search)
 

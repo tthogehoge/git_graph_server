@@ -520,12 +520,41 @@ window.showOtherSubmoduleList = function () {
 
 
 // ---- リポジトリ内検索 (git grep)。ファイル内検索は CodeMirror (Ctrl+F) のまま ----
-let lastRepoSearch = null;
+const REPO_SEARCH_HISTORY_KEY = "gitGraph.repoSearchHistory.v1";
+let repoSearchHistory = (() => {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(REPO_SEARCH_HISTORY_KEY) || "[]");
+    return Array.isArray(saved) ? saved.filter(item => item && typeof item.id === "string" &&
+      typeof item.hash === "string" && typeof item.query === "string" && Array.isArray(item.hits)).slice(0, 20) : [];
+  } catch (e) { return []; }
+})();
+let repoSearchHistoryId = Date.now();
+let pendingRepoSearchText = "";
+function selectedRepoSearchText() {
+  const active = document.activeElement;
+  if (active && typeof active.selectionStart === "number" && active.selectionEnd > active.selectionStart) {
+    return active.value.slice(active.selectionStart, active.selectionEnd).trim();
+  }
+  if (typeof textEditor !== "undefined" && textEditor && textEditor.view) {
+    const view = textEditor.view, selection = view.state.selection.main;
+    if (!selection.empty) return view.state.sliceDoc(selection.from, selection.to).trim();
+  }
+  const selection = window.getSelection && window.getSelection();
+  return selection && !selection.isCollapsed ? selection.toString().trim() : "";
+}
+const repoSearchButton = document.getElementById("repoSearchBtn");
+if (repoSearchButton) repoSearchButton.addEventListener("mousedown", () => {
+  pendingRepoSearchText = selectedRepoSearchText();
+});
 window.showRepoSearch = function showRepoSearch(savedSearch) {
+  const selectedText = savedSearch ? "" : (pendingRepoSearchText || selectedRepoSearchText());
+  pendingRepoSearchText = "";
   if (!beginOtherListView()) return;
-  const searchState = savedSearch || (lastRepoSearch && lastRepoSearch.hash === hash
-    ? {pathDefault: lastRepoSearch.pathDefault, query: lastRepoSearch.query, path: lastRepoSearch.path, ignoreCase: lastRepoSearch.ignoreCase}
+  const latestSearch = repoSearchHistory.find(item => item.hash === hash);
+  let searchState = savedSearch || (latestSearch
+    ? {pathDefault: latestSearch.pathDefault, query: latestSearch.query, path: latestSearch.path, ignoreCase: latestSearch.ignoreCase, historyId: latestSearch.id}
     : {pathDefault: current, query: "", path: current, ignoreCase: false});
+  if (selectedText) searchState = Object.assign({}, searchState, {query: selectedText, historyId: null});
   const state = Object.assign({}, history.state, {path: current, repoSearch: searchState});
   if (savedSearch || (history.state && history.state.repoSearch)) history.replaceState(state, "", location.href);
   else history.pushState(state, "", location.href);
@@ -545,6 +574,8 @@ window.showRepoSearch = function showRepoSearch(savedSearch) {
     '<label class="repo-search-ic"><input type="checkbox" id="repoSearchIC"> ' + esc(t("repo_search_ignore_case")) + "</label>" +
     '<button type="submit" class="sbtn primary" id="repoSearchGo">' + esc(t("repo_search_go")) + "</button>" +
     "</form>" +
+    '<section class="repo-search-history" id="repoSearchHistorySection"><h3>' + esc(t("repo_search_history")) + "</h3>" +
+    '<div id="repoSearchHistory"></div></section>' +
     '<div class="log-head"><span class="meta" id="repoSearchCount"></span></div>' +
     '<div id="repoSearchResults" class="repo-search-results"></div>';
   document.getElementById("main").scrollTop = 0;
@@ -553,6 +584,8 @@ window.showRepoSearch = function showRepoSearch(savedSearch) {
   const icEl = document.getElementById("repoSearchIC");
   const countEl = document.getElementById("repoSearchCount");
   const resultsEl = document.getElementById("repoSearchResults");
+  const historySection = document.getElementById("repoSearchHistorySection");
+  const historyEl = document.getElementById("repoSearchHistory");
   qEl.value = searchState.query || "";
   pathEl.value = searchState.path === undefined ? pathDefault : searchState.path;
   icEl.checked = !!searchState.ignoreCase;
@@ -561,7 +594,7 @@ window.showRepoSearch = function showRepoSearch(savedSearch) {
   function saveSearchState() {
     if (!history.state || !history.state.repoSearch) return;
     const updated = Object.assign({}, history.state.repoSearch, {
-      query: qEl.value, path: pathEl.value, ignoreCase: icEl.checked,
+      query: qEl.value, path: pathEl.value, ignoreCase: icEl.checked, historyId: null,
     });
     history.replaceState(Object.assign({}, history.state, {repoSearch: updated}), "", location.href);
   }
@@ -581,10 +614,15 @@ window.showRepoSearch = function showRepoSearch(savedSearch) {
     ).join("") + "</tbody></table>";
   }
 
-  function cachedResults(query, path, ignoreCase) {
-    if (!lastRepoSearch || lastRepoSearch.hash !== hash ||
-        lastRepoSearch.query !== query || lastRepoSearch.path !== path || lastRepoSearch.ignoreCase !== ignoreCase) return null;
-    return lastRepoSearch;
+  function renderSearchHistory(selectedId) {
+    const entries = repoSearchHistory.filter(item => item.hash === hash);
+    historySection.hidden = !entries.length;
+    historyEl.innerHTML = entries.map(item =>
+      '<button type="button" class="sbtn repo-search-history-item" data-search-history-id="' + item.id + '"' +
+      (item.id === selectedId ? ' aria-current="true"' : "") + ">" +
+      esc(item.query) + " · " + esc(item.path || t("repo_search_all_path")) + " · " +
+      esc(t("repo_search_hits", {n: item.hits.length})) + "</button>"
+    ).join("");
   }
 
   function openHit(path, line) {
@@ -622,10 +660,24 @@ window.showRepoSearch = function showRepoSearch(savedSearch) {
     api("/api/repo-grep", params).then(r => {
       if (otherListSeq !== seq) return;
       const hits = r.hits || [];
-      lastRepoSearch = {
+      const ignoreCase = !!(icEl && icEl.checked);
+      const previous = repoSearchHistory.find(item => item.hash === hash && item.query === q &&
+        item.path === path && item.ignoreCase === ignoreCase);
+      const result = {
+        id: previous ? previous.id : String(++repoSearchHistoryId),
         hash: hash, pathDefault: searchState.pathDefault, query: q, path: path,
-        ignoreCase: !!(icEl && icEl.checked), hits: hits, truncated: !!r.truncated,
+        ignoreCase: ignoreCase, hits: hits, truncated: !!r.truncated, createdAt: Date.now(),
       };
+      repoSearchHistory = [result, ...repoSearchHistory.filter(item => item.id !== result.id)].slice(0, 20);
+      try { sessionStorage.setItem(REPO_SEARCH_HISTORY_KEY, JSON.stringify(repoSearchHistory)); } catch (e) { /* 保存できなくても画面内の履歴は使う */ }
+      searchState.historyId = result.id;
+      if (history.state && history.state.repoSearch) {
+        const updated = Object.assign({}, history.state.repoSearch, {
+          query: q, path: path, ignoreCase: result.ignoreCase, historyId: result.id,
+        });
+        history.replaceState(Object.assign({}, history.state, {repoSearch: updated}), "", location.href);
+      }
+      renderSearchHistory(result.id);
       renderHits(hits, r.truncated);
     }).catch(e => {
       if (otherListSeq !== seq) return;
@@ -639,13 +691,24 @@ window.showRepoSearch = function showRepoSearch(savedSearch) {
   qEl.oninput = pathEl.oninput = icEl.onchange = saveSearchState;
   content.onclick = ev => {
     if (otherListSeq !== seq) return;
+    const previous = ev.target.closest("[data-search-history-id]");
+    if (previous) {
+      const item = repoSearchHistory.find(entry => entry.id === previous.dataset.searchHistoryId);
+      if (item) window.showRepoSearch({
+        hash: item.hash, pathDefault: item.pathDefault, query: item.query, path: item.path,
+        ignoreCase: item.ignoreCase, historyId: item.id,
+      });
+      return;
+    }
     const tr = ev.target.closest("tr.repo-hit");
     if (!tr) return;
     openHit(tr.dataset.path, parseInt(tr.dataset.line, 10) || 1);
   };
+  renderSearchHistory(searchState.historyId);
   if (searchState.query) {
     const query = searchState.query.trim(), path = (searchState.path || "").trim();
-    const cached = cachedResults(query, path, !!searchState.ignoreCase);
+    const cached = repoSearchHistory.find(item => item.hash === hash && item.id === searchState.historyId) ||
+      repoSearchHistory.find(item => item.hash === hash && item.query === query && item.path === path && item.ignoreCase === !!searchState.ignoreCase);
     if (cached) renderHits(cached.hits, cached.truncated);
     else runSearch();
   }

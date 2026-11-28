@@ -1012,6 +1012,8 @@
   "repo_search_path_ph": "Limit to a directory or file",
   "repo_search_ignore_case": "Ignore case",
   "repo_search_go": "Search",
+  "repo_search_history": "Previous search results",
+  "repo_search_all_path": "All files",
   "repo_search_hits": "{n} hits",
   "repo_search_truncated": "Showing partial results (too many hits)",
   "repo_search_empty": "Enter a search query",

@@ -1012,6 +1012,8 @@
   "repo_search_path_ph": "ディレクトリやファイルで絞る",
   "repo_search_ignore_case": "大文字小文字を無視",
   "repo_search_go": "検索",
+  "repo_search_history": "検索結果の履歴",
+  "repo_search_all_path": "全体",
   "repo_search_hits": "{n} 件ヒット",
   "repo_search_truncated": "結果が多いため一部のみ表示しています",
   "repo_search_empty": "検索語を入力してください",
