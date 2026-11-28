@@ -9,6 +9,7 @@ from unittest import mock
 import git_graph_server as app  # noqa: F401  (各モジュールの @route 登録を実行させる)
 from git_graph import app_state as state
 from git_graph import engine, tmpdir
+from git_graph.engine import files as files_engine
 from git_graph.i18n import UserError
 from git_graph.routing import ENGINE_ROUTES, ROUTES
 
@@ -252,6 +253,109 @@ class EngineTests(unittest.TestCase):
             self.move("a.txt", "b.txt")
         self.assertEqual(cm.exception.key, "wip_disabled")
         self.assertEqual(self.read("a.txt"), "a\n")
+
+    # ---- まとめての移動 (ドラッグ&ドロップ・複数選択): paths を、1 つのディレクトリ dest_dir の中へ
+
+    def move_many(self, paths, dest_dir):
+        return self.do("/api/file-move", {"paths": paths, "dest_dir": dest_dir})
+
+    def test_move_many_into_a_directory_is_one_undoable_operation(self):
+        self.commit_file("a.txt", "a\n", "add a")
+        self.commit_file("d/b.txt", "b\n", "add b")
+        self.commit_file("dest/keep.txt", "k\n", "add keep")
+        self.write("u.txt", "u\n")  # 未追跡
+
+        r = self.move_many(["a.txt", "d", "u.txt"], "dest")
+        self.assertTrue(r["ok"])
+        self.assertEqual(r["dest_dir"], "dest")
+        self.assertEqual([(m["src"], m["dest"], m["tracked"]) for m in r["moved"]],
+                         [("a.txt", "dest/a.txt", True), ("d", "dest/d", True), ("u.txt", "dest/u.txt", False)])
+        self.assertIn("3", r["message"])
+        self.assertEqual((self.read("dest/a.txt"), self.read("dest/d/b.txt"), self.read("dest/u.txt")), ("a\n", "b\n", "u\n"))
+        self.assertFalse(self.exists("a.txt") or self.exists("d") or self.exists("u.txt"))
+        status = sorted(self.git("status", "--porcelain").splitlines())
+        self.assertEqual(status, ["?? dest/u.txt", "R  a.txt -> dest/a.txt", "R  d/b.txt -> dest/d/b.txt"])
+        self.assertEqual([e["op"] for e in engine._load()["entries"]], ["files_move"])  # 1 回の操作として積まれる
+
+        self.assertTrue(self.undo()["ok"])  # 1 回で、追跡中のものが全部戻る
+        self.assertEqual((self.read("a.txt"), self.read("d/b.txt")), ("a\n", "b\n"))
+        self.assertFalse(self.exists("dest/a.txt") or self.exists("dest/d"))
+        self.assertTrue(self.redo()["ok"])
+        self.assertEqual(self.read("dest/d/b.txt"), "b\n")
+
+    def test_move_many_creates_the_destination_and_can_move_to_the_root(self):
+        self.commit_file("sub/x.txt", "x\n", "add x")
+        self.commit_file("sub/y.txt", "y\n", "add y")
+
+        self.assertTrue(self.move_many(["sub/x.txt"], "new/place")["ok"])  # 無いディレクトリは作る
+        self.assertEqual(self.read("new/place/x.txt"), "x\n")
+        r = self.move_many(["sub/y.txt", "new/place/x.txt"], "")  # ルートへ
+        self.assertEqual(sorted(m["dest"] for m in r["moved"]), ["x.txt", "y.txt"])
+        self.assertEqual((self.read("x.txt"), self.read("y.txt")), ("x\n", "y\n"))
+
+    def test_move_many_skips_items_already_there_and_children_of_moved_directories(self):
+        self.commit_file("dest/here.txt", "h\n", "add here")
+        self.commit_file("d/c.txt", "c\n", "add c")
+        self.commit_file("o.txt", "o\n", "add o")
+
+        r = self.move_many(["dest/here.txt", "o.txt", "d", "d/c.txt"], "dest")  # here.txt は、もう dest の中。d/c.txt は、d と一緒に動く
+        self.assertEqual([(m["src"], m["dest"]) for m in r["moved"]], [("o.txt", "dest/o.txt"), ("d", "dest/d")])
+        self.assertEqual(self.read("dest/here.txt"), "h\n")
+        with self.assertRaises(UserError) as cm:  # 全部がもう、そこにある
+            self.move_many(["dest/here.txt", "dest/o.txt"], "dest")
+        self.assertEqual(cm.exception.key, "move_same")
+
+    def test_move_many_checks_everything_first_and_changes_nothing_on_error(self):
+        self.commit_file("a.txt", "a\n", "add a")
+        self.commit_file("b.txt", "b\n", "add b")
+        self.commit_file("d/a.txt", "da\n", "add da")
+        self.commit_file("dest/b.txt", "old\n", "add old b")
+        self.commit_file("file.txt", "f\n", "add file")
+        cases = [
+            ((["a.txt", "b.txt"], "dest"), "move_exists"),  # b.txt は dest に既にある。a.txt も動かさない
+            ((["a.txt", "d/a.txt"], "dest"), "move_name_conflict"),  # 動かす先で名前が重なる
+            ((["nope.txt", "a.txt"], "dest"), "move_missing"),
+            ((["d"], "d/sub"), "move_into_self"),
+            ((["a.txt"], "file.txt"), "move_dest_invalid"),  # 移動先がファイル
+            ((["a.txt"], "../out"), "move_dest_invalid"),
+            ((["a.txt"], ".git/x"), "move_dest_invalid"),
+        ]
+        for (paths, dest_dir), key in cases:
+            with self.assertRaises(UserError, msg=f"{paths} -> {dest_dir}") as cm:
+                self.move_many(paths, dest_dir)
+            self.assertEqual(cm.exception.key, key, f"{paths} -> {dest_dir}")
+        self.assertEqual((self.read("a.txt"), self.read("b.txt"), self.read("d/a.txt"), self.read("dest/b.txt")), ("a\n", "b\n", "da\n", "old\n"))
+        self.assertEqual(self.git("status", "--porcelain").strip(), "")
+        self.assertFalse(self.exists("d/sub"))
+        for bad in ({"paths": [], "dest_dir": "dest"}, {"paths": "a.txt", "dest_dir": "dest"}, {"paths": ["a.txt", 3], "dest_dir": "dest"}, {"paths": ["a.txt"], "dest_dir": None}):
+            with self.assertRaises(ValueError):
+                self.do("/api/file-move", bad)
+
+    def test_move_many_rolls_back_when_a_later_move_fails(self):
+        self.commit_file("a.txt", "a\n", "add a")
+        self.commit_file("b.txt", "b\n", "add b")
+        real, calls = files_engine.run_git_write, []
+
+        def flaky(*args, **kwargs):
+            calls.append(args)
+            if len(calls) == 2:  # 2 つ目の git mv で失敗する (1 つ目は動いたあと)
+                raise ValueError("boom")
+            return real(*args, **kwargs)
+
+        with mock.patch("git_graph.engine.files.run_git_write", side_effect=flaky):
+            with self.assertRaises(ValueError):
+                self.move_many(["a.txt", "b.txt"], "new/dir")
+        self.assertEqual((self.read("a.txt"), self.read("b.txt")), ("a\n", "b\n"))  # 1 つ目も戻る
+        self.assertFalse(self.exists("new"))  # 作った移動先も消える
+        self.assertEqual(self.git("status", "--porcelain").strip(), "")
+
+    def test_move_many_response_of_a_single_item_reads_like_a_rename(self):
+        self.commit_file("a.txt", "a\n", "add a")
+        r = self.move_many(["a.txt"], "sub")
+        self.assertIn("a.txt", r["message"])
+        self.assertIn("sub/a.txt", r["message"])
+        r = self.move("sub/a.txt", "sub/b.txt")  # 1 つの名前の変更の応答にも moved が付く (画面は、どちらも同じに扱う)
+        self.assertEqual(r["moved"], [{"src": "sub/a.txt", "dest": "sub/b.txt", "tracked": True}])
 
     # ---- ref 操作
 

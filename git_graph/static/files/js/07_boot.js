@@ -151,6 +151,7 @@ function restoreFromUrl(first) {  // URL の path / file / view の状態を画�
       return;
     }
   }
+  if (first) sideReveal(file ? parentDir(file) : dir);  // 開いたとき: 左のツリーは、開いているファイル / フォルダの所まで展開する
   const tree = first || dir !== current ? loadTree(dir, false) : Promise.resolve();
   // WIP ではツリーの読み込みで HEAD が分かってから開く (ログ / blame ボタンの表示に使う)
   return tree.then(() => {

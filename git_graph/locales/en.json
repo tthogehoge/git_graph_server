@@ -1066,5 +1066,15 @@
   "move_exists": "Already exists: {path} (it is not overwritten)",
   "move_missing": "The source does not exist: {path}",
   "move_into_self": "A folder cannot be moved into itself",
-  "op_label_file_move": "Move / rename file"
+  "op_label_file_move": "Move / rename file",
+  "moves_done": "Moved {n} items to {dest}",
+  "move_name_conflict": "Two of the items to move have the same name: {name}",
+  "op_label_files_move": "Move files (several)",
+  "open_in_right_pane": "Open in the right pane",
+  "sel_move_button": "Move…",
+  "tip_sel_move": "Move the rows selected with Ctrl / Shift + click in the left tree (or the row selected with the keyboard) into a folder you enter. You can also drag and drop the rows",
+  "move_many_title": "Move selected items ({n})",
+  "move_many_dir_label": "Destination folder",
+  "move_many_hint": "Path from the repository root. Leave empty for the root (missing folders are created). Names are kept",
+  "move_many_none": "Nothing to move. Select rows in the left tree with Ctrl / Shift + click"
 }

@@ -119,7 +119,7 @@ function openSubmoduleFiles(path) {
 }
 function openEntry(path, type) { return type === "change" ? openChange(path) : type === "tree" ? openDir(path) : type === "commit" ? openSubmoduleFiles(path) : loadFile(path, true); }
 
-// 左ペインのキーボード操作: ↑↓ で選択、Enter で右ペイン表示、← で親へ、→ でディレクトリに入る
+// 左ペインのキーボード操作: ↑↓ で選択、Enter で右ペインに開く、→ でフォルダを展開 (展開していれば、最初の子へ)、← でフォルダをたたむ (そうでなければ、親の行へ)
 // ファイル一覧は .entry、変更ファイル (コミット) も .entry、WIP 変更は table.files の tr.frow
 let selectedEntry = null;
 function selectEntry(el, keepScroll) {  // keepScroll はタブ切替など、ユーザーが覚えているスクロール位置を動かしたくないときに使う
@@ -206,10 +206,28 @@ document.addEventListener("keydown", ev => {
   }
 
   if (ev.key === "ArrowLeft") {
-    if (!current || activeList() !== list) return;  // 変更ファイルの一覧に、親ディレクトリは無い
+    if (activeList() !== list) return;  // 変更ファイルの一覧に、親ディレクトリは無い
+    const el = selectedEntry && selectedEntry.isConnected && list.contains(selectedEntry) ? selectedEntry : null;
+    if (!el) return;
     ev.preventDefault();
-    openDir(parentDir(current));
+    const path = el.dataset.path;
+    if (el.dataset.type === "tree" && path && sideExpanded.has(path)) { toggleSideDir(path); return; }  // 展開しているフォルダは、たたむ
+    const parent = path ? sideRow(parentDir(path)) : null;  // そうでなければ、親の行へ
+    if (parent) selectEntry(parent);
     return;
+  }
+
+  if (ev.key === "ArrowRight" && activeList() === list) {  // フォルダは展開する。展開していれば、最初の子の行へ (右ペインは動かさない)
+    const el = selectedEntry && selectedEntry.isConnected && list.contains(selectedEntry) ? selectedEntry : null;
+    if (el && el.dataset.type === "tree" && el.dataset.path) {
+      ev.preventDefault();
+      if (!sideExpanded.has(el.dataset.path)) toggleSideDir(el.dataset.path);
+      else {
+        const next = el.nextElementSibling;
+        if (next && next.classList.contains("entry") && +next.dataset.depth > +el.dataset.depth) selectEntry(next);
+      }
+      return;
+    }
   }
 
   if (ev.key === "Enter" || ev.key === "ArrowRight") {
@@ -240,7 +258,7 @@ document.addEventListener("keydown", ev => {
   selectEntry(rows[next]);
 });
 
-function loadTree(path, push, opts) {
+function loadTree(path, push, opts) {  // 右ペインのディレクトリ (current / dirEntries) を読む。opts.navOnly (ただ開くだけ) でなければ、左のツリーの展開している分も読み直す
   current = path;
   dirEntries = null;
   if (push) history.pushState({path: path, file: currentFile, view: currentView}, "", pageUrl(path, currentFile, currentView));
@@ -262,40 +280,10 @@ function loadTree(path, push, opts) {
       commitEl.textContent = isWip
         ? t("working_tree_files") + (r.head ? " (HEAD " + r.head.slice(0, 7) + ")" : "") : r.hash.slice(0, 7);
     }
-    const parts = path ? path.split("/") : [];
-    let crumb = '<div class="crumb"><a data-dir="">📁 ' + t("root") + '</a>';
-    parts.forEach((p, i) => { const d = parts.slice(0, i + 1).join("/"); crumb += ' / <a data-dir="' + esc(d) + '">' + esc(p) + '</a>'; });
-    crumb += '</div>';
-    list.innerHTML = crumb + (r.entries.length ? r.entries.map(e => {
-      const p = path ? path + "/" + e.name : e.name;
-      entryInfo[p] = e;
-      const size = e.size === null ? "" : e.size.toLocaleString() + " B";
-      const state = treeCheckState(p);
-      const ck = wipSelectionEnabled() ? '<input type="checkbox" class="ck" data-kind="tree" data-path="' + esc(p) + '" aria-label="' + esc(p) + '"' +
-        (state.checked ? " checked" : "") + '>' : "";
-      return '<div class="entry" data-type="' + e.type + '" data-path="' + esc(p) + '"' + entryTip(e) + '>' + ck + '<span>' + entryIcon(e) + ' <span class="bd">' + statusBadge(e, p) + '</span>' + esc(e.name) + submoduleBadge(e) + '</span><span class="size">' + size + '</span></div>';
-    }).join("") : '<p class="hint">' + t("empty_directory") + '</p>');
-    list.querySelectorAll("[data-dir]").forEach(a => a.onclick = () => openDir(a.dataset.dir));
-    list.querySelectorAll(".entry").forEach(a => {
-      a.onclick = () => {
-        selectEntry(a);
-        openEntry(a.dataset.path, a.dataset.type);
-      };
-    });
-    bindSelectionChecks(list);
-    syncTreeCheckBoxes();
-    // 一覧を作り直したあと、tree モードのときだけ選択を復元する。
-    // changes モードで loadTree が走ると（別ディレクトリの変更を開いたときなど）
-    // ここで selectEntry すると変更一覧の .selected が消えてしまうため。
-    if (sideMode === "tree") {
-      selectedEntry = null;
-      if (currentFile) {
-        const cur = [...list.querySelectorAll(".entry")].find(e => e.dataset.path === currentFile);
-        if (cur) selectEntry(cur);
-      }
-    }
-    updateSelBar();
-    return wipLoad;
+    r.entries.forEach(e => { entryInfo[path ? path + "/" + e.name : e.name] = e; });  // 右ペインの一覧の、変更の印に使う
+    // 左のツリー (03_side_tree.js) は、右ペインのディレクトリとは別。ただ移動するだけ (navOnly) なら、読み直さずに印だけ合わせる
+    const side = opts && opts.navOnly && sideData.has("") ? Promise.resolve(markSideTree()) : refreshSideTree();
+    return Promise.all([wipLoad, side]);
   }).catch(e => {
     // 対象ファイルの親ディレクトリがこのコミットに無いとき (ログから古いコミットを選んだ場合など) はルートを表示する
     if (path) return loadTree("", false, opts);
@@ -425,12 +413,7 @@ async function promptMoveEntry(kind) {
   try {
     const r = await postJson("/api/file-move", {src: from, dest: dest});
     setFileMsg(r.message || t("move_done", {src: from, dest: dest}), true);
-    if (kind === "dir") {
-      openDir(r.dest);  // 動かしたフォルダを、新しい場所で開く (一覧と WIP の変更も読み直す)
-    } else {
-      await loadTree(parentDir(r.dest), false);  // 新しい場所の一覧
-      loadFile(r.dest, true);
-    }
+    await afterMove(r.moved, parentDir(r.dest));  // 動かしたものを新しい場所で開き、左のツリーでも見せる (03_tree_dnd.js)
   } catch (e) {
     setFileMsg(e.message || String(e), false);
   } finally {

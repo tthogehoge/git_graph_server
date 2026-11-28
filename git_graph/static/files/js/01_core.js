@@ -27,7 +27,7 @@ const fileCopyBtn = document.getElementById("fileCopyBtn"), fileMsg = document.g
 const fileDiffBtn = document.getElementById("fileDiffBtn"), fileEditBtn = document.getElementById("fileEditBtn");
 const fileExtDiffBtn = document.getElementById("fileExtDiffBtn"), fileMergeBtn = document.getElementById("fileMergeBtn");
 const selBar = document.getElementById("selBar"), selMsg = document.getElementById("selMsg");
-const selAddBtn = document.getElementById("selAddBtn"), selRmBtn = document.getElementById("selRmBtn"), selRmCachedBtn = document.getElementById("selRmCachedBtn");
+const selAddBtn = document.getElementById("selAddBtn"), selRmBtn = document.getElementById("selRmBtn"), selRmCachedBtn = document.getElementById("selRmCachedBtn"), selMoveBtn = document.getElementById("selMoveBtn");
 const commitEl = document.getElementById("commit");
 let currentCommitMeta = null;
 

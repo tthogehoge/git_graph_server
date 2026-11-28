@@ -70,6 +70,7 @@ function updateSelBar() {
   syncChangeGroupChecks();
   selAddBtn.disabled = !n;
   selRmBtn.disabled = selRmCachedBtn.disabled = !rmCount;
+  selMoveBtn.disabled = !moveEnabled();  // 対象 (左のツリーで選んだ行) が無いときは、押すと案内を出す
   selCommitBtn.disabled = !wipSelectionEnabled();
 }
 function wipPanelChecks() {  // 左ペインのチェック状態を、コミット画面の WipPanel の sel「kind\0path」→ 真偽値 にする (競合の欄は左ペインでは選べないので、コミット画面の既定に任せる)

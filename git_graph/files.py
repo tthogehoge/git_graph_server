@@ -68,9 +68,17 @@ def api_dir_create(body):
 
 @route("/api/file-move", method="POST", engine=True)
 def api_file_move(body):
-    """作業ツリーのファイル / ディレクトリの名前を変える、または別のディレクトリへ移す (追跡中なら git mv)。dest は新しいパス全体。"""
+    """作業ツリーのファイル / ディレクトリの名前を変える、または別のディレクトリへ移す (追跡中なら git mv)。src と dest (新しいパス全体) で 1 つ、
+    paths と dest_dir (移す先のディレクトリ。"" はルート) でまとめて。"""
+    if "paths" in body:  # まとめて、1 つのディレクトリの中へ (ドラッグ&ドロップ・複数選択)
+        r = files.move_paths(body.get("paths"), body.get("dest_dir", ""))
+        moved = r["moved"]
+        message = (tr("move_done", src=moved[0]["src"], dest=moved[0]["dest"]) if len(moved) == 1
+                   else tr("moves_done", n=len(moved), dest=r["dest_dir"] or tr("root")))
+        return {"ok": True, "moved": moved, "dest_dir": r["dest_dir"], "message": message}
     r = files.move_path(body.get("src", ""), body.get("dest", ""))
     return {"ok": True, "src": r["src"], "dest": r["dest"], "tracked": r["tracked"],
+            "moved": [{"src": r["src"], "dest": r["dest"], "tracked": r["tracked"]}],
             "message": tr("move_done", src=r["src"], dest=r["dest"])}
 
 

@@ -9,7 +9,7 @@ if (new URLSearchParams(location.search).get("side") === "changes") sideMode = "
 function activeList() { return sideMode === "changes" ? changesEl : list; }  // ↑↓ Enter の対象
 function syncTreeSelection(keepScroll) {
   if (activeList() !== list) return;
-  selectEntry([...list.querySelectorAll(".entry")].find(r => r.dataset.path === currentFile) || null, keepScroll);
+  selectEntry(currentFile ? [...list.querySelectorAll(".entry")].find(r => r.dataset.path === currentFile) || null : null, keepScroll);  // ファイルを開いていなければ選ばない (パスが空のルートの行に一致させない)
 }
 // タブを切り替えたとき、「ファイル一覧」「変更ファイル」のそれぞれのスクロール位置を覚えておき、
 // 戻ってきたときに元の位置へ戻す (2 つの表は同じ #tree スクロールコンテナーの中にあるため、

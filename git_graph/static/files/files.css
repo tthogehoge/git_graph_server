@@ -15,6 +15,18 @@
   .entry { display: flex; gap: 8px; padding: 4px 6px; border-radius: 3px; font-family: monospace; }
   .entry:hover { background: #eef; }
   .entry.selected { background: #d0e3ff; outline: 1px solid #8ab4f8; }
+  /* 左のツリー: 展開の印・右ペインで開くアイコン・右ペインで開いているフォルダ・選択した行・ドラッグ&ドロップ */
+  .entry .twisty { flex: none; width: 1em; text-align: center; color: #666; user-select: none; }
+  .entry.root { font-weight: bold; }
+  .entry .open-right { flex: none; margin: 0; padding: 0 5px; border: 1px solid transparent; border-radius: 3px; background: transparent; color: #06c; font: inherit; line-height: 1.3; cursor: pointer; }
+  .entry .open-right:hover, .entry .open-right:focus-visible { background: #dbe8ff; border-color: #8ab4f8; }
+  .entry.opened { box-shadow: inset 3px 0 0 #06c; }
+  .entry.multi { background: #cfe4ff; }
+  .side-note { color: #777; font: 12px monospace; padding: 2px 6px; }
+  .entry[draggable="true"], tr.dir-log-row[draggable="true"] { cursor: grab; }
+  .entry.dragging, tr.dir-log-row.dragging { opacity: .45; }
+  .entry.drop-hover, tr.dir-log-row.drop-hover td, .crumb a.drop-hover { background: #d7f0da; outline: 2px dashed #1a7f37; }
+  #content.drop-hover { outline: 2px dashed #1a7f37; outline-offset: -4px; background: #f3fbf4; }
   #changes table.files tr.frow.selected td { background: #d0e3ff; }  /* WIP 変更一覧のキーボード選択 */
   .st { display: inline-block; min-width: 1.3em; text-align: center; font-weight: bold; color: #fff; border-radius: 2px; margin-right: 4px; font-family: system-ui, sans-serif; }
   .stM { background: #d29922; } .stA { background: #1a7f37; } .stD { background: #cf222e; } .stR { background: #6f42c1; } .stU { background: #cf222e; } .stN { background: #888; }

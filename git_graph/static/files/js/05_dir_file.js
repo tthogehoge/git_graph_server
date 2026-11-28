@@ -86,7 +86,7 @@ function showDir() {  // ファイルを開いていないとき、ディレク�
   content.className = "";
   content.innerHTML = '<table class="dir-log"><thead><tr><th class="dir-name">' + esc(t("dir_log_name")) + '</th><th class="hash">' + esc(t("dir_log_commit")) +
     '</th><th class="dir-msg">' + esc(t("dir_log_message")) + '</th><th class="date">' + esc(t("dir_log_date")) + '</th></tr></thead><tbody>' +
-    entries.map(e => '<tr class="dir-log-row" data-type="' + e.type + '" data-name="' + esc(e.name) + '" data-path="' +
+    entries.map(e => '<tr class="dir-log-row"' + (moveEnabled() ? ' draggable="true"' : '') + ' data-type="' + e.type + '" data-name="' + esc(e.name) + '" data-path="' +
       esc(path ? path + "/" + e.name : e.name) + '">' + dirNameCell(e, path ? path + "/" + e.name : e.name) + dirLogCells(null) + '</tr>').join("") + '</tbody></table><div id="dirLogNote"></div>';
   // 各項目の最終コミットは、見つかった行から順に埋める (古い項目を探すのに時間がかかっても、新しい項目はすぐ出る)
   const ctl = treeLogAbort = new AbortController();
@@ -150,7 +150,7 @@ function openDir(path) {  // ディレクトリを選ぶ: 開いているファ�
   if (!leaveEdit()) return;
   showFilePane();
   if (currentFile) clearFile();
-  loadTree(path, true).then(showDir);
+  loadTree(path, true, {navOnly: true}).then(showDir);  // 右ペインに開くだけ。左のツリーは動かさない
 }
 
 const MD_EXT = /\.(md|markdown|mdown|mkd|mkdn)$/i;
@@ -469,6 +469,7 @@ function loadFile(path, push) {
   if (diffSel && diffSel.path !== path) diffSel = null;
   syncChangesSelection();
   markWipCurrent();
+  markSideTree(true);  // 左のツリーでも、このファイルの行を選び、「右ペインで開いているフォルダ」の印は外す
   dirLogOn = commitLogOn = false; dirActions.hidden = true;
   setDocumentTitle(path);
   setFileMsg("", true);

@@ -201,17 +201,90 @@ def move_path(src, dest):
         raise UserError("move_missing", path=src)
     if os.path.lexists(dest_target) and not _is_case_rename(src, dest, src_target, dest_target):
         raise UserError("move_exists", path=dest)
-    tracked = any(git("ls-files", "-z", "--", src, literal=True).split("\0"))  # ディレクトリは、中に追跡中のファイルがあれば
+    tracked = _is_tracked(src)
     made = _make_parents(dest_target)
     try:
-        if tracked:
-            run_git_write("mv", "--", src, dest, literal=True)
-        else:
-            try:
-                os.rename(src_target, dest_target)
-            except OSError as e:
-                raise ValueError(str(e))
+        _move_one(src, dest, src_target, dest_target, tracked)
     except BaseException:
         _remove_dirs(made)
         raise
     return {"src": src, "dest": dest, "tracked": tracked}
+
+
+def _is_tracked(path):
+    """追跡中か (ディレクトリは、中に追跡中のファイルがあれば)。"""
+    return any(git("ls-files", "-z", "--", path, literal=True).split("\0"))
+
+
+def _move_one(src, dest, src_target, dest_target, tracked):
+    """1 つ動かす (移動先の親ディレクトリは、呼ぶ前に作っておく)。追跡中なら git mv、そうでなければ作業ツリーで動かすだけ。"""
+    if tracked:
+        run_git_write("mv", "--", src, dest, literal=True)
+        return
+    try:
+        os.rename(src_target, dest_target)
+    except OSError as e:
+        raise ValueError(str(e))
+
+
+@operation("files_move", touches_worktree=True,
+           detail=lambda paths, dest_dir, *_, **__: f"{len(paths)} \u2192 {dest_dir or '/'}" if isinstance(paths, list) and isinstance(dest_dir, str) else "")
+def move_paths(paths, dest_dir):
+    """作業ツリーのファイル / ディレクトリを、まとめて 1 つのディレクトリ (dest_dir。"" はルート。無ければ作る) の中へ、名前はそのままで移す。
+    全部を先に確かめてから動かし、途中で失敗したら動かした分を戻す (作った親ディレクトリも消す)。どれかの移動先に何かあれば、何も動かさずにエラー。
+    祖先と子孫の両方を渡したときは、子孫は祖先と一緒に動く。もう dest_dir の中にあるものは、飛ばす。
+    追跡中のものは git mv (変更をステージする)、そうでなければ作業ツリーで動かすだけ。
+    戻り値: {"moved": [{"src", "dest", "tracked"}], "dest_dir"}。"""
+    if not state.WIP_ENABLED:
+        raise UserError("wip_disabled")
+    if not isinstance(paths, list) or not paths or not all(isinstance(p, str) for p in paths) or not isinstance(dest_dir, str):
+        raise ValueError("bad body")
+    try:
+        dest_dir = validate_file_path(dest_dir, allow_empty=True)
+        dest_dir_target = worktree_target(dest_dir)
+    except ValueError:
+        raise UserError("move_dest_invalid")
+    srcs = []
+    for p in paths:
+        p = validate_file_path(p, allow_empty=False)
+        if p not in srcs:
+            srcs.append(p)
+    srcs = [p for p in srcs if not any(q != p and p.startswith(q + "/") for q in srcs)]  # 子孫は、祖先と一緒に動く
+    plans = []
+    for src in srcs:
+        dest = (dest_dir + "/" if dest_dir else "") + src.rsplit("/", 1)[-1]
+        if src == dest:
+            continue  # もう、そこにある
+        if dest_dir == src or dest_dir.startswith(src + "/"):
+            raise UserError("move_into_self")
+        plans.append((src, dest))
+    if not plans:
+        raise UserError("move_same")
+    seen = set()
+    for src, dest in plans:
+        if dest in seen:
+            raise UserError("move_name_conflict", name=dest.rsplit("/", 1)[-1])
+        seen.add(dest)
+    targets = []
+    for src, dest in plans:
+        src_target, dest_target = worktree_target(src), worktree_target(dest)
+        if not os.path.lexists(src_target):
+            raise UserError("move_missing", path=src)
+        if os.path.lexists(dest_target) and not _is_case_rename(src, dest, src_target, dest_target):
+            raise UserError("move_exists", path=dest)
+        targets.append((src, dest, src_target, dest_target, _is_tracked(src)))
+    made = _make_parents(os.path.join(dest_dir_target, "_")) if dest_dir else []  # 移動先のディレクトリ (の無い分)
+    done = []
+    try:
+        for item in targets:
+            _move_one(*item)
+            done.append(item)
+    except BaseException:
+        for src, dest, src_target, dest_target, tracked in reversed(done):  # 動かした分を戻す
+            try:
+                _move_one(dest, src, dest_target, src_target, tracked)
+            except Exception:
+                pass
+        _remove_dirs(made)
+        raise
+    return {"moved": [{"src": s, "dest": d, "tracked": tr} for s, d, _st, _dt, tr in targets], "dest_dir": dest_dir}

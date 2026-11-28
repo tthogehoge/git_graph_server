@@ -1066,5 +1066,15 @@
   "move_exists": "既に存在します: {path}（上書きはしません）",
   "move_missing": "元のファイルがありません: {path}",
   "move_into_self": "フォルダを、自分自身の中へは移動できません",
-  "op_label_file_move": "ファイルの移動・名前の変更"
+  "op_label_file_move": "ファイルの移動・名前の変更",
+  "moves_done": "{n} 件を {dest} へ移動しました",
+  "move_name_conflict": "移動する項目に、同じ名前のものが 2 つあります: {name}",
+  "op_label_files_move": "ファイルのまとめての移動",
+  "open_in_right_pane": "右ペインで開く",
+  "sel_move_button": "移動…",
+  "tip_sel_move": "左のツリーで Ctrl / Shift + クリックして選んだ行 (選んでいなければ、キーボードで選んでいる行) を、フォルダを入力してまとめて移します。行をドラッグ&ドロップしても移せます",
+  "move_many_title": "選択したものを移動 ({n} 件)",
+  "move_many_dir_label": "移動先のフォルダ",
+  "move_many_hint": "リポジトリのルートからのパスです。空にするとルートです（無いフォルダは作ります）。名前はそのままで移します",
+  "move_many_none": "移すものがありません。左のツリーで、Ctrl / Shift + クリックして行を選んでください"
 }

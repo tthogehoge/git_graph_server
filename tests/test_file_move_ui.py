@@ -2,17 +2,13 @@ import json
 import os
 import re
 import shutil
-import socket
 import subprocess
-import sys
-import tempfile
-import time
 import unittest
 from pathlib import Path
-from urllib.request import urlopen
 
 from git_graph import pages
 from tests.helpers import page_with_assets
+from tests.ui_server import start_ui_server
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
@@ -51,45 +47,7 @@ class FileMoveUiTests(unittest.TestCase):
     """実サーバー (別プロセス) と、実際の /files ページのスクリプト (jsdom) で、名前の変更・移動のダイアログを通しで操作する。"""
 
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.repo = self.tmp.name
-
-        def git(*args):
-            subprocess.run(["git", "-C", self.repo, *args], check=True, capture_output=True)
-
-        git("init", "-q")
-        git("config", "user.name", "Test User")
-        git("config", "user.email", "test@example.com")
-        for path, text in (("dir/a.txt", "a\n"), ("keep.txt", "k\n")):
-            full = Path(self.repo, path)
-            full.parent.mkdir(parents=True, exist_ok=True)
-            full.write_text(text, encoding="utf-8")
-        git("add", ".")
-        git("commit", "-q", "-m", "init")
-        Path(self.repo, "u.txt").write_text("untracked\n", encoding="utf-8")  # 未追跡
-        with socket.socket() as s:
-            s.bind(("127.0.0.1", 0))
-            self.port = s.getsockname()[1]
-        self.server = subprocess.Popen([sys.executable, str(ROOT / "git_graph_server.py"), self.repo, "--port", str(self.port), "--lang", "en", "--allow-write"],
-                                       cwd=str(ROOT), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        self.addCleanup(self.stop)
-        deadline = time.time() + 20
-        while time.time() < deadline:
-            try:
-                urlopen(f"http://127.0.0.1:{self.port}/", timeout=1).close()
-                break
-            except OSError:
-                time.sleep(0.1)
-        else:
-            self.fail("サーバーが起動しない")
-
-    def stop(self):
-        self.server.terminate()
-        try:
-            self.server.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            self.server.kill()
-        self.tmp.cleanup()
+        self.repo, self.port = start_ui_server(self, {"dir/a.txt": "a\n", "keep.txt": "k\n"}, {"u.txt": "untracked\n"})  # u.txt は未追跡
 
     def test_rename_and_move_through_the_dialog(self):
         env = dict(os.environ, GG_BASE=f"http://127.0.0.1:{self.port}", GG_REPO=self.repo)

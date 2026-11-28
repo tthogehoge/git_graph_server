@@ -103,6 +103,8 @@ When editing a Markdown file, drop an image (or any file) onto the editor, or pa
 
 To rename a file or move it to another directory, press **Rename / move** while viewing a file in the working tree (or a folder other than the root) and edit the path in the dialog: change only the name to rename, or change the directory too to move (missing directories are created). A tracked file or folder is moved with `git mv`, so the change is staged and can be undone from the operation history; an untracked one is simply moved in the working tree. An existing file is never overwritten.
 
+The left pane of the file view is a tree: click a folder to expand or collapse it (the right pane does not change), and press the ↗ icon on a folder row (or on the root row) to open that folder in the right pane, so the two panes can show different folders. In the working tree, drag a file or folder from the tree or from the right pane's list and drop it on a folder to move it: a folder row in either pane, the root row, the breadcrumb above the right pane, or the empty area of the right pane's list (the folder open there). A closed folder opens when you hold the pointer over it for a moment. To move several at once, select rows with Ctrl / ⌘ + click (add or remove) or Shift + click (range) and drag one of them, or press **Move…** in the bar below the tree and enter the destination folder. Tracked files are moved with `git mv`, and a move can be undone from the operation history. The checkboxes in the tree are separate: they are the staging checkboxes.
+
 ## Display language
 
 Set the language with `LANG` when starting the server. Japanese is used for an unset or unsupported language.
